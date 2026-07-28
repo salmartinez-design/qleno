@@ -120,6 +120,15 @@ function fmtSource(s: string | null) {
   if (!s) return "\u2014";
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
+// [service-label 2026-07-28] Canonical fallback formatter \u2014 same rule as
+// reports/_shared.tsx fmtSvc \u2014 for any service_type slug (incl. commercial
+// ones like `commercial_cleaning`) not covered by the static SERVICE_LABELS
+// residential map or the tenant's commercial_service_types names. Turns a raw
+// enum into human-readable Title Case so the column/filter never show a slug.
+function fmtSvc(s: string | null) {
+  if (!s) return "\u2014";
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 export default function JobsListPage() {
@@ -235,6 +244,54 @@ export default function JobsListPage() {
 
   useEffect(() => { if (viewsQuery.data) setViews(viewsQuery.data); }, [viewsQuery.data]);
 
+  // ── Filter option sources (real data, not placeholders) ─────────────────────
+  // [tech-filter-real 2026-07-28] Populate the Tech dropdown from the SAME
+  // canonical active-technician list the dispatch board / Add-Team-Member picker
+  // use (/api/users/techs-with-status), company-scoped via auth + branch, so the
+  // report offers real techs instead of just All/Unassigned.
+  const techsQuery = useQuery({
+    queryKey: ["jobs-filter-techs", activeBranchId],
+    queryFn: async () => {
+      const params = new URLSearchParams(activeBranchId ? { branch_id: String(activeBranchId) } : {});
+      const res = await fetch(`${API}/api/users/techs-with-status?${params}`, { headers: getAuthHeaders() as Record<string, string> });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const techOptions: [string, string][] = [
+    ["", "All"],
+    ["unassigned", "Unassigned"],
+    ...((techsQuery.data ?? []) as any[])
+      .map(t => [String(t.id), `${t.first_name ?? ""} ${t.last_name ?? ""}`.trim() || `Tech #${t.id}`] as [string, string]),
+  ];
+
+  // [service-filter-real 2026-07-28] Populate the Service dropdown from the real
+  // distinct service_type values on this tenant's jobs (labelled from the
+  // tenant-managed commercial_service_types table server-side), so we never
+  // offer an option that matches nothing and always include commercial types.
+  const serviceTypesQuery = useQuery({
+    queryKey: ["jobs-filter-service-types"],
+    queryFn: async () => {
+      const res = await fetch(`${API}/api/jobs/v2/service-types`, { headers: getAuthHeaders() as Record<string, string> });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  // Canonical service label: tenant commercial name (from the endpoint) →
+  // residential static map → Title-Case fallback. Used for BOTH the column and
+  // the filter dropdown so they always agree.
+  const svcLabelMap: Record<string, string> = {};
+  for (const o of ((serviceTypesQuery.data ?? []) as any[])) {
+    if (o?.value && o?.label) svcLabelMap[o.value] = o.label;
+  }
+  const serviceLabelOf = (v: string | null) =>
+    (v && (svcLabelMap[v] || SERVICE_LABELS[v])) || fmtSvc(v);
+  const serviceOptions: [string, string][] = [
+    ["", "All"],
+    ...((serviceTypesQuery.data ?? []) as any[])
+      .map(o => [o.value as string, serviceLabelOf(o.value)] as [string, string]),
+  ];
+
   async function saveView() {
     const name = prompt("View name:");
     if (!name) return;
@@ -344,18 +401,26 @@ export default function JobsListPage() {
 
   // ── Loaded-rows totals for the <tfoot> summary ──────────────────────────────
   // Reflects the rows currently loaded (infinite scroll); cancelled jobs are
-  // excluded from both the total and the average, matching the KPI card.
+  // excluded from the count, the total, and the average, matching the KPI card.
+  //
+  // [avg-job-parity 2026-07-28] avg = revenue ÷ revenue-bearing jobs (amount > 0),
+  // the SAME definition the /v2/kpi avg_job now uses — so the footer's "avg $X"
+  // and the AVG JOB card are always identical. In Booked-On mode these are the
+  // non-cancelled Scheduled visits shown (none completed) → avg still ~$289,
+  // never $0. Guarded against zero jobs.
   const firstLabelKey = columns.find(c => c.key !== "select")?.key;
   const tableTotals = allJobs.reduce(
-    (acc: { count: number; revenue: number }, j: any) => {
+    (acc: { count: number; revenue: number; revenueBearing: number }, j: any) => {
       if (j.status === "cancelled") return acc;
+      const amt = Number(j.amount) || 0;
       acc.count += 1;
-      acc.revenue += Number(j.amount) || 0;
+      acc.revenue += amt;
+      if (amt > 0) acc.revenueBearing += 1;
       return acc;
     },
-    { count: 0, revenue: 0 }
+    { count: 0, revenue: 0, revenueBearing: 0 }
   );
-  const tableAvg = tableTotals.count > 0 ? tableTotals.revenue / tableTotals.count : 0;
+  const tableAvg = tableTotals.revenueBearing > 0 ? tableTotals.revenue / tableTotals.revenueBearing : 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const kpi = kpiQuery.data;
@@ -532,9 +597,9 @@ export default function JobsListPage() {
             <FilterSelect label="Status" value={filters.status || ""} onChange={v => setFilter("status", v)}
               options={[["", "All"], ["scheduled", "Scheduled"], ["in_progress", "In Progress"], ["complete", "Complete"], ["cancelled", "Cancelled"]]} />
             <FilterSelect label="Tech" value={filters.assigned_user_id || ""} onChange={v => setFilter("assigned_user_id", v)}
-              options={[["", "All"], ["unassigned", "Unassigned"]]} />
+              options={techOptions} />
             <FilterSelect label="Service" value={filters.service_type || ""} onChange={v => setFilter("service_type", v)}
-              options={[["", "All"], ...Object.entries(SERVICE_LABELS)]} />
+              options={serviceOptions} />
             <FilterSelect label="Payment" value={filters.payment_status || ""} onChange={v => setFilter("payment_status", v)}
               options={[["", "All"], ["paid", "Paid"], ["unpaid", "Unpaid"], ["failed", "Failed"]]} />
             <FilterSelect label="Flagged" value={filters.flagged || ""} onChange={v => setFilter("flagged", v)}
@@ -657,7 +722,7 @@ export default function JobsListPage() {
                           )}
                           {col.key === "date" && <span style={{ color: TXT }}>{fmtDate(job.scheduled_date)}</span>}
                           {col.key === "time" && <span style={{ color: TXT2 }}>{fmtTime(job.scheduled_time)}</span>}
-                          {col.key === "service" && <span style={{ color: TXT }}>{SERVICE_LABELS[job.service_type] ?? job.service_type}</span>}
+                          {col.key === "service" && <span style={{ color: TXT }}>{serviceLabelOf(job.service_type)}</span>}
                           {col.key === "status" && (
                             <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: ss.bg, color: ss.color }}>
                               {ss.label}
