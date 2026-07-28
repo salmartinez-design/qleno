@@ -19,7 +19,7 @@
  */
 
 export type OnMyWaySmsResult =
-  | { status: "sent"; sid: string }
+  | { status: "sent"; sid: string; body: string }
   | { status: "suppressed_comms_disabled" }
   | { status: "suppressed_tenant_disabled" }
   | { status: "suppressed_client_opted_out" }
@@ -89,7 +89,9 @@ export async function sendOnMyWaySms(opts: {
       return { status: "error", message: `Twilio HTTP ${res.status}: ${errBody}` };
     }
     const json: any = await res.json().catch(() => ({}));
-    return { status: "sent", sid: json?.sid ?? "unknown" };
+    // Return the exact body that was sent so the caller can record it into the
+    // two-way SMS store (message thread + Communications hub) verbatim.
+    return { status: "sent", sid: json?.sid ?? "unknown", body };
   } catch (err) {
     return { status: "error", message: (err as Error).message };
   }

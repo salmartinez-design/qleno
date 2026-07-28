@@ -174,8 +174,24 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
     }
 
     try {
-      await sendTwilioSms(client.phone, company.twilio_from_number, message);
+      const tw: any = await sendTwilioSms(client.phone, company.twilio_from_number, message);
       await db.update(jobStatusLogsTable).set({ sms_sent: true }).where(eq(jobStatusLogsTable.id, log.id));
+      // [auto-sms-thread-log 2026-07-28] Mirror the sent job-status text into the
+      // two-way store so the client message thread AND the Communications hub
+      // show it. Only when Twilio actually accepted the send (tw.sid present) —
+      // a COMMS-suppressed result returns {status:'suppressed'} with no sid and
+      // is not recorded. Non-fatal.
+      if (tw?.sid) {
+        const { recordClientAutoSms } = await import("../lib/sms-store.js");
+        await recordClientAutoSms({
+          companyId,
+          toPhone: client.phone,
+          fromNumber: company.twilio_from_number,
+          body: message,
+          clientId: job.client_id,
+          providerId: tw.sid,
+        });
+      }
       return res.json({ success: true, sms_sent: true, message, log_id: log.id });
     } catch (smsErr: any) {
       await db.update(jobStatusLogsTable).set({ sms_error: String(smsErr.message) }).where(eq(jobStatusLogsTable.id, log.id));

@@ -71,15 +71,24 @@ ${contentHtml}
 // path (process.env.TWILIO_FROM_NUMBER = the Oak Lawn / MaidCentral number
 // +17737869902) is GONE — Qleno must never send from a shared global number
 // again. Honors the full gate ladder (global + company + twilio + creds + from).
-async function sendTenantSms(companyId: number, to: string, body: string): Promise<string | null> {
+async function sendTenantSms(companyId: number, to: string, body: string): Promise<{ reason: string | null; sender?: any; result?: any }> {
   const sender = await resolveSender(companyId, null);
   if (sender.reason) {
     console.log(`[COMMS BLOCKED] SMS suppressed (${sender.reason}) company=${companyId} to=${to}`);
-    return sender.reason;
+    return { reason: sender.reason };
   }
-  await sendSmsVia(sender, to, body);
-  return null;
+  const result = await sendSmsVia(sender, to, body);
+  return { reason: null, sender, result };
 }
+
+// [auto-sms-thread-log 2026-07-28] Customer-facing status/survey SMS triggers
+// that must ALSO be mirrored into the two-way SMS store (message thread +
+// Communications hub). Scoped to the cleaner-triggered status + survey texts the
+// office asked to see; transactional/invoice/payment/welcome/confirmation SMS
+// are intentionally excluded so the thread stays a customer-status timeline.
+// Recording only happens when a client id (prefClientId) is known, so the hub —
+// which merges sms_messages by client_id — can surface it.
+const THREAD_LOGGED_SMS_TRIGGERS = new Set(["job_started", "job_completed", "review_request"]);
 
 // ── Core send function ───────────────────────────────────────────────────────
 export async function sendNotification(
@@ -282,12 +291,31 @@ export async function sendNotification(
       const bodyText = applyMerge(tpl.body_text || tpl.body || "", fullVars);
       // Per-tenant send only — resolveSender(companyId) picks THIS company's
       // creds + from-number. Never the global env number.
-      const suppressReason = await sendTenantSms(companyId, recipientPhone, bodyText);
-      if (suppressReason) {
-        await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", suppressReason, fullVars);
+      const smsSend = await sendTenantSms(companyId, recipientPhone, bodyText);
+      if (smsSend.reason) {
+        await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", smsSend.reason, fullVars);
         return false;
       }
       sentBody = bodyText;
+      // [auto-sms-thread-log 2026-07-28] Mirror the sent status/survey SMS into
+      // the two-way store so it shows in the client message thread AND the
+      // Communications hub. Only for the scoped triggers and only when we know
+      // which client this is. Non-fatal — a logging failure can't undo the send.
+      if (prefClientId != null && THREAD_LOGGED_SMS_TRIGGERS.has(templateKey)) {
+        try {
+          const { recordClientAutoSms } = await import("../lib/sms-store.js");
+          await recordClientAutoSms({
+            companyId,
+            toPhone: recipientPhone,
+            fromNumber: smsSend.sender?.from_number ?? null,
+            body: bodyText,
+            clientId: prefClientId,
+            providerId: smsSend.result?.sid ?? null,
+          });
+        } catch (e) {
+          console.error("[notifications] thread-log mirror failed (non-fatal):", (e as any)?.message ?? e);
+        }
+      }
     }
 
   } catch (err: any) {
