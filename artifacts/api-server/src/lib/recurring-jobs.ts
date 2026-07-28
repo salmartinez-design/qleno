@@ -221,6 +221,78 @@ export async function stampParkingFeeOnJob(
   `);
 }
 
+// [addon-recurrence 2026-07-28] Resolved schedule add-on ready to stamp onto a
+// generated job. Mirrors ResolvedParkingAddon but carries the office-set
+// quantity and the first-visit/every-visit flag.
+export type ResolvedScheduleAddOn = {
+  add_on_id: number;
+  pricing_addon_id: number;
+  qty: number;
+  every_visit: boolean;
+};
+
+// [addon-recurrence 2026-07-28] Load the schedule's sold add-ons (from
+// recurring_schedule_add_ons) and resolve each to its real add_ons.id FK — same
+// pattern as resolveParkingAddon, generalized. Returns [] when the schedule has
+// none, so the engine simply skips add-on stamping. Hoisted once per run.
+export async function resolveScheduleAddOns(
+  schedule: Pick<ScheduleInput, "id" | "company_id">,
+  txOrDb: any = db,
+): Promise<ResolvedScheduleAddOn[]> {
+  const rows = (await txOrDb.execute(sql`
+    SELECT rsa.pricing_addon_id, rsa.qty, rsa.every_visit, pa.name AS addon_name
+      FROM recurring_schedule_add_ons rsa
+      JOIN pricing_addons pa ON pa.id = rsa.pricing_addon_id
+     WHERE rsa.recurring_schedule_id = ${schedule.id}
+  `)).rows as any[];
+  const out: ResolvedScheduleAddOn[] = [];
+  for (const r of rows) {
+    const name = String(r.addon_name ?? "").trim();
+    if (!name) continue;
+    const existing = await txOrDb.execute(sql`
+      SELECT id FROM add_ons WHERE company_id = ${schedule.company_id} AND LOWER(name) = LOWER(${name}) LIMIT 1
+    `);
+    let realAddOnId: number;
+    if (existing.rows.length) {
+      realAddOnId = Number((existing.rows[0] as any).id);
+    } else {
+      const created = await txOrDb.execute(sql`
+        INSERT INTO add_ons (company_id, name, price, category, is_active)
+        VALUES (${schedule.company_id}, ${name}, '0', 'other', true)
+        RETURNING id
+      `);
+      realAddOnId = Number((created.rows[0] as any).id);
+    }
+    out.push({
+      add_on_id: realAddOnId,
+      pricing_addon_id: Number(r.pricing_addon_id),
+      qty: Math.max(1, Math.round(Number(r.qty ?? 1)) || 1),
+      every_visit: r.every_visit !== false,
+    });
+  }
+  return out;
+}
+
+// [addon-recurrence 2026-07-28] Stamp a schedule add-on onto a generated job's
+// job_add_ons. The add-on's price is already folded into the schedule's all-in
+// base_fee at convert time, so the per-visit row carries $0 — it is a
+// "perform this on this visit" marker for the tech (so the tech card shows e.g.
+// "Oven Cleaning ×2"), never an extra charge (no double-count). Quantity is the
+// office-set count. Idempotent via ON CONFLICT (job_id, add_on_id) DO NOTHING.
+export async function stampScheduleAddOnOnJob(
+  jobId: number,
+  addon: ResolvedScheduleAddOn,
+  txOrDb: any = db,
+): Promise<void> {
+  await txOrDb.execute(sql`
+    INSERT INTO job_add_ons
+      (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id, affects_commission)
+    VALUES
+      (${jobId}, ${addon.add_on_id}, ${addon.qty}, '0', '0', ${addon.pricing_addon_id}, false)
+    ON CONFLICT (job_id, add_on_id) DO NOTHING
+  `);
+}
+
 // [recurring-on-save 2026-04-30 / PR #27] Insert ONE job row from a
 // schedule template at the given date, returning the new id. Pure
 // INSERT — no dedupe, no parking stamping. Caller decides whether to
@@ -622,6 +694,15 @@ export async function generateJobsFromSchedule(
     }
   }
 
+  // [addon-recurrence 2026-07-28] Hoist the schedule's sold add-ons once per run
+  // (parallel to parking). Each generated visit gets the "every visit" add-ons;
+  // "first visit only" add-ons stamp solely on the schedule's start-date job.
+  // Empty when the schedule sold no add-ons, so this is a no-op for most runs.
+  const scheduleAddOns = await resolveScheduleAddOns(schedule);
+  const startDateStr = String(schedule.start_date instanceof Date
+    ? schedule.start_date.toISOString().slice(0, 10)
+    : schedule.start_date).slice(0, 10);
+
   // [audit BUG #8] Hoist the schedule's tech roster once per generation
   // run so we can mirror it to job_technicians on each newly-inserted job.
   // Without this, a schedule with multiple techs (helper / trainee on top
@@ -700,6 +781,18 @@ export async function generateJobsFromSchedule(
     if (resolved && (row as any)._parking_fee_applies) {
       await stampParkingFeeOnJob(newId, resolved);
       parkingStamped++;
+    }
+    // [addon-recurrence 2026-07-28] Stamp the schedule's sold add-ons onto this
+    // occurrence: "every visit" always; "first visit only" only when this
+    // occurrence is the schedule's start date. $0 marker rows (price already in
+    // base_fee) so the tech sees "clean 2 ovens" this visit.
+    if (scheduleAddOns.length) {
+      const isFirstVisit = String(row.scheduled_date).slice(0, 10) === startDateStr;
+      for (const addon of scheduleAddOns) {
+        if (addon.every_visit || isFirstVisit) {
+          await stampScheduleAddOnOnJob(newId, addon);
+        }
+      }
     }
     // [system-schedule-log 2026-07-21] Stamp a "Qleno scheduled this" row on the
     // job's audit trail so it surfaces in the client/account activity feed as a

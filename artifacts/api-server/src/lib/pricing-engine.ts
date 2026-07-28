@@ -143,15 +143,21 @@ export function priceFromData(data: PricingData, params: PricingParams) {
   // ── Add-ons (fixed prices / %-of-base / sqft%); time adds hours, not $×rate ──
   let addons_total = 0;
   let addon_minutes = 0;
-  const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string }> = [];
+  const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string; qty: number }> = [];
   for (const addon of addons) {
     const qty = (addon_quantities && addon_quantities[String(addon.id)])
       ? Math.max(1, parseInt(String(addon_quantities[String(addon.id)]))) : 1;
     addon_minutes += (parseInt(String(addon.time_add_minutes ?? 0)) || 0) * qty;
     if (addon.price_type === "time_only") continue;
-    const amount = calcAddonAmount(addon, base_price, used_sqft) * qty;
+    // [addon-qty 2026-07-28] Quantity multiplies per-item ($ flat) and per-unit
+    // add-ons, but NOT percentage ones — multiplying "+15%" by a count is
+    // nonsense (2 window cleans is still +15% of the base, not +30%). So a
+    // percentage add-on always prices at qty 1 even if a count slips through.
+    const isPercent = addon.price_type === "percentage" || addon.price_type === "percent";
+    const priceQty = isPercent ? 1 : qty;
+    const amount = calcAddonAmount(addon, base_price, used_sqft) * priceQty;
     addons_total += amount;
-    addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type });
+    addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type, qty: priceQty });
   }
   const addon_hours = Math.round((addon_minutes / 60) * 100) / 100;
   const total_hours = Math.round((base_hours + addon_hours) * 100) / 100;
@@ -193,7 +199,7 @@ export function priceFromData(data: PricingData, params: PricingParams) {
     const adjAmt = parseFloat(String(manual_adjustment));
     if (!isNaN(adjAmt) && adjAmt !== 0) {
       addons_total += adjAmt;
-      addon_breakdown.push({ id: -1, name: "Manual Adjustment", amount: Math.round(adjAmt * 100) / 100, price_type: "manual_adj" });
+      addon_breakdown.push({ id: -1, name: "Manual Adjustment", amount: Math.round(adjAmt * 100) / 100, price_type: "manual_adj", qty: 1 });
     }
   }
 
