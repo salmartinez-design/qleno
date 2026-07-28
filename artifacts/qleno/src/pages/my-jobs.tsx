@@ -384,6 +384,23 @@ function clockInstant(ts: string): Date {
   for (let i = 0; i < 2; i++) inst = wallAsUtc - (wallDigitsAsUtcMs(new Date(inst), CLOCK_TZ) - inst);
   return new Date(inst);
 }
+// [clockin-date-guard 2026-07-28] Chicago-local calendar date (YYYY-MM-DD) for
+// `instant`, so "today" means the tenant's day — NOT the device/UTC day. A tap
+// late on a Chicago evening is already tomorrow in UTC; comparing raw ISO dates
+// would mis-flag it. Format in the tenant tz to sidestep that date-slip.
+function chicagoYmd(instant: Date): string {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLOCK_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(instant).reduce<Record<string, string>>((a, x) => { a[x.type] = x.value; return a; }, {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+// "Jul 30, 2026" from a YYYY-MM-DD string, parsed as a local calendar date
+// (no timezone shift — it's the appointment day as scheduled).
+function formatServiceDate(d: string): string {
+  const [y, m, day] = (d || "").slice(0, 10).split("-").map(Number);
+  if (!y || !m || !day) return d;
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 // The stored digits ARE the local time the tech tapped — show them verbatim.
 function wallTimeLabel(ts: string): string {
   const m = /T(\d{2}):(\d{2})/.exec(ts);
@@ -777,12 +794,21 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   const [paused, setPaused] = useState(false);
   const [geofenceError, setGeofenceError] = useState<{ message: string; distanceFt: number; radiusFt: number; overrideAllowed: boolean } | null>(null);
   const [softWarning, setSoftWarning] = useState<string | null>(null);
+  // [clockin-date-guard 2026-07-28] Guard against clocking into the wrong day's
+  // job (a mistaken clock-in recently completed a job + fired a premature
+  // survey). When the service isn't scheduled for the tenant's TODAY, confirm
+  // before proceeding. Compared in Chicago wall-time to dodge UTC date-slip.
+  const [showDateConfirm, setShowDateConfirm] = useState(false);
 
   const entry = job.time_clock_entry;
   const isClockedIn = entry && !entry.clock_out_at;
   const isComplete = job.status === "complete" || (entry && entry.clock_out_at);
   // After-photo gate only applies when the owner enabled it (default off).
   const photoGate = !!requireAfterPhoto && photosAfter.length === 0;
+  // [clockin-date-guard 2026-07-28] Is this job scheduled for the tenant's TODAY
+  // (Chicago)? Both sides reduced to a Chicago YYYY-MM-DD string so the compare
+  // never slips a day across the UTC boundary.
+  const isScheduledToday = (job.scheduled_date || "").slice(0, 10) === chicagoYmd(new Date());
 
   const loadPhotos = useCallback(async () => {
     const res = await apiFetch(`/jobs/${job.id}/photos`);
@@ -1012,6 +1038,14 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
+  };
+
+  // The real clock-in: clear any prior warnings, grab GPS, then punch. Reached
+  // directly for same-day jobs, or via the wrong-day confirmation for others.
+  const startClockIn = () => {
+    setGeofenceError(null);
+    setSoftWarning(null);
+    getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy }));
   };
 
   const statusColors: Record<string, { bg: string; color: string }> = {
@@ -1316,6 +1350,62 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         </div>
       )}
 
+      {/* [clockin-date-guard 2026-07-28] Wrong-day confirmation pop-up. Only
+          renders when the tech taps Clock In on a service NOT scheduled for
+          today — a guardrail, not a hard block (they can still proceed). */}
+      {showDateConfirm && (
+        <div
+          onClick={() => setShowDateConfirm(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000, display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 20,
+            backgroundColor: "rgba(10,14,26,0.45)",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            style={{
+              width: "100%", maxWidth: 360, backgroundColor: "#FFFFFF",
+              border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 20px 16px",
+              boxShadow: "0 16px 48px rgba(10,14,26,0.24)",
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+            }}
+          >
+            <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: "0 0 8px" }}>
+              Clock in to this job?
+            </p>
+            <p style={{ fontSize: 13.5, color: "#6B6860", lineHeight: 1.5, margin: "0 0 18px" }}>
+              This service is scheduled for {formatServiceDate(job.scheduled_date)}, not today.
+              Are you sure you want to clock in to this job?
+            </p>
+            <button
+              onClick={() => { setShowDateConfirm(false); startClockIn(); }}
+              style={{
+                width: "100%", height: 46, backgroundColor: "#00C9A0", color: "#0A0E1A",
+                borderRadius: 8, border: "none", fontSize: 15, fontWeight: 700,
+                cursor: "pointer", marginBottom: 8,
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              Yes, Clock In
+            </button>
+            <button
+              onClick={() => setShowDateConfirm(false)}
+              style={{
+                width: "100%", height: 44, backgroundColor: "#FFFFFF", color: "#1A1917",
+                borderRadius: 8, border: "1px solid #E5E2DC", fontSize: 14, fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {geofenceError && (
         <div style={{ backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, padding: "14px 16px", marginTop: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: "#B3261E", margin: "0 0 6px" }}>Too far to clock in</p>
@@ -1424,9 +1514,10 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
             </button>
             <button
               onClick={() => {
-                setGeofenceError(null);
-                setSoftWarning(null);
-                getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy }));
+                // Wrong-day guard: if the service isn't scheduled for today,
+                // confirm before clocking in. Same-day jobs clock in directly.
+                if (!isScheduledToday) { setShowDateConfirm(true); return; }
+                startClockIn();
               }}
               disabled={clockInMutation.isPending || geoLoading}
               style={{
