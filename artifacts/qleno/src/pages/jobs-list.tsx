@@ -304,6 +304,36 @@ export default function JobsListPage() {
 
   const columns = ALL_COLUMNS.filter(c => visibleCols.includes(c.key));
 
+  // [jobs-report 2026-07-28] When filtering by booked_on the list mixes two
+  // dates — the day booked vs the day scheduled. Auto-surface the Created
+  // ("Booked") column and relabel the scheduled-date header so the two aren't
+  // confused with each other.
+  useEffect(() => {
+    if (filters.booked_on) setVisibleCols(prev => prev.includes("created_at") ? prev : [...prev, "created_at"]);
+  }, [filters.booked_on]);
+  const colLabel = (col: ColDef) => {
+    if (filters.booked_on) {
+      if (col.key === "date") return "Scheduled";
+      if (col.key === "created_at") return "Booked";
+    }
+    return col.label;
+  };
+
+  // ── Loaded-rows totals for the <tfoot> summary ──────────────────────────────
+  // Reflects the rows currently loaded (infinite scroll); cancelled jobs are
+  // excluded from both the total and the average, matching the KPI card.
+  const firstLabelKey = columns.find(c => c.key !== "select")?.key;
+  const tableTotals = allJobs.reduce(
+    (acc: { count: number; revenue: number }, j: any) => {
+      if (j.status === "cancelled") return acc;
+      acc.count += 1;
+      acc.revenue += Number(j.amount) || 0;
+      return acc;
+    },
+    { count: 0, revenue: 0 }
+  );
+  const tableAvg = tableTotals.count > 0 ? tableTotals.revenue / tableTotals.count : 0;
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const kpi = kpiQuery.data;
 
@@ -316,12 +346,16 @@ export default function JobsListPage() {
           <h1 style={{ fontSize: 28, fontWeight: 700, color: TXT, margin: 0, letterSpacing: "-0.02em" }}>Jobs</h1>
           <div style={{ display: "flex", gap: 6 }}>
             {[
-              { key: "today", label: "Today" }, { key: "this_week", label: "Week" },
+              { key: "today", label: "Today" }, { key: "yesterday", label: "Yesterday" },
+              { key: "this_week", label: "Week" },
               { key: "this_month", label: "Month" }, { key: "last_30", label: "30d" },
               { key: "last_90", label: "90d" }, { key: "ytd", label: "YTD" },
               { key: "all", label: "All" },
             ].map(p => (
-              <button key={p.key} onClick={() => setPeriod(p.key)}
+              // [jobs-report 2026-07-28] Selecting a scheduled-date period tab clears
+              // any active booked_on filter — the two AND together to zero results
+              // (a scheduled range on top of "booked that day" almost never overlaps).
+              <button key={p.key} onClick={() => { setPeriod(p.key); if (filters.booked_on) setFilter("booked_on", ""); }}
                 style={{
                   padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: FF, border: "none",
                   borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
@@ -361,7 +395,7 @@ export default function JobsListPage() {
             forcing 5 wide columns off-screen. */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 24 }}>
           {[
-            { label: "REVENUE", value: kpi ? `${fmtMoney(kpi.revenue_min)} \u2013 ${fmtMoney(kpi.revenue_max)}` : "\u2014", accent: true },
+            { label: "REVENUE", value: kpi ? fmtMoney(kpi.revenue_total) : "\u2014", accent: true },
             { label: "COMPLETED", value: kpi?.completed?.toLocaleString() ?? "\u2014" },
             { label: "AVG JOB", value: kpi ? fmtMoney(kpi.avg_job) : "\u2014" },
             { label: "JOBS / DAY", value: kpi?.jobs_per_day ?? "\u2014" },
@@ -472,6 +506,16 @@ export default function JobsListPage() {
               options={[["", "All"], ["true", "Flagged only"]]} />
             <FilterSelect label="Has Photos" value={filters.has_photos || ""} onChange={v => setFilter("has_photos", v)}
               options={[["", "All"], ["true", "With photos"]]} />
+            {/* [jobs-report 2026-07-28] Surface booked_on as a real date picker —
+                previously it was reachable only via the ?booked_on= URL param.
+                Setting it switches the period to "all" so the scheduled-date range
+                doesn't AND against it and zero the results. */}
+            <div>
+              <div style={FILTER_LABEL}>Booked On</div>
+              <input type="date" value={filters.booked_on || ""}
+                onChange={e => { setFilter("booked_on", e.target.value); if (e.target.value) setPeriod("all"); }}
+                style={FILTER_INPUT} />
+            </div>
             <div>
               <div style={FILTER_LABEL}>Revenue Min</div>
               <input type="number" value={filters.revenue_min || ""} onChange={e => setFilter("revenue_min", e.target.value)}
@@ -509,7 +553,7 @@ export default function JobsListPage() {
                       <input type="checkbox" checked={selected.size > 0 && selected.size === allJobs.length}
                         onChange={toggleAll} style={{ cursor: "pointer" }} />
                     ) : (
-                      <>{col.label}{sort.col === col.key && <span style={{ marginLeft: 4 }}>{sort.dir === "asc" ? "\u2191" : "\u2193"}</span>}</>
+                      <>{colLabel(col)}{sort.col === col.key && <span style={{ marginLeft: 4 }}>{sort.dir === "asc" ? "\u2191" : "\u2193"}</span>}</>
                     )}
                   </th>
                 ))}
@@ -580,7 +624,11 @@ export default function JobsListPage() {
                             </span>
                           )}
                           {col.key === "amount" && (
-                            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: TXT }}>{fmtMoney(job.base_fee)}</span>
+                            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600,
+                              color: job.status === "cancelled" ? TXT2 : TXT,
+                              textDecoration: job.status === "cancelled" ? "line-through" : undefined }}>
+                              {fmtMoney(job.amount)}
+                            </span>
                           )}
                           {col.key === "branch" && <span style={{ color: TXT2 }}>{job.branch_name || "\u2014"}</span>}
                           {col.key === "zone" && (
@@ -605,6 +653,26 @@ export default function JobsListPage() {
                 })
               )}
             </tbody>
+            {allJobs.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: `2px solid ${BORDER}`, background: BG }}>
+                  {columns.map(col => {
+                    let content: React.ReactNode = null;
+                    if (col.key === firstLabelKey) {
+                      content = `${tableTotals.count.toLocaleString()} ${tableTotals.count === 1 ? "job" : "jobs"}${listQuery.hasNextPage ? " loaded" : ""} · avg ${fmtMoney(tableAvg)}`;
+                    } else if (col.key === "amount") {
+                      content = fmtMoney(tableTotals.revenue);
+                    }
+                    return (
+                      <td key={col.key} style={{ padding: "12px 14px", textAlign: col.align || "left",
+                        fontSize: 12, fontWeight: 700, color: TXT, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                        {content}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            )}
           </table>
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} style={{ height: 1 }} />
