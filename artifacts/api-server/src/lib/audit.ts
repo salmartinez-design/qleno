@@ -34,6 +34,68 @@ export async function logAudit(
   }
 }
 
+// [completion-audit 2026-07-28] Records a job status change into job_audit_log
+// so it surfaces automatically in the Customer profile → Activity feed and the
+// Account console (both read job_audit_log per-field rows via field_name — see
+// clients.ts:1422 / accounts.ts:614). Used at every path that flips a job to
+// 'complete' (office Mark Complete, field/office clock-out, GPS clock-out, bulk,
+// charged cancel, recurring back-fill) and by the ghost-completion auto-revert.
+//
+// old_value/new_value use the { value } shape the activity feed's describeEdit
+// already unwraps; new_value also carries a human-readable `source` (the path)
+// and optional `note` so the feed renders "Marked complete — clock-out" etc.
+//
+// Pass `exec` = a transaction handle when the job row was created/updated inside
+// an as-yet-uncommitted tx (recurring back-fill, charged cancel) — a separate
+// connection can't see the uncommitted job and the FK insert would fail.
+// System actors (no single user) pass actorUserId=null with actorName set.
+export async function logJobStatusChange(
+  opts: {
+    companyId: number | null;
+    jobId: number;
+    actorUserId: number | null;
+    actorName?: string | null;
+    priorStatus: string | null;
+    newStatus: string;
+    source: string;
+    note?: string | null;
+  },
+  exec: { execute: (q: ReturnType<typeof sql>) => Promise<any> } = db,
+): Promise<void> {
+  // company_id is NOT NULL on job_audit_log; skip (non-fatal) if we somehow
+  // have no tenant context rather than throwing inside a completion path.
+  if (opts.companyId == null) return;
+  try {
+    let userId: number | null = opts.actorUserId ?? null;
+    let name = opts.actorName ?? "Qleno";
+    let email = "system";
+    if (userId != null) {
+      const u = await exec.execute(sql`SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1`);
+      const row = (u.rows?.[0] as any) ?? null;
+      if (row) {
+        name = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || (opts.actorName ?? "Unknown");
+        email = row.email ?? "";
+      }
+    }
+    const newVal: Record<string, unknown> = { value: opts.newStatus, source: opts.source };
+    if (opts.note) newVal.note = opts.note;
+    await exec.execute(sql`
+      INSERT INTO job_audit_log
+        (job_id, company_id, user_id, user_name, user_email,
+         field_name, old_value, new_value, cascade_scope)
+      VALUES
+        (${opts.jobId}, ${opts.companyId}, ${userId}, ${name}, ${email},
+         'status',
+         ${JSON.stringify({ value: opts.priorStatus })}::jsonb,
+         ${JSON.stringify(newVal)}::jsonb,
+         'this_job')
+    `);
+  } catch (err) {
+    // Never let audit logging crash a completion / revert.
+    console.error("[audit] logJobStatusChange failed:", err);
+  }
+}
+
 // Per-client activity trail. Writes to client_audit_log (keyed by client_id) so
 // the office can audit ALL activity within a single client — job deletions,
 // rate changes, etc. — in one place. No-ops safely when there's no client

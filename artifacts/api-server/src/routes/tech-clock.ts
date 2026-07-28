@@ -40,6 +40,7 @@ import { estimateEtaMinutes } from "../lib/eta.js";
 import { sendOnMyWaySms, type OnMyWaySmsResult } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { logJobStatusChange } from "../lib/audit.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
@@ -575,6 +576,18 @@ async function handleClockEvent(
         .where(
           and(eq(jobsTable.company_id, companyId), eq(jobsTable.id, job.id)),
         );
+      // [completion-audit 2026-07-28] Audit the GPS field clock-out completion
+      // ("Marked complete — field clock-out (GPS) · <tech>"). This path writes
+      // job_clock_events (not timeclock) and does NOT set completed_by_user_id,
+      // so it's never revert-eligible — but it still must be auditable. Non-blocking.
+      void logJobStatusChange({
+        companyId,
+        jobId: job.id,
+        actorUserId: userId ?? null,
+        priorStatus: job.status ?? null,
+        newStatus: "complete",
+        source: "field clock-out (GPS)",
+      });
       // Generate the job's draft invoice on field clock-out — same idempotent
       // path the office PATCH uses, so field completions never go uninvoiced.
       // Fire-and-forget so it never blocks the clock-out response (the helper

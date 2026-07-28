@@ -3,7 +3,8 @@ import { db } from "@workspace/db";
 import { timeclockTable, usersTable, jobsTable, clientsTable, companiesTable, jobPhotosTable, clockInAttemptsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
-import { logAudit } from "../lib/audit.js";
+import { logAudit, logJobStatusChange } from "../lib/audit.js";
+import { revertJobIfGhostCompletion } from "../lib/completion-revert.js";
 import { computePerTechCommissionRows, isCommercialJob, type JobTechRow } from "../lib/commission-paytype.js";
 import { computeJobBilledNet } from "../lib/job-billed.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
@@ -618,6 +619,18 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
         // survey + retention + auto-invoice fire exactly once, on the transition.
         const clientId = (done.rows[0] as any)?.client_id;
         if (done.rows[0]) {
+          // [completion-audit 2026-07-28] Record the field clock-out completion in
+          // the Customer Activity feed ("Marked complete — clock-out · <tech>").
+          // Prior status is scheduled/in_progress (the guarded UPDATE excludes
+          // complete/cancelled). Non-blocking.
+          void logJobStatusChange({
+            companyId: req.auth!.companyId,
+            jobId,
+            actorUserId: req.auth!.userId ?? null,
+            priorStatus: "in_progress",
+            newStatus: "complete",
+            source: "clock-out",
+          });
           // Generate the job's draft invoice on field clock-out — same idempotent
           // path the office PATCH uses. Fire-and-forget so a slow/failed invoice
           // never blocks the clock-out response (helper is internally non-fatal).
@@ -1643,6 +1656,16 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
             RETURNING id
           `);
           if (done.rows[0]) {
+            // [completion-audit 2026-07-28] Audit the office clock-edit completion
+            // ("Marked complete — office clock edit · <user>"). Non-blocking.
+            void logJobStatusChange({
+              companyId,
+              jobId: completedJobId!,
+              actorUserId: req.auth!.userId ?? null,
+              priorStatus: "in_progress",
+              newStatus: "complete",
+              source: "office clock edit",
+            });
             // completedJobId is non-null (guarded above); the assertion just
             // restores the narrowing TS drops across the awaits.
             ensureInvoiceForCompletedJob(companyId, completedJobId!, req.auth!.userId)
@@ -1673,7 +1696,14 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), asyn
     await recomputeJobActualHours(existing.job_id, companyId);
     logAudit(req, "TIMECLOCK_DELETE", "timeclock", id,
       { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at, job_id: existing.job_id, user_id: existing.user_id }, null);
-    return res.json({ success: true });
+    // [ghost-completion-revert 2026-07-28] If deleting this punch just emptied a
+    // clock-out-completed job's timeclock, revert it out of Complete (tight
+    // predicate — no-op for office / bulk / charged completions). Non-fatal.
+    let reverted = false;
+    if (existing.job_id != null) {
+      reverted = await revertJobIfGhostCompletion({ companyId, jobId: existing.job_id, actorUserId: req.auth!.userId ?? null });
+    }
+    return res.json({ success: true, reverted });
   } catch (err) {
     console.error("DELETE /timeclock/:id error:", err);
     return res.status(500).json({ error: "Internal Server Error" });

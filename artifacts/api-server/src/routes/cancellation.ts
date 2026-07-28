@@ -4,6 +4,7 @@ import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTab
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
+import { logJobStatusChange } from "../lib/audit.js";
 import {
   resolveCancellationPolicy,
   CANCEL_ACTIONS,
@@ -542,6 +543,23 @@ router.post("/action", requireAuth, async (req, res) => {
 
     return logged;
   });
+
+  // [completion-audit 2026-07-28] A charged cancel/lockout flips the job to
+  // 'complete' (billed = fee, locked). Audit it so the Customer Activity feed
+  // records the completion ("Marked complete — charged cancellation · <user>").
+  // This path stamps locked_at + leaves completed_by_user_id NULL, so it is
+  // never ghost-revert eligible. Non-blocking. Logged post-commit with the job
+  // already updated.
+  if (isChargedOutcome) {
+    void logJobStatusChange({
+      companyId,
+      jobId: body.job_id,
+      actorUserId: userId ?? null,
+      priorStatus: row.status ?? null,
+      newStatus: "complete",
+      source: `charged ${action}`,
+    });
+  }
 
   // [stale-alert-fix 2026-07-07] Office heads-up: scheduled texts queued for
   // this client (POST /api/sms/schedule) are thread-level, not job-linked, so

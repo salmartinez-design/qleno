@@ -9,7 +9,8 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
 import { gatherConfirmationData, buildConfirmationPdf } from "../lib/confirmation-pdf.js";
 import { notifyUserAsync } from "../lib/push.js";
-import { logAudit, logClientActivity } from "../lib/audit.js";
+import { logAudit, logClientActivity, logJobStatusChange } from "../lib/audit.js";
+import { revertJobIfGhostCompletion } from "../lib/completion-revert.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
@@ -3469,6 +3470,24 @@ router.patch("/:id", requireAuth, async (req, res) => {
               const newJobId = Number((insertRes.rows[0] as any).id);
               futureInserted++;
 
+              // [completion-audit 2026-07-28] Past-dated back-fill visits are born
+              // 'complete' (never scheduled→complete). Audit them as a system
+              // completion so the Customer Activity feed shows "Marked complete —
+              // recurring back-fill". Written with the tx executor because the job
+              // row is still uncommitted here. These jobs never set
+              // completed_by_user_id, so they're not ghost-revert eligible.
+              if (isPast) {
+                await logJobStatusChange({
+                  companyId,
+                  jobId: newJobId,
+                  actorUserId: null,
+                  actorName: "Qleno",
+                  priorStatus: null,
+                  newStatus: "complete",
+                  source: "recurring back-fill",
+                }, tx);
+              }
+
               for (let i = 0; i < fillTechList.length; i++) {
                 const uid = fillTechList[i];
                 const isPrimary = i === 0;
@@ -4027,7 +4046,13 @@ router.delete("/:id/clock-entries", requireAuth, async (req, res) => {
     `);
     const deleted = (result as any).rowCount ?? 0;
     logAudit(req, "DELETE", "clock_entries", jobId, null, { count: deleted });
-    return res.json({ success: true, deleted });
+    // [ghost-completion-revert 2026-07-28] Wiping the clocks off a job that was
+    // completed by clock-out (completed_by_user_id set, not locked/charged) would
+    // otherwise leave a "Complete but 0 punched" ghost. Revert it out of Complete
+    // if — and only if — the tight predicate matches. No-op for office / bulk /
+    // charged completions. Non-fatal.
+    const reverted = await revertJobIfGhostCompletion({ companyId, jobId, actorUserId: req.auth!.userId ?? null });
+    return res.json({ success: true, deleted, reverted });
   } catch (err) {
     console.error("Delete clock entries error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete clock entries" });
@@ -4063,6 +4088,13 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // Guard against double-complete: WHERE status != 'complete' so a second
     // Mark Complete click is a no-op (rowcount=0 → 409 below).
     const nowTs = new Date();
+    // [completion-audit 2026-07-28] Capture the prior status so the completion
+    // audit row records what it transitioned FROM.
+    const [priorRow] = await db
+      .select({ status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId!)))
+      .limit(1);
     const updated = await db
       .update(jobsTable)
       .set({
@@ -4098,6 +4130,18 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     }
 
     const completedJob = updated[0] as any;
+
+    // [completion-audit 2026-07-28] Audit the office one-tap completion so it
+    // shows in the Customer Activity feed ("Marked complete — office — Mark
+    // Complete · <user>"). Non-blocking (helper is internally non-fatal).
+    void logJobStatusChange({
+      companyId: req.auth!.companyId,
+      jobId,
+      actorUserId: req.auth!.userId ?? null,
+      priorStatus: priorRow?.status ?? null,
+      newStatus: "complete",
+      source: "office — Mark Complete",
+    });
 
     // ── Synthetic timeclock fallback ────────────────────────────────────
     // [BUG-3F4 / 2026-06-02] If a job is completed without any timeclock
@@ -6288,7 +6332,26 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
 
     switch (action) {
       case "mark_complete": {
+        // [completion-audit 2026-07-28] Capture which jobs actually transition
+        // (were not already complete/cancelled) so we audit exactly the real
+        // completions. Bulk mark_complete deliberately does NOT set
+        // completed_by_user_id, so these jobs are never ghost-revert eligible.
+        const toComplete = await db.execute(sql`
+          SELECT id, status FROM jobs
+          WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}
+            AND status NOT IN ('complete', 'cancelled')
+        `);
         await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        for (const r of toComplete.rows as any[]) {
+          void logJobStatusChange({
+            companyId,
+            jobId: Number(r.id),
+            actorUserId: req.auth!.userId ?? null,
+            priorStatus: r.status ?? null,
+            newStatus: "complete",
+            source: "bulk action",
+          });
+        }
         // Fire invoice creation for every newly-completed job (idempotent — skips if invoice exists).
         Promise.allSettled(idList.map(id => ensureInvoiceForCompletedJob(companyId, id, req.auth!.userId ?? null)))
           .catch(e => console.error("[bulk mark_complete] invoice creation non-fatal:", e));
