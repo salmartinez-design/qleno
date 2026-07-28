@@ -6,6 +6,7 @@ import { useLocation, Link } from "wouter";
 import { ChevronRight, Calendar, ShieldAlert, Building2, Car, Check, X } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
+import { useSourceLabeler } from "@/lib/acquisition-sources";
 import MobileDashboard from "@/components/mobile-dashboard";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -1209,14 +1210,10 @@ function BookedCard({ booked, navigate }: { booked: Booked | null; navigate: (p:
 // `unasked` is rendered, deliberately, and always sorts last. Most office-keyed
 // quotes never filled this in, so hiding the gap would make a 6-answer sample
 // look like the whole picture. Seeing "31 not asked" is the nudge to ask.
-const REFERRAL_LABEL: Record<string, string> = {
-  google: 'Google', facebook: 'Facebook', instagram: 'Instagram', nextdoor: 'Nextdoor',
-  yelp: 'Yelp', client_referral: 'Friend or family', door_hanger: 'Door hanger',
-  yard_sign: 'Yard sign', website: 'Our website', other: 'Other',
-  unasked: 'Not asked',
-};
-const prettyReferral = (s: string | null) =>
-  !s ? 'Not asked' : (REFERRAL_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+// [leadsource-unify 2026-07-28] Labels now come from the tenant's configured
+// acquisition_sources via useSourceLabeler() inside LeadSourcesCard (the
+// hardcoded REFERRAL_LABEL map / prettyReferral helper were removed so the card
+// can't drift from Settings). Channel colors stay literal below.
 
 // [referral-colors 2026-07-23] These follow the CHANNELS' OWN brand marks, not
 // the Qleno ramp — Sal's call: "Google should be Yellow, Yelp Red, FB Blue,
@@ -1237,9 +1234,15 @@ const prettyReferral = (s: string | null) =>
 // a tenant's brand_color must not repaint "Friend or family".
 const REFERRAL_COLOR: Record<string, string> = {
   google:          '#E0A233', // Google yellow
+  google_ads:      '#E0A233', // [leadsource-unify] Settings vocab — same Google yellow
+  google_business_profile: '#E0A233',
   yelp:            '#C4362E', // Yelp red
   facebook:        '#3B5C9F', // Facebook blue
   client_referral: '#0F7A63', // word of mouth — the free channel, our green
+  referral:        '#0F7A63', // [leadsource-unify] Settings vocab — our green
+  word_of_mouth:   '#0F7A63',
+  repeat_customer: '#0B8F73', // returning customers — a deeper green
+  thumbtack:       '#3E7BC2', // Thumbtack blue
   instagram:       '#B84A8A', // Instagram magenta
   nextdoor:        '#6E9440', // Nextdoor green, olive-shifted off the referral green
   website:         '#2F3646', // ours
@@ -1251,6 +1254,12 @@ const REFERRAL_COLOR: Record<string, string> = {
 const referralColor = (s: string | null) => REFERRAL_COLOR[s ?? 'unasked'] ?? '#C8C4BC';
 
 function LeadSourcesCard({ report, periodLabel, win, navigate }: { report: any; periodLabel: string; win: { from: string; to: string } | null; navigate: (p: string) => void }) {
+  // [leadsource-unify 2026-07-28] Resolve channel labels from the tenant's
+  // configured acquisition_sources (Settings), so the report reads the same
+  // display names the office set — falling back to a prettified slug for
+  // historical / unconfigured values. "unasked" keeps its explicit label.
+  const sourceLabel = useSourceLabeler();
+  const referralLabel = (s: string | null) => (!s || s === 'unasked') ? 'Not asked' : sourceLabel(s);
   // Lowercase to sit inside the running subhead: "today", "this week", "this
   // month" — mirrors ConversionCard's "leads created {periodLabel}" phrasing.
   const winLabel = periodLabel.toLowerCase();
@@ -1306,7 +1315,7 @@ function LeadSourcesCard({ report, periodLabel, win, navigate }: { report: any; 
                 <td style={{ fontSize: 13, color: r.referral === 'unasked' ? 'var(--ink-faint)' : 'var(--ink)', padding: '9px 12px 9px 0', minWidth: 120 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: referralColor(r.referral), flexShrink: 0 }} />
-                    {prettyReferral(r.referral)}
+                    {referralLabel(r.referral)}
                   </div>
                   <div style={{ height: 4, borderRadius: 2, background: 'var(--bg-base)', marginTop: 5, overflow: 'hidden' }}>
                     <div style={{ width: `${Math.round((r.leads / maxLeads) * 100)}%`, height: '100%', background: referralColor(r.referral), borderRadius: 2 }} />

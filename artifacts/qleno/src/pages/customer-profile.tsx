@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { formatInvoiceNumber } from "@/lib/invoice-number";
+import { useSourceLabeler } from "@/lib/acquisition-sources";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import {
@@ -3883,6 +3884,9 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
 // ─── Client Details Panel (left 25%) ─────────────────────────────────────────
 function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { client: any; jhStats: any; recurringSchedule: any; noCard?: boolean }) {
   const [showAlarm, setShowAlarm] = useState(false);
+  // [leadsource-unify 2026-07-28] Resolve the acquisition-source label from the
+  // tenant's configured Settings list, matching the edit picker.
+  const sourceLabel = useSourceLabeler();
   const preferredTech = (client.tech_preferences || []).find((p: any) => p.preference === "preferred");
 
   const outerStyle: React.CSSProperties = noCard
@@ -3927,7 +3931,7 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { cl
       {client.pets && <DL label="Pets / Equipment Notes" value={client.pets} />}
       {preferredTech && <DL label="Preferred Technician" value={`${preferredTech.first_name} ${preferredTech.last_name}`} />}
       {!preferredTech && recurringSchedule?.tech_first && <DL label="Assigned Technician" value={`${recurringSchedule.tech_first} ${recurringSchedule.tech_last}`} />}
-      {client.referral_source && <DL label="Acquisition Source" value={SOURCE_LABELS[client.referral_source] || String(client.referral_source).replace(/_/g, " ")} />}
+      {client.referral_source && <DL label="Acquisition Source" value={sourceLabel(client.referral_source)} />}
       {client.client_since && <DL label="Customer Since" value={fmtDate(client.client_since)} />}
       {(client.loyalty_points !== null && client.loyalty_points !== undefined && client.loyalty_points > 0) && <DL label="Loyalty Points" value={client.loyalty_points} />}
       {(jhStats?.ecard_pct !== null && jhStats?.ecard_pct !== undefined) && <DL label="eCard Rate" value={`${jhStats.ecard_pct}%`} />}
@@ -6172,6 +6176,8 @@ export default function CustomerProfilePage() {
   const [, params] = useRoute("/customers/:id");
   const clientId = parseInt(params?.id || "0");
   const qc = useQueryClient();
+  // [leadsource-unify 2026-07-28] Acquisition-source label from Settings list.
+  const sourceLabel = useSourceLabeler();
   const [showJobWizard, setShowJobWizard] = useState(false);
   // [scheduling-engine 2026-04-29] Preset date when the wizard is
   // opened from a calendar empty-cell click. Cleared when the wizard
@@ -6501,7 +6507,7 @@ export default function CustomerProfilePage() {
                 </a>
               } />}
               {profile.client_since && <DL2 label="Client Since" value={fmtDate(profile.client_since)} />}
-              {profile.referral_source && <DL2 label="Acquisition Source" value={SOURCE_LABELS[profile.referral_source] || String(profile.referral_source).replace(/_/g, " ")} />}
+              {profile.referral_source && <DL2 label="Acquisition Source" value={sourceLabel(profile.referral_source)} />}
               {profile.company_name && <DL2 label="Company" value={profile.company_name} />}
               {(profile.loyalty_points > 0) && <DL2 label="Loyalty Points" value={profile.loyalty_points} />}
             </div>
@@ -6900,7 +6906,7 @@ export default function CustomerProfilePage() {
                 {profile.phone && <DL2 label="Phone" value={<a href={`tel:${profile.phone}`} style={{ color: "var(--brand)", textDecoration: "none" }}>{profile.phone}</a>} />}
                 {profile.email && <DL2 label="Email" value={<a href={`mailto:${profile.email}`} style={{ color: "var(--brand)", textDecoration: "none" }}>{profile.email}</a>} />}
                 {profile.client_since && <DL2 label="Client Since" value={fmtDate(profile.client_since)} />}
-                {profile.referral_source && <DL2 label="Source" value={SOURCE_LABELS[profile.referral_source] || String(profile.referral_source).replace(/_/g, " ")} />}
+                {profile.referral_source && <DL2 label="Source" value={sourceLabel(profile.referral_source)} />}
               </div>
               <div style={CS}>
                 <div style={CTitle}>Billing & Payments</div>

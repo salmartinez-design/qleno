@@ -1,5 +1,6 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { useSourceLabeler } from "@/lib/acquisition-sources";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { Loader2, Users, Gift } from "lucide-react";
@@ -132,16 +133,14 @@ function ReferralProgramSection() {
   );
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  google: "Google", nextdoor: "Nextdoor", facebook: "Facebook", yelp: "Yelp",
-  client_referral: "Client Referral", door_hanger: "Door Hanger",
-  yard_sign: "Yard Sign", website: "Website", other: "Other",
-};
-
 const COLORS = ["var(--brand)", "#22C55E", "#F59E0B", "#C2673F", "#B3261E", "#06B6D4", "#EC4899", "#14B8A6", "#9E9B94"];
 
 export default function ReferralReportPage() {
   const [, navigate] = useLocation();
+  // [leadsource-unify 2026-07-28] Labels come from the tenant's configured
+  // acquisition_sources (Settings), so this report matches Settings and the
+  // pickers; falls back to a prettified slug for historical values.
+  const sourceLabel = useSourceLabeler();
 
   const { data: customers = [], isLoading } = useQuery<any[]>({
     queryKey: ["customers-referral"],
@@ -163,13 +162,21 @@ export default function ReferralReportPage() {
   });
 
   const chartData = Object.entries(sourceCounts)
-    .map(([source, { count }]) => ({ source, label: SOURCE_LABELS[source] || source, count }))
+    .map(([source, { count }]) => ({ source, label: sourceLabel(source) || source, count }))
     .sort((a, b) => b.count - a.count);
 
   const topSource = chartData[0];
 
+  // [leadsource-unify 2026-07-28] "Referred by a client" no longer maps to a
+  // single fixed slug: legacy rows used the enum "client_referral", the
+  // Settings-configured list uses "referral". Count both so the card and chains
+  // don't silently read 0 after the vocabulary switch. The authoritative signal
+  // for a chain is still referral_by_customer_id (the actual referrer link).
+  const CLIENT_REFERRAL_SLUGS = ["client_referral", "referral"];
+  const clientReferralCount = CLIENT_REFERRAL_SLUGS.reduce((n, s) => n + (sourceCounts[s]?.count || 0), 0);
+
   // Client referral chains
-  const referralChains = customers.filter((c: any) => c.referral_source === "client_referral" && c.referral_by_customer_id);
+  const referralChains = customers.filter((c: any) => CLIENT_REFERRAL_SLUGS.includes(c.referral_source) && c.referral_by_customer_id);
 
   return (
     <DashboardLayout>
@@ -194,7 +201,7 @@ export default function ReferralReportPage() {
                 <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 2 }}>Total Clients</div>
               </div>
               <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 20px" }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: "var(--brand)" }}>{sourceCounts["client_referral"]?.count || 0}</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "var(--brand)" }}>{clientReferralCount}</div>
                 <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 2 }}>Client Referrals</div>
               </div>
               {topSource && (

@@ -94,9 +94,13 @@ async function upsertWidgetLead(companyId: number, opts: {
     // history, not to be the only thing that ever fills this in. COALESCE on
     // update so a later touch from a form that didn't ask can't erase an
     // answer the customer already gave.
-    const referral = normalizeReferralSource(
-      (opts.details?.referral_source ?? opts.details?.referral) as string | undefined
-    );
+    // [leadsource-unify 2026-07-28] Store the raw acquisition_sources slug the
+    // widget dropdown emitted — no longer bucket it into the old 9-value enum
+    // (which turned Thumbtack / Google Ads into "other" / "google"). The column
+    // is now TEXT, so the widget's answers match the office vocabulary and the
+    // dashboard report groups them under their real Settings names.
+    const referralRaw = (opts.details?.referral_source ?? opts.details?.referral) as string | undefined;
+    const referral = referralRaw && String(referralRaw).trim() ? String(referralRaw).trim() : null;
     let existing: any = null;
     if (email || phone10) {
       const found = await db.execute(s`
@@ -124,7 +128,7 @@ async function upsertWidgetLead(companyId: number, opts: {
           job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
           booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
           details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
-          referral_source = COALESCE(referral_source, ${referral}::referral_source),
+          referral_source = COALESCE(referral_source, ${referral}),
           updated_at = NOW()
         WHERE id = ${existing.id}`);
       // [booked-drip-stop 2026-07-09] The public booking-confirm paths upgrade a
@@ -150,7 +154,7 @@ async function upsertWidgetLead(companyId: number, opts: {
               ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
               ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
               COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
-              ${referral}::referral_source, NOW(), NOW())
+              ${referral}, NOW(), NOW())
       RETURNING id`);
     return Number((ins.rows as any[])[0]?.id) || null;
   } catch (e) {
@@ -590,7 +594,7 @@ router.post("/referral-source", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "company_id and client_id required" });
     }
     await db.execute(drSql`
-      UPDATE clients SET referral_source = ${normalizeReferral(referral_source)}
+      UPDATE clients SET referral_source = ${referral_source ? String(referral_source).trim() : null}
        WHERE id = ${Number(client_id)} AND company_id = ${Number(company_id)}`);
     return res.json({ ok: true });
   } catch {
@@ -940,7 +944,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
             card_last_four, card_brand, card_expiry, card_saved_at, created_at
           ) VALUES (
             ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-            ${normalizeReferral(referral_source)}, ${resolvedAddr.street}, ${resolvedAddr.city}, ${resolvedAddr.state}, ${resolvedAddr.zip},
+            ${referral_source ? String(referral_source).trim() : null}, ${resolvedAddr.street}, ${resolvedAddr.city}, ${resolvedAddr.state}, ${resolvedAddr.zip},
             ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
             ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW()
           ) RETURNING id
@@ -1605,7 +1609,7 @@ router.post("/book", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, address, city, state, zip, sms_consent, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${legResolvedAddr.street}, ${legResolvedAddr.city}, ${legResolvedAddr.state}, ${legResolvedAddr.zip}, ${sms_consent ? true : false}, NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source ? String(referral_source).trim() : null}, ${legResolvedAddr.street}, ${legResolvedAddr.city}, ${legResolvedAddr.state}, ${legResolvedAddr.zip}, ${sms_consent ? true : false}, NOW())
           RETURNING id
         `
       );
@@ -1742,7 +1746,7 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, address, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${address || null}, NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source ? String(referral_source).trim() : null}, ${address || null}, NOW())
           RETURNING id
         `
       );
@@ -1867,7 +1871,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, stripe_customer_id, stripe_payment_method_id, payment_source, card_last_four, card_brand, card_expiry, card_saved_at, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${stripe_customer_id || null}, ${payment_method_id}, 'stripe', ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source ? String(referral_source).trim() : null}, ${stripe_customer_id || null}, ${payment_method_id}, 'stripe', ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW())
           RETURNING id
         `
       );

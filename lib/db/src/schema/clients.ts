@@ -85,7 +85,13 @@ export const clientsTable = pgTable("clients", {
   billing_terms: billingTermsEnum("billing_terms").notNull().default("per_visit"),
   zone_id: integer("zone_id"),
   account_id: integer("account_id"),
-  referral_source: referralSourceEnum("referral_source"),
+  // [leadsource-unify 2026-07-28] Was referralSourceEnum. Now plain TEXT so it
+  // stores the tenant-managed acquisition_sources.slug (google_ads, thumbtack,
+  // word_of_mouth, or any source the office adds in Settings) — the fixed
+  // 9-value enum could never hold those, so office pickers offered a different
+  // list than Settings. The boot migration ALTERs the live column enum→text;
+  // referralSourceEnum stays exported for the legacy display/backfill map.
+  referral_source: text("referral_source"),
   referral_by_customer_id: integer("referral_by_customer_id"),
   branch_id: integer("branch_id").references(() => branchesTable.id),
   // Office-editable payment method (distinct from payment_terms which drives invoice due dates)

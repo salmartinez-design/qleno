@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm";
 import { ctDate, ctToday } from "../lib/ct-day.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { normalizeReferralSource, referralAliasPairs } from "../lib/referral-source.js";
+import { referralAliasPairs } from "../lib/referral-source.js";
 import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } from "../services/followUpService.js";
 
 const router = Router();
@@ -73,7 +73,11 @@ const dayFilterSql = (t: string, from?: string, to?: string) => {
 // "answered something odd" and "never asked" are different facts.
 export async function runLeadReferralSourceMigration(): Promise<void> {
   try {
-    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS referral_source referral_source`);
+    // [leadsource-unify 2026-07-28] TEXT, not the referral_source enum — the
+    // column now holds the tenant-managed acquisition_sources.slug. On existing
+    // DBs this ADD is a no-op (column present) and the boot guard ALTERs the
+    // live enum column to text; on a fresh DB it is created as text directly.
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS referral_source text`);
 
     // Build the alias map as a VALUES list so the vocabulary lives in exactly
     // one place (the TS module) and Postgres just joins against it.
@@ -84,7 +88,7 @@ export async function runLeadReferralSourceMigration(): Promise<void> {
     );
     await db.execute(sql`
       UPDATE leads l
-         SET referral_source = m.slug::referral_source
+         SET referral_source = m.slug
         FROM (VALUES ${values}) AS m(alias, slug)
        WHERE l.referral_source IS NULL
          AND l.details ? 'referral_source'
@@ -526,7 +530,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         ${source}, ${status}, ${resolvedLeadSource},
         ${scope || null}, ${sqft ? parseInt(sqft) : null},
         ${bedrooms ? parseInt(bedrooms) : null}, ${bathrooms ? parseInt(bathrooms) : null},
-        ${notes || null}, ${normalizeReferralSource(referral_source)}::referral_source,
+        ${notes || null}, ${referral_source ? String(referral_source) : null},
         ${quote_amount ? parseFloat(quote_amount) : null},
         ${resolvedAssignedTo},
         NOW(), NOW()
