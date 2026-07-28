@@ -1966,7 +1966,13 @@ export default function MyJobsPage() {
 
         {showPay && (
           <div style={{ padding: "16px 14px", borderBottom: "1px solid #E5E2DC", background: "#FBFAF8" }}>
-            <EarningsPanel title="My pay" />
+            {/* [view-as-honest-preview 2026-07-28] In the office "View as
+                Employee" preview, scope this panel to the previewed tech and
+                flag as_tech so the server applies that tech's published-only
+                gate — the preview must show what the tech sees, not the live,
+                unpublished current week (which office privileges would otherwise
+                leak here). A real tech login (no employeeView) is unchanged. */}
+            <EarningsPanel title="My pay" userId={employeeView?.employeeId} asTech={!!employeeView} />
           </div>
         )}
 

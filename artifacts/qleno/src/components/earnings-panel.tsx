@@ -62,7 +62,12 @@ const money = (n: number) => `$${(n || 0).toLocaleString("en-US", { minimumFract
 const fmtScope = (s: string | null) => (s ? s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "—");
 const fmtDay = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
-export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number; title?: string }) {
+// asTech: office "View as Employee" preview. Scopes to the previewed tech AND
+// asks the server to apply that tech's published-only gate (via as_tech=1), so
+// the preview honestly reflects what the tech sees — never the live current
+// week. Omitted for a real tech (server already scopes them to self) and for the
+// office's own Earnings tab (which stays live to run payroll).
+export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { userId?: number; title?: string; asTech?: boolean }) {
   const [period, setPeriod] = useState(thisWeek());
   const [preset, setPreset] = useState<"this" | "last" | "month" | "custom">("this");
   const [data, setData] = useState<EmpEarnings | null>(null);
@@ -86,7 +91,7 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
     // worse than no number, so it blanks rather than lingers.
     setData(null);
     setBlocked(false);
-    const uq = userId ? `&user_id=${userId}` : "";
+    const uq = (userId ? `&user_id=${userId}` : "") + (asTech ? "&as_tech=1" : "");
     fetch(`${API}/api/payroll/detail?pay_period_start=${period.start}&pay_period_end=${period.end}${uq}`, { headers: getAuthHeaders() })
       .then(r => {
         // 403 = period not published yet for this (non-office) viewer.
@@ -101,20 +106,20 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [userId, period.start, period.end]);
+  }, [userId, asTech, period.start, period.end]);
 
   // Fixed-window rollup (this week / this month / year-to-date) for the rewards
   // tracker + running-average hourly rate. Independent of the selected period.
   const [roll, setRoll] = useState<{ week: WindowSum; month: WindowSum; ytd: WindowSum } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const uq = userId ? `&user_id=${userId}` : "";
+    const uq = (userId ? `&user_id=${userId}` : "") + (asTech ? "&as_tech=1" : "");
     const w = thisWeek(), m = thisMonth(), y = ytd();
     Promise.all([fetchWindowSum(w.start, w.end, uq), fetchWindowSum(m.start, m.end, uq), fetchWindowSum(y.start, y.end, uq)])
       .then(([week, month, yr]) => { if (!cancelled) setRoll({ week, month, ytd: yr }); })
       .catch(() => { if (!cancelled) setRoll(null); });
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, asTech]);
 
   // Tips exclude mileage keys (mileage is shown on its own card).
   const tips = useMemo(() => Object.entries(data?.additional_pay || {}).filter(([k]) => !MILEAGE_KEYS.includes(k)).reduce((s, [, v]) => s + Number(v || 0), 0), [data]);
