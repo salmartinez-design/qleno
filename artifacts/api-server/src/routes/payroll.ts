@@ -620,7 +620,12 @@ router.get("/detail", requireAuth, async (req, res) => {
       const pub = await db.execute(sql`SELECT MAX(pay_period_end)::text AS max_end FROM payroll_period_snapshots WHERE company_id = ${companyId} AND user_id = ${filterUserId}`);
       const maxEnd = (pub.rows[0] as any)?.max_end as string | null;
       if (!maxEnd || String(pay_period_end) > maxEnd) {
-        return res.status(403).json({ error: "not_published", published: false, message: "This pay period hasn't been published yet." });
+        // [published-landing 2026-07-28] Return the viewer's latest published
+        // period end so the My Pay panel can auto-land on the week the tech can
+        // actually see (payroll publishes in arrears, so the current/last week is
+        // often still gated). This is the viewer's OWN latest published date — no
+        // cross-tech leak — and null when they have no published pay at all.
+        return res.status(403).json({ error: "not_published", published: false, published_through: maxEnd, message: "This pay period hasn't been published yet." });
       }
     }
 

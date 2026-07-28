@@ -37,7 +37,27 @@ async function fetchWindowSum(start: string, end: string, uq: string): Promise<W
   } catch { return EMPTY_SUM; }
 }
 
-function ymd(d: Date) { return d.toISOString().slice(0, 10); }
+// [tz-safe-ymd 2026-07-28] Format a Date as YYYY-MM-DD in LOCAL time. The old
+// `d.toISOString().slice(0,10)` read the date in UTC, so any time after ~19:00
+// in a UTC-negative tz (Chicago/CDT) rolled the day forward by one — the Sun–Sat
+// preset windows came out as Mon–Sun. That one-day slip pushed the requested
+// pay_period_end a day PAST the tech's published Saturday snapshot, so the
+// server's published-only gate judged an already-published week "not published"
+// and 403'd it. Local formatting keeps the week boundaries exactly on Sun/Sat.
+function ymd(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+// The Sun–Sat week containing a given YYYY-MM-DD (used to land on a published
+// period end). Parsed at local noon so the day-of-week is tz-stable.
+function weekOf(dateStr: string) {
+  const d = new Date(dateStr + "T12:00:00");
+  const start = new Date(d); start.setDate(d.getDate() - d.getDay());
+  const end = new Date(start); end.setDate(start.getDate() + 6);
+  return { start: ymd(start), end: ymd(end) };
+}
 function thisWeek() {
   const t = new Date();
   const start = new Date(t); start.setDate(t.getDate() - t.getDay());
@@ -77,6 +97,17 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
   // current week). Show a clear notice instead of a misleading $0. Office roles
   // never hit this branch.
   const [blocked, setBlocked] = useState(false);
+  // [published-landing 2026-07-28] Techs (and the office "View as Employee"
+  // preview) are gated to PUBLISHED pay only, and payroll publishes a week or
+  // more in arrears — so the default "This week" AND often "Last week" are both
+  // still unpublished. Landing on the current week left the tech staring at the
+  // not-published notice with no pay in sight (Sal: "her published week also
+  // doesn't show"). When the gated view lands on an unpublished period, the
+  // server tells us the tech's latest published period end; we jump there once
+  // so the panel opens on the money the tech can actually see. One-shot: after
+  // the auto-jump the user is free to navigate anywhere (incl. back to an
+  // unpublished week, which correctly shows the notice).
+  const [autoLanded, setAutoLanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,13 +125,26 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
     const uq = (userId ? `&user_id=${userId}` : "") + (asTech ? "&as_tech=1" : "");
     fetch(`${API}/api/payroll/detail?pay_period_start=${period.start}&pay_period_end=${period.end}${uq}`, { headers: getAuthHeaders() })
       .then(r => {
-        // 403 = period not published yet for this (non-office) viewer.
-        if (r.status === 403) return { __blocked: true };
+        // 403 = period not published yet for this (non-office) viewer. The body
+        // carries `published_through` = the viewer's latest published period end.
+        if (r.status === 403) return r.json().then(j => ({ __blocked: true, publishedThrough: (j?.published_through ?? null) as string | null })).catch(() => ({ __blocked: true, publishedThrough: null }));
         return r.ok ? r.json() : null;
       })
       .then(d => {
         if (cancelled) return;
-        if (d && (d as any).__blocked) { setBlocked(true); setData(null); }
+        if (d && (d as any).__blocked) {
+          const pt = (d as any).publishedThrough as string | null;
+          // Auto-land ONCE on the tech's most-recent published week instead of
+          // showing a bare notice on the (unpublished) default period.
+          if (!autoLanded && pt) {
+            setAutoLanded(true);
+            const wk = weekOf(pt);
+            setPreset(wk.start === lastWeek().start ? "last" : wk.start === thisWeek().start ? "this" : "custom");
+            setPeriod(wk); // period change re-runs this effect against the published week
+            return;
+          }
+          setBlocked(true); setData(null);
+        }
         else setData((d?.data && d.data[0]) || null);
       })
       .catch(() => { if (!cancelled) setData(null); })
@@ -167,7 +211,7 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
       {blocked && (
         <div style={{ background: "#FDF6E9", border: "1px solid #F2DFB8", borderRadius: 12, padding: "16px 18px", color: "#7A5A12", fontSize: 13, lineHeight: 1.5 }}>
           <div style={{ fontWeight: 800, marginBottom: 4 }}>Pay for this period isn't published yet</div>
-          Your pay shows here once the office publishes payroll — usually the following week. Tap <strong>Last week</strong> to see your most recent published pay.
+          Your pay shows here once the office publishes payroll — usually the following week. Your most recent published pay opens here automatically; use the date pickers to browse other published periods.
         </div>
       )}
 
