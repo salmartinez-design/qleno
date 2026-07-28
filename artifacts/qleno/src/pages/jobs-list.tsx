@@ -6,6 +6,7 @@ import { formatAddress } from "@/lib/format-address";
 import { useBranch } from "@/contexts/branch-context";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { X } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -508,14 +509,18 @@ export default function JobsListPage() {
               options={[["", "All"], ["true", "With photos"]]} />
             {/* [jobs-report 2026-07-28] Surface booked_on as a real date picker —
                 previously it was reachable only via the ?booked_on= URL param.
-                Setting it switches the period to "all" so the scheduled-date range
-                doesn't AND against it and zero the results. */}
-            <div>
-              <div style={FILTER_LABEL}>Booked On</div>
-              <input type="date" value={filters.booked_on || ""}
-                onChange={e => { setFilter("booked_on", e.target.value); if (e.target.value) setPeriod("all"); }}
-                style={FILTER_INPUT} />
-            </div>
+                Uses the app's shared CalendarPopover (same styled month grid as
+                dispatch, the other Reports pages, and the quote builder) instead
+                of the OS-native <input type="date"> popover, which didn't match
+                the Qleno design system. Value stays a YYYY-MM-DD string, so the
+                backend contract is unchanged. Setting a day switches the period
+                to "all" so the scheduled-date range doesn't AND against it and
+                zero the results; clearing restores the default month view. */}
+            <FilterDateField label="Booked On" value={filters.booked_on || ""}
+              onChange={v => {
+                if (v) { setFilter("booked_on", v); setPeriod("all"); }
+                else { setFilter("booked_on", ""); setPeriod("this_month"); }
+              }} />
             <div>
               <div style={FILTER_LABEL}>Revenue Min</div>
               <input type="number" value={filters.revenue_min || ""} onChange={e => setFilter("revenue_min", e.target.value)}
@@ -733,6 +738,30 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
         style={{ ...FILTER_INPUT, appearance: "none", cursor: "pointer" } as React.CSSProperties}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
+    </div>
+  );
+}
+
+// Filter-drawer date field built on the shared CalendarPopover (the app-wide
+// styled month grid) rather than a native <input type="date">, so date
+// selection on the Jobs report matches dispatch, the other Reports pages, and
+// the quote builder. Emits a YYYY-MM-DD string (or "" when cleared) — same
+// value contract the removed native input had. The block trigger fills the
+// grid cell like the sibling FILTER_INPUT fields; a Clear affordance appears
+// once a day is chosen, since CalendarPopover can only pick, never unset.
+function FilterDateField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <div style={{ ...FILTER_LABEL, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span>{label}</span>
+        {value && (
+          <button type="button" onClick={() => onChange("")}
+            style={{ display: "inline-flex", alignItems: "center", gap: 2, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 10, fontWeight: 700, color: ACCENT, fontFamily: FF, textTransform: "none", letterSpacing: 0 }}>
+            Clear <X size={10} />
+          </button>
+        )}
+      </div>
+      <CalendarPopover value={value} ariaLabel={label} onChange={onChange} block />
     </div>
   );
 }
