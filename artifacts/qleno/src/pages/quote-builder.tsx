@@ -616,6 +616,44 @@ export default function QuoteBuilderPage() {
     enabled: isEdit,
   });
 
+  // [referral-from-settings 2026-07-27] The "How did you hear about us?"
+  // pickers used to be a HARDCODED nine-slug list, so they never reflected
+  // the sources the office actually configured under Settings → Acquisition
+  // Sources (customer-profile already reads that table). Maribel's report:
+  // "the lead sources do not match the ones on the settings." Both pickers
+  // now read the tenant-managed list; the nine enum slugs remain only as a
+  // fallback when the table hasn't loaded / is empty.
+  const { data: leadSources = [] } = useQuery<{ id: number; slug: string; name: string }[]>({
+    queryKey: ["acquisition-sources"],
+    queryFn: () => apiFetch("/api/acquisition-sources").then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Single source of truth for both "How did you hear about us?" pickers.
+  // Prefer the tenant-managed acquisition_sources list; fall back to the nine
+  // referral_source enum slugs only until that list loads. A referralSource
+  // value that isn't in the active list (legacy slug, disabled source) is kept
+  // as a trailing option so editing a quote never silently drops it.
+  const referralOptions = (() => {
+    const base = leadSources.length > 0
+      ? leadSources.map(s => ({ value: s.slug, label: s.name }))
+      : [
+          { value: "google", label: "Google" },
+          { value: "facebook", label: "Facebook" },
+          { value: "nextdoor", label: "Nextdoor" },
+          { value: "yelp", label: "Yelp" },
+          { value: "client_referral", label: "Friend or family" },
+          { value: "door_hanger", label: "Door hanger / flyer" },
+          { value: "yard_sign", label: "Yard sign" },
+          { value: "website", label: "Our website" },
+          { value: "other", label: "Other" },
+        ];
+    if (referralSource && !base.some(o => o.value === referralSource)) {
+      base.push({ value: referralSource, label: `${referralSource.replace(/_/g, " ")} (legacy)` });
+    }
+    return base;
+  })();
+
   // ── Client search debounce ───────────────────────────────────────────────
   useEffect(() => {
     if (selectedClientId) return; // already selected, don't re-search
@@ -1764,23 +1802,15 @@ export default function QuoteBuilderPage() {
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
                   <select value={referralSource} onChange={e => setReferralSource(e.target.value)}
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 12px", fontFamily: FF, background: "#FFF" }}>
-                    {/* [referral-vocabulary 2026-07-23] Values are the
-                        referral_source ENUM, not display strings. This select
-                        used to emit google_local_services / manual / Nextdoor
-                        (capital N) and the one on the Review step emitted a
-                        THIRD set ("Referral - Friend/Family") — three
-                        vocabularies for one column, so the reports grouped on
-                        noise. Both selects now emit the same nine slugs. */}
+                    {/* [referral-from-settings 2026-07-27] Options come from the
+                        tenant-managed acquisition_sources list (Settings), so this
+                        matches what the office configured. referralOptions falls
+                        back to the nine enum slugs until that list loads. Keep this
+                        list identical to the Review-step picker below. */}
                     <option value="">How did they hear about us?</option>
-                    <option value="google">Google</option>
-                    <option value="facebook">Facebook</option>
-                    <option value="nextdoor">Nextdoor</option>
-                    <option value="yelp">Yelp</option>
-                    <option value="client_referral">Friend or family</option>
-                    <option value="door_hanger">Door hanger / flyer</option>
-                    <option value="yard_sign">Yard sign</option>
-                    <option value="website">Our website</option>
-                    <option value="other">Other</option>
+                    {referralOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2457,18 +2487,12 @@ export default function QuoteBuilderPage() {
                       className="mt-1 w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       style={{ height: 36, border: referralError ? "1px solid #C0392B" : "1px solid hsl(var(--input))" }}
                     >
-                      {/* Same nine enum slugs as the intake select above — see
-                          the note there. Keep the two lists identical. */}
+                      {/* Same tenant-managed acquisition_sources list as the
+                          intake select above — see the note there. */}
                       <option value="">Select…</option>
-                      <option value="google">Google</option>
-                      <option value="facebook">Facebook</option>
-                      <option value="nextdoor">Nextdoor</option>
-                      <option value="yelp">Yelp</option>
-                      <option value="client_referral">Friend or family</option>
-                      <option value="door_hanger">Door hanger / flyer</option>
-                      <option value="yard_sign">Yard sign</option>
-                      <option value="website">Our website</option>
-                      <option value="other">Other</option>
+                      {referralOptions.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
                     </select>
                     {referralError && (
                       <span style={{ display: "block", marginTop: 5, fontSize: 11, color: "#C0392B", fontFamily: FF }}>
