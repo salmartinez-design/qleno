@@ -580,7 +580,7 @@ router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), a
 
 router.get("/detail", requireAuth, async (req, res) => {
   try {
-    const { pay_period_start, pay_period_end, user_id } = req.query;
+    const { pay_period_start, pay_period_end, user_id, as_tech } = req.query;
     if (!pay_period_start || !pay_period_end) {
       return res.status(400).json({ error: "pay_period_start and pay_period_end are required" });
     }
@@ -596,6 +596,17 @@ router.get("/detail", requireAuth, async (req, res) => {
     const canSeeAll = ["owner", "admin", "office", "super_admin"].includes(role);
     const filterUserId = canSeeAll ? (user_id ? parseInt(user_id as string) : null) : myUserId;
 
+    // [view-as-honest-preview 2026-07-28] The office "View as Employee" preview
+    // (My Jobs → "My pay") is meant to show what the TECH actually sees. It runs
+    // under the office user's token (canSeeAll), so without an explicit signal
+    // the published-only gate below would be bypassed and the preview would leak
+    // the live, unpublished current week — the exact number the tech is walled
+    // off from. The earnings panel passes `as_tech=1` (always with `user_id`) in
+    // that preview so the gate fires as if the viewer were that tech. The office's
+    // OWN payroll views (payroll page, employee-profile Earnings tab) never send
+    // `as_tech`, so they keep the live view they need to run/publish payroll.
+    const previewAsTech = as_tech === "1" || as_tech === "true";
+
     // [tech-pay-visibility 2026-07-27] Techs may see ONLY published pay — never
     // the live, current/unpublished week. Letting them pull live in-progress pay
     // was driving inter-staff conflict (comparing / assuming each other's pay —
@@ -605,7 +616,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     // any week-boundary mismatch between this panel and the payroll page) — any
     // requested window ending AFTER it (the in-progress week, or the future) is
     // withheld. The tech's published paychecks still come from /payroll/pay-history.
-    if (!canSeeAll) {
+    if (!canSeeAll || previewAsTech) {
       const pub = await db.execute(sql`SELECT MAX(pay_period_end)::text AS max_end FROM payroll_period_snapshots WHERE company_id = ${companyId} AND user_id = ${filterUserId}`);
       const maxEnd = (pub.rows[0] as any)?.max_end as string | null;
       if (!maxEnd || String(pay_period_end) > maxEnd) {
