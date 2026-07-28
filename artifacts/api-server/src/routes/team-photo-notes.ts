@@ -1,32 +1,42 @@
 // [team-photo-notes] Pictures + notes the team attaches to a job, or makes
 // sticky to a customer/property so they re-surface on every job there.
-// Office + techs both add (requireAuth). Mirrors attachments.ts for upload.
+// Office + techs both add (requireAuth).
+//
+// [team-photo-notes-r2 2026-07-28] Storage now mirrors job_photos /
+// attendance-attachments: the picture bytes go to Cloudflare R2, the DB stores
+// only the R2 object KEY in image_url, and reads sign a short-lived GET URL.
+// Previously the bytes were written to local disk (/api/uploads/<file>), which
+// on Railway is EPHEMERAL — every redeploy wiped the directory, so a picture
+// the office or a cleaner uploaded showed briefly and then 404'd on the next
+// deploy. That is why the office "kept adding the same notes again and again."
+// When R2 is not configured, falls back to an inline data: URL (persists in the
+// DB row) so uploads never break — never local disk.
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { teamPhotoNotesTable, jobsTable } from "@workspace/db/schema";
 import { eq, and, or, desc, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
+import crypto from "node:crypto";
+import { r2Configured, r2Upload, r2Delete, r2SignedGetUrl, isR2Key, teamPhotoNoteKey } from "../lib/r2.js";
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = "/tmp/uploads";
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 const router = Router();
 const toInt = (v: any) => (v === undefined || v === null || v === "" ? null : parseInt(String(v)));
+
+// R2 object keys in image_url are signed into a short-lived GET URL the browser
+// can load directly. Legacy /api/uploads/* (now-wiped disk) and data: rows pass
+// through untouched.
+async function signNote(row: typeof teamPhotoNotesTable.$inferSelect) {
+  return {
+    ...row,
+    image_url: isR2Key(row.image_url) ? await r2SignedGetUrl(row.image_url!) : row.image_url,
+  };
+}
 
 // List notes. Three query modes (company-scoped throughout):
 //   ?job_id=    → that job's own notes PLUS sticky notes matching the job's
@@ -71,7 +81,7 @@ router.get("/", requireAuth, async (req, res) => {
           ? or(eq(teamPhotoNotesTable.job_id, jobId), stickyClause)
           : eq(teamPhotoNotesTable.job_id, jobId),
       )).orderBy(desc(teamPhotoNotesTable.is_sticky), desc(teamPhotoNotesTable.created_at));
-      return res.json(rows);
+      return res.json(await Promise.all(rows.map(signNote)));
     }
 
     let scope;
@@ -85,7 +95,7 @@ router.get("/", requireAuth, async (req, res) => {
       eq(teamPhotoNotesTable.is_sticky, true),
       scope,
     )).orderBy(desc(teamPhotoNotesTable.created_at));
-    res.json(rows);
+    res.json(await Promise.all(rows.map(signNote)));
   } catch (e: any) {
     console.error("List team photo notes error:", e);
     res.status(500).json({ error: "Internal Server Error", message: e.message });
@@ -115,12 +125,20 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Add a picture or a note" });
     }
 
+    // [team-photo-notes-r2] Store the picture in R2 (persistent); the DB row
+    // keeps only the object key. Fall back to an inline data: URL when R2 is not
+    // configured so uploads still work — never the ephemeral local disk.
     let imageUrl: string | null = null;
-    if (req.file) {
-      const uploadsDir = process.env.UPLOADS_DIR ?? path.join(process.cwd(), "uploads");
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.renameSync(req.file.path, path.join(uploadsDir, req.file.filename));
-      imageUrl = `/api/uploads/${req.file.filename}`;
+    if (req.file && req.file.buffer?.length) {
+      const contentType = req.file.mimetype || "image/jpeg";
+      if (r2Configured()) {
+        const ext = (contentType.split("/")[1] || "jpg").split("+")[0];
+        const key = teamPhotoNoteKey(req.auth!.companyId!, crypto.randomBytes(12).toString("hex"), ext);
+        await r2Upload(key, req.file.buffer, contentType);
+        imageUrl = key;
+      } else {
+        imageUrl = `data:${contentType};base64,${req.file.buffer.toString("base64")}`;
+      }
     }
 
     const [row] = await db.insert(teamPhotoNotesTable).values({
@@ -134,7 +152,7 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
       note: note ? String(note) : null,
       uploaded_by: req.auth!.userId,
     }).returning();
-    res.status(201).json(row);
+    res.status(201).json(await signNote(row));
   } catch (e: any) {
     console.error("Create team photo note error:", e);
     res.status(500).json({ error: "Internal Server Error", message: e.message });
@@ -144,10 +162,16 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await db.delete(teamPhotoNotesTable).where(and(
+    // Delete the row (company-scoped) and get it back so we can remove the
+    // backing R2 object, if any. One query — same shape as before.
+    const [row] = await db.delete(teamPhotoNotesTable).where(and(
       eq(teamPhotoNotesTable.id, id),
       eq(teamPhotoNotesTable.company_id, req.auth!.companyId),
-    ));
+    )).returning();
+    if (row && isR2Key(row.image_url)) {
+      try { await r2Delete(row.image_url!); }
+      catch (e) { console.error("team photo note R2 delete failed (non-fatal):", e); }
+    }
     res.json({ success: true });
   } catch (e: any) {
     console.error("Delete team photo note error:", e);

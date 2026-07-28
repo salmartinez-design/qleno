@@ -41,6 +41,13 @@ const INK = "#1A1917";
 const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 
+// [team-photo-notes-r2 2026-07-28] image_url is now an R2 signed URL (absolute
+// https) or a data: URL from the API; legacy rows may still carry a relative
+// /api/uploads path. Only prefix the API origin for relative paths — prefixing
+// an absolute/data URL would corrupt it.
+const imgSrc = (u: string) =>
+  /^(https?:|data:)/.test(u) ? u : `${API}${u}`;
+
 export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
   const { jobId, clientId, accountId, accountPropertyId } = props;
   const isJobContext = jobId != null;
@@ -183,8 +190,8 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
             // purposes visually distinct at a glance.
             <div key={n.id} style={{ display: "flex", gap: 10, border: `1px solid ${n.is_sticky ? "#BBD3F5" : "#F5DFA6"}`, background: n.is_sticky ? "#EFF5FE" : "#FEFCE8", borderRadius: 10, padding: 10 }}>
               {n.image_url && (
-                <a href={`${API}${n.image_url}`} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
-                  <img src={`${API}${n.image_url}`} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: `1px solid ${BORDER}` }} />
+                <a href={imgSrc(n.image_url)} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
+                  <img src={imgSrc(n.image_url)} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: `1px solid ${BORDER}` }} />
                 </a>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>

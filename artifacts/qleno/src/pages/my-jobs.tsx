@@ -322,6 +322,7 @@ export type Job = {
   status: string;
   scheduled_date: string;
   scheduled_time: string | null;
+  client_id: number | null;
   account_id: number | null;
   account_name: string | null;
   billing_method: string | null;
@@ -1332,6 +1333,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       <div style={{ marginTop: 12 }}>
         <TeamPhotoNotes
           jobId={job.id}
+          jobClientId={job.client_id ?? null}
           jobAccountId={job.account_id ?? null}
           jobAccountPropertyId={job.account_property_id ?? null}
         />

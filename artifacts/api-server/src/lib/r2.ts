@@ -112,6 +112,20 @@ export function jobPhotoKey(
   return `companies/${companyId}/jobs/${jobId}/${rand}.${safeExt}`;
 }
 
+// [team-photo-notes-r2 2026-07-28] Key for a picture attached to a team
+// photo/note (the every-visit crew context: gate code, where to park, supply
+// closet). Mirrors jobPhotoKey/attendanceAttachmentKey — bytes live in R2, the
+// DB stores only this key, reads sign it. Was writing to ephemeral local disk
+// (/api/uploads), so every Railway redeploy wiped the images.
+export function teamPhotoNoteKey(
+  companyId: number,
+  rand: string,
+  ext: string
+): string {
+  const safeExt = (ext || "jpg").replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
+  return `companies/${companyId}/team-photo-notes/${rand}.${safeExt}`;
+}
+
 // [attendance-attachments 2026-07-11] Key for a file attached to an
 // attendance-log record (injury photo, doctor's note).
 export function attendanceAttachmentKey(
