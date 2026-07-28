@@ -250,6 +250,37 @@ router.post("/email/webhook", async (req, res) => {
           VALUES (${logId}, ${type}, ${JSON.stringify(data)}, NOW())
         `);
       }
+
+      // [client-email-tracking 2026-07-27] Client-facing automated emails
+      // (booking confirmation, reminders, completion, invoice) are logged in
+      // notification_log, NOT communication_log — notificationService stamps the
+      // Resend id into metadata._provider_id. The customer-profile message chain
+      // reads notification_log.status, so without this update those emails were
+      // stuck showing "Sent" forever (Maribel: "I don't see opened/received/
+      // bounced for clients"). Mirror the delivery status onto the matching
+      // notification_log row so the chain shows Delivered / Undelivered / Failed
+      // exactly like quote/estimate emails. Match on the stored provider id.
+      //   - Guard against a late/out-of-order 'email.sent' event downgrading a
+      //     meaningful status (delivered/undelivered/failed) back to 'sent'.
+      //   - Stamp the open/delivery/bounce timestamps into metadata for audit
+      //     (notification_log has no dedicated opened_at column).
+      const nlSkipDowngrade = newStatus === "sent"
+        ? sql` AND status NOT IN ('delivered', 'undelivered', 'failed')`
+        : sql``;
+      await db.execute(sql`
+        UPDATE notification_log
+        SET
+          status = ${newStatus},
+          metadata = jsonb_set(
+            jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{_delivery_status}', to_jsonb(${newStatus}::text), true),
+            ${type === "email.opened" ? "{_opened_at}" : type === "email.bounced" ? "{_bounced_at}" : "{_delivered_at}"},
+            to_jsonb(now()::text), true)
+        WHERE company_id IS NOT NULL
+          AND metadata->>'_provider_id' = ${emailId}
+          ${nlSkipDowngrade}
+      `);
     }
   } catch (err) {
     console.error("[Resend webhook]", err);
