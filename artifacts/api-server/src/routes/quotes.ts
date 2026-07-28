@@ -18,15 +18,25 @@ const router = Router();
 // every sold add-on on the floor — the booked job had no job_add_ons rows, so
 // the tech card's "Services this visit", the edit-job modal, and invoicing all
 // lost the extras the office sold on the quote.
-function quoteAddonsToJobAddOns(addons: unknown): { pricing_addon_id?: number; qty: number; unit_price?: number; subtotal?: number }[] {
+// [addon-qty+recurrence 2026-07-28] Carry the office's real per-add-on quantity
+// and first-visit/every-visit flag from the quote JSON into job_add_ons /
+// recurring_schedule_add_ons. The quote row's `amount` is the priced TOTAL
+// (qty × unit, as the pricing engine folds it), so unit_price = amount / qty and
+// subtotal = amount. Older quotes without `qty` behave exactly as before (qty 1).
+function quoteAddonsToJobAddOns(addons: unknown): { pricing_addon_id?: number; qty: number; unit_price?: number; subtotal?: number; every_visit: boolean }[] {
   if (!Array.isArray(addons)) return [];
   return addons
-    .map((a: any) => ({
-      pricing_addon_id: Number(a?.id) || undefined,
-      qty: 1,
-      unit_price: a?.amount != null ? Number(a.amount) : undefined,
-      subtotal: a?.amount != null ? Number(a.amount) : undefined,
-    }))
+    .map((a: any) => {
+      const qty = Math.max(1, Number(a?.qty ?? 1) || 1);
+      const total = a?.amount != null ? Number(a.amount) : undefined;
+      return {
+        pricing_addon_id: Number(a?.id) || undefined,
+        qty,
+        unit_price: total != null ? Math.round((total / qty) * 100) / 100 : undefined,
+        subtotal: total,
+        every_visit: a?.every_visit !== false,
+      };
+    })
     .filter(a => a.pricing_addon_id);
 }
 
@@ -775,8 +785,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       for (const a of newAddons) {
         try {
           await db.execute(sql`
-            INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
-            VALUES (${sched.id}, ${a.pricing_addon_id}, ${a.qty})
+            INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty, every_visit)
+            VALUES (${sched.id}, ${a.pricing_addon_id}, ${a.qty}, ${a.every_visit})
           `);
         } catch (e) { console.warn("[quote convert] schedule add-on insert failed:", e); }
       }

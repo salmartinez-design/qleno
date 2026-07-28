@@ -33,19 +33,41 @@ const FF = "'Plus Jakarta Sans', sans-serif";
 
 // [counter-unify 2026-05-27] Centralized rule for which add-ons render
 // with the +/- counter UI vs a checkbox. Name-matched (case-insensitive)
-// so it works regardless of slug/scope-id. Kept narrow on purpose —
-// Baseboards and Manual Adjustment intentionally stay as checkboxes
-// because their semantics aren't qty-multiplied (per Sal).
+// so it works regardless of slug/scope-id.
+// [addon-qty 2026-07-28] Baseboards added — Sal wants a real qty on every
+// flat per-item add-on (Oven, Refrigerator, Kitchen Cabinets, Baseboards,
+// Parking). The percentage-typed ones (Windows +15%, Clean Basement +15%)
+// are excluded at the call site via `isPercentAddon(addon)` because a qty
+// multiplier on a percentage is nonsense — this name list is intentionally
+// a superset and the price_type guard has the final say.
 function isCounterAddon(name: string): boolean {
   const n = name.toLowerCase();
   return (
     n.includes("oven") ||
     n.includes("refrigerator") ||
     n.includes("cabinet") ||
+    n.includes("baseboard") ||
     n.includes("window") ||
     n.includes("basement") ||
     n.includes("parking")
   );
+}
+
+// [addon-qty 2026-07-28] Percentage-priced add-ons must NEVER get a qty
+// counter — multiplying a percentage (e.g. Windows +15%) by a count is
+// meaningless. This is the guard that overrides the name-based list above.
+function isPercentAddon(addon: { price_type?: string | null }): boolean {
+  return addon.price_type === "percentage" || addon.price_type === "percent";
+}
+
+// [addon-recurrence 2026-07-28] A scope is "recurring" when a cadence is
+// selected that isn't a one-time visit. Drives the per-add-on First visit /
+// Every visit choice — only recurring services repeat, so a one-time quote
+// never shows the toggle (its add-ons apply to the single job as before).
+function isRecurringFrequency(freq: string | null | undefined): boolean {
+  const f = (freq || "").toLowerCase();
+  if (!f) return false;
+  return !/one|single|once/.test(f);
 }
 
 // [translate-job-notes 2026-05-27] Inline "Translate to Spanish" button +
@@ -758,6 +780,9 @@ export default function QuoteBuilderPage() {
           frequency: existingQuote.frequency || "",
           hours: existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0,
           addon_ids: Array.isArray(existingQuote.addons) ? existingQuote.addons.map((a: any) => a.id).filter(Boolean) : [],
+          // [addon-qty 2026-07-28] Carry the raw saved add-on rows so qty +
+          // first/every-visit round-trip on reopen (not just the ids).
+          addon_meta: Array.isArray(existingQuote.addons) ? existingQuote.addons : [],
           // [rate-override 2026-07-11] Restore the explicit per-quote rate override
           // so editing a quote doesn't silently drop it.
           hourly_rate_override: existingQuote.hourly_rate_override != null ? parseFloat(existingQuote.hourly_rate_override) : null,
@@ -975,7 +1000,7 @@ export default function QuoteBuilderPage() {
   }
 
   // ── Toggle scope selection ────────────────────────────────────────────────
-  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null; displayLabel?: string; adjPlus?: number; adjPlusReason?: string; adjMinus?: number; adjMinusReason?: string }) {
+  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; addon_meta?: any[]; hourly_rate_override?: number | null; displayLabel?: string; adjPlus?: number; adjPlusReason?: string; adjMinus?: number; adjMinusReason?: string }) {
     const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
     if (isSelected && !initialState) {
       setSelectedScopes(prev => prev.filter(s => s.scope_id !== scope.id));
@@ -991,14 +1016,24 @@ export default function QuoteBuilderPage() {
       const defaultFreq = (freqs as PricingFrequency[]).find(f =>
         f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single") || f.frequency.toLowerCase().includes("once")
       ) ?? (freqs as PricingFrequency[])[0];
-      // [counter-unify 2026-05-27] Seed qty=1 for any counter-style addon
-      // that came in via addon_ids on quote restore. quote_addons doesn't
-      // persist qty (pre-existing schema gap), so existing drafts would
-      // otherwise show the counter at 0 even though the addon is selected.
+      // [counter-unify 2026-05-27] Seed qty for any counter-style addon that came
+      // in via addon_ids on quote restore, so the counter shows the real count
+      // instead of 0. [addon-qty 2026-07-28] Prefer the saved qty from the quote
+      // JSON row (now persisted) and fall back to 1 for older drafts.
+      const savedMeta: Record<number, any> = {};
+      for (const m of initialState?.addon_meta ?? []) { if (m && m.id != null) savedMeta[Number(m.id)] = m; }
       const seededQtys: Record<number, number> = {};
+      const seededRecurring: Record<number, boolean> = {};
       for (const aid of initialState?.addon_ids ?? []) {
         const a = (addons as PricingAddon[]).find(x => x.id === aid);
-        if (a && isCounterAddon(a.name)) seededQtys[aid] = 1;
+        const meta = savedMeta[aid];
+        if (a && !isPercentAddon(a) && isCounterAddon(a.name)) {
+          const savedQty = meta && meta.qty != null ? Math.max(1, parseInt(String(meta.qty), 10) || 1) : 1;
+          seededQtys[aid] = savedQty;
+        }
+        // every_visit === false → office chose "first visit only"; anything else
+        // defaults to every visit, so only persist the explicit false.
+        if (meta && meta.every_visit === false) seededRecurring[aid] = false;
       }
       const newState: SelectedScopeState = {
         scope_id: scope.id,
@@ -1007,7 +1042,7 @@ export default function QuoteBuilderPage() {
         hoursOverrideSet: false,
         addon_ids: initialState?.addon_ids ?? [],
         addonQtys: seededQtys,
-        addonRecurring: {},
+        addonRecurring: seededRecurring,
         // [discount-rehydrate 2026-07-27] Restore the saved per-scope manual
         // adjustments (Add charge / Discount) so reopening a quote doesn't wipe
         // the discount the office already entered.
@@ -1224,15 +1259,32 @@ export default function QuoteBuilderPage() {
     // by id so reopen restores the selection and convert keeps them as job
     // add-ons. No double-count: amount=0 and the time already lives in
     // estimated_hours.
+    // [addon-qty+recurrence 2026-07-28] Carry a real per-add-on quantity and the
+    // first-visit/every-visit flag through persist → convert → job_add_ons /
+    // recurring_schedule_add_ons. `qty` mirrors the counter the office set
+    // (default 1); `every_visit` is true unless the office chose "first visit
+    // only" on a recurring scope. amount stays the priced TOTAL (qty × unit, as
+    // the engine folds it) so downstream can derive per-unit = amount / qty.
+    const qtyOf = (id: number) => primaryScopeState?.addonQtys[id] ?? 1;
+    const everyVisitOf = (id: number) => primaryScopeState?.addonRecurring[id] !== false;
     const pricedAddons = cr?.addon_breakdown ?? [];
     const pricedAddonIds = new Set(pricedAddons.map(a => a.id));
-    const extraSelectedAddons = (primaryScopeState?.addon_ids ?? [])
+    // Enrich real priced rows with qty + recurrence; leave the synthetic Manual
+    // Adjustment row (id -1) untouched.
+    const enrichedPriced = pricedAddons.map(a => a.id > 0 ? { ...a, qty: qtyOf(a.id), every_visit: everyVisitOf(a.id) } : a);
+    // Selected = checkbox add-ons (addon_ids) ∪ counter add-ons with qty > 0
+    // (hourly ovens etc. live only in addonQtys, never addon_ids).
+    const selectedAddonIds = new Set<number>([
+      ...(primaryScopeState?.addon_ids ?? []),
+      ...Object.entries(primaryScopeState?.addonQtys ?? {}).filter(([, q]) => (q as number) > 0).map(([k]) => Number(k)),
+    ]);
+    const extraSelectedAddons = [...selectedAddonIds]
       .filter(id => !pricedAddonIds.has(id))
       .map(id => {
         const meta = primaryScopeState?.addons.find(a => a.id === id);
-        return { id, name: meta?.name ?? "", amount: 0, price_type: meta?.price_type ?? "time_only" };
+        return { id, name: meta?.name ?? "", amount: 0, price_type: meta?.price_type ?? "time_only", qty: qtyOf(id), every_visit: everyVisitOf(id) };
       });
-    const addonsPersist = [...pricedAddons, ...extraSelectedAddons];
+    const addonsPersist = [...enrichedPriced, ...extraSelectedAddons];
     const client = clientLoaded;
     const alternateOptions = selectedScopes
       .filter(s => s.scope_id !== primaryScopeId)
@@ -1900,24 +1952,43 @@ export default function QuoteBuilderPage() {
                       )}
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {activeAddons.map(a => {
-                          const isPct = a.price_type === "percentage";
+                          const isPct = isPercentAddon(a);
                           const isSel = s.addon_ids.includes(a.id);
                           const clay = isPct && !scopeIsHourly;
                           const chipBg = clay ? "#F3ECDD" : "var(--brand-dim)";
                           const chipColor = clay ? "#8A6D2E" : "#0F7A63";
                           const selBorder = clay ? "#CBB37A" : "var(--brand)";
                           const selBg = clay ? "#FBF6EC" : "var(--brand-soft)";
+                          const scopeIsRecurring = isRecurringFrequency(s.frequency);
+                          const everyVisit = s.addonRecurring[a.id] !== false;
                           return (
-                            <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", borderRadius: 10, border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, background: isSel ? selBg : "#FFF", cursor: "pointer" }}>
-                              <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
-                                <AddonIcon name={a.name} size={18} color={chipColor} />
-                              </span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{a.name}</div>
-                                <div style={{ fontSize: 11, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : "#6B6860", fontWeight: scopeIsHourly ? 600 : 400 }}>{scopeIsHourly ? "Included" : addonDisplayPrice(a)}</div>
-                              </div>
-                              <input type="checkbox" checked={isSel} onChange={e => updateScopeAddon(s.scope_id, a.id, e.target.checked)} style={{ width: 18, height: 18, flexShrink: 0 }} />
-                            </label>
+                            <div key={a.id} style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 11px", borderRadius: 10, border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, background: isSel ? selBg : "#FFF" }}>
+                              <label style={{ display: "flex", alignItems: "center", gap: 11, cursor: "pointer" }}>
+                                <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
+                                  <AddonIcon name={a.name} size={18} color={chipColor} />
+                                </span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{a.name}</div>
+                                  <div style={{ fontSize: 11, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : "#6B6860", fontWeight: scopeIsHourly ? 600 : 400 }}>{scopeIsHourly ? "Included" : addonDisplayPrice(a)}</div>
+                                </div>
+                                <input type="checkbox" checked={isSel} onChange={e => updateScopeAddon(s.scope_id, a.id, e.target.checked)} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                              </label>
+                              {/* [addon-recurrence 2026-07-28] First visit / Every visit — recurring scopes only, once selected. */}
+                              {isSel && scopeIsRecurring && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 45 }}>
+                                  {([{ key: true, label: "Every visit" }, { key: false, label: "First visit only" }] as const).map(opt => {
+                                    const on = everyVisit === opt.key;
+                                    return (
+                                      <button key={String(opt.key)} type="button"
+                                        onClick={() => updateScopeAddonRecurring(s.scope_id, a.id, opt.key)}
+                                        style={{ fontSize: 10.5, fontWeight: on ? 700 : 500, fontFamily: FF, color: on ? "var(--brand)" : "#6B6860", border: `1px solid ${on ? "var(--brand)" : "#E5E2DC"}`, background: on ? "var(--brand-soft)" : "#FFF", borderRadius: 20, padding: "3px 10px", cursor: "pointer" }}>
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -3149,6 +3220,9 @@ export default function QuoteBuilderPage() {
                           {selectedScopes.map(targetScope => {
                             const scopeMeta = scopes.find(sc => sc.id === targetScope.scope_id);
                             const scopeIsHourly = scopeMeta?.pricing_method === "hourly" || scopeMeta?.pricing_method === "simplified";
+                            // [addon-recurrence 2026-07-28] Recurring services get the
+                            // First visit / Every visit choice per selected add-on.
+                            const scopeIsRecurring = isRecurringFrequency(targetScope.frequency);
                             // [addon-adjustment-exclude 2026-07-27] "Manual Adjustment"
                             // and "Commercial Adjustment" aren't real add-ons — they're
                             // free-form price levers already covered by the Price
@@ -3196,8 +3270,12 @@ export default function QuoteBuilderPage() {
                                 ) : (
                                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 230px), 1fr))", gap: 8 }}>
                                     {activeAddons.map(addon => {
-                                      const isCounter = !scopeIsHourly && isCounterAddon(addon.name);
-                                      const isPct = addon.price_type === "percentage";
+                                      const isPct = isPercentAddon(addon);
+                                      // [addon-qty 2026-07-28] Counter (qty stepper) applies to
+                                      // per-item add-ons on BOTH billed and hourly scopes — on
+                                      // hourly the count still tells the tech "clean 2 ovens"
+                                      // while each unit stays $0. Percentage add-ons never count.
+                                      const isCounter = !isPct && isCounterAddon(addon.name);
                                       const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
                                       const qty = targetScope.addonQtys[addon.id] ?? 0;
                                       const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
@@ -3213,42 +3291,59 @@ export default function QuoteBuilderPage() {
                                       const chipColor = clay ? "#8A6D2E" : "#0F7A63";
                                       const selBorder = clay ? "#CBB37A" : "var(--brand)";
                                       const selBg = clay ? "#FBF6EC" : "var(--brand-soft)";
+                                      // [addon-recurrence 2026-07-28] every visit (default) vs
+                                      // first visit only — shown once the add-on is selected on
+                                      // a recurring scope. addonRecurring[id] === false → first
+                                      // visit only; anything else → every visit.
+                                      const everyVisit = targetScope.addonRecurring[addon.id] !== false;
                                       return (
-                                        <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 11, background: isSel ? selBg : "#FFF", border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, borderRadius: 10, padding: "10px 11px", transition: "border-color 0.12s, background 0.12s" }}>
-                                          <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
-                                            <AddonIcon name={addon.name} size={18} color={chipColor} />
-                                          </span>
-                                          <div style={{ minWidth: 0, flex: 1 }}>
-                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{addon.name}</div>
-                                            <div style={{ fontSize: 11, marginTop: 1, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : (fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#6B6860"), fontWeight: scopeIsHourly ? 600 : 400 }}>{priceText}</div>
-                                          </div>
-                                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
-                                            {scopeIsHourly ? (
-                                              isSel ? (
+                                        <div key={addon.id} style={{ display: "flex", flexDirection: "column", gap: 8, background: isSel ? selBg : "#FFF", border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, borderRadius: 10, padding: "10px 11px", transition: "border-color 0.12s, background 0.12s" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                                            <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
+                                              <AddonIcon name={addon.name} size={18} color={chipColor} />
+                                            </span>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                              <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{addon.name}</div>
+                                              <div style={{ fontSize: 11, marginTop: 1, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : (fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#6B6860"), fontWeight: scopeIsHourly ? 600 : 400 }}>{priceText}</div>
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
+                                              {isCounter ? (
+                                                <>
+                                                  <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
+                                                    style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: qty === 0 ? "#F7F6F3" : "#FFF", color: qty === 0 ? "#C4C2BB" : "#6B6860", fontSize: 15, lineHeight: 1, cursor: qty === 0 ? "not-allowed" : "pointer", display: "grid", placeItems: "center" }}>−</button>
+                                                  <span style={{ minWidth: 16, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: FF, fontVariantNumeric: "tabular-nums" }}>{qty}</span>
+                                                  <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
+                                                    style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: "#FFF", color: "#6B6860", fontSize: 15, lineHeight: 1, cursor: "pointer", display: "grid", placeItems: "center" }}>+</button>
+                                                </>
+                                              ) : isSel ? (
                                                 <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, false)} title="Remove"
-                                                  style={{ fontSize: 10, fontWeight: 700, color: "#0F7A63", background: "#E9F6F1", border: "none", borderRadius: 20, padding: "3px 9px", cursor: "pointer", fontFamily: FF }}>Included</button>
+                                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: scopeIsHourly ? "#0F7A63" : (clay ? "#8A6D2E" : "var(--brand)"), border: scopeIsHourly ? "none" : `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: scopeIsHourly ? "#E9F6F1" : "#FFF", borderRadius: scopeIsHourly ? 20 : 7, padding: scopeIsHourly ? "3px 9px" : "5px 10px", cursor: "pointer", fontFamily: FF }}>
+                                                  {scopeIsHourly ? "Included" : <><Check size={12} strokeWidth={2.6} /> Added</>}
+                                                </button>
                                               ) : (
                                                 <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, true)}
-                                                  style={{ fontSize: 11, fontWeight: 700, color: "var(--brand)", border: "1px solid var(--brand)", background: "#FFF", borderRadius: 7, padding: "5px 11px", cursor: "pointer", fontFamily: FF }}>Add</button>
-                                              )
-                                            ) : isCounter ? (
-                                              <>
-                                                <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
-                                                  style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: qty === 0 ? "#F7F6F3" : "#FFF", color: qty === 0 ? "#C4C2BB" : "#6B6860", fontSize: 15, lineHeight: 1, cursor: qty === 0 ? "not-allowed" : "pointer", display: "grid", placeItems: "center" }}>−</button>
-                                                <span style={{ minWidth: 16, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: FF, fontVariantNumeric: "tabular-nums" }}>{qty}</span>
-                                                <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
-                                                  style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: "#FFF", color: "#6B6860", fontSize: 15, lineHeight: 1, cursor: "pointer", display: "grid", placeItems: "center" }}>+</button>
-                                              </>
-                                            ) : isSel ? (
-                                              <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, false)} title="Remove"
-                                                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: clay ? "#8A6D2E" : "var(--brand)", border: `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: "#FFF", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>
-                                                <Check size={12} strokeWidth={2.6} /> Added
-                                              </button>
-                                            ) : (
-                                              <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, true)}
-                                                style={{ fontSize: 11, fontWeight: 700, color: clay ? "#8A6D2E" : "var(--brand)", border: `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: "#FFF", borderRadius: 7, padding: "5px 11px", cursor: "pointer", fontFamily: FF }}>Add</button>
-                                            )}
+                                                  style={{ fontSize: 11, fontWeight: 700, color: clay ? "#8A6D2E" : "var(--brand)", border: `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: "#FFF", borderRadius: 7, padding: "5px 11px", cursor: "pointer", fontFamily: FF }}>Add</button>
+                                              )}
+                                            </div>
                                           </div>
+                                          {/* [addon-recurrence 2026-07-28] First visit / Every visit — recurring scopes only, once selected. */}
+                                          {isSel && scopeIsRecurring && (
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 45 }}>
+                                              {([
+                                                { key: true, label: "Every visit" },
+                                                { key: false, label: "First visit only" },
+                                              ] as const).map(opt => {
+                                                const on = everyVisit === opt.key;
+                                                return (
+                                                  <button key={String(opt.key)} type="button"
+                                                    onClick={() => updateScopeAddonRecurring(targetScope.scope_id, addon.id, opt.key)}
+                                                    style={{ fontSize: 10.5, fontWeight: on ? 700 : 500, fontFamily: FF, color: on ? "var(--brand)" : "#6B6860", border: `1px solid ${on ? "var(--brand)" : "#E5E2DC"}`, background: on ? "var(--brand-soft)" : "#FFF", borderRadius: 20, padding: "3px 10px", cursor: "pointer" }}>
+                                                    {opt.label}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       );
                                     })}

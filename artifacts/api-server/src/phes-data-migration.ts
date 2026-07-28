@@ -918,6 +918,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_rs_addons_schedule",
       stmt: `CREATE INDEX IF NOT EXISTS idx_rs_addons_schedule ON recurring_schedule_add_ons(recurring_schedule_id)` },
+    // [addon-recurrence 2026-07-28] Per-add-on first-visit-only vs every-visit
+    // flag. Default true = every generated visit gets the add-on stamped;
+    // false = only the schedule's first (start-date) visit. Mirrors the
+    // parking-fee-per-occurrence pattern.
+    { label: "recurring_schedule_add_ons.every_visit",
+      stmt: `ALTER TABLE recurring_schedule_add_ons ADD COLUMN IF NOT EXISTS every_visit BOOLEAN NOT NULL DEFAULT true` },
 
     // Recurring techs junction — multi-tech default for spawned jobs.
     { label: "CREATE recurring_schedule_technicians", stmt: `

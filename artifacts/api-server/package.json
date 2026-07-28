@@ -11,6 +11,7 @@
     "test:bundle": "tsx --test src/tests/bundle-discount.test.ts",
     "test:petfee": "tsx --test src/tests/pet-fee.test.ts",
     "test:parking": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/parking-waterfall.test.ts",
+    "test:schedule-addons": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/schedule-addons.test.ts",
     "test:lms": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/lms-*.test.ts",
     "test:cutover": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/cutover-*.test.ts",
     "test:promos": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/auto-promos.test.ts",
