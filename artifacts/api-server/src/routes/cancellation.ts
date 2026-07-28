@@ -618,13 +618,46 @@ router.post("/action", requireAuth, async (req, res) => {
         };
         const subject = SUBJECTS[action] ?? `Appointment Update`;
 
+        // [chain-log 2026-07-27] Log every appointment-change message to the
+        // communication_log so it shows on the customer's Messages timeline.
+        // (Maribel: confirmation + cancellation should appear on the chain.)
+        // These were sent straight to Twilio/Resend and never recorded, so
+        // cancellations/skips/reschedules were invisible on the profile.
+        // communication_log is matched by customer_id, so this is robust
+        // regardless of phone/email format. Only what we actually sent is
+        // logged (the writes sit inside each send's success path).
+        const LOG_SOURCE: Partial<Record<typeof action, string>> = {
+          skip: "skip", cancel: "cancellation", lockout: "lockout",
+          move: "reschedule", bump: "reschedule", cancel_service: "cancellation",
+        };
+        const logSource = LOG_SOURCE[action] ?? "cancellation";
+        const logComm = async (
+          channel: "sms" | "email", recipient: string,
+          sid: string | null, emailId: string | null,
+        ) => {
+          try {
+            await db.execute(sql`
+              INSERT INTO communication_log
+                (company_id, customer_id, job_id, direction, channel, source, recipient,
+                 subject, body, summary, twilio_message_sid, resend_email_id, delivery_status)
+              VALUES
+                (${companyId}, ${row.client_id}, ${body.job_id ?? null},
+                 'outbound'::text, ${channel}::text, ${logSource}, ${recipient},
+                 ${channel === "email" ? subject : null}, ${message}, ${message.substring(0, 200)},
+                 ${sid}, ${emailId}, 'sent')`);
+          } catch (logErr) {
+            console.error("[cancellation] comm-log write failed:", logErr);
+          }
+        };
+
         // SMS
         if ((notifyVia === "sms" || notifyVia === "both") && c.phone && !c.sms_opt_out_at) {
           if (process.env.COMMS_ENABLED === "true") {
             const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
             const sender = await resolveSender(companyId);
             if (!sender.reason) {
-              await sendSmsVia(sender, c.phone, message);
+              const resp = await sendSmsVia(sender, c.phone, message);
+              await logComm("sms", c.phone, resp?.sid ?? null, null);
             }
           }
         }
@@ -641,7 +674,8 @@ router.post("/action", requireAuth, async (req, res) => {
 <p style="font-size:15px;line-height:1.6;margin:0 0 20px">${message}</p>
 <p style="font-size:12px;color:#9E9B94;margin:0">— ${fromName}</p>
 </div>`;
-            await resend.emails.send({ from, to: [c.email], subject, html });
+            const sent: any = await resend.emails.send({ from, to: [c.email], subject, html });
+            await logComm("email", c.email, null, sent?.data?.id ?? null);
           }
         }
       } catch (e) {

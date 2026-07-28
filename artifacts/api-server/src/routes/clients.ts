@@ -709,7 +709,13 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                ) AS job_id
           FROM notification_log nl
          WHERE nl.company_id = ${companyId}
-           AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
+           AND (( ${email} <> '' AND nl.recipient = ${email})
+             -- Match SMS sends by normalized last-10 digits, not exact string.
+             -- notification_log.recipient stores whatever format the send used
+             -- ((312) 420-8454 vs 3124208454 vs +13124208454); an exact match
+             -- silently dropped confirmations/reminders whose format differed
+             -- from clients.phone. Mirrors the sms_messages/message_log branches.
+             OR ( ${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(nl.recipient, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
         UNION ALL
         SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
                'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
