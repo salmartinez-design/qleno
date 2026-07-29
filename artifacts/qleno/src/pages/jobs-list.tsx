@@ -36,7 +36,11 @@ const DANGER_BG = "#FCEBEA";
 const SLATE    = "#2F3646";
 const SLATE_BG = "#EFEFF2";
 const CLAY     = "#C2673F";
-const SECLABEL: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: FAINT, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" };
+// [cancel-vs-reschedule 2026-07-29] Muted blue-slate for the "Rescheduled /
+// reassigned" status-mix bucket — visually distinct from SLATE (Scheduled),
+// the gray Cancelled swatch, and CLAY (Unassigned); reads as "moved, not lost".
+const MOVED    = "#7C89A6";
+const SECLABEL: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 12px" };
 
 // ── Column definitions ───────────────────────────────────────────────────────
 interface ColDef {
@@ -76,7 +80,9 @@ const PAYMENT_STYLE: Record<string, { bg: string; color: string; label: string }
   paid:    { bg: "#E6F6F1", color: "#15803D", label: "Paid" },
   unpaid:  { bg: "#FDF3E4", color: "#B45309", label: "Unpaid" },
   failed:  { bg: "#FCEBEA", color: "#B3261E", label: "Failed" },
-  pending: { bg: "#EEF2FF", color: "#4338CA", label: "Pending" },
+  // [ui-consistency 2026-07-29] Canonical slate, NOT the off-palette cool-blue
+  // #4338CA/#EEF2FF the redesign already purged from the Scheduled status badge.
+  pending: { bg: SLATE_BG, color: SLATE, label: "Pending" },
 };
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -528,9 +534,10 @@ export default function JobsListPage() {
     scheduled: Number(rawMix.scheduled) || 0,
     complete: Number(rawMix.complete) || 0,
     cancelled: Number(rawMix.cancelled) || 0,
+    rescheduled: Number(rawMix.rescheduled) || 0,
     unassigned: Number(rawMix.unassigned) || 0,
   };
-  const mixTotal = mix.scheduled + mix.complete + mix.cancelled + mix.unassigned;
+  const mixTotal = mix.scheduled + mix.complete + mix.cancelled + mix.rescheduled + mix.unassigned;
   const leaderboard: any[] = Array.isArray(kpi?.leaderboard) ? kpi.leaderboard : [];
   const lbMax = leaderboard.reduce((m: number, t: any) => Math.max(m, Number(t?.revenue) || 0), 0) || 1;
   const bookedSources: any[] = Array.isArray(kpi?.booked?.sources) ? kpi.booked.sources : [];
@@ -621,7 +628,7 @@ export default function JobsListPage() {
             delta={completedDelta == null ? undefined : { dir: completedDelta > 0 ? "up" : completedDelta < 0 ? "down" : "flat", text: `${completedDelta >= 0 ? "+" : ""}${completedDelta}` }}
             sub={kpi?.total_jobs != null ? `of ${Number(kpi.total_jobs).toLocaleString()} in view` : undefined} />
           <Tile label="Avg job" value={fmtMoney(kpi?.avg_job)} sub="revenue-bearing" />
-          <Tile label="Completion" value={fmtPct(kpi?.completion_rate)} sub="complete \u00f7 all" />
+          <Tile label="Completion" value={fmtPct(kpi?.completion_rate)} sub="complete ÷ all" />
           <Tile label="Cancel rate" value={fmtPct(kpi?.cancellation_rate)} sub={kpi ? `${Number(kpi.cancelled_count) || 0} cancelled` : undefined} />
           <Tile label="Unassigned" value={fmtNum(kpi?.needs_staffing)} sub="needs staffing" />
         </div>
@@ -664,13 +671,17 @@ export default function JobsListPage() {
             </div>
             <div style={{ height: 8, borderRadius: 6, overflow: "hidden", display: "flex", margin: "2px 0 14px", background: HOVER }}>
               {mixTotal > 0 && ([
-                { w: mix.scheduled, c: SLATE }, { w: mix.complete, c: MINT }, { w: mix.cancelled, c: "#C9C4BC" }, { w: mix.unassigned, c: CLAY },
+                { w: mix.scheduled, c: SLATE }, { w: mix.complete, c: MINT }, { w: mix.cancelled, c: "#C9C4BC" }, { w: mix.rescheduled, c: MOVED }, { w: mix.unassigned, c: CLAY },
               ].map((seg, i) => seg.w > 0 ? <span key={i} style={{ width: `${(seg.w / mixTotal) * 100}%`, background: seg.c }} /> : null))}
             </div>
             {[
               { nm: "Scheduled", c: SLATE, ct: mix.scheduled },
               { nm: "Complete", c: MINT, ct: mix.complete },
               { nm: "Cancelled", c: "#C9C4BC", ct: mix.cancelled },
+              // [cancel-vs-reschedule 2026-07-29] Rescheduled/reassigned work,
+              // broken out of Cancelled so the mix tells the honest story. Only
+              // rendered when present, so periods with no reschedules stay clean.
+              ...(mix.rescheduled > 0 ? [{ nm: "Rescheduled", c: MOVED, ct: mix.rescheduled }] : []),
               { nm: "Unassigned", c: CLAY, ct: mix.unassigned },
             ].map(r => (
               <div key={r.nm} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "5px 0" }}>
@@ -680,11 +691,16 @@ export default function JobsListPage() {
               </div>
             ))}
             <div style={{ background: DANGER_BG, border: "1px solid #EFD3CF", borderRadius: 10, padding: "13px 15px", marginTop: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: DANGER, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cancellations \u2014 revenue lost</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: DANGER, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cancellations — revenue lost</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 9 }}>
                 <span style={{ fontSize: 22, fontWeight: 600, color: "#8A1E17", fontVariantNumeric: "tabular-nums" }}>{(kpi?.cancelled_count ?? 0).toLocaleString()} {(kpi?.cancelled_count === 1) ? "job" : "jobs"}</span>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "#8A1E17", fontVariantNumeric: "tabular-nums" }}>{"\u2212"}{fmtMoney(kpi?.cancelled_revenue ?? 0)}</span>
               </div>
+              {(Number(kpi?.rescheduled_count) || 0) > 0 && (
+                <div style={{ fontSize: 11, color: "#8A6A66", marginTop: 8, borderTop: "1px solid #EFD3CF", paddingTop: 8 }}>
+                  {Number(kpi.rescheduled_count).toLocaleString()} rescheduled or reassigned — not counted as lost
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -692,7 +708,7 @@ export default function JobsListPage() {
         {/* Tech leaderboard */}
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
           <div style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Tech leaderboard \u00b7 completed this window</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Tech leaderboard · completed this window</span>
           </div>
           {leaderboard.length === 0 ? (
             <div style={{ padding: "16px 0", fontSize: 13, color: FAINT }}>No completed jobs by tech in this window.</div>
@@ -721,7 +737,11 @@ export default function JobsListPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
           <Tile label="Jobs booked" value={kpi?.booked ? kpi.booked.count.toLocaleString() : "\u2014"} sub={bookedMode ? "on this day" : "created in window"} />
           <Tile label="Booked value" value={kpi?.booked ? fmtMoney(kpi.booked.value) : "\u2014"} sub="new bookings" />
-          <Tile label="Top source" value={topSource ? fmtSource(topSource.source) : "\u2014"} sub={topSource ? `${topSource.count} booked` : "no source data"} />
+          {/* [leadsource-unify 2026-07-29] The server now resolves the display
+              label via acquisition_sources (was a raw slug / "unknown"), so
+              render it as-is \u2014 no fmtSource mangling (keeps "BNI", "Google
+              Business Profile" intact). Honest empty state only when truly none. */}
+          <Tile label="Top source" value={topSource ? topSource.source : "\u2014"} sub={topSource ? `${topSource.count} booked` : "no source data"} />
         </div>
 
         {/* Toolbar */}
@@ -1092,7 +1112,7 @@ function Tile({ label, value, delta, sub, accent }: {
     : null;
   return (
     <div style={{
-      background: CARD, borderRadius: 10, padding: "16px 18px", minHeight: 104,
+      background: CARD, borderRadius: 10, padding: "18px 20px", minHeight: 108,
       display: "flex", flexDirection: "column", justifyContent: "space-between",
       border: `1px solid ${BORDER}`, ...(accent ? { borderBottom: `3px solid ${OK}` } : {}),
     }}>
@@ -1102,7 +1122,7 @@ function Tile({ label, value, delta, sub, accent }: {
           <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 28, fontWeight: 600, color: TXT, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+          <span style={{ fontSize: 30, fontWeight: 600, color: TXT, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</span>
           {delta && pill && <span style={{ fontSize: 12, fontWeight: 600, borderRadius: 4, padding: "1px 6px", ...pill }}>{delta.text}</span>}
         </div>
       </div>
