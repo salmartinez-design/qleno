@@ -118,6 +118,26 @@ function getDateRange(preset: string): { from: string; to: string } {
   }
 }
 
+// [chart-full-span 2026-07-29] The KPI/query window is capped at today (#1329 —
+// correct for the completion/cancel-rate + revenue denominators, which must only
+// count elapsed jobs). But a CHART labeled "Week"/"Month" must span the FULL
+// selected calendar period on its x-axis, or it reads as truncated (a "Week"
+// showing only Sun–Wed looks broken). This returns the chart's axis span: the
+// FULL fixed calendar period for Week (Sun–Sat) and Month (1st–EOM); for every
+// other preset the axis == the query window (rolling 30d/90d/YTD already end at
+// today by definition, single-day/past presets are already complete). Days after
+// today are filled empty (null) downstream so the line still ends at today.
+function getChartRange(preset: string, dateRange: { from: string; to: string }): { from: string; to: string } {
+  const today = new Date();
+  const fmt = (d: Date) => d.toISOString().split("T")[0];
+  const startOfWeek = (d: Date) => { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; };
+  switch (preset) {
+    case "this_week": { const s = startOfWeek(today); const e = new Date(s); e.setDate(e.getDate() + 6); return { from: fmt(s), to: fmt(e) }; }
+    case "this_month": { const s = new Date(today.getFullYear(), today.getMonth(), 1); const e = new Date(today.getFullYear(), today.getMonth() + 1, 0); return { from: fmt(s), to: fmt(e) }; }
+    default: return dateRange;
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(d: string) {
   if (!d) return "\u2014";
@@ -500,28 +520,43 @@ export default function JobsListPage() {
     const dt = new Date(y, m - 1, dd);
     return n <= 8 ? dt.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase() : `${m}/${dd}`;
   };
-  // Continuous daily axis in a bounded period window (0 on gap days), with the
-  // prior-period series aligned by day-offset for the dashed comparison line;
-  // unbounded (All / Booked-On) just plots the sparse series the server returned.
+  // Continuous daily axis over the FULL selected calendar period (0 on gap days),
+  // with the prior-period series aligned by day-offset for the dashed comparison
+  // line; unbounded (All / Booked-On) just plots the sparse series the server
+  // returned.
+  // [chart-full-span 2026-07-29] The axis spans the full period (getChartRange:
+  // Week = Sun–Sat, Month = 1st–EOM) even though the KPI/query window is capped
+  // at today. Days AFTER today carry `null` (not 0) so the mint line STOPS at
+  // today — the "so-far" portion is filled, future columns show empty. The sum of
+  // the plotted (non-null) points still equals kpi.revenue_total (the Revenue
+  // card), because the server series is unchanged. The prior dashed line stops at
+  // the same today-column (future offsets → null), so it never crashes to $0.
   const chartData: any[] = (() => {
     // [hotfix 2026-07-29] Array.isArray guards on every KPI-derived list so a
     // malformed / non-array payload renders an empty state instead of throwing.
     const s: any[] = Array.isArray(kpi?.series) ? kpi.series : [];
     if (!s.length) return [];
     const revByDate = new Map<string, number>(s.map((r: any) => [r.date, r.revenue]));
-    if (dateRange.from && dateRange.to) {
-      const days = eachDay(dateRange.from, dateRange.to);
+    const chartRange = getChartRange(period, dateRange);
+    if (chartRange.from && chartRange.to) {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const days = eachDay(chartRange.from, chartRange.to);
       const priorByOffset = new Map<number, number>();
       if (kpi?.prior?.from && kpi?.prior?.to) {
         const pDays = eachDay(kpi.prior.from, kpi.prior.to);
         const pRev = new Map<string, number>((Array.isArray(kpi.prior.series) ? kpi.prior.series : []).map((r: any) => [r.date, r.revenue]));
         pDays.forEach((d, i) => priorByOffset.set(i, pRev.get(d) ?? 0));
       }
-      return days.map((d, i) => ({
-        label: dayLabel(d, days.length),
-        revenue: revByDate.get(d) ?? 0,
-        ...(kpi?.prior ? { prior: priorByOffset.get(i) ?? 0 } : {}),
-      }));
+      return days.map((d, i) => {
+        // Future days (beyond today) have no data yet — null keeps the line from
+        // dropping to 0, so it visibly ends at today while the column still shows.
+        const isFuture = d > todayStr;
+        return {
+          label: dayLabel(d, days.length),
+          revenue: isFuture ? null : (revByDate.get(d) ?? 0),
+          ...(kpi?.prior ? { prior: isFuture ? null : (priorByOffset.get(i) ?? 0) } : {}),
+        };
+      });
     }
     return s.map((r: any) => ({ label: dayLabel(r.date, s.length), revenue: r.revenue }));
   })();
