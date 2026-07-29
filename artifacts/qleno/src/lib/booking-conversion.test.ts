@@ -33,10 +33,14 @@ describe("buildBookingCompleteMessage", () => {
     assert.deepEqual(msg, {
       type: "qleno-booking-complete",
       bookingId: "9001",
-      quoteId: 555,
       value: 416,
       currency: "USD",
+      tenant: PHES,
     });
+  });
+
+  it("carries the tenant slug on the payload", () => {
+    assert.equal(buildBookingCompleteMessage(PHES, CONFIRM_RESULT)!.tenant, PHES);
   });
 
   it("uses the amount actually booked, not the pre-multiplier total", () => {

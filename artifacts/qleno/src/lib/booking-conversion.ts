@@ -6,7 +6,7 @@
  * postMessage from this widget. The message shape is a contract with that
  * page — do not rename fields:
  *
- *   { type: 'qleno-booking-complete', bookingId, value, currency: 'USD' }
+ *   { type: 'qleno-booking-complete', bookingId, value, currency: 'USD', tenant }
  *
  * The four rules the parent depends on:
  *   1. GENUINE BOOKING ONLY — a real job row must exist. The commercial
@@ -34,16 +34,21 @@
 export const PHES_SLUGS = ["phes-cleaning"];
 
 // phes.io serves from BOTH https://phes.io AND https://www.phes.io (distinct
-// origins). postMessage takes one targetOrigin, so post to each. Never "*" for
-// a payload carrying a booking id + price.
+// origins). The caller (book.tsx) derives the single targetOrigin from
+// document.referrer and validates it against this allow-list, defaulting to
+// https://phes.io when the referrer is missing or unknown. Never "*" for a
+// payload carrying a booking id + price.
 export const PARENT_ORIGINS = ["https://phes.io", "https://www.phes.io"];
 
 export interface BookingCompleteMessage {
   type: "qleno-booking-complete";
   bookingId: string;
-  quoteId: number | string | null;
   value: number;
   currency: "USD";
+  // Tenant slug of the /book/:slug flow. The parent only ever accepts the PHES
+  // tenant (rule 3 gates the whole message on it), but carrying the slug makes
+  // the payload self-describing for the parent's Google Ads conversion handler.
+  tenant: string;
 }
 
 /**
@@ -67,8 +72,8 @@ export function buildBookingCompleteMessage(
   return {
     type: "qleno-booking-complete",
     bookingId: String(jobId),
-    quoteId: bookResult.quote_id ?? bookResult.quoteId ?? null,
     value: Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0,
     currency: "USD",
+    tenant: slug,
   };
 }
