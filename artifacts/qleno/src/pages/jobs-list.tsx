@@ -132,7 +132,7 @@ function fmtTime(t: string | null) {
   const hour = parseInt(h, 10);
   return `${hour % 12 || 12}:${min} ${hour >= 12 ? "PM" : "AM"}`;
 }
-function fmtMoney(val: number | string | null) {
+function fmtMoney(val: number | string | null | undefined) {
   if (val == null) return "\u2014";
   const n = typeof val === "string" ? parseFloat(val) : val;
   return isNaN(n) ? "\u2014" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -140,6 +140,17 @@ function fmtMoney(val: number | string | null) {
 function fmtSource(s: string | null) {
   if (!s) return "\u2014";
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+// [hotfix 2026-07-29] Null-safe KPI number / percent formatters \u2014 return the
+// em-dash placeholder when the field is missing (null/undefined/non-numeric)
+// so no KPI tile can throw `.toLocaleString()` on an absent field.
+function fmtNum(val: number | null | undefined) {
+  const n = typeof val === "string" ? parseFloat(val) : val;
+  return (n == null || isNaN(n as number)) ? "\u2014" : (n as number).toLocaleString();
+}
+function fmtPct(val: number | null | undefined) {
+  const n = typeof val === "string" ? parseFloat(val) : val;
+  return (n == null || isNaN(n as number)) ? "\u2014" : `${Math.round((n as number) * 100)}%`;
 }
 // [service-label 2026-07-28] Canonical fallback formatter \u2014 same rule as
 // reports/_shared.tsx fmtSvc \u2014 for any service_type slug (incl. commercial
@@ -263,7 +274,9 @@ export default function JobsListPage() {
     },
   });
 
-  useEffect(() => { if (viewsQuery.data) setViews(viewsQuery.data); }, [viewsQuery.data]);
+  // [hotfix 2026-07-29] Only ever store an array — a non-array payload (error
+  // body / reshaped response) would otherwise reach views.map() and throw.
+  useEffect(() => { if (Array.isArray(viewsQuery.data)) setViews(viewsQuery.data); }, [viewsQuery.data]);
 
   // ── Filter option sources (real data, not placeholders) ─────────────────────
   // [tech-filter-real 2026-07-28] Populate the Tech dropdown from the SAME
@@ -279,10 +292,19 @@ export default function JobsListPage() {
       return res.json();
     },
   });
+  // [hotfix 2026-07-29] /api/users/techs-with-status returns `{ data: [...] }`
+  // (an OBJECT), NOT a bare array — so `techsQuery.data ?? []` fell through to
+  // the truthy object and spreading/.map-ing it threw "map is not a function /
+  // not iterable", tripping the page's ErrorBoundary. Unwrap the nested array
+  // and guard with Array.isArray so ANY payload shape (object, error body,
+  // undefined) degrades to an empty dropdown instead of crashing.
+  const techList: any[] = Array.isArray((techsQuery.data as any)?.data)
+    ? (techsQuery.data as any).data
+    : Array.isArray(techsQuery.data) ? (techsQuery.data as any[]) : [];
   const techOptions: [string, string][] = [
     ["", "All"],
     ["unassigned", "Unassigned"],
-    ...((techsQuery.data ?? []) as any[])
+    ...techList
       .map(t => [String(t.id), `${t.first_name ?? ""} ${t.last_name ?? ""}`.trim() || `Tech #${t.id}`] as [string, string]),
   ];
 
@@ -301,15 +323,21 @@ export default function JobsListPage() {
   // Canonical service label: tenant commercial name (from the endpoint) →
   // residential static map → Title-Case fallback. Used for BOTH the column and
   // the filter dropdown so they always agree.
+  // [hotfix 2026-07-29] Array.isArray guard (not just `?? []`) so a non-array
+  // payload — an error object, or a future `{ data: [...] }` reshape like
+  // techs-with-status — renders an empty dropdown instead of throwing on .map.
+  const serviceTypeList: any[] = Array.isArray(serviceTypesQuery.data)
+    ? (serviceTypesQuery.data as any[])
+    : Array.isArray((serviceTypesQuery.data as any)?.data) ? (serviceTypesQuery.data as any).data : [];
   const svcLabelMap: Record<string, string> = {};
-  for (const o of ((serviceTypesQuery.data ?? []) as any[])) {
+  for (const o of serviceTypeList) {
     if (o?.value && o?.label) svcLabelMap[o.value] = o.label;
   }
   const serviceLabelOf = (v: string | null) =>
     (v && (svcLabelMap[v] || SERVICE_LABELS[v])) || fmtSvc(v);
   const serviceOptions: [string, string][] = [
     ["", "All"],
-    ...((serviceTypesQuery.data ?? []) as any[])
+    ...serviceTypeList
       .map(o => [o.value as string, serviceLabelOf(o.value)] as [string, string]),
   ];
 
@@ -470,7 +498,9 @@ export default function JobsListPage() {
   // prior-period series aligned by day-offset for the dashed comparison line;
   // unbounded (All / Booked-On) just plots the sparse series the server returned.
   const chartData: any[] = (() => {
-    const s: any[] = kpi?.series ?? [];
+    // [hotfix 2026-07-29] Array.isArray guards on every KPI-derived list so a
+    // malformed / non-array payload renders an empty state instead of throwing.
+    const s: any[] = Array.isArray(kpi?.series) ? kpi.series : [];
     if (!s.length) return [];
     const revByDate = new Map<string, number>(s.map((r: any) => [r.date, r.revenue]));
     if (dateRange.from && dateRange.to) {
@@ -478,7 +508,7 @@ export default function JobsListPage() {
       const priorByOffset = new Map<number, number>();
       if (kpi?.prior?.from && kpi?.prior?.to) {
         const pDays = eachDay(kpi.prior.from, kpi.prior.to);
-        const pRev = new Map<string, number>((kpi.prior.series ?? []).map((r: any) => [r.date, r.revenue]));
+        const pRev = new Map<string, number>((Array.isArray(kpi.prior.series) ? kpi.prior.series : []).map((r: any) => [r.date, r.revenue]));
         pDays.forEach((d, i) => priorByOffset.set(i, pRev.get(d) ?? 0));
       }
       return days.map((d, i) => ({
@@ -493,11 +523,18 @@ export default function JobsListPage() {
   const revDeltaPct = hasPrior && kpi.prior.revenue_total > 0
     ? (kpi.revenue_total - kpi.prior.revenue_total) / kpi.prior.revenue_total : null;
   const completedDelta = hasPrior ? (kpi.completed - kpi.prior.completed) : null;
-  const mix = kpi?.status_mix ?? { scheduled: 0, complete: 0, cancelled: 0, unassigned: 0 };
+  const rawMix = (kpi?.status_mix && typeof kpi.status_mix === "object") ? kpi.status_mix : {};
+  const mix = {
+    scheduled: Number(rawMix.scheduled) || 0,
+    complete: Number(rawMix.complete) || 0,
+    cancelled: Number(rawMix.cancelled) || 0,
+    unassigned: Number(rawMix.unassigned) || 0,
+  };
   const mixTotal = mix.scheduled + mix.complete + mix.cancelled + mix.unassigned;
-  const leaderboard: any[] = kpi?.leaderboard ?? [];
-  const lbMax = leaderboard.reduce((m: number, t: any) => Math.max(m, t.revenue), 0) || 1;
-  const topSource = (kpi?.booked?.sources ?? []).find((x: any) => x.source && x.source !== "unknown");
+  const leaderboard: any[] = Array.isArray(kpi?.leaderboard) ? kpi.leaderboard : [];
+  const lbMax = leaderboard.reduce((m: number, t: any) => Math.max(m, Number(t?.revenue) || 0), 0) || 1;
+  const bookedSources: any[] = Array.isArray(kpi?.booked?.sources) ? kpi.booked.sources : [];
+  const topSource = bookedSources.find((x: any) => x.source && x.source !== "unknown");
 
   return (
     <DashboardLayout title="Jobs">
@@ -573,16 +610,20 @@ export default function JobsListPage() {
             row on phones instead of forcing 6 columns off-screen. */}
         <p style={SECLABEL}>Scheduled &amp; Completed</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
-          <Tile accent label="Revenue" value={kpi ? fmtMoney(kpi.revenue_total) : "\u2014"}
+          {/* [hotfix 2026-07-29] Per-FIELD null-safety (fmtNum / fmtPct), not just
+              the object-level `kpi ?` guard \u2014 a payload missing any one field
+              (deploy skew, partial response) would otherwise throw on
+              `.toLocaleString()` and trip the ErrorBoundary. */}
+          <Tile accent label="Revenue" value={fmtMoney(kpi?.revenue_total)}
             delta={revDeltaPct == null ? undefined : { dir: revDeltaPct >= 0 ? "up" : "down", text: `${revDeltaPct >= 0 ? "+" : ""}${Math.round(revDeltaPct * 100)}%` }}
             sub={hasPrior ? "non-cancelled \u00b7 vs prior" : "non-cancelled"} />
-          <Tile label="Completed" value={kpi ? kpi.completed.toLocaleString() : "\u2014"}
+          <Tile label="Completed" value={fmtNum(kpi?.completed)}
             delta={completedDelta == null ? undefined : { dir: completedDelta > 0 ? "up" : completedDelta < 0 ? "down" : "flat", text: `${completedDelta >= 0 ? "+" : ""}${completedDelta}` }}
-            sub={kpi ? `of ${kpi.total_jobs.toLocaleString()} in view` : undefined} />
-          <Tile label="Avg job" value={kpi ? fmtMoney(kpi.avg_job) : "\u2014"} sub="revenue-bearing" />
-          <Tile label="Completion" value={kpi ? `${Math.round(kpi.completion_rate * 100)}%` : "\u2014"} sub="complete \u00f7 all" />
-          <Tile label="Cancel rate" value={kpi ? `${Math.round(kpi.cancellation_rate * 100)}%` : "\u2014"} sub={kpi ? `${kpi.cancelled_count} cancelled` : undefined} />
-          <Tile label="Unassigned" value={kpi ? kpi.needs_staffing.toLocaleString() : "\u2014"} sub="needs staffing" />
+            sub={kpi?.total_jobs != null ? `of ${Number(kpi.total_jobs).toLocaleString()} in view` : undefined} />
+          <Tile label="Avg job" value={fmtMoney(kpi?.avg_job)} sub="revenue-bearing" />
+          <Tile label="Completion" value={fmtPct(kpi?.completion_rate)} sub="complete \u00f7 all" />
+          <Tile label="Cancel rate" value={fmtPct(kpi?.cancellation_rate)} sub={kpi ? `${Number(kpi.cancelled_count) || 0} cancelled` : undefined} />
+          <Tile label="Unassigned" value={fmtNum(kpi?.needs_staffing)} sub="needs staffing" />
         </div>
 
         {/* Revenue-by-day trend + Status mix / Cancellations */}
@@ -590,7 +631,7 @@ export default function JobsListPage() {
           <div style={{ flex: "2 1 340px", minWidth: 0, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 20, boxSizing: "border-box" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Revenue by day</span>
-              <span style={{ fontSize: 22, fontWeight: 600, color: TXT, fontVariantNumeric: "tabular-nums" }}>{kpi ? fmtMoney(kpi.revenue_total) : "\u2014"}</span>
+              <span style={{ fontSize: 22, fontWeight: 600, color: TXT, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(kpi?.revenue_total)}</span>
             </div>
             <div style={{ display: "flex", gap: 16, marginBottom: 8, fontSize: 11, color: TXT2, alignItems: "center" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 2, background: MINT, borderRadius: 1 }} />This period</span>
