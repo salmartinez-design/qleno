@@ -6272,6 +6272,45 @@ const JOBS_V2_CLIENT_NAME = sql`NULLIF(TRIM(CASE WHEN j.account_id IS NOT NULL T
 // exactly what jobRevenueExpr's commercial detection reads.
 const JOBS_V2_REVENUE = jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`);
 
+// [cancel-vs-reschedule 2026-07-29] A `status='cancelled'` job is NOT
+// necessarily a lost job. The dispatch reschedule/reassignment flow, the
+// MaidCentral-import rebooking, and a same-day "cancel the slot then re-book
+// it on a different tech" all leave the ORIGINAL row `cancelled` while the work
+// still gets done (and still earns money) on a SIBLING row the same day. Owner
+// confirmed live: Anthony Cooke / Julie Mitros / Flora Nayeni each show a
+// CANCELLED + a COMPLETE Standard for the same client the same day. Counting
+// those as cancellations inflated the cancel-rate (31% day / 55% week) and the
+// "revenue lost" (-$6,090/wk).
+//
+// This predicate flags a cancelled job as RESCHEDULED/REASSIGNED (not lost)
+// when either signal holds:
+//   (1) the client/account has a NON-cancelled job on the SAME scheduled_date —
+//       the replacement visit (owner's confirmed pattern; path-independent, so
+//       it catches suspension-then-rebook, imported rebookings, and dispatch
+//       reassignments that don't write an explicit link); OR
+//   (2) an explicit cancellation_log linkage — a rescheduled_to_job_id, or a
+//       move/bump action (the office's "reschedule" verbs).
+// Truly-lost cancellations (skip, waived cancel, cancel_service, service
+// suspension with no same-day replacement) have NEITHER signal and stay counted.
+const JOBS_V2_RESCHEDULED = sql`(
+  EXISTS (
+    SELECT 1 FROM jobs j2
+    WHERE j2.company_id = j.company_id
+      AND j2.id <> j.id
+      AND j2.scheduled_date = j.scheduled_date
+      AND j2.status <> 'cancelled'
+      AND (
+        (j.account_id IS NOT NULL AND j2.account_id = j.account_id)
+        OR (j.account_id IS NULL AND j.client_id IS NOT NULL AND j2.client_id = j.client_id)
+      )
+  )
+  OR EXISTS (
+    SELECT 1 FROM cancellation_log cl
+    WHERE cl.job_id = j.id AND cl.company_id = j.company_id
+      AND (cl.rescheduled_to_job_id IS NOT NULL OR cl.cancel_action IN ('move','bump'))
+  )
+)`;
+
 // GET /api/jobs/v2/kpi
 router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
@@ -6303,8 +6342,14 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
         COUNT(*) AS total_jobs,
         COUNT(DISTINCT j.scheduled_date) AS distinct_days,
         COUNT(*) FILTER (WHERE j.assigned_user_id IS NULL) AS unassigned,
-        COUNT(*) FILTER (WHERE j.status = 'cancelled') AS cancelled_count,
-        COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'cancelled'), 0) AS cancelled_revenue,
+        -- [cancel-vs-reschedule 2026-07-29] "Cancelled" = truly LOST only
+        -- (no same-day replacement, no reschedule linkage). Reschedules /
+        -- reassignments are broken out so the cancel-rate + revenue-lost card
+        -- reflect real churn, not moved work.
+        COUNT(*) FILTER (WHERE j.status = 'cancelled' AND NOT ${JOBS_V2_RESCHEDULED}) AS cancelled_count,
+        COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'cancelled' AND NOT ${JOBS_V2_RESCHEDULED}), 0) AS cancelled_revenue,
+        COUNT(*) FILTER (WHERE j.status = 'cancelled' AND ${JOBS_V2_RESCHEDULED}) AS rescheduled_count,
+        COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'cancelled' AND ${JOBS_V2_RESCHEDULED}), 0) AS rescheduled_revenue,
         COUNT(*) FILTER (WHERE j.status NOT IN ('cancelled','complete') AND j.assigned_user_id IS NULL) AS mix_unassigned,
         COUNT(*) FILTER (WHERE j.status NOT IN ('cancelled','complete') AND j.assigned_user_id IS NOT NULL) AS mix_scheduled
       ${JOBS_V2_FROM} WHERE ${where}
@@ -6313,7 +6358,11 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
     const totalJobs = parseInt(row.total_jobs) || 0;
     const distinctDays = parseInt(row.distinct_days) || 1;
     const completed = parseInt(row.completed) || 0;
+    // [cancel-vs-reschedule 2026-07-29] cancelledCount is now truly-lost only;
+    // rescheduledCount is the moved/reassigned-but-done bucket, surfaced
+    // separately so the cancel-rate never punishes work that still happened.
     const cancelledCount = parseInt(row.cancelled_count) || 0;
+    const rescheduledCount = parseInt(row.rescheduled_count) || 0;
 
     // [jobs-report-redesign 2026-07-28] Mutually-exclusive status mix summing to
     // total_jobs (Scheduled = non-terminal + assigned; Unassigned = non-terminal
@@ -6321,13 +6370,20 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
     // status-mix bar and Cancellations-lost card render. Rates use total_jobs
     // (all statuses in window) as the denominator so completion + cancellation +
     // the two open buckets reconcile to 100%.
+    // [cancel-vs-reschedule 2026-07-29] Five mutually-exclusive buckets that
+    // still sum to total_jobs: scheduled + complete + cancelled(true-lost) +
+    // rescheduled + unassigned. Splitting "cancelled" into lost vs rescheduled
+    // keeps the status-mix bar reconciled while telling the honest story.
     const statusMix = {
       scheduled: parseInt(row.mix_scheduled) || 0,
       complete: completed,
       cancelled: cancelledCount,
+      rescheduled: rescheduledCount,
       unassigned: parseInt(row.mix_unassigned) || 0,
     };
     const completionRate = totalJobs > 0 ? completed / totalJobs : 0;
+    // Cancel-rate measures TRUE loss only — rescheduled/reassigned work is
+    // excluded from the numerator (it still got done).
     const cancellationRate = totalJobs > 0 ? cancelledCount / totalJobs : 0;
 
     // ── Revenue-by-day series (current window, non-cancelled) ─────────────────
@@ -6420,9 +6476,18 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
         SELECT COUNT(*) AS cnt, COALESCE(SUM(${JOBS_V2_REVENUE}), 0) AS val
         ${JOBS_V2_FROM} WHERE ${bookedWhere}
       `),
+      // [leadsource-unify 2026-07-29] clients.referral_source now stores the
+      // tenant-managed acquisition_sources.slug (#1322), NOT a display label —
+      // so the old `SELECT c.referral_source` returned raw slugs (and NULL for
+      // account/commercial jobs that have no client), collapsing every booked
+      // job to "unknown" → the BOOKED card read "no source data". Resolve the
+      // human label through acquisition_sources by slug (company-scoped) and
+      // only fall back to the raw value, then 'unknown', when nothing resolves.
       db.execute(sql`
-        SELECT COALESCE(NULLIF(c.referral_source, ''), 'unknown') AS source, COUNT(*) AS cnt
-        ${JOBS_V2_FROM} WHERE ${bookedWhere}
+        SELECT COALESCE(NULLIF(acq.name, ''), NULLIF(c.referral_source, ''), 'unknown') AS source, COUNT(*) AS cnt
+        ${JOBS_V2_FROM}
+        LEFT JOIN acquisition_sources acq ON acq.company_id = j.company_id AND acq.slug = c.referral_source
+        WHERE ${bookedWhere}
         GROUP BY 1 ORDER BY cnt DESC LIMIT 5
       `),
     ]);
@@ -6446,6 +6511,10 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
       total_jobs: totalJobs,
       cancelled_count: cancelledCount,
       cancelled_revenue: parseFloat(row.cancelled_revenue) || 0,
+      // [cancel-vs-reschedule 2026-07-29] Moved/reassigned-but-done work, split
+      // out of the cancelled bucket so the UI can label it "not lost".
+      rescheduled_count: rescheduledCount,
+      rescheduled_revenue: parseFloat(row.rescheduled_revenue) || 0,
       completion_rate: completionRate,
       cancellation_rate: cancellationRate,
       needs_staffing: statusMix.unassigned,
