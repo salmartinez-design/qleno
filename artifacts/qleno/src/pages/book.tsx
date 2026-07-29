@@ -682,25 +682,36 @@ export default function BookPage() {
   // bookResult), so it stays safely up here among the other hooks.
   //
   // targetOrigin: phes.io serves from BOTH https://phes.io AND https://www.phes.io
-  // (distinct origins). postMessage takes one targetOrigin, so post to each.
-  // Never "*" for a payload with a booking id + price.
+  // (distinct origins). postMessage takes a single targetOrigin, so we derive it
+  // from document.referrer (the embedding page's origin), validate it against the
+  // PARENT_ORIGINS allow-list, and default to https://phes.io when the referrer
+  // is missing/stripped or doesn't match. Never "*" for a payload with a booking
+  // id + price.
   //
   // [conversion-hardening 2026-07-22] The payload rules — genuine booking only
   // (walkthrough quote requests reach step 5 too and must NOT count), always a
   // unique bookingId, PHES tenant only, and value = amount actually booked —
   // live in lib/booking-conversion.ts (pure + unit-tested). This effect owns
-  // only the two things that need the live window: fire once per booking, and
-  // skip entirely when we aren't inside an iframe.
-  const conversionFiredRef = useRef(false);
+  // only the three things that need the live window: fire once per booking
+  // (guard keyed on the confirmed bookingId), derive/validate the target origin,
+  // and skip entirely when we aren't inside an iframe.
+  const conversionFiredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (step !== 5 || !bookResult || conversionFiredRef.current) return;
+    if (step !== 5 || !bookResult) return;
     // Not embedded — window.parent is us. Nothing to notify.
     if (typeof window === "undefined" || window.parent === window) return;
     const payload = buildBookingCompleteMessage(slug, bookResult);
     if (!payload) return;
-    conversionFiredRef.current = true;
+    // Fire at most once per confirmed booking id — survives a React re-render,
+    // StrictMode double-mount, or a user re-submit of the same booking.
+    if (conversionFiredRef.current === payload.bookingId) return;
+    // Derive the parent origin from the referrer; validate against the allow-list.
+    let target = "";
+    try { target = document.referrer ? new URL(document.referrer).origin : ""; } catch { target = ""; }
+    if (!PARENT_ORIGINS.includes(target)) target = "https://phes.io";
+    conversionFiredRef.current = payload.bookingId;
     try {
-      PARENT_ORIGINS.forEach(o => window.parent.postMessage(payload, o));
+      window.parent.postMessage(payload, target);
     } catch { /* cross-origin parent that rejects the post — nothing to do */ }
   }, [step, bookResult, slug]);
 
