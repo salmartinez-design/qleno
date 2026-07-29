@@ -1677,11 +1677,14 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
 //
 // Two breakdowns, because "we booked $4,100" alone doesn't tell Sal what to do:
 //   by_service — what kind of work got sold (jobs.service_type)
-//   by_source  — which channel it came from. A job's lead is found by
-//     leads.job_id first (the direct stamp advanceLeadStage writes), falling
-//     back to leads.client_id so a later job for an acquired client still
-//     attributes to the channel that won them. No lead either way →
-//     "Unknown", which is honest: office-created repeat work has no lead row.
+//   by_source  — which channel it came from. Commercial/account work
+//     (jobs.account_id set) is contract work with no residential lead, so it
+//     gets its own "Commercial / Account" bucket instead of polluting Unknown.
+//     For residential work, a job's lead is found by leads.job_id first (the
+//     direct stamp advanceLeadStage writes), falling back to leads.client_id so
+//     a later job for an acquired client still attributes to the channel that
+//     won them. No lead either way → "Unknown", which is honest: office-created
+//     repeat residential work has no lead row.
 //
 // Read-only, company- and branch-scoped, office-gated like the rest of the file.
 router.get("/booked", requireAuth, officeGate, async (req, res) => {
@@ -1695,6 +1698,7 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
 
     const rows = await db.execute(sql`
       SELECT (j.recurring_schedule_id IS NOT NULL) AS from_schedule,
+             (j.account_id IS NOT NULL) AS is_commercial,
              j.service_type::text AS service_type,
              COALESCE(
                (SELECT l.source FROM leads l
@@ -1713,7 +1717,7 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
          AND ${ctDate(sql`j.created_at`)} >= ${w.from}::date
          AND ${ctDate(sql`j.created_at`)} <= ${w.to}::date
          ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
-       GROUP BY 1, 2, 3
+       GROUP BY 1, 2, 3, 4
     `);
 
     const all = rows.rows as any[];
@@ -1738,7 +1742,15 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
     };
 
     const byService = fold(r => r.service_type);
-    const bySource = fold(r => r.source);
+    // [commercial-source-split 2026-07-29] Commercial/account work has no
+    // residential lead (source is a lead-level concept), so it used to collapse
+    // into "Unknown" and mask the real gap — for Phes that was the whole PPM
+    // Turnover contract ($1,650/11 jobs) landing in Unknown. Attribute any job
+    // with an account_id to its own "Commercial / Account" bucket so Unknown
+    // shrinks to only genuinely-missing RESIDENTIAL source, and contract revenue
+    // is labeled as the contract work it is. account_id wins over any stray lead
+    // source: a commercial job is commercial regardless of how the account began.
+    const bySource = fold(r => (r.is_commercial ? "commercial" : r.source));
 
     return res.json({
       period,

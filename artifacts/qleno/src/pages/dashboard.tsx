@@ -1071,6 +1071,9 @@ const SOURCE_LABEL: Record<string, string> = {
   website: 'Website', quote: 'Office quote', phone: 'Phone', referral: 'Referral',
   google: 'Google', google_local: 'Google Local', facebook: 'Facebook',
   instagram: 'Instagram', yelp: 'Yelp', repeat: 'Repeat client', other: 'Other',
+  // [commercial-source-split 2026-07-29] Contract/account work, split out of
+  // Unknown server-side (dashboard.ts /booked keys account jobs as "commercial").
+  commercial: 'Commercial / Account',
 };
 const prettySource = (s: string | null) =>
   !s ? 'Unknown' : (SOURCE_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
@@ -1116,6 +1119,9 @@ const SOURCE_COLOR: Record<string, string> = {
   widget:                '#A9CCC2',
   very_dirty:            '#A9CCC2',
   very_dirty_callback:   '#A9CCC2',
+  // Commercial/account contract work — not a marketing channel, so it sits off
+  // the mint ramp in a neutral slate that can't be read as a paid source.
+  commercial:            '#454B4A',
 };
 const SOURCE_FALLBACK = '#C8C4BC';
 const sourceColor = (s: string | null) => {
