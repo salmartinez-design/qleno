@@ -63,6 +63,31 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
     }
     const address = quote.address ?? null;
 
+    // [leadsource-quote-sync 2026-07-29] Carry the quote's "How did you hear
+    // about us?" answer (quotes.referral_source) onto the lead's referral_source
+    // — the column the dashboard "How they heard about us" card groups on.
+    // Two bugs lived here before:
+    //   1. It was never written to leads.referral_source at all, so every
+    //      quote-builder lead (Phes's dominant office path) landed "Not asked"
+    //      even when the office HAD recorded the source on the quote.
+    //   2. The value was mis-filed into the `source` column (the ENTRY-channel
+    //      axis: office-quote vs widget) — a different question — polluting the
+    //      by_source card while leaving referral_source empty.
+    // Not every call site selects referral_source onto the quote object (the
+    // send-now handler's hand-picked SELECT omits it), so resolve it from the
+    // row by id when it isn't already present — this makes the fix hold for
+    // ALL call sites regardless of their SELECT shape.
+    let referralSource: string | null = quote.referral_source ?? null;
+    if (referralSource == null && quote.id) {
+      try {
+        const rs = await db.execute(sql`
+          SELECT referral_source FROM quotes
+          WHERE id = ${quote.id} AND company_id = ${companyId} LIMIT 1`);
+        referralSource = (rs.rows[0] as any)?.referral_source ?? null;
+      } catch { /* leave null */ }
+    }
+    referralSource = referralSource && String(referralSource).trim() ? String(referralSource).trim() : null;
+
     // Resolve the lead: the quote's existing link first, else match by
     // email/phone within the company, else create.
     let leadId: number | null = quote.lead_id ?? null;
@@ -86,9 +111,9 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
       // reserved for leads nobody has actually reached (web forms). Decided by
       // Sal 2026-07-08.
       const ins = await db.execute(sql`
-        INSERT INTO leads (company_id, first_name, last_name, email, phone, address, scope, source, status, contacted_at, created_at, updated_at)
+        INSERT INTO leads (company_id, first_name, last_name, email, phone, address, scope, source, referral_source, status, contacted_at, created_at, updated_at)
         VALUES (${companyId}, ${insFirst}, ${last}, ${insEmail}, ${insPhone},
-                ${address}, ${scope}, ${quote.referral_source || "quote"}, 'contacted', NOW(), NOW(), NOW())
+                ${address}, ${scope}, 'quote', ${referralSource}, 'contacted', NOW(), NOW(), NOW())
         RETURNING id`);
       leadId = (ins.rows[0] as any).id;
       await logActivity(companyId, leadId!, "created", "Lead created from quote", null);
@@ -114,6 +139,9 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
           phone      = COALESCE(${insPhone}, phone),
           address    = COALESCE(${address}, address),
           scope      = COALESCE(${scope}, scope),
+          -- Fill the source when the quote captured one, but never wipe an
+          -- answer the lead already has (widget/manual capture wins if present).
+          referral_source = COALESCE(referral_source, ${referralSource}),
           updated_at = NOW()
         WHERE id = ${leadId} AND company_id = ${companyId}`);
     }

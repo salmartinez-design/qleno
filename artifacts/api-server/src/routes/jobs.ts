@@ -6483,8 +6483,16 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
       // job to "unknown" → the BOOKED card read "no source data". Resolve the
       // human label through acquisition_sources by slug (company-scoped) and
       // only fall back to the raw value, then 'unknown', when nothing resolves.
+      // [commercial-source-split 2026-07-29] Commercial/account jobs have no
+      // client (j.client_id NULL) and so no referral_source — they are contract
+      // work, not a marketing source. Bucket them as "Commercial / Account"
+      // instead of letting them collapse into "unknown", matching the dashboard
+      // Revenue-booked card. account_id wins over any resolved slug.
       db.execute(sql`
-        SELECT COALESCE(NULLIF(acq.name, ''), NULLIF(c.referral_source, ''), 'unknown') AS source, COUNT(*) AS cnt
+        SELECT COALESCE(
+                 CASE WHEN j.account_id IS NOT NULL THEN 'Commercial / Account' END,
+                 NULLIF(acq.name, ''), NULLIF(c.referral_source, ''), 'unknown'
+               ) AS source, COUNT(*) AS cnt
         ${JOBS_V2_FROM}
         LEFT JOIN acquisition_sources acq ON acq.company_id = j.company_id AND acq.slug = c.referral_source
         WHERE ${bookedWhere}

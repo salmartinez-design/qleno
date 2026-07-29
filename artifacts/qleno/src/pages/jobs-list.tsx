@@ -576,7 +576,12 @@ export default function JobsListPage() {
   const leaderboard: any[] = Array.isArray(kpi?.leaderboard) ? kpi.leaderboard : [];
   const lbMax = leaderboard.reduce((m: number, t: any) => Math.max(m, Number(t?.revenue) || 0), 0) || 1;
   const bookedSources: any[] = Array.isArray(kpi?.booked?.sources) ? kpi.booked.sources : [];
-  const topSource = bookedSources.find((x: any) => x.source && x.source !== "unknown");
+  // "Top source" answers "best acquisition CHANNEL", so skip the non-channel
+  // buckets: "unknown" (missing) and "Commercial / Account" (contract work the
+  // server now splits out of unknown — it isn't a marketing source).
+  const topSource = bookedSources.find(
+    (x: any) => x.source && x.source !== "unknown" && x.source !== "Commercial / Account",
+  );
 
   return (
     <DashboardLayout title="Jobs">
