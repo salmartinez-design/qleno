@@ -9,6 +9,7 @@ import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
+import { ctDateStr } from "../lib/ct-day.js";
 
 const router = Router();
 
@@ -490,6 +491,26 @@ async function buildDispatchPayload(
       return bucketDisplayBySlug.get(slug)?.board_label ?? null;
     }
 
+    // [rail-dots 2026-07-30] Computed BEFORE the no-jobs early return: a
+    // company training day is exactly a day with zero jobs and a room full of
+    // techs clocked into an event, which is precisely when the rail claiming
+    // "nobody is clocked in" is most obviously wrong.
+    // Both dots describe RIGHT NOW, so they only apply while the board shows
+    // today — paging back to last Tuesday must not paint live presence onto a
+    // historical day.
+    const isToday = date === ctDateStr();
+    const openEventPunch = isToday
+      ? await db.execute(sql`
+          SELECT DISTINCT user_id
+          FROM event_timeclock
+          WHERE company_id = ${companyId}
+            AND clock_out_at IS NULL
+        `)
+      : { rows: [] as any[] };
+    const clockedInViaEvent = new Set(
+      (openEventPunch.rows as Array<{ user_id: number }>).map(r => Number(r.user_id)),
+    );
+
     if (jobs.length === 0) {
       return {
         employees: employees.map(e => ({
@@ -497,6 +518,8 @@ async function buildDispatchPayload(
           name: `${e.first_name} ${e.last_name}`,
           is_trainee: (e.role as string) === "trainee", // [trainee-role] label off the stored role (cast: enum union may predate rebuild)
           jobs: [],
+          is_clocked_in: clockedInViaEvent.has(e.id),
+          current_zone: null, // no jobs today → nothing live to report
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
           time_off_unit: getTimeOffUnit(e.id),
@@ -1358,6 +1381,64 @@ async function buildDispatchPayload(
       }
     }
 
+    // [rail-dots 2026-07-30] The two dots on the technician rail — the green
+    // clocked-in pip on the avatar and the colored zone dot beside the name —
+    // are derived HERE, not in the component, for two reasons.
+    //
+    // 1. The row renders `filteredData`, whose jobs are zone/branch filtered.
+    //    isClockedIn was `employee.jobs.some(open clock entry)`, so filtering to
+    //    a zone the tech's in-progress job isn't in made the green dot vanish
+    //    while they were still very much clocked in. Presence status is a fact
+    //    about the person, not about the current filter.
+    // 2. A tech clocked into a dispatch EVENT (training block, meeting, 1-on-1)
+    //    punches `event_timeclock`, a deliberately separate table from the job
+    //    `timeclock`. The board only ever looked at jobs, so someone sitting in
+    //    a training block read as not clocked in.
+    // (isToday / clockedInViaEvent are computed above the no-jobs early return.)
+    //
+    // "HH:MM[:SS]" → minutes since midnight; null when unparseable.
+    const toMins = (t: string | null | undefined): number | null => {
+      if (!t) return null;
+      const [h, m] = String(t).split(":").map(Number);
+      return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+    };
+    // Wall-clock minutes in Central — the board's own timeline is Central, so
+    // "which job is happening now" has to be asked in the same zone.
+    const [ctH, ctM] = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago", hour12: false, hour: "2-digit", minute: "2-digit",
+    }).format(new Date()).replace(/^24/, "00").split(":").map(Number);
+    const nowMins = ctH * 60 + ctM;
+
+    // The zone dot is supposed to answer "where is this tech right now", but it
+    // was rendering `empZoneMap` — the zone matched off their HOME address or a
+    // manual settings assignment. That is a static profile attribute: it never
+    // moves as they work through the day, it shows for a tech with no jobs at
+    // all, and it shows NOTHING for a tech who has no home-zone match even
+    // while they're working a job in a perfectly well-known zone. Derive it
+    // from the day's actual work instead, and keep the assigned zone only as
+    // the fallback for a tech who isn't working.
+    const currentZoneOf = (empId: number) => {
+      const list = (jobsByEmployee.get(empId) || []) as any[];
+      const zoned = list.filter(j => j.zone_id != null && j.zone_color);
+      if (!zoned.length) return null;
+      const pick =
+        // Actively on site — the strongest signal of where they are.
+        zoned.find(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at)
+        // Otherwise the job whose scheduled window contains right now.
+        ?? zoned.find(j => {
+          const s = toMins(j.scheduled_time);
+          if (s == null) return false;
+          return nowMins >= s && nowMins < s + (Number(j.duration_minutes) || 0);
+        })
+        // Otherwise heading to the next one; failing that, the last one worked.
+        ?? zoned.filter(j => (toMins(j.scheduled_time) ?? -1) >= nowMins)
+             .sort((a, b) => (toMins(a.scheduled_time) ?? 0) - (toMins(b.scheduled_time) ?? 0))[0]
+        ?? zoned.sort((a, b) => (toMins(b.scheduled_time) ?? 0) - (toMins(a.scheduled_time) ?? 0))[0];
+      return pick
+        ? { zone_id: Number(pick.zone_id), zone_color: String(pick.zone_color), zone_name: String(pick.zone_name ?? "Zone") }
+        : null;
+    };
+
     return {
       employees: employees.map(e => ({
         id: e.id,
@@ -1366,6 +1447,17 @@ async function buildDispatchPayload(
         is_trainee: (e.role as string) === "trainee", // [trainee-role] label off the stored role (cast: enum union may predate rebuild)
         jobs: jobsByEmployee.get(e.id) || [],
         zone: empZoneMap[e.id] ?? null,
+        // [rail-dots 2026-07-30] Filter-proof presence + live zone for the rail.
+        // Both gated on isToday: an open clock entry on a PAST date means
+        // somebody forgot to clock out, which is a payroll exception to chase —
+        // not a reason to paint them green as if they're on a job right now.
+        is_clocked_in:
+          isToday &&
+          (clockedInViaEvent.has(e.id) ||
+            (jobsByEmployee.get(e.id) || []).some(
+              (j: any) => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at,
+            )),
+        current_zone: isToday ? currentZoneOf(e.id) : null,
         time_off: getTimeOff(e.id),
         time_off_unit: getTimeOffUnit(e.id),
         time_off_color: getTimeOffColor(e.id),

@@ -80,7 +80,7 @@ interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: str
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
-interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | 'custom' | null; time_off_color?: string | null; time_off_label?: string | null; /* [time-block 2026-07-08] designated window ("HH:MM") when unit='custom' — the band tints only this span */ time_off_start?: string | null; time_off_end?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
+interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; /* [rail-dots 2026-07-30] Server-derived rail state: is_clocked_in spans job AND event punches and ignores the board's zone/branch filter; current_zone is the zone of the job they're actually on (null when not working — the rail then falls back to `zone`, their assigned home zone). */ is_clocked_in?: boolean; current_zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | 'custom' | null; time_off_color?: string | null; time_off_label?: string | null; /* [time-block 2026-07-08] designated window ("HH:MM") when unit='custom' — the band tints only this span */ time_off_start?: string | null; time_off_end?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // [dispatch-events 2026-07-14] A non-job board entry (see routes/dispatch-events.ts).
@@ -6947,7 +6947,20 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
   );
   const payFromRate = employee.commission_rate != null ? revenue * (employee.commission_rate / 100) : null;
   const pay = payFromJobs > 0 ? payFromJobs : payFromRate;
-  const isClockedIn = employee.jobs.some(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
+  // [rail-dots 2026-07-30] Presence comes from the server now. Deriving it from
+  // `employee.jobs` was wrong twice over: this row renders FILTERED data, so
+  // narrowing to a zone the tech's in-progress job isn't in made the green dot
+  // disappear while they were still clocked in; and a tech clocked into a
+  // dispatch event (training / meeting / 1-on-1) punches `event_timeclock`,
+  // which the job list never sees. Fall back to the old derivation so the dot
+  // still works against an API that predates this field.
+  const isClockedIn = employee.is_clocked_in
+    ?? employee.jobs.some(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
+  // The zone dot answers "where is this tech right now", so it prefers the zone
+  // of the job they're actually on (server-derived from the unfiltered day) and
+  // only falls back to their assigned home zone when they aren't working.
+  const railZone = employee.current_zone ?? employee.zone ?? null;
+  const railZoneIsLive = !!employee.current_zone;
   const timeOffBg = employee.time_off_color || null;
   const toUnit = employee.time_off_unit;
   // [time-block 2026-07-08] Format a "2-6 PM off" suffix for designated
@@ -7023,7 +7036,19 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
             {employee.is_trainee && (
               <span title="In training — first 3 weeks from hire date" style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, letterSpacing: "0.05em", color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Trainee</span>
             )}
-            {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
+            {/* [rail-dots 2026-07-30] Hollow ring when this is only their
+                assigned home zone, solid when it's where they actually are —
+                so the dot never implies live location it doesn't have. */}
+            {railZone && (
+              <div
+                title={railZoneIsLive ? `${railZone.zone_name} — working here now` : `${railZone.zone_name} — assigned zone (not working)`}
+                style={{
+                  width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                  backgroundColor: railZoneIsLive ? railZone.zone_color : "transparent",
+                  border: railZoneIsLive ? "none" : `1.5px solid ${railZone.zone_color}`,
+                }}
+              />
+            )}
           </div>
           {/* nowrap + ellipsis so a long time-off suffix can never wrap and
               overflow the fixed row height into the neighbor's row. The full
