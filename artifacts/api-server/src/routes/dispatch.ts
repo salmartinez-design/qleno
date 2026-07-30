@@ -1419,24 +1419,47 @@ async function buildDispatchPayload(
     // the fallback for a tech who isn't working.
     const currentZoneOf = (empId: number) => {
       const list = (jobsByEmployee.get(empId) || []) as any[];
-      const zoned = list.filter(j => j.zone_id != null && j.zone_color);
+      // Sorted by start time so "first match" and "most recent" are well
+      // defined. The multi-tech fan-out pushes rows in assignment order, not
+      // chronological order, so an unsorted .find() picked arbitrarily between
+      // two overlapping jobs.
+      const zoned = list
+        .filter(j => j.zone_id != null && j.zone_color && toMins(j.scheduled_time) != null)
+        .sort((a, b) => (toMins(a.scheduled_time) ?? 0) - (toMins(b.scheduled_time) ?? 0));
       if (!zoned.length) return null;
-      const pick =
-        // Actively on site — the strongest signal of where they are.
-        zoned.find(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at)
-        // Otherwise the job whose scheduled window contains right now.
-        ?? zoned.find(j => {
-          const s = toMins(j.scheduled_time);
-          if (s == null) return false;
-          return nowMins >= s && nowMins < s + (Number(j.duration_minutes) || 0);
-        })
-        // Otherwise heading to the next one; failing that, the last one worked.
-        ?? zoned.filter(j => (toMins(j.scheduled_time) ?? -1) >= nowMins)
-             .sort((a, b) => (toMins(a.scheduled_time) ?? 0) - (toMins(b.scheduled_time) ?? 0))[0]
-        ?? zoned.sort((a, b) => (toMins(b.scheduled_time) ?? 0) - (toMins(a.scheduled_time) ?? 0))[0];
-      return pick
-        ? { zone_id: Number(pick.zone_id), zone_color: String(pick.zone_color), zone_name: String(pick.zone_name ?? "Zone") }
-        : null;
+      const zoneOf = (j: any) => ({
+        zone_id: Number(j.zone_id),
+        zone_color: String(j.zone_color),
+        zone_name: String(j.zone_name ?? "Zone"),
+      });
+
+      // 1. On the clock — definitively standing there.
+      const onClock = zoned.find(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
+      if (onClock) return zoneOf(onClock);
+
+      // 2. Inside a scheduled window.
+      const inWindow = zoned.find(j => {
+        const s = toMins(j.scheduled_time)!;
+        const dur = Number(j.duration_minutes) || 0;
+        return nowMins >= s && nowMins < s + dur;
+      });
+      if (inWindow) return zoneOf(inWindow);
+
+      // 3. In a gap between jobs → where they LAST were, never where they are
+      //    headed. [zone-dot-ordering 2026-07-30] The first cut fell through to
+      //    "next upcoming job" here, so a tech between a morning and an
+      //    afternoon visit showed the AFTERNOON zone — a zone they had not been
+      //    to yet (Sal: "showing in the zone of the jobs they will have in the
+      //    afternoon not the current one they are in"). Any job with a missing
+      //    duration_minutes also lands here rather than in (2), and this branch
+      //    still answers correctly for it.
+      const started = zoned.filter(j => (toMins(j.scheduled_time) ?? 0) <= nowMins);
+      if (started.length) return zoneOf(started[started.length - 1]);
+
+      // 4. Their first job hasn't started — they aren't in a work zone yet.
+      //    Returning null lets the rail fall back to the assigned home zone,
+      //    which renders as a hollow ring: "this is their zone, not a location".
+      return null;
     };
 
     return {
