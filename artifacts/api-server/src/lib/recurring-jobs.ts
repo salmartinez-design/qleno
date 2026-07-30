@@ -381,6 +381,21 @@ function toDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// [skip-normalize 2026-07-30] Normalize a schedule's `skipped_dates` (a Postgres
+// `date[]`) into the SAME "YYYY-MM-DD" string form the occurrence side uses, so
+// tombstoned occurrences actually match and stay skipped. The pg driver returns
+// `date[]` elements as JS Date objects (local midnight) — the old
+// `String(x).slice(0,10)` yielded "Thu Jul 30" for those, which never matched
+// `toDateStr(occ)` ("2026-07-30"), silently defeating EVERY delete/skip
+// tombstone (Ashley Doss client 151: #19863 deleted, 7/30 in skipped_dates, yet
+// #20388 regenerated on 7/30). Route Date objects through the local formatter;
+// keep the slice fallback for any legacy element already stored as a text date.
+// Exported so the regression test can exercise it without a DB.
+export function normalizeSkipSet(skipped: unknown): Set<string> {
+  const arr = (Array.isArray(skipped) ? skipped : []) as (string | Date)[];
+  return new Set(arr.map((x) => (x instanceof Date ? toDateStr(x) : String(x).slice(0, 10))));
+}
+
 // generateOccurrences delegates to the pure generateCadenceDates module
 // so the cadence logic has exactly one definition. Test coverage lives
 // in recurring-engine-cadences.test.ts (imports from the pure module
@@ -579,8 +594,8 @@ export async function computeOccurrencesForSchedule(
 
   // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted or
   // skipped on purpose. The generator must NOT regenerate them — otherwise a
-  // skipped occurrence "keeps coming back". Stored as YYYY-MM-DD on the
-  // schedule; normalize to a date string and exclude from the insert set.
+  // skipped occurrence "keeps coming back". Stored as a `date[]` on the
+  // schedule; normalize (see normalizeSkipSet) and exclude from the insert set.
   //
   // [skip-authoritative 2026-07-30] READ FROM THE DATABASE, never from the
   // caller's object. This is the bug Francisco kept reporting ("skipped
@@ -629,7 +644,14 @@ export async function computeOccurrencesForSchedule(
       `cannot verify skipped_dates against the database.`
     );
   }
-  const skipSet = new Set(skipValues.map(x => String(x).slice(0, 10)));
+  // [skip-normalize 2026-07-30] normalizeSkipSet (not the old
+  // `String(x).slice(0,10)`) — the pg driver returns `date[]` elements as Date
+  // objects, and String(Date).slice(0,10) yields "Thu Jul 30", which never
+  // matched the occurrence key "2026-07-30". The authoritative DB read above
+  // fixed WHERE the skip values come from; this fixes HOW they're compared. Both
+  // are required: Ashley Doss (#16) had 2026-07-30 committed in skipped_dates
+  // and it STILL regenerated because of the representation mismatch.
+  const skipSet = normalizeSkipSet(skipValues);
 
   const toInsert = occurrences.filter(d => {
     const ds = toDateStr(d);
