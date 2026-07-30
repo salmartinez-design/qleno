@@ -48,14 +48,33 @@ export type Balance = {
   granted: number;
   used: number;
   available: number;
+  /** Hours consumed BEYOND the grant; 0 when the bucket is within budget.
+   *  See computeCurrentBalance for why this is separate from `available`. */
+  overdrawn: number;
 };
 
-/** Current available = granted - used, clamped to >= 0. */
+/** Current available = granted - used, clamped to >= 0, plus the overdraw.
+ *
+ *  The clamp is deliberate and stays: `available` means "hours you can still
+ *  draw", and that really is 0 once the grant is spent — every guard that reads
+ *  it (checkBalance) wants exactly that, and a negative would quietly change
+ *  what those comparisons mean.
+ *
+ *  [overdraw-visibility 2026-07-30] But the clamp alone made 56-used-of-40
+ *  indistinguishable from exactly-exhausted: both render "0.0 left". An
+ *  overdrawn bucket is a payroll problem the office needs to SEE, so the excess
+ *  is reported alongside rather than folded into `available`.
+ */
 export function computeCurrentBalance(input: ComputeBalanceInput): Balance {
   const granted = Number(input.granted_hours) || 0;
   const used = Number(input.used_hours) || 0;
-  const available = Math.max(0, round2(granted - used));
-  return { granted: round2(granted), used: round2(used), available };
+  const net = round2(granted - used);
+  return {
+    granted: round2(granted),
+    used: round2(used),
+    available: Math.max(0, net),
+    overdrawn: net < 0 ? round2(-net) : 0,
+  };
 }
 
 /** Accrue from worked hours: hours_worked × accrual_rate, capped at

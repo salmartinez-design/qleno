@@ -48,7 +48,7 @@ describe("Cutover 3A — balance math (current available)", () => {
         used_hours: 10,
         annual_cap_hours: 40,
       }),
-      { granted: 40, used: 10, available: 30 },
+      { granted: 40, used: 10, available: 30, overdrawn: 0 },
     );
   });
   it("never goes negative", () => {
@@ -59,6 +59,29 @@ describe("Cutover 3A — balance math (current available)", () => {
       annual_cap_hours: 40,
     });
     assert.equal(b.available, 0);
+  });
+  // [overdraw-visibility 2026-07-30] `available` staying clamped is why the
+  // overdraw has to be reported separately — without it, 99-used-of-10 and
+  // exactly-exhausted are the same card.
+  it("reports the overdraw instead of hiding it in the clamp", () => {
+    const b = computeCurrentBalance({
+      accrual_mode: "flat_grant",
+      granted_hours: 10,
+      used_hours: 99,
+      annual_cap_hours: 40,
+    });
+    assert.equal(b.overdrawn, 89);
+  });
+  it("overdrawn is 0 when the bucket is within budget", () => {
+    assert.equal(
+      computeCurrentBalance({
+        accrual_mode: "flat_grant",
+        granted_hours: 40,
+        used_hours: 40,
+        annual_cap_hours: 40,
+      }).overdrawn,
+      0,
+    );
   });
 });
 
