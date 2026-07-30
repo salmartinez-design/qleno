@@ -577,13 +577,59 @@ export async function computeOccurrencesForSchedule(
     if (r.sched) existingDates.add(String(r.sched));
   }
 
-  // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
-  // purpose. The generator must NOT regenerate them — otherwise a deleted
-  // recurring occurrence "keeps coming back". Stored as YYYY-MM-DD on the
+  // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted or
+  // skipped on purpose. The generator must NOT regenerate them — otherwise a
+  // skipped occurrence "keeps coming back". Stored as YYYY-MM-DD on the
   // schedule; normalize to a date string and exclude from the insert set.
-  const skipSet = new Set(
-    (((schedule as any).skipped_dates ?? []) as (string | Date)[]).map(x => String(x).slice(0, 10))
-  );
+  //
+  // [skip-authoritative 2026-07-30] READ FROM THE DATABASE, never from the
+  // caller's object. This is the bug Francisco kept reporting ("skipped
+  // services are being restored to the schedule").
+  //
+  // The old line was `(schedule as any).skipped_dates ?? []`. That is safe only
+  // if every caller hands us a FULL schedule row. The nightly engine and
+  // /recurring both load via Drizzle `select().from(recurringSchedulesTable)`,
+  // so they do — which is why the skip appeared to work and the bug looked
+  // fixed. But the two cascade paths in routes/jobs.ts (edit a recurring job
+  // with "this and future") load the schedule with a HAND-WRITTEN column list
+  // that never included skipped_dates. There, `?? []` produced an EMPTY skip
+  // set and the generator cheerfully recreated every date the office had
+  // skipped inside the 90-day horizon — silently, because `as any` means
+  // TypeScript cannot see the missing column.
+  //
+  // That is why it presented as intermittent and un-killable: nothing was wrong
+  // with the nightly run, so a skip would hold for days — until somebody edited
+  // that client's recurring job, and the skips came back all at once.
+  //
+  // Reading by id here makes the tombstone impossible to defeat from a call
+  // site. A future partial SELECT, a new caller, a hand-built object — none of
+  // them can turn the skip off, because none of them are consulted. We UNION
+  // with whatever the caller passed so an in-transaction value that isn't
+  // committed yet still counts; the union can only ever ADD skips, never drop
+  // one.
+  const skipValues: (string | Date)[] = [...(((schedule as any).skipped_dates ?? []) as (string | Date)[])];
+  if (schedule.id != null) {
+    try {
+      const sd = await db.execute(
+        sql`SELECT skipped_dates FROM recurring_schedules WHERE id = ${schedule.id}`
+      );
+      const fromDb = (sd.rows[0] as any)?.skipped_dates as (string | Date)[] | null | undefined;
+      if (Array.isArray(fromDb)) skipValues.push(...fromDb);
+    } catch (e) {
+      // Never silently proceed with a weaker skip set — a swallowed failure
+      // here is exactly how the office loses a skip and stops trusting it.
+      console.error(
+        `[recurring-engine] FAILED to read skipped_dates for schedule ${schedule.id}; ` +
+        `falling back to the caller-supplied value only. Skips may regenerate.`, e
+      );
+    }
+  } else {
+    console.warn(
+      `[recurring-engine] computeOccurrencesForSchedule called with no schedule.id — ` +
+      `cannot verify skipped_dates against the database.`
+    );
+  }
+  const skipSet = new Set(skipValues.map(x => String(x).slice(0, 10)));
 
   const toInsert = occurrences.filter(d => {
     const ds = toDateStr(d);

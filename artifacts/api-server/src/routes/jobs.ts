@@ -2580,7 +2580,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
                  custom_frequency_weeks, start_date, end_date, scheduled_time,
                  assigned_employee_id, service_type, duration_minutes, base_fee,
                  commercial_hourly_rate, notes, instructions,
-                 parking_fee_enabled, parking_fee_amount, parking_fee_days
+                 parking_fee_enabled, parking_fee_amount, parking_fee_days,
+                 -- [skip-authoritative 2026-07-30] This list omitted
+                 -- skipped_dates, so computeOccurrencesForSchedule saw an empty
+                 -- skip set and regenerated every date the office had skipped.
+                 -- The generator now re-reads it by id and cannot be fooled by
+                 -- a partial SELECT; carried here too so the row is honest.
+                 skipped_dates
           FROM recurring_schedules WHERE id = ${newSchedId} LIMIT 1
         `);
         const sched = cascadeSched.rows[0] as any;
@@ -3309,7 +3315,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
                    days_of_week, custom_frequency_weeks, start_date, end_date,
                    assigned_employee_id, service_type, duration_minutes, base_fee,
                    scheduled_time, commercial_hourly_rate, notes, instructions, is_active,
-                   parking_fee_enabled, parking_fee_amount, parking_fee_days
+                   parking_fee_enabled, parking_fee_amount, parking_fee_days,
+                   -- [skip-authoritative 2026-07-30] Same omission as the
+                   -- cascade-create SELECT above: without skipped_dates this
+                   -- "backfill future occurrences" pass rebuilt every skipped
+                   -- visit in the 90-day horizon.
+                   skipped_dates
             FROM recurring_schedules WHERE id = ${scheduleId2} LIMIT 1
           `);
           const fillSched = fillSchedRow.rows[0] as any;
