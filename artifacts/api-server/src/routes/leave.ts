@@ -1057,7 +1057,10 @@ async function buildAttendanceSummary(
   windowDays: number,
   includeDiscipline = false,
 ) {
-  const to = new Date().toISOString().slice(0, 10);
+  // [window-upper-bound 2026-07-30] Central day, not UTC — `toISOString()` is
+  // tomorrow's date after 7 PM Central, which would pull tomorrow's records
+  // into "the last 180 days" every evening.
+  const to = ctDateStr();
   const from = ymdMinus(windowDays);
 
   const att = await db
@@ -1075,14 +1078,26 @@ async function buildAttendanceSummary(
         eq(employeeAttendanceLogTable.company_id, companyId),
         eq(employeeAttendanceLogTable.employee_id, userId),
         gte(employeeAttendanceLogTable.log_date, from),
+        // [window-upper-bound 2026-07-30] "Trailing 180 days" had a floor and
+        // no ceiling, so every future-dated row counted as history: tiles that
+        // say "last 180 days" were really "last 180 days plus all of the
+        // future". That is how Absent 3 / Unexcused 3 included Aug 1 and Oct 17
+        // while it was still July (Sal, 7/30). The bounded form was already the
+        // house pattern — see the gte+lte pair on the /attendance range query
+        // above; these two windows just never got it.
+        lte(employeeAttendanceLogTable.log_date, to),
       ),
     )
     .orderBy(desc(employeeAttendanceLogTable.log_date));
 
   const usage = await buildUsageForUser(companyId, userId);
-  const usageInWindow = usage.filter(
-    (u) => String(u.date_used).slice(0, 10) >= from,
-  );
+  const usageInWindow = usage.filter((u) => {
+    const d = String(u.date_used).slice(0, 10);
+    // Same ceiling for leave usage: approved FUTURE time off writes usage rows
+    // dated forward, which were landing in the "Time Off" / "Sick" counts for a
+    // window that is supposed to be historical.
+    return d >= from && d <= to;
+  });
 
   // [reasons 2026-07-07] Recorded-by attribution (Sal: "make sure all buckets
   // have audit logs") — Tardies/Unexcused aren't balance buckets, so their
@@ -1135,6 +1150,62 @@ async function buildAttendanceSummary(
     hours: round2(rows.reduce((s, r) => s + (r.hours || 0), 0)),
     days: rows,
   });
+
+  // [days-metrics 2026-07-30] Real scheduled/worked DAY counts for the window.
+  //
+  // The profile's "622 days worked of 625 scheduled" came from `user.total_jobs`
+  // — an unfiltered lifetime COUNT(*) of jobs assigned to the user (users.ts).
+  // Three things wrong with that as a day count: it counts JOBS (three houses
+  // in one day = 3), it is ALL-TIME under a header that says "Trailing 180
+  // days", and it includes cancelled and future-scheduled work. The employee it
+  // was shown for had been hired ~185 days earlier, so "622 days worked" was
+  // not merely imprecise, it was impossible. On-time was then derived from that
+  // inflated denominator — (622−1)/622 rounds to 100%, which is how the ring
+  // read 100% directly beside a "Tardy 1" tile.
+  //
+  // Counted here instead, as distinct calendar DATES inside [from, to]:
+  //   scheduled — dates with at least one non-cancelled job, counting crew
+  //               assignments as well as the primary (a helper was scheduled
+  //               that day too; jobs.assigned_user_id alone would miss them)
+  //   worked    — scheduled dates with no absence and no leave taken
+  //   absent    — scheduled dates carrying an absence/NCNS record
+  //   late      — worked dates carrying a tardy
+  // A day off is usually not a scheduled day at all (dispatch doesn't assign
+  // work to someone who is out), so subtracting leave only ever removes days
+  // that really were on the board.
+  const scheduledRows = await db.execute(sql`
+    SELECT DISTINCT j.scheduled_date::text AS d
+    FROM jobs j
+    LEFT JOIN job_technicians jt ON jt.job_id = j.id AND jt.user_id = ${userId}
+    WHERE j.company_id = ${companyId}
+      AND j.scheduled_date >= ${from}
+      AND j.scheduled_date <= ${to}
+      AND j.status <> 'cancelled'
+      AND (j.assigned_user_id = ${userId} OR jt.user_id IS NOT NULL)
+  `);
+  const scheduledDates = new Set(
+    (scheduledRows.rows as Array<{ d: string }>).map((r) => String(r.d).slice(0, 10)),
+  );
+  const datesOf = (rows: Array<{ date: string }>) => new Set(rows.map((r) => r.date));
+  const absentDates = datesOf(absentRows);
+  const tardyDates = datesOf(lateRows);
+  const leaveDates = datesOf(timeOffRows);
+  const workedDates = [...scheduledDates].filter(
+    (d) => !absentDates.has(d) && !leaveDates.has(d),
+  );
+  const scheduledDayCount = scheduledDates.size;
+  const workedDayCount = workedDates.length;
+  const lateDayCount = workedDates.filter((d) => tardyDates.has(d)).length;
+  const absentDayCount = [...absentDates].filter((d) => scheduledDates.has(d)).length;
+  // FLOOR, not round: 621/622 = 99.84% must not present as a clean 100% while a
+  // tardy sits in the same card. A perfect record is the only thing that shows
+  // 100. Null (not 0%) when there is nothing to measure — an employee with no
+  // scheduled days in the window has no on-time rate, and 0% would read as a
+  // catastrophic one.
+  const onTimePct =
+    workedDayCount > 0
+      ? Math.floor(((workedDayCount - lateDayCount) / workedDayCount) * 100)
+      : null;
 
   // Unexcused disciplinary ladder (LMS-rule thresholds). The
   // unexcused_hours_steps column may not exist yet in every tenant DB — read
@@ -1194,6 +1265,13 @@ async function buildAttendanceSummary(
         eq(employeeAttendanceLogTable.company_id, companyId),
         eq(employeeAttendanceLogTable.employee_id, userId),
         gte(employeeAttendanceLogTable.log_date, benefitYearStart),
+        // [window-upper-bound 2026-07-30] The occurrence ladder + the 40-hour
+        // bank read this set. Unbounded, a future-dated absence advanced the
+        // disciplinary count TODAY — the employee sat at "3 of 3, termination"
+        // on the strength of two days that had not happened. The ladder WRITER
+        // already bounds its own count with lte(log_date) (see
+        // driveOccurrenceLadder); this reader is what disagreed with it.
+        lte(employeeAttendanceLogTable.log_date, to),
       ),
     );
   // The benefit year can reach further back than the rolling stats window, so
@@ -1282,6 +1360,16 @@ async function buildAttendanceSummary(
     window_days: windowDays,
     from,
     to,
+    // [days-metrics 2026-07-30] The profile's Attendance hero reads these
+    // instead of deriving day counts from user.total_jobs. Server-side so the
+    // ring, the tiles and the stats table can never drift apart again.
+    days: {
+      scheduled: scheduledDayCount,
+      worked: workedDayCount,
+      absent: absentDayCount,
+      late: lateDayCount,
+      on_time_pct: onTimePct,
+    },
     tiles: {
       late: tile(lateRows),
       absent: tile(absentRows),
