@@ -68,6 +68,7 @@ import {
 } from "../lib/leave-balance.js";
 import { nextResetDate } from "../lib/leave-reset-format.js";
 import { benefitYearStartDate } from "../lib/leave-grant-reset.js";
+import { ctDateStr } from "../lib/ct-day.js";
 import { nextOccurrenceStep, type OccurrenceStep } from "../lib/unexcused-ladder.js";
 import { countUnexcusedOccurrences } from "../lib/attendance-compliance.js";
 import { resolveBucketDisplay } from "../lib/leave-bucket-display.js";
@@ -1056,7 +1057,10 @@ async function buildAttendanceSummary(
   windowDays: number,
   includeDiscipline = false,
 ) {
-  const to = new Date().toISOString().slice(0, 10);
+  // [window-upper-bound 2026-07-30] Central day, not UTC — `toISOString()` is
+  // tomorrow's date after 7 PM Central, which would pull tomorrow's records
+  // into "the last 180 days" every evening.
+  const to = ctDateStr();
   const from = ymdMinus(windowDays);
 
   const att = await db
@@ -1074,14 +1078,26 @@ async function buildAttendanceSummary(
         eq(employeeAttendanceLogTable.company_id, companyId),
         eq(employeeAttendanceLogTable.employee_id, userId),
         gte(employeeAttendanceLogTable.log_date, from),
+        // [window-upper-bound 2026-07-30] "Trailing 180 days" had a floor and
+        // no ceiling, so every future-dated row counted as history: tiles that
+        // say "last 180 days" were really "last 180 days plus all of the
+        // future". That is how Absent 3 / Unexcused 3 included Aug 1 and Oct 17
+        // while it was still July (Sal, 7/30). The bounded form was already the
+        // house pattern — see the gte+lte pair on the /attendance range query
+        // above; these two windows just never got it.
+        lte(employeeAttendanceLogTable.log_date, to),
       ),
     )
     .orderBy(desc(employeeAttendanceLogTable.log_date));
 
   const usage = await buildUsageForUser(companyId, userId);
-  const usageInWindow = usage.filter(
-    (u) => String(u.date_used).slice(0, 10) >= from,
-  );
+  const usageInWindow = usage.filter((u) => {
+    const d = String(u.date_used).slice(0, 10);
+    // Same ceiling for leave usage: approved FUTURE time off writes usage rows
+    // dated forward, which were landing in the "Time Off" / "Sick" counts for a
+    // window that is supposed to be historical.
+    return d >= from && d <= to;
+  });
 
   // [reasons 2026-07-07] Recorded-by attribution (Sal: "make sure all buckets
   // have audit logs") — Tardies/Unexcused aren't balance buckets, so their
@@ -1134,6 +1150,62 @@ async function buildAttendanceSummary(
     hours: round2(rows.reduce((s, r) => s + (r.hours || 0), 0)),
     days: rows,
   });
+
+  // [days-metrics 2026-07-30] Real scheduled/worked DAY counts for the window.
+  //
+  // The profile's "622 days worked of 625 scheduled" came from `user.total_jobs`
+  // — an unfiltered lifetime COUNT(*) of jobs assigned to the user (users.ts).
+  // Three things wrong with that as a day count: it counts JOBS (three houses
+  // in one day = 3), it is ALL-TIME under a header that says "Trailing 180
+  // days", and it includes cancelled and future-scheduled work. The employee it
+  // was shown for had been hired ~185 days earlier, so "622 days worked" was
+  // not merely imprecise, it was impossible. On-time was then derived from that
+  // inflated denominator — (622−1)/622 rounds to 100%, which is how the ring
+  // read 100% directly beside a "Tardy 1" tile.
+  //
+  // Counted here instead, as distinct calendar DATES inside [from, to]:
+  //   scheduled — dates with at least one non-cancelled job, counting crew
+  //               assignments as well as the primary (a helper was scheduled
+  //               that day too; jobs.assigned_user_id alone would miss them)
+  //   worked    — scheduled dates with no absence and no leave taken
+  //   absent    — scheduled dates carrying an absence/NCNS record
+  //   late      — worked dates carrying a tardy
+  // A day off is usually not a scheduled day at all (dispatch doesn't assign
+  // work to someone who is out), so subtracting leave only ever removes days
+  // that really were on the board.
+  const scheduledRows = await db.execute(sql`
+    SELECT DISTINCT j.scheduled_date::text AS d
+    FROM jobs j
+    LEFT JOIN job_technicians jt ON jt.job_id = j.id AND jt.user_id = ${userId}
+    WHERE j.company_id = ${companyId}
+      AND j.scheduled_date >= ${from}
+      AND j.scheduled_date <= ${to}
+      AND j.status <> 'cancelled'
+      AND (j.assigned_user_id = ${userId} OR jt.user_id IS NOT NULL)
+  `);
+  const scheduledDates = new Set(
+    (scheduledRows.rows as Array<{ d: string }>).map((r) => String(r.d).slice(0, 10)),
+  );
+  const datesOf = (rows: Array<{ date: string }>) => new Set(rows.map((r) => r.date));
+  const absentDates = datesOf(absentRows);
+  const tardyDates = datesOf(lateRows);
+  const leaveDates = datesOf(timeOffRows);
+  const workedDates = [...scheduledDates].filter(
+    (d) => !absentDates.has(d) && !leaveDates.has(d),
+  );
+  const scheduledDayCount = scheduledDates.size;
+  const workedDayCount = workedDates.length;
+  const lateDayCount = workedDates.filter((d) => tardyDates.has(d)).length;
+  const absentDayCount = [...absentDates].filter((d) => scheduledDates.has(d)).length;
+  // FLOOR, not round: 621/622 = 99.84% must not present as a clean 100% while a
+  // tardy sits in the same card. A perfect record is the only thing that shows
+  // 100. Null (not 0%) when there is nothing to measure — an employee with no
+  // scheduled days in the window has no on-time rate, and 0% would read as a
+  // catastrophic one.
+  const onTimePct =
+    workedDayCount > 0
+      ? Math.floor(((workedDayCount - lateDayCount) / workedDayCount) * 100)
+      : null;
 
   // Unexcused disciplinary ladder (LMS-rule thresholds). The
   // unexcused_hours_steps column may not exist yet in every tenant DB — read
@@ -1193,6 +1265,13 @@ async function buildAttendanceSummary(
         eq(employeeAttendanceLogTable.company_id, companyId),
         eq(employeeAttendanceLogTable.employee_id, userId),
         gte(employeeAttendanceLogTable.log_date, benefitYearStart),
+        // [window-upper-bound 2026-07-30] The occurrence ladder + the 40-hour
+        // bank read this set. Unbounded, a future-dated absence advanced the
+        // disciplinary count TODAY — the employee sat at "3 of 3, termination"
+        // on the strength of two days that had not happened. The ladder WRITER
+        // already bounds its own count with lte(log_date) (see
+        // driveOccurrenceLadder); this reader is what disagreed with it.
+        lte(employeeAttendanceLogTable.log_date, to),
       ),
     );
   // The benefit year can reach further back than the rolling stats window, so
@@ -1281,6 +1360,16 @@ async function buildAttendanceSummary(
     window_days: windowDays,
     from,
     to,
+    // [days-metrics 2026-07-30] The profile's Attendance hero reads these
+    // instead of deriving day counts from user.total_jobs. Server-side so the
+    // ring, the tiles and the stats table can never drift apart again.
+    days: {
+      scheduled: scheduledDayCount,
+      worked: workedDayCount,
+      absent: absentDayCount,
+      late: lateDayCount,
+      on_time_pct: onTimePct,
+    },
     tiles: {
       late: tile(lateRows),
       absent: tile(absentRows),
@@ -1973,6 +2062,42 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
     reqRow.user_id,
     reqRow.leave_type_id,
   );
+  // [approve-balance-recheck 2026-07-30] checkBalance ran ONCE, at request
+  // creation (POST /requests) — approve then wrote used_hours + hours with no
+  // check at all. The balance a request was validated against is not the
+  // balance at approval: other requests get approved in between, the office
+  // adjusts a grant, or the benefit year turns over. Worse, this handler
+  // deliberately accepts already-DENIED requests as an override, so a request
+  // denied BECAUSE it was over balance could be approved straight through.
+  // Sal, 7/30: Unpaid Leave sat at 40.0 used / 40.0 granted / 0.0 available
+  // with two pending 8h requests still showing green Approve buttons —
+  // approving both would have silently written 56 of 40, and because
+  // computeCurrentBalance clamps available at 0, the card would have read
+  // "0.0 left" rather than showing the 16h overdraw.
+  // Deliberate overdrafts stay possible, but only as an explicit, audited act.
+  const apprBucket = await findBucket(companyId, reqRow.leave_type_id);
+  if (!apprBucket) return notFound(res, "Leave type not found");
+  const apprValidation = await buildBucketForValidation(apprBucket);
+  const apprBalance = computeCurrentBalance({
+    accrual_mode: apprValidation.accrual_mode,
+    granted_hours: Number(bal.granted_hours),
+    used_hours: Number(bal.used_hours),
+    annual_cap_hours: Number(apprBucket.annual_cap_hours),
+  });
+  const allowOverdraw = req.body?.allow_overdraw === true;
+  const rBal = checkBalance(apprValidation, hours, apprBalance.available);
+  if (!rBal.ok && !allowOverdraw) {
+    return res.status(409).json({
+      error: "Conflict",
+      ...rBal,
+      // The UI needs these to offer "approve anyway" with real numbers.
+      requested_hours: hours,
+      available_hours: apprBalance.available,
+      overdraw_hours: round2(hours - apprBalance.available),
+      can_override: true,
+    });
+  }
+  const overdrawHours = rBal.ok ? 0 : round2(hours - apprBalance.available);
   await db
     .update(employeeLeaveBalancesTable)
     .set({
@@ -2028,6 +2153,12 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
   try {
     await logAudit(req, "leave_request_approved", "leave_request", String(id), null, {
       decided_by: actingUserId, hours, day_unit: dayUnit, decision_note: decisionNote,
+      // [approve-balance-recheck 2026-07-30] An approval that knowingly went
+      // past the balance is the one an auditor will ask about — name it here
+      // rather than leaving it to be inferred from a negative balance later.
+      ...(overdrawHours > 0
+        ? { overdraw_hours: overdrawHours, available_at_approval: apprBalance.available, override: true }
+        : {}),
     });
   } catch { /* audit best-effort */ }
   // [leave-log 2026-07-07] Balance-targeted provenance row so the bucket's
@@ -2480,6 +2611,22 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     return bad(res, "employee_id required");
   if (!body?.log_date || !ISO_DATE_RE.test(body.log_date))
     return bad(res, "log_date YYYY-MM-DD required");
+  // [future-attendance-guard 2026-07-30] An attendance record documents a day
+  // that ALREADY HAPPENED. log_date was validated for ISO shape only, so the
+  // office could record an absence months out — and the occurrence ladder fires
+  // on write, stamping its discipline row with that same future effective_date
+  // (see driveOccurrenceLadder). That is how a Termination dated Oct 17 landed
+  // on a live profile in July (Sal, 7/30): the two future "absences" were days
+  // the employee had only REQUESTED off, not days she missed. Central day, not
+  // UTC — `new Date().toISOString()` rolls over at 7 PM Central and would
+  // reject a legitimate same-evening entry.
+  const todayCT = ctDateStr();
+  if (body.log_date > todayCT)
+    return bad(
+      res,
+      `Can't record attendance for ${body.log_date} — that date hasn't happened yet. Attendance records a day already worked (or missed); to plan time off, file a leave request instead.`,
+      "future_log_date",
+    );
   const hours = Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0)
     return bad(res, "hours must be positive");

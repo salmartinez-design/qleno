@@ -1603,7 +1603,9 @@ export default function EmployeeProfilePage() {
                   const y = Math.floor(months / 12), m = months % 12;
                   return y > 0 ? `${y} yr${y === 1 ? '' : 's'} ${m} mo` : `${m} mo`;
                 })() },
-              { label:'Score', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
+              // [score-label 2026-07-30] Same rename as the attendance table:
+              // this is the 90-day performance composite, not an attendance %.
+              { label:'Performance', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
             ].map(t => (
               <div key={t.label} style={{ background:'#F7F6F3', borderRadius:10, padding:'10px 16px', minWidth:104, flex: isMobile ? '1 1 0' : undefined }}>
                 <p style={{ fontSize:10.5, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 3px 0', whiteSpace:'nowrap' }}>{t.label}</p>
@@ -1870,7 +1872,15 @@ export default function EmployeeProfilePage() {
                   detailed bucket cards + calendar + stats stay below, unchanged. */}
               {(() => {
                 const t = attnSummary?.tiles;
-                const scheduled = Number(user.total_jobs || 0);
+                // [days-metrics 2026-07-30] Day counts come from the summary
+                // endpoint now. They used to be derived here from
+                // `user.total_jobs` — a lifetime, unfiltered JOB count — which
+                // is why this card claimed 622 days worked for someone hired
+                // ~185 days earlier, and why the ring rounded to 100% next to a
+                // Tardy 1 tile. `late`/`absent` stay as record counts for the
+                // tiles; the ring and the days tile use DAY counts.
+                const d = attnSummary?.days;
+                const scheduled = Number(d?.scheduled ?? 0);
                 const late = t?.late?.count ?? 0;
                 const absent = t?.absent?.count ?? 0;
                 // [bradford 2026-07-24] Bradford Factor = S² × D — S = separate
@@ -1893,8 +1903,12 @@ export default function EmployeeProfilePage() {
                   : bd.B <= 50 ? { c: '#0F7A63', l: 'low' }
                   : bd.B <= 200 ? { c: '#B45309', l: 'watch' }
                   : { c: '#B3261E', l: 'high' };
-                const worked = Math.max(0, scheduled - absent);
-                const onTime = worked > 0 ? Math.round(((worked - late) / worked) * 100) : null;
+                // Server-computed: worked = scheduled days minus days absent or
+                // on leave (the old `scheduled − absent` left time off and sick
+                // days counted as worked), and on-time is floored so 99.84%
+                // can't present as 100%.
+                const worked = Number(d?.worked ?? 0);
+                const onTime = d?.on_time_pct != null ? Number(d.on_time_pct) : null;
                 const C = 2 * Math.PI * 44;
                 const off = onTime != null ? C * (1 - onTime / 100) : C;
                 const balTiles = leaveBuckets.slice(0, 4);
@@ -2439,21 +2453,31 @@ export default function EmployeeProfilePage() {
                   </div>
                   {(() => {
                     const t = attnSummary?.tiles;
-                    const rows: Array<{ label:string; value:any; days?:any[] }> = [
-                      { label:'Scheduled', value: user.total_jobs || 0 },
+                    const rows: Array<{ label:string; value:any; days?:any[]; hint?:string }> = [
+                      // [days-metrics 2026-07-30] Real scheduled DAYS in the
+                      // window, not the lifetime job count this used to show.
+                      { label:'Scheduled days', value: attnSummary?.days?.scheduled ?? 0 },
+                      { label:'Worked', value: attnSummary?.days?.worked ?? 0 },
                       { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days },
                       { label:'Absent', value: t?.absent?.count ?? 0, days: t?.absent?.days },
                       { label:'Unexcused', value: t?.unexcused?.count ?? 0, days: t?.unexcused?.days },
                       { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },
                       { label:'Paid Time Off', value: t?.pto?.count ?? 0, days: t?.pto?.days },
                       { label:'Sick', value: t?.sick?.count ?? 0, days: t?.sick?.days },
-                      { label:'Score', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
+                      // [score-label 2026-07-30] Was a bare "Score" sitting in
+                      // an ATTENDANCE table while the hero ring showed a
+                      // different number (100% on time vs 93%) — it reads as
+                      // two attendance figures contradicting each other. It is
+                      // neither: compositeScore is the rolling 90-day
+                      // performance composite, blending customer satisfaction
+                      // with an attendance sub-score. Named for what it is.
+                      { label:'Performance score', hint:'Rolling 90-day composite — customer satisfaction blended with an attendance sub-score. Not an attendance-only figure; the on-time ring above measures something different.', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
                     ];
                     return rows.map(row => {
                       const clickable = Array.isArray(row.days);
                       const hasRows = clickable && (row.days as any[]).length > 0;
                       return (
-                        <div key={row.label}
+                        <div key={row.label} title={row.hint}
                           onClick={hasRows ? () => setStatDrill({ label: row.label, days: row.days as any[] }) : undefined}
                           style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F0EEE9', cursor: hasRows ? 'pointer' : 'default' }}>
                           <span style={{ fontSize:12, color: hasRows ? 'var(--brand)' : '#6B6860' }}>{row.label}</span>

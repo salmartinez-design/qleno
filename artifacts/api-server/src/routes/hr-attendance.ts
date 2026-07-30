@@ -8,6 +8,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, gte, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { ctDateStr } from "../lib/ct-day.js";
 
 const router = Router();
 const LOG_ROLES = requireRole("owner", "admin", "office");
@@ -18,6 +19,18 @@ router.post("/", requireAuth, LOG_ROLES, async (req, res) => {
     const loggedBy = req.auth!.userId!;
     const { employee_id, log_date, type, protected: isProtected, notes } = req.body;
     if (!employee_id || !log_date || !type) return res.status(400).json({ error: "employee_id, log_date, type required" });
+    // [future-attendance-guard 2026-07-30] Same rule as POST /leave/attendance:
+    // an attendance record documents a day that already happened, and this route
+    // drives checkThresholds() → employee_discipline_log, so a future log_date
+    // mints a future-dated disciplinary record. This entry point was looser
+    // still — it never even checked the date's shape.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(log_date)))
+      return res.status(400).json({ error: "log_date must be YYYY-MM-DD" });
+    if (String(log_date) > ctDateStr())
+      return res.status(400).json({
+        error: `Can't record attendance for ${log_date} — that date hasn't happened yet. Attendance records a day already worked (or missed); to plan time off, file a leave request instead.`,
+        code: "future_log_date",
+      });
 
     const [entry] = await db.insert(employeeAttendanceLogTable).values({
       company_id: companyId,
