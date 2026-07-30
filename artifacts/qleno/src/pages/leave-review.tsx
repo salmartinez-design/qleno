@@ -95,15 +95,34 @@ export default function LeaveReviewPage() {
   async function act(id: number, action: "approve" | "deny" | "cancel", note?: string) {
     setBusyId(id);
     try {
-      const res = await fetch(`/api/leave/requests/${id}/${action}`, {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: note ? JSON.stringify({ decision_note: note }) : undefined,
-      });
+      // [approve-balance-recheck 2026-07-30] Approve now re-checks the bucket
+      // balance server-side (it only ever ran at request time). An over-balance
+      // approval comes back 409 with can_override — surface the real numbers and
+      // let the office go ahead deliberately rather than hard-blocking them.
+      const post = (extra?: Record<string, unknown>) =>
+        fetch(`/api/leave/requests/${id}/${action}`, {
+          method: "POST",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: note || extra ? JSON.stringify({ ...(note ? { decision_note: note } : {}), ...extra }) : undefined,
+        });
+      let res = await post();
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        toast({ title: err?.message || `${action} failed`, variant: "destructive" });
-        return;
+        if (res.status === 409 && err?.code === "over_balance" && err?.can_override) {
+          const over = Number(err.overdraw_hours ?? 0).toFixed(2);
+          const avail = Number(err.available_hours ?? 0).toFixed(2);
+          const want = Number(err.requested_hours ?? 0).toFixed(2);
+          if (!confirm(`${err.message}\n\nRequested ${want} h · available ${avail} h · ${over} h over.\n\nApprove anyway? The bucket goes negative and the override is recorded in the audit log.`)) return;
+          res = await post({ allow_overdraw: true });
+          if (!res.ok) {
+            const e2 = await res.json().catch(() => ({}));
+            toast({ title: e2?.message || `${action} failed`, variant: "destructive" });
+            return;
+          }
+        } else {
+          toast({ title: err?.message || `${action} failed`, variant: "destructive" });
+          return;
+        }
       }
       await load();
     } finally {

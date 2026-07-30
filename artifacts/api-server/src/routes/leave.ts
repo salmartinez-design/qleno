@@ -68,6 +68,7 @@ import {
 } from "../lib/leave-balance.js";
 import { nextResetDate } from "../lib/leave-reset-format.js";
 import { benefitYearStartDate } from "../lib/leave-grant-reset.js";
+import { ctDateStr } from "../lib/ct-day.js";
 import { nextOccurrenceStep, type OccurrenceStep } from "../lib/unexcused-ladder.js";
 import { countUnexcusedOccurrences } from "../lib/attendance-compliance.js";
 import { resolveBucketDisplay } from "../lib/leave-bucket-display.js";
@@ -1973,6 +1974,42 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
     reqRow.user_id,
     reqRow.leave_type_id,
   );
+  // [approve-balance-recheck 2026-07-30] checkBalance ran ONCE, at request
+  // creation (POST /requests) — approve then wrote used_hours + hours with no
+  // check at all. The balance a request was validated against is not the
+  // balance at approval: other requests get approved in between, the office
+  // adjusts a grant, or the benefit year turns over. Worse, this handler
+  // deliberately accepts already-DENIED requests as an override, so a request
+  // denied BECAUSE it was over balance could be approved straight through.
+  // Sal, 7/30: Unpaid Leave sat at 40.0 used / 40.0 granted / 0.0 available
+  // with two pending 8h requests still showing green Approve buttons —
+  // approving both would have silently written 56 of 40, and because
+  // computeCurrentBalance clamps available at 0, the card would have read
+  // "0.0 left" rather than showing the 16h overdraw.
+  // Deliberate overdrafts stay possible, but only as an explicit, audited act.
+  const apprBucket = await findBucket(companyId, reqRow.leave_type_id);
+  if (!apprBucket) return notFound(res, "Leave type not found");
+  const apprValidation = await buildBucketForValidation(apprBucket);
+  const apprBalance = computeCurrentBalance({
+    accrual_mode: apprValidation.accrual_mode,
+    granted_hours: Number(bal.granted_hours),
+    used_hours: Number(bal.used_hours),
+    annual_cap_hours: Number(apprBucket.annual_cap_hours),
+  });
+  const allowOverdraw = req.body?.allow_overdraw === true;
+  const rBal = checkBalance(apprValidation, hours, apprBalance.available);
+  if (!rBal.ok && !allowOverdraw) {
+    return res.status(409).json({
+      error: "Conflict",
+      ...rBal,
+      // The UI needs these to offer "approve anyway" with real numbers.
+      requested_hours: hours,
+      available_hours: apprBalance.available,
+      overdraw_hours: round2(hours - apprBalance.available),
+      can_override: true,
+    });
+  }
+  const overdrawHours = rBal.ok ? 0 : round2(hours - apprBalance.available);
   await db
     .update(employeeLeaveBalancesTable)
     .set({
@@ -2028,6 +2065,12 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
   try {
     await logAudit(req, "leave_request_approved", "leave_request", String(id), null, {
       decided_by: actingUserId, hours, day_unit: dayUnit, decision_note: decisionNote,
+      // [approve-balance-recheck 2026-07-30] An approval that knowingly went
+      // past the balance is the one an auditor will ask about — name it here
+      // rather than leaving it to be inferred from a negative balance later.
+      ...(overdrawHours > 0
+        ? { overdraw_hours: overdrawHours, available_at_approval: apprBalance.available, override: true }
+        : {}),
     });
   } catch { /* audit best-effort */ }
   // [leave-log 2026-07-07] Balance-targeted provenance row so the bucket's
@@ -2480,6 +2523,22 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     return bad(res, "employee_id required");
   if (!body?.log_date || !ISO_DATE_RE.test(body.log_date))
     return bad(res, "log_date YYYY-MM-DD required");
+  // [future-attendance-guard 2026-07-30] An attendance record documents a day
+  // that ALREADY HAPPENED. log_date was validated for ISO shape only, so the
+  // office could record an absence months out — and the occurrence ladder fires
+  // on write, stamping its discipline row with that same future effective_date
+  // (see driveOccurrenceLadder). That is how a Termination dated Oct 17 landed
+  // on a live profile in July (Sal, 7/30): the two future "absences" were days
+  // the employee had only REQUESTED off, not days she missed. Central day, not
+  // UTC — `new Date().toISOString()` rolls over at 7 PM Central and would
+  // reject a legitimate same-evening entry.
+  const todayCT = ctDateStr();
+  if (body.log_date > todayCT)
+    return bad(
+      res,
+      `Can't record attendance for ${body.log_date} — that date hasn't happened yet. Attendance records a day already worked (or missed); to plan time off, file a leave request instead.`,
+      "future_log_date",
+    );
   const hours = Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0)
     return bad(res, "hours must be positive");
