@@ -2003,6 +2003,8 @@ export default function EmployeeProfilePage() {
                   const granted = Number(b.granted || 0);
                   const used = Number(b.used || 0);
                   const avail = Number(b.available || 0);
+                  // [overdraw-visibility 2026-07-30] Hours spent past the grant.
+                  const over = Number(b.overdrawn || 0);
                   const unex = officeRecorded ? (attnSummary?.unexcused || null) : null;
 
                   // Big number + usage bar geometry + smart color.
@@ -2032,7 +2034,12 @@ export default function EmployeeProfilePage() {
                       bigLabel = `of ${granted.toFixed(1)} hours used`;
                       barPct = Math.min(100, (used / granted) * 100);
                       barColor = used >= granted ? LEAVE_OUT : (granted - used <= 0.2 * granted) ? LEAVE_LOW : accent;
-                      barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                      barCaption = over > 0
+                        // [overdraw-visibility 2026-07-30] Same clamp problem on
+                        // the Unexcused bank — past the 40h allowance it read
+                        // "0.0 left" instead of naming the excess.
+                        ? `${used.toFixed(1)} used · ${over.toFixed(1)} OVER · of ${granted.toFixed(1)} granted`
+                        : `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
                       extraCaption = ladderCaption;
                     } else {
                       bigNum = String(occ);
@@ -2047,6 +2054,10 @@ export default function EmployeeProfilePage() {
                     barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
                     barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
                     barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                    // [overdraw-visibility 2026-07-30] `available` is clamped at
+                    // 0, so an overdrawn bucket read "0.0 left" — identical to
+                    // exactly-exhausted. Say the excess out loud instead.
+                    if (over > 0) barCaption = `${used.toFixed(1)} used · ${over.toFixed(1)} OVER · of ${granted.toFixed(1)} granted`;
                   }
                   const resetDays = !officeRecorded && b.next_reset_date ? daysUntilYmd(b.next_reset_date) : null;
                   const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;

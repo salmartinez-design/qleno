@@ -385,13 +385,24 @@ async function buildBalancesForUser(
               eq(employeeAttendanceLogTable.employee_id, userId),
               eq(employeeAttendanceLogTable.type, "absent"),
               gte(employeeAttendanceLogTable.log_date, byStart),
+              // [window-upper-bound 2026-07-30] Third site of the same bug the
+              // attendance summary had: benefit-year-to-date needs a ceiling,
+              // or a future-dated absence spends the 40-hour Unexcused bank
+              // today. Central day — the UTC date is tomorrow after 7 PM.
+              lte(employeeAttendanceLogTable.log_date, ctDateStr()),
             ),
           );
         const usedHrs = round2(
           logs.filter((r) => !r.is_protected).reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
         );
         const cap = Number(b.annual_cap_hours) || 0;
-        computed = { granted: cap, used: usedHrs, available: Math.max(0, round2(cap - usedHrs)) };
+        const netUnex = round2(cap - usedHrs);
+        computed = {
+          granted: cap,
+          used: usedHrs,
+          available: Math.max(0, netUnex),
+          overdrawn: netUnex < 0 ? round2(-netUnex) : 0,
+        };
       } catch { /* fall back to the balance-row numbers */ }
     }
     // [hire-date-lockout 2026-07-07] A missing hire_date must not lock a
@@ -430,6 +441,10 @@ async function buildBalancesForUser(
       granted: computed.granted,
       used: computed.used,
       available: computed.available,
+      // [overdraw-visibility 2026-07-30] Hours spent BEYOND the grant. Without
+      // this the card could not tell 56-used-of-40 from exactly-exhausted —
+      // both showed "0.0 left".
+      overdrawn: computed.overdrawn,
       annual_cap_hours: Number(b.annual_cap_hours),
       waiting_period_days: b.waiting_period_days,
       past_waiting_period: past,
