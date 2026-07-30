@@ -7853,6 +7853,16 @@ export default function JobsPage() {
   const showAttendanceButton = jobsPageUserRole !== "technician" && jobsPageUserRole !== "trainee"; // [trainee-role] trainee = tech, no office attendance button
   const [jobDates, setJobDates] = useState<Set<string>>(new Set());
   const refreshRef = useRef(0);
+  // [wrong-day-race 2026-07-30] Mirror the current focal day into a ref so an
+  // in-flight load() can verify the day it fetched STILL matches the day the
+  // header is showing before it paints. The recency guard (refreshRef) alone
+  // isn't enough: a JobPanel mutation captures load() with the day the panel
+  // opened on, and if it resolves after the user has paged to another day it
+  // would re-stamp itself newest and repaint the board with the OLD day while
+  // the header stays on the new one (Maribel: "calendar shows today but the
+  // jobs are actually tomorrow's"). Updated in an effect below, on every
+  // selectedDate change.
+  const selectedDateRef = useRef(selectedDate);
   const [zones, setZones] = useState<{ id: number; name: string; color: string; location?: string }[]>([]);
   const [selectedZoneFilter, setSelectedZoneFilter] = useState<number | null>(null);
   // [branch-filter 2026-06-17] Scope the zone dropdown + board to a branch
@@ -7911,12 +7921,20 @@ export default function JobsPage() {
   const load = useCallback(async (opts?: { prefetch?: boolean }) => {
     const doPrefetch = opts?.prefetch !== false;
     const id = ++refreshRef.current;
-    const cacheKey = _dispatchCacheKey(dateKey(selectedDate), activeBranchId);
+    // [wrong-day-race 2026-07-30] The day this call is FOR. Both the cache-serve
+    // and the post-fetch paint below re-check this against the live focal day
+    // (selectedDateRef) so a stale closure — e.g. a JobPanel onUpdate captured
+    // on a day the user has since paged away from — can never repaint the board
+    // for the wrong day.
+    const requestedKey = dateKey(selectedDate);
+    const stillCurrent = () =>
+      id === refreshRef.current && dateKey(selectedDateRef.current) === requestedKey;
+    const cacheKey = _dispatchCacheKey(requestedKey, activeBranchId);
     // Serve from cache immediately (no spinner) then revalidate in background
     const cached = _dispatchCache.get(cacheKey);
-    if (cached) {
+    if (cached && stillCurrent()) {
       setData(cached);
-    } else {
+    } else if (!cached) {
       setLoading(true);
     }
     try {
@@ -7924,11 +7942,13 @@ export default function JobsPage() {
       // payload. fetchEvents never throws (returns [] on error), so a board
       // event hiccup can't take down the jobs board.
       const [d, evs] = await Promise.all([
-        fetchDispatch(dateKey(selectedDate), token, activeBranchId),
-        fetchEvents(dateKey(selectedDate), token, activeBranchId),
+        fetchDispatch(requestedKey, token, activeBranchId),
+        fetchEvents(requestedKey, token, activeBranchId),
       ]);
-      if (id !== refreshRef.current) return;
+      // Cache is keyed by day, so it's always safe to populate. Painting the
+      // board, though, only happens if this fetch is still for the current day.
       _dispatchCache.set(cacheKey, d);
+      if (!stillCurrent()) return;
       setData(d);
       setEvents(evs);
       // [cancel-ghost-job-diagnostics 2026-06-01] Expose the freshest
@@ -7971,6 +7991,10 @@ export default function JobsPage() {
     finally { setLoading(false); }
   }, [selectedDate, token, activeBranchId]);
 
+  // [wrong-day-race 2026-07-30] Keep the day-identity ref in lockstep with the
+  // focal day. Runs before load()'s own effect matters because a paint only
+  // reads the ref at resolve time, by which point this has already committed.
+  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
   useEffect(() => { load(); }, [load]);
 
   // [dispatch-events 2026-07-14] Split the day's events for the board:
