@@ -8236,9 +8236,9 @@ export default function JobsPage() {
     // job_technicians row behind so the board showed both. PUT here only
     // carries the time.
     const techChanged = Number.isFinite(empId) && empId !== job.assigned_user_id;
+    const targetEmployee = data.employees.find(emp => emp.id === empId);
     if (techChanged) {
       // Cross-zone warning: if job zone differs from employee's primary zone
-      const targetEmployee = data.employees.find(emp => emp.id === empId);
       if (targetEmployee?.zone && job.zone_id && targetEmployee.zone.zone_id !== job.zone_id) {
         toast({ title: `Cross-zone assignment`, description: `${targetEmployee.name} is in ${targetEmployee.zone.zone_name} but this job is in ${job.zone_name || "a different zone"}.` });
       }
@@ -8256,7 +8256,22 @@ export default function JobsPage() {
       (data.unassigned_jobs?.filter(j => j.id === job.id).length ?? 0);
     const isMultiTech = jobCardCount > 1;
     // Optimistic update — move chip immediately without blocking the UI on a full reload
-    const updatedJob: DispatchJob = { ...job, scheduled_time: minsToStr(newMins), assigned_user_id: empId };
+    // [drag-panel-name 2026-07-30] Carry the NEW tech's name (and re-point the
+    // primary in technicians[]) in the optimistic snapshot. The chip moved rows
+    // off assigned_user_id alone, but the open drawer reads its label from
+    // assigned_user_name (InlineTechEdit.currentName), so the panel-resync effect
+    // re-pointed selectedJob at a row whose id was the new tech and whose name
+    // was still the old one — dropping a job on Diana left the card reading
+    // "Juliana Loredo" (Sal, 7/30). Server-side the reassign had already saved.
+    const updatedJob: DispatchJob = {
+      ...job,
+      scheduled_time: minsToStr(newMins),
+      assigned_user_id: empId,
+      assigned_user_name: techChanged ? (targetEmployee?.name ?? job.assigned_user_name) : job.assigned_user_name,
+      technicians: techChanged && targetEmployee && job.technicians
+        ? job.technicians.map(t => t.is_primary ? { ...t, user_id: empId, name: targetEmployee.name } : t)
+        : job.technicians,
+    };
     setData(prev => {
       if (!prev) return prev;
       const isFromUnassigned = active.data.current?.type === "unassigned";
@@ -8283,7 +8298,10 @@ export default function JobsPage() {
       await patchJob(job.id, patch, token);
       // [multitech-drag-fix 2026-07-21] Re-fan the board so the helper cards the
       // optimistic collapse hid come back (with the correct post-move assignment).
-      if (isMultiTech) await load();
+      // [drag-panel-name 2026-07-30] Also refetch on ANY tech change so the open
+      // drawer's commission rows / avatar / technicians[] come from the server
+      // instead of the hand-patched snapshot above.
+      if (isMultiTech || techChanged) await load();
     }
     catch (e) { toast({ title: "Failed to update job", description: (e as Error).message, variant: "destructive" }); load(); }
   }
