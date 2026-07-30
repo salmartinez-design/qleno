@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2, Zap, StickyNote } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, ChevronRight, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2, Zap, StickyNote, Download } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -149,30 +149,57 @@ function renderNoteBody(body: string): React.ReactNode {
       : <span key={i}>{linkify(p)}</span>);
 }
 
-function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; mediaKey: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [err, setErr] = useState(false);
-  const blobRef = useRef<string | null>(null);
+const isVideoKey = (k: string) => /\.(mp4|mov|webm|avi|mkv|3gpp|3gp|m4v)$/i.test(k);
 
+// [media-lightbox 2026-07-30] Media used to be fetched per-thumbnail and the
+// blob URL revoked on unmount, so nothing could be reused. Stepping through a
+// gallery that way re-downloads every image on every arrow press, and the
+// previous image dies the moment its thumbnail scrolls out. One shared cache
+// keyed by msgId/idx serves both the thumbnails and the viewer, so arrowing is
+// instant and neighbours can be prefetched. LRU-capped because these are R2
+// photos (often multi-MB) and the office lives on this page all day — an
+// uncapped cache would grow for the whole session.
+const MEDIA_CACHE_MAX = 40;
+const mediaCache = new Map<string, Promise<string>>();
+function mediaBlobUrl(msgId: number, idx: number): Promise<string> {
+  const k = `${msgId}/${idx}`;
+  const hit = mediaCache.get(k);
+  if (hit) { mediaCache.delete(k); mediaCache.set(k, hit); return hit; } // touch = most-recent
+  const p = fetch(`${API}/api/sms/media/${msgId}/${idx}`, { headers: getAuthHeaders() })
+    .then(r => { if (!r.ok) throw new Error("fetch failed"); return r.blob(); })
+    .then(b => URL.createObjectURL(b));
+  // A failed fetch must not be cached, or a transient blip pins "[Media
+  // unavailable]" on that image until the page reloads.
+  p.catch(() => { if (mediaCache.get(k) === p) mediaCache.delete(k); });
+  mediaCache.set(k, p);
+  while (mediaCache.size > MEDIA_CACHE_MAX) {
+    const oldest = mediaCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    const evicted = mediaCache.get(oldest);
+    mediaCache.delete(oldest);
+    evicted?.then(u => URL.revokeObjectURL(u)).catch(() => {});
+  }
+  return p;
+}
+
+function useMediaBlob(msgId: number, idx: number) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
   useEffect(() => {
     let alive = true;
-    const src = `${API}/api/sms/media/${msgId}/${idx}`;
-    fetch(src, { headers: getAuthHeaders() })
-      .then(r => { if (!r.ok) throw new Error("fetch failed"); return r.blob(); })
-      .then(b => {
-        if (!alive) return;
-        const url = URL.createObjectURL(b);
-        blobRef.current = url;
-        setBlobUrl(url);
-      })
+    setUrl(null);
+    setErr(false);
+    mediaBlobUrl(msgId, idx)
+      .then(u => { if (alive) setUrl(u); })
       .catch(() => { if (alive) setErr(true); });
-    return () => {
-      alive = false;
-      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-    };
+    return () => { alive = false; };
   }, [msgId, idx]);
+  return { url, err };
+}
 
-  const isVideo = /\.(mp4|mov|webm|avi|mkv|3gpp|3gp|m4v)$/i.test(mediaKey);
+function AuthMedia({ msgId, idx, mediaKey, onOpen }: { msgId: number; idx: number; mediaKey: string; onOpen?: () => void }) {
+  const { url: blobUrl, err } = useMediaBlob(msgId, idx);
+  const isVideo = isVideoKey(mediaKey);
 
   if (err) return <div style={{ fontSize: 11, color: MUTE, marginTop: 4 }}>[Media unavailable]</div>;
   if (!blobUrl) return (
@@ -184,8 +211,108 @@ function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; media
     <video controls src={blobUrl} style={{ maxWidth: 260, maxHeight: 180, borderRadius: 8, marginTop: 4, display: "block" }} />
   );
   return (
-    <img src={blobUrl} alt="media" style={{ maxWidth: 260, maxHeight: 180, borderRadius: 8, marginTop: 4, display: "block", cursor: "pointer" }}
-      onClick={() => window.open(blobUrl, "_blank")} />
+    <img src={blobUrl} alt="media" title="Click to view full size" style={{ maxWidth: 260, maxHeight: 180, borderRadius: 8, marginTop: 4, display: "block", cursor: "zoom-in" }}
+      onClick={onOpen} />
+  );
+}
+
+type GalleryItem = { msgId: number; idx: number };
+
+// [media-lightbox 2026-07-30] Sal: "when i click on one on desktop if there is
+// multiple i need to be able to scroll left and right." Clicking a photo used
+// to `window.open` the blob into a bare browser tab — one image, no way back to
+// the others, and the tab outlived the thread. This is an in-page viewer over
+// EVERY image in the open conversation, so a client who texts six photos of the
+// same room can be stepped through with the arrow keys.
+// Videos stay inline (they play in the bubble); the gallery is images only.
+function MediaLightbox({ items, at, onNav, onClose }: {
+  items: GalleryItem[]; at: number; onNav: (delta: number) => void; onClose: () => void;
+}) {
+  const item = items[at];
+  const { url, err } = useMediaBlob(item.msgId, item.idx);
+
+  // Prefetch the neighbours so a left/right press paints immediately.
+  useEffect(() => {
+    for (const i of [at - 1, at + 1]) {
+      const n = items[i];
+      if (n) mediaBlobUrl(n.msgId, n.idx).catch(() => {});
+    }
+  }, [at, items]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key === "ArrowLeft") { e.preventDefault(); onNav(-1); }
+      if (e.key === "ArrowRight") { e.preventDefault(); onNav(1); }
+    };
+    window.addEventListener("keydown", onKey);
+    // The thread behind the overlay must not scroll while the viewer is open.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onNav, onClose]);
+
+  const many = items.length > 1;
+  const navBtn: React.CSSProperties = {
+    position: "absolute", top: "50%", transform: "translateY(-50%)",
+    width: 46, height: 46, borderRadius: "50%", border: "none",
+    background: "rgba(255,255,255,0.92)", color: INK,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer", boxShadow: "0 2px 12px rgba(0,0,0,0.3)",
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.88)",
+        display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF,
+      }}
+    >
+      {/* Top bar: counter + download + close. Stops propagation so the
+          controls don't trip the click-backdrop-to-close handler. */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, display: "flex", alignItems: "center", gap: 12, padding: "14px 18px" }}>
+        {many && (
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF" }}>{at + 1} of {items.length}</span>
+        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {url && (
+            <a href={url} download={`photo-${item.msgId}-${item.idx + 1}.jpg`} title="Download"
+              style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,0.92)", color: INK, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Download size={18} />
+            </a>
+          )}
+          <button onClick={onClose} title="Close (Esc)"
+            style={{ width: 38, height: 38, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.92)", color: INK, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      {err ? (
+        <div style={{ color: "#FFFFFF", fontSize: 14 }}>This image could not be loaded.</div>
+      ) : !url ? (
+        <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>Loading…</div>
+      ) : (
+        <img src={url} alt={`Photo ${at + 1} of ${items.length}`} onClick={e => e.stopPropagation()}
+          style={{ maxWidth: "92vw", maxHeight: "84vh", objectFit: "contain", borderRadius: 4, display: "block" }} />
+      )}
+
+      {many && (
+        <>
+          <button onClick={e => { e.stopPropagation(); onNav(-1); }} title="Previous (←)" style={{ ...navBtn, left: 18 }}>
+            <ChevronLeft size={24} />
+          </button>
+          <button onClick={e => { e.stopPropagation(); onNav(1); }} title="Next (→)" style={{ ...navBtn, right: 18 }}>
+            <ChevronRight size={24} />
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -374,6 +501,10 @@ export default function MessagesPage() {
   const [convos, setConvos] = useState<Convo[]>([]);
   const [q, setQ] = useState("");
   const [active, setActive] = useState<Convo | null>(null);
+  // [media-lightbox 2026-07-30] Switching conversations closes the viewer — the
+  // index it holds belongs to the old thread and would otherwise land on an
+  // unrelated client's photo.
+  useEffect(() => { setGalleryAt(null); }, [active?.contact_phone]);
   const [thread, setThread] = useState<Msg[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledMsg[]>([]);
   const [reply, setReply] = useState("");
@@ -383,6 +514,19 @@ export default function MessagesPage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduling, setScheduling] = useState(false);
+  // [media-lightbox 2026-07-30] Every image in the open conversation, flattened
+  // in thread order, so the viewer can walk across message boundaries — six
+  // photos split over three texts still step 1→6. Index into this list IS the
+  // viewer's position; null = closed.
+  const galleryItems = useMemo<GalleryItem[]>(() => {
+    const out: GalleryItem[] = [];
+    for (const m of thread) {
+      const keys = Array.isArray(m.media_urls) ? m.media_urls : [];
+      keys.forEach((k, idx) => { if (!isVideoKey(k)) out.push({ msgId: m.id as number, idx }); });
+    }
+    return out;
+  }, [thread]);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const threadScrollRef = useRef<HTMLDivElement>(null);
   // [thread-scroll 2026-07-13] Remembers which conversation + last message we
@@ -1056,7 +1200,11 @@ export default function MessagesPage() {
                               <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkify(m.body)}</div>
                             )}
                             {mediaKeys.map((key, idx) => (
-                              <AuthMedia key={idx} msgId={m.id as number} idx={idx} mediaKey={key} />
+                              <AuthMedia key={idx} msgId={m.id as number} idx={idx} mediaKey={key}
+                                onOpen={() => {
+                                  const at = galleryItems.findIndex(g => g.msgId === m.id && g.idx === idx);
+                                  if (at >= 0) setGalleryAt(at);
+                                }} />
                             ))}
                             <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: "right" }}>
                               {fmtMsgTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
@@ -1321,6 +1469,24 @@ export default function MessagesPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* [media-lightbox 2026-07-30] Full-thread photo viewer. Guarded on the
+          item still existing: the 15s poll can replace `thread` underneath an
+          open viewer, and an index past the end must close rather than crash. */}
+      {galleryAt != null && galleryItems[galleryAt] && (
+        <MediaLightbox
+          items={galleryItems}
+          at={galleryAt}
+          onClose={() => setGalleryAt(null)}
+          onNav={d => setGalleryAt(cur => {
+            if (cur == null) return cur;
+            // Wrap around — stepping past the last photo returns to the first,
+            // so the arrows never dead-end mid-review.
+            const n = galleryItems.length;
+            return n > 0 ? (cur + d + n) % n : cur;
+          })}
+        />
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
