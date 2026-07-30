@@ -3865,7 +3865,8 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // (occurrence_date, falling back to scheduled_date) — the same key the
     // engine dedups on.
     const recurInfo = ((await db.execute(sql`
-      SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
+      SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched,
+             client_id, account_id, account_property_id
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0]) as any;
     // [stale-alert-fix 2026-07-07] exec param: the tombstone now runs INSIDE
@@ -3874,10 +3875,34 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // in skipped_dates, so the nightly engine regenerated a fresh 'scheduled'
     // job and the client kept getting reminders for a visit the office
     // deleted. Atomic now: no delete without its tombstone.
+    //
+    // [unlinked-tombstone 2026-07-30] Only linked jobs (recurring_schedule_id
+    // set) got tombstoned before. MaidCentral imports and any job whose FK was
+    // never stamped carry recurring_schedule_id = NULL, so deleting one wrote
+    // NO skip — and the engine's target-scoped dedup regenerated it on the next
+    // run (Maribel's "Once marked Skipped it should stay Skipped, not be
+    // auto-restored"). Resolve an unlinked occurrence to its target schedule the
+    // same way the cancellation SKIP flow does (routes/cancellation.ts), then
+    // tombstone that schedule so the delete sticks.
     async function tombstoneOccurrence(exec: any = db) {
-      const sid = recurInfo?.recurring_schedule_id;
       const skipDate = recurInfo?.occ ?? recurInfo?.sched;
-      if (sid != null && skipDate) {
+      if (!skipDate) return;
+      let sid = recurInfo?.recurring_schedule_id ?? null;
+      if (sid == null) {
+        const acctId = recurInfo?.account_id ?? null;
+        const sres = await exec.execute(sql`
+          SELECT id FROM recurring_schedules
+           WHERE company_id = ${companyId}
+             AND (is_active OR paused_by_suspension)
+             AND ${acctId != null
+               ? sql`account_id = ${acctId} AND account_property_id IS NOT DISTINCT FROM ${recurInfo?.account_property_id ?? null}`
+               : sql`customer_id = ${recurInfo?.client_id ?? null}`}
+           ORDER BY is_active DESC, id DESC
+           LIMIT 1
+        `);
+        sid = (sres.rows[0] as any)?.id ?? null;
+      }
+      if (sid != null) {
         await exec.execute(sql`
           UPDATE recurring_schedules
           SET skipped_dates = ARRAY(
