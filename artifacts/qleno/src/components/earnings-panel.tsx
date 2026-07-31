@@ -25,16 +25,33 @@ type EmpEarnings = {
 const MILEAGE_KEYS = ["mileage", "mileage_reimbursement"];
 type WindowSum = { commission: number; tips: number; mileage: number; hours: number };
 const EMPTY_SUM: WindowSum = { commission: 0, tips: 0, mileage: 0, hours: 0 };
-async function fetchWindowSum(start: string, end: string, uq: string): Promise<WindowSum> {
+// [rewards-rollup-gate 2026-07-31] A window fetch has THREE outcomes, not two.
+// This used to collapse every non-200 into a zeroed sum, so the published-only
+// gate's 403 rendered as a confident "$0.00" on a pay screen — every tech saw an
+// all-zero rewards tracker sitting directly under real money in the cards above
+// (Sal: "why is nothing cascading down here"). A blocked window is NOT zero
+// earnings; it's earnings we aren't allowed to total yet. Keep them distinct so
+// a genuine $0 week and a gated week can never render the same.
+type WindowResult =
+  | { kind: "ok"; sum: WindowSum }
+  | { kind: "blocked"; publishedThrough: string | null }
+  | { kind: "error" };
+async function fetchWindowSum(start: string, end: string, uq: string): Promise<WindowResult> {
   try {
     const r = await fetch(`${API}/api/payroll/detail?pay_period_start=${start}&pay_period_end=${end}${uq}`, { headers: getAuthHeaders() });
-    if (!r.ok) return EMPTY_SUM;
+    // 403 = published-only gate. The body carries the viewer's own latest
+    // published period end, which is what we clamp the window to.
+    if (r.status === 403) {
+      const j = await r.json().catch(() => null);
+      return { kind: "blocked", publishedThrough: (j?.published_through ?? null) as string | null };
+    }
+    if (!r.ok) return { kind: "error" };
     const d = await r.json();
     const e = d?.data?.[0];
-    if (!e) return EMPTY_SUM;
+    if (!e) return { kind: "ok", sum: EMPTY_SUM };
     const tips = Object.entries(e.additional_pay || {}).filter(([k]) => !MILEAGE_KEYS.includes(k)).reduce((s, [, v]) => s + Number(v || 0), 0);
-    return { commission: e.totals?.commission || 0, tips, mileage: e.totals?.mileage || 0, hours: e.totals?.hrs_worked || 0 };
-  } catch { return EMPTY_SUM; }
+    return { kind: "ok", sum: { commission: e.totals?.commission || 0, tips, mileage: e.totals?.mileage || 0, hours: e.totals?.hrs_worked || 0 } };
+  } catch { return { kind: "error" }; }
 }
 
 // [tz-safe-ymd 2026-07-28] Format a Date as YYYY-MM-DD in LOCAL time. The old
@@ -154,14 +171,45 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
 
   // Fixed-window rollup (this week / this month / year-to-date) for the rewards
   // tracker + running-average hourly rate. Independent of the selected period.
-  const [roll, setRoll] = useState<{ week: WindowSum; month: WindowSum; ytd: WindowSum } | null>(null);
+  //
+  // [rewards-rollup-gate 2026-07-31] All three windows END today-or-later, so for
+  // ANY gated viewer (every tech, plus the office's View-as-Employee preview)
+  // every one of them lands past the published cutoff and 403s. Payroll publishes
+  // in arrears, so this is the permanent steady state for techs — not an edge
+  // case. Rather than show three zeroed columns, clamp each window's end to the
+  // viewer's published_through and re-ask for the part they're allowed to total.
+  // A window that starts AFTER the cutoff has no publishable span at all and
+  // stays null → renders "—", never "$0.00". `cutoff` is non-null only when
+  // clamping actually happened, and drives the caption so a shortened YTD can't
+  // be misread as a shortfall. Office/live viewers never 403, so they keep the
+  // full through-today windows and no caption.
+  const [roll, setRoll] = useState<{ week: WindowSum | null; month: WindowSum | null; ytd: WindowSum | null; cutoff: string | null } | null>(null);
   useEffect(() => {
     let cancelled = false;
+    setRoll(null);
     const uq = (userId ? `&user_id=${userId}` : "") + (asTech ? "&as_tech=1" : "");
-    const w = thisWeek(), m = thisMonth(), y = ytd();
-    Promise.all([fetchWindowSum(w.start, w.end, uq), fetchWindowSum(m.start, m.end, uq), fetchWindowSum(y.start, y.end, uq)])
-      .then(([week, month, yr]) => { if (!cancelled) setRoll({ week, month, ytd: yr }); })
-      .catch(() => { if (!cancelled) setRoll(null); });
+    const wins = [thisWeek(), thisMonth(), ytd()];
+    (async () => {
+      const first = await Promise.all(wins.map(v => fetchWindowSum(v.start, v.end, uq)));
+      if (cancelled) return;
+      // Every blocked window reports the same viewer-level cutoff; take the first.
+      const cutoff = first.reduce<string | null>((c, r) => c ?? (r.kind === "blocked" ? r.publishedThrough : null), null);
+      const settled = await Promise.all(first.map(async (r, i) => {
+        if (r.kind === "ok") return r.sum;
+        if (r.kind !== "blocked") return null;
+        // No published pay at all, or the window is entirely after the cutoff →
+        // nothing legitimate to total. Show "—".
+        if (!cutoff || wins[i].start > cutoff) return null;
+        const clamped = await fetchWindowSum(wins[i].start, cutoff, uq);
+        return clamped.kind === "ok" ? clamped.sum : null;
+      }));
+      if (cancelled) return;
+      const [week, month, yr] = settled;
+      // Nothing at all to show (no published pay yet) — hide the tracker rather
+      // than render a table of dashes.
+      if (week === null && month === null && yr === null) { setRoll(null); return; }
+      setRoll({ week, month, ytd: yr, cutoff: first.some(r => r.kind === "blocked") ? cutoff : null });
+    })().catch(() => { if (!cancelled) setRoll(null); });
     return () => { cancelled = true; };
   }, [userId, asTech]);
 
@@ -172,7 +220,7 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
   const mileage = data?.totals?.mileage ?? 0;
   const rewards = commission + tips + mileage;
   const periodRate = data?.totals?.effective_rate ?? (hours > 0 ? commission / hours : null);
-  const runningRate = roll && roll.ytd.hours > 0 ? roll.ytd.commission / roll.ytd.hours : null;
+  const runningRate = roll?.ytd && roll.ytd.hours > 0 ? roll.ytd.commission / roll.ytd.hours : null;
   const rTh: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", padding: "0 0 6px" };
   const rTd: React.CSSProperties = { fontSize: 13, color: "#1A1917", padding: "6px 0", borderTop: "1px solid #F4F3F0" };
 
@@ -245,7 +293,15 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
       {!blocked && roll && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-            <p style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", margin: 0 }}>Your total rewards</p>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", margin: 0 }}>Your total rewards</p>
+              {/* [rewards-rollup-gate 2026-07-31] Say what the totals actually
+                  cover. A YTD clamped to the published cutoff looks like missing
+                  money unless the screen admits where it stops. */}
+              {roll.cutoff && (
+                <p style={{ fontSize: 11, color: "#9E9B94", margin: "2px 0 0" }}>Through {fmtDay(roll.cutoff)} — your last published pay period</p>
+              )}
+            </div>
             {runningRate != null && (
               <span style={{ fontSize: 12, color: "#0A6E5A", fontWeight: 700 }}>Running average: ${runningRate.toFixed(2)}/hr</span>
             )}
@@ -265,15 +321,17 @@ export function EarningsPanel({ userId, title = "Earnings", asTech = false }: { 
               ]).map(row => (
                 <tr key={row.k}>
                   <td style={rTd}>{row.k}</td>
-                  <td style={{ ...rTd, textAlign: "right" }}>{money(row.f(roll.week))}</td>
-                  <td style={{ ...rTd, textAlign: "right" }}>{money(row.f(roll.month))}</td>
-                  <td style={{ ...rTd, textAlign: "right" }}>{money(row.f(roll.ytd))}</td>
+                  {/* A window with nothing publishable reads "—". Printing
+                      $0.00 there is a claim about earnings we can't make. */}
+                  {[roll.week, roll.month, roll.ytd].map((w, i) => (
+                    <td key={i} style={{ ...rTd, textAlign: "right", color: w ? "#1A1917" : "#9E9B94" }}>{w ? money(row.f(w)) : "—"}</td>
+                  ))}
                 </tr>
               ))}
               <tr>
                 <td style={{ ...rTd, fontWeight: 800, borderTop: "2px solid #E5E2DC" }}>Total rewards</td>
                 {[roll.week, roll.month, roll.ytd].map((w, i) => (
-                  <td key={i} style={{ ...rTd, textAlign: "right", fontWeight: 800, color: "var(--brand)", borderTop: "2px solid #E5E2DC" }}>{money(w.commission + w.tips + w.mileage)}</td>
+                  <td key={i} style={{ ...rTd, textAlign: "right", fontWeight: 800, color: w ? "var(--brand)" : "#9E9B94", borderTop: "2px solid #E5E2DC" }}>{w ? money(w.commission + w.tips + w.mileage) : "—"}</td>
                 ))}
               </tr>
             </tbody>
