@@ -16,6 +16,9 @@
       "path": "./lib/lms-curriculum"
     },
     {
+      "path": "./lib/payroll-metrics"
+    },
+    {
       "path": "./lib/training"
     }
   ]

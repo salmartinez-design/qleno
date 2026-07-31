@@ -5,6 +5,13 @@ import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
+// Canonical metric definitions — see lib/payroll-metrics for why these live in
+// one shared package instead of being re-derived per surface.
+import {
+  round2, makeRevenue, addRevenue, laborRatio, unattributedPct,
+  isUnattributedMaterial, hasMeaningfulPriorYear, splitAdditionalPay,
+  totalPay, EMPTY_PAY, EMPTY_REVENUE, type PayComponents,
+} from "@workspace/payroll-metrics";
 // [payroll-P0] per-tech-clocked attribution + 4-cell pay-type + hourly basis.
 import { type ClockEntry } from "../lib/payroll-compute.js";
 // [Option A 2026-06-22] Payroll Detail runs off the per-tech pay-type engine
@@ -376,7 +383,7 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
     }
 
     const round1 = (n: number) => Math.round(n * 10) / 10;
-    const round2 = (n: number) => Math.round(n * 100) / 100;
+    // round2 comes from @workspace/payroll-metrics — one money-rounding rule.
 
     const weeks = [...map.values()].map(b => {
       const dayEntries = [...b.days.entries()].sort((a, c) => a[0].localeCompare(c[0]));
@@ -793,6 +800,34 @@ router.get("/detail", requireAuth, async (req, res) => {
       for (const r of mRows.rows as any[]) mileageByUser.set(Number(r.user_id), parseFloat(String(r.total || 0)));
     } catch { /* mileage_legs absent — skip */ }
 
+    /**
+     * [pay-components 2026-07-31] Build the canonical PayComponents for one
+     * employee. Single place where the split is decided, so applied and pending
+     * mileage can never be conflated:
+     *
+     *   - `addlByType` already has applied mileage folded in (as the
+     *     `mileage_reimbursement` adjustment type), so splitAdditionalPay's
+     *     mileage half IS the applied figure — money that actually moved.
+     *   - `mileageByUser` is every non-discarded leg, applied or not. The
+     *     difference is what's still sitting at the review gate.
+     *
+     * Keeping pending as its own field is what makes "no money until reviewed"
+     * (CLAUDE.md, Mileage/Drive Time) structurally true rather than a habit:
+     * totalPay() has no term for it, so it cannot be banked by accident.
+     */
+    const payComponentsFor = (
+      uid: number, commission: number, addlByType: Record<string, number>,
+    ): PayComponents => {
+      const split = splitAdditionalPay(addlByType);
+      const earned = round2(mileageByUser.get(uid) || 0);
+      return {
+        commission: round2(commission),
+        additional: split.additional,
+        mileage_applied: split.mileage,
+        mileage_pending: round2(Math.max(0, earned - split.mileage)),
+      };
+    };
+
     // [mileage-visibility 2026-07-08] The per-leg detail so the payroll By-Employee
     // view can SHOW each drive (date + from→to + miles + $) per day, not just a
     // hidden weekly total. Sal kept seeing "$0 / nothing populated" on Monday
@@ -1066,17 +1101,25 @@ router.get("/detail", requireAuth, async (req, res) => {
         // employee's expanded panel.
         commission_by_branch: branchRollup,
         mileage_legs: legsByUser.get(uid) || [],
+        // [pay-components 2026-07-31] The canonical breakdown, so the UI stops
+        // re-deriving it. The payroll strip printed a Labor % built from
+        // grand_total next to a Commission card built from commission alone, and
+        // the two couldn't be reconciled on screen because the ~$370 of tips
+        // between them had no card. Emitting named components means every
+        // percentage on that page can show its own numerator.
+        // Invariant: totalPay(pay_components) === totals.grand_total.
+        pay_components: payComponentsFor(uid, totalCommission, addlByType),
         totals: {
           job_count: jobRows.length,
-          job_total: Math.round(totalJobTotal * 100) / 100,
-          commission: Math.round(totalCommission * 100) / 100,
-          hrs_scheduled: Math.round(totalHrsScheduled * 100) / 100,
-          hrs_worked: Math.round(totalHrsWorked * 100) / 100,
-          mileage: Math.round((mileageByUser.get(uid) || 0) * 100) / 100,
-          effective_rate: totalHrsWorked > 0 ? Math.round((totalCommission / totalHrsWorked) * 100) / 100 : null,
+          job_total: round2(totalJobTotal),
+          commission: round2(totalCommission),
+          hrs_scheduled: round2(totalHrsScheduled),
+          hrs_worked: round2(totalHrsWorked),
+          mileage: round2(mileageByUser.get(uid) || 0),
+          effective_rate: totalHrsWorked > 0 ? round2(totalCommission / totalHrsWorked) : null,
           quality_avg: qualityAvg,
           quality_count: scoredJobs.length,
-          grand_total: Math.round(grandTotal * 100) / 100,
+          grand_total: round2(grandTotal),
         },
       });
     }
@@ -1118,6 +1161,9 @@ router.get("/detail", requireAuth, async (req, res) => {
         })),
         commission_by_branch: [],
         mileage_legs: legsByUser.get(uid) || [],
+        // Same canonical breakdown on the mileage/adjustment-only path — a tech
+        // with pending mileage and no completed job still gets real components.
+        pay_components: payComponentsFor(uid, 0, addlByType),
         totals: {
           job_count: 0,
           job_total: 0,
@@ -1128,7 +1174,7 @@ router.get("/detail", requireAuth, async (req, res) => {
           effective_rate: null,
           quality_avg: null,
           quality_count: 0,
-          grand_total: Math.round(grandTotal * 100) / 100,
+          grand_total: round2(grandTotal),
         },
       });
     }
@@ -1227,7 +1273,7 @@ router.get("/reconciliation-audit", requireAuth, requireRole("owner", "admin", "
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
       return res.status(400).json({ error: "Bad Request", message: "from and to (YYYY-MM-DD) are required" });
     }
-    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const r2 = round2; // alias — canonical rounding from @workspace/payroll-metrics
 
     // Company comp config — same resilient waterfall as /detail.
     let compSettings: any = {
@@ -1380,6 +1426,13 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
   try {
     const companyId = req.auth!.companyId as number;
     const weeks = Math.min(Math.max(parseInt(String(req.query.weeks ?? "26"), 10) || 26, 4), 104);
+    // [trend-branch-scope 2026-07-31] This chart ignored the page's branch
+    // selector entirely — the summary cards above it pass branch_id (payroll.tsx)
+    // while the chart fetched company-wide, so with "Oak Lawn" selected the
+    // headline % silently blended Oak Lawn + Schaumburg. Same screen, two scopes.
+    const trendBranchRaw = req.query.branch_id as string | undefined;
+    const trendBranch = trendBranchRaw && trendBranchRaw !== "all" && Number.isFinite(parseInt(trendBranchRaw, 10))
+      ? parseInt(trendBranchRaw, 10) : null;
 
     const addDays = (ymd: string, n: number) => {
       const d = new Date(`${ymd}T00:00:00Z`);
@@ -1406,12 +1459,17 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
 
     // Build a week(MondayYMD) → {revenue, payroll} map for one [from,to] window.
     const buildWindow = async (from: string, to: string) => {
-      const bucket = new Map<string, { revenue: number; payroll: number }>();
+      // `unattributed` = revenue from completed jobs that produced NO commission
+      // row. See the note at the revenue loop below for why it's tracked.
+      const bucket = new Map<string, { revenue: number; payroll: number; unattributed: number }>();
       const touch = (wk: string) => {
         let b = bucket.get(wk);
-        if (!b) { b = { revenue: 0, payroll: 0 }; bucket.set(wk, b); }
+        if (!b) { b = { revenue: 0, payroll: 0, unattributed: 0 }; bucket.set(wk, b); }
         return b;
       };
+      // Pay we cannot honestly assign to a branch (see the additional_pay /
+      // pay_adjustments notes below). Only ever non-zero under a branch filter.
+      let unattributablePay = 0;
 
       // any[] conditions array (matches /detail) so drizzle's and()/where()
       // overload inference stays happy.
@@ -1421,6 +1479,7 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
         gte(jobsTable.scheduled_date, from),
         lte(jobsTable.scheduled_date, to),
       ];
+      if (trendBranch != null) trendConds.push(eq(jobsTable.branch_id, trendBranch));
       const cJobs = await db
         .select({
           id: jobsTable.id, assigned_user_id: jobsTable.assigned_user_id,
@@ -1432,13 +1491,9 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
         .from(jobsTable)
         .where(and(...trendConds));
 
-      // Revenue = every completed job's total by week (incl. unassigned).
-      for (const j of cJobs) {
-        const total = parseFloat(String(j.billed_amount ?? j.base_fee ?? 0)) || 0;
-        touch(mondayOf(j.scheduled_date)).revenue += total;
-      }
-
       // Commission via the canonical engine (+ per-job final_pay overrides).
+      // Runs BEFORE the revenue loop so revenue can tell which jobs actually
+      // produced pay.
       const overrides = new Map<string, number>();
       const jobIds = cJobs.map(j => j.id);
       if (jobIds.length) {
@@ -1451,23 +1506,83 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       const rows = computeCommissionRows({ jobs: cJobs.filter(j => !ccOut2.has(j.id)) as any, resRates, commercial, overrides });
       for (const row of rows) touch(mondayOf(row.scheduled_date)).payroll += row.amount;
 
-      // Additional pay + applied pay_adjustments by their created_at week.
+      // Revenue = every completed job's total by week, INCLUDING jobs that
+      // generated no pay at all.
+      //
+      // [trend-unattributed 2026-07-31] That inclusion is deliberate (revenue is
+      // revenue) but it silently skews the headline ratio, so we now MEASURE it
+      // instead of leaving it invisible. `computeCommissionRows` drops a job when
+      // it has no assigned_user_id, when the computed amount rounds to $0, or
+      // when it's a charged-cancel — each of those contributes 100% of its
+      // revenue and $0 of payroll, dragging payroll-% down. Suspected big one for
+      // Phes: pre-cutover MaidCentral history imported as completed jobs with no
+      // Qleno tech on them. Tracking it per week lets the UI say "X% of this
+      // revenue had no payroll behind it" rather than quietly reporting a labor
+      // cost that looks better than reality.
+      const paidJobIds = new Set(rows.map(r => r.job_id));
+      for (const j of cJobs) {
+        const total = parseFloat(String(j.billed_amount ?? j.base_fee ?? 0)) || 0;
+        const b = touch(mondayOf(j.scheduled_date));
+        b.revenue += total;
+        if (!paidJobIds.has(j.id)) b.unattributed += total;
+      }
+
+      // Additional pay (tips/bonuses/event pay).
+      //
+      // [trend-work-date 2026-07-31] Bucketed by the JOB'S scheduled_date when
+      // the row is job-linked, falling back to created_at only when it isn't.
+      // These used to bucket purely on `date_trunc('week', created_at)`, so a
+      // tip keyed in on the 28th for a job worked on the 20th landed in the
+      // wrong bar — payroll smeared one way while revenue stayed put, and the
+      // weekly ratio was wrong in both weeks. Commission has always bucketed by
+      // scheduled_date; this makes pay agree with it. The created_at range is
+      // widened ±31d so a row whose job sits just inside the window still gets
+      // picked up (and one whose job sits outside correctly drops out).
+      //
+      // Branch: additional_pay has no branch_id of its own, so a job-linked row
+      // inherits its job's branch. A row with no job cannot be attributed to a
+      // branch at all — under a branch filter it's excluded and counted into
+      // `unattributablePay` so the UI can disclose it instead of the number
+      // silently being wrong in whichever direction we happened to pick.
       try {
         const ap = await db.execute(sql`
-          SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS wk, COALESCE(SUM(amount),0) AS total
-          FROM additional_pay WHERE company_id = ${companyId} AND status <> 'voided' AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
-          GROUP BY wk`);
-        for (const r of ap.rows as any[]) touch(String(r.wk)).payroll += parseFloat(String(r.total || 0));
+          SELECT ap.amount, ap.created_at::date::text AS created_day,
+                 j.scheduled_date::text AS job_date, j.branch_id AS job_branch
+          FROM additional_pay ap
+          LEFT JOIN jobs j ON j.id = ap.job_id
+          WHERE ap.company_id = ${companyId} AND ap.status <> 'voided'
+            AND ap.created_at >= ${addDays(from, -31)}
+            AND ap.created_at <= ${addDays(to, 31) + " 23:59:59"}`);
+        for (const r of ap.rows as any[]) {
+          const amt = parseFloat(String(r.amount || 0)) || 0;
+          if (!amt) continue;
+          const day = (r.job_date as string | null) ?? (r.created_day as string);
+          if (!day || day < from || day > to) continue; // belongs to another window
+          if (trendBranch != null) {
+            if (r.job_branch == null) { unattributablePay += amt; continue; }
+            if (Number(r.job_branch) !== trendBranch) continue;
+          }
+          touch(mondayOf(day)).payroll += amt;
+        }
       } catch { /* additional_pay absent — skip */ }
+
+      // Applied pay_adjustments (the 2B mileage promotion + office adjustments).
+      // This table carries neither a job link nor a branch, so under a branch
+      // filter none of it can be honestly attributed — it all goes to
+      // `unattributablePay`. Bucketing stays on created_at for the same reason.
       try {
         const adj = await db.execute(sql`
           SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS wk, COALESCE(SUM(amount),0) AS total
           FROM pay_adjustments WHERE company_id = ${companyId} AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
           GROUP BY wk`);
-        for (const r of adj.rows as any[]) touch(String(r.wk)).payroll += parseFloat(String(r.total || 0));
+        for (const r of adj.rows as any[]) {
+          const amt = parseFloat(String(r.total || 0)) || 0;
+          if (trendBranch != null) { unattributablePay += amt; continue; }
+          touch(String(r.wk)).payroll += amt;
+        }
       } catch { /* pay_adjustments absent — skip */ }
 
-      return bucket;
+      return { bucket, unattributablePay: round2(unattributablePay) };
     };
 
     const [cur, prior] = await Promise.all([
@@ -1475,36 +1590,71 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       buildWindow(priorStart, priorEnd),
     ]);
 
-    const round2 = (n: number) => Math.round(n * 100) / 100;
     const labelFmt = (ymd: string) => { const d = new Date(`${ymd}T00:00:00Z`); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+    const EMPTY_BUCKET = { revenue: 0, payroll: 0, unattributed: 0 };
 
     const series = [];
+    let revTotals = EMPTY_REVENUE;
     for (let i = 0; i < weeks; i++) {
       const wk = addDays(curStart, i * 7);
-      const c = cur.get(wk) || { revenue: 0, payroll: 0 };
-      const p = prior.get(addDays(wk, -364)) || { revenue: 0, payroll: 0 };
+      const c = cur.bucket.get(wk) || EMPTY_BUCKET;
+      const p = prior.bucket.get(addDays(wk, -364)) || EMPTY_BUCKET;
+      // makeRevenue keeps billed / attributed / unattributed algebraically
+      // consistent — no call site gets to compute the third one by hand.
+      const rev = makeRevenue(c.revenue, c.revenue - c.unattributed);
+      revTotals = addRevenue(revTotals, rev);
       series.push({
         week_start: wk,
         label: labelFmt(wk),
-        revenue: round2(c.revenue),
+        revenue: rev.billed,
+        attributed_revenue: rev.attributed,
+        unattributed_revenue: rev.unattributed,
         payroll: round2(c.payroll),
-        ratio: c.revenue > 0 ? Math.round((c.payroll / c.revenue) * 1000) / 10 : null,
+        // Weekly ratio is on the ATTRIBUTED basis: pay ÷ the revenue that
+        // actually had pay behind it. On the old billed basis a week of
+        // imported, tech-less jobs plotted as a near-0% labor week.
+        ratio: rev.attributed > 0 ? Math.round((c.payroll / rev.attributed) * 1000) / 10 : null,
         prior_revenue: round2(p.revenue),
         prior_payroll: round2(p.payroll),
       });
     }
 
-    const totRev = series.reduce((s, w) => s + w.revenue, 0);
-    const totPay = series.reduce((s, w) => s + w.payroll, 0);
+    const totPay = round2(series.reduce((s, w) => s + w.payroll, 0));
+    // The trend chart only has a single aggregate pay number to work with, so
+    // it enters the canonical shape as `commission` — the split lives on
+    // /payroll/detail, which reports true per-component figures.
+    const payTotals = { ...EMPTY_PAY, commission: totPay };
+    const laborAttributed = laborRatio(payTotals, revTotals, "attributed");
+    const laborBilled = laborRatio(payTotals, revTotals, "billed");
+
+    // The current week is still in progress — surfaced so the UI can mark the
+    // last bar rather than let a 5-day week read as a revenue dip.
+    const todayYmd = new Date().toISOString().slice(0, 10);
 
     return res.json({
       weeks: series,
       from: curStart,
       to: curEnd,
-      total_revenue: round2(totRev),
-      total_payroll: round2(totPay),
-      payroll_pct: totRev > 0 ? Math.round((totPay / totRev) * 1000) / 10 : null,
-      has_prior_data: series.some(w => w.prior_revenue > 0 || w.prior_payroll > 0),
+      branch_id: trendBranch,
+      total_revenue: revTotals.billed,
+      total_attributed_revenue: revTotals.attributed,
+      total_unattributed_revenue: revTotals.unattributed,
+      unattributed_pct: unattributedPct(revTotals),
+      unattributed_material: isUnattributedMaterial(revTotals),
+      total_payroll: totPay,
+      // Primary KPI, plus the raw numerator/denominator so the UI can always
+      // show its own inputs. `payroll_pct` stays on the billed basis for
+      // backwards compatibility with anything still reading the old field.
+      labor_pct: laborAttributed.pct,
+      labor_basis: laborAttributed.basis,
+      labor_numerator: laborAttributed.numerator,
+      labor_denominator: laborAttributed.denominator,
+      payroll_pct: laborBilled.pct,
+      // Pay that couldn't be assigned to the requested branch (job-less tips,
+      // all pay_adjustments). Always 0 when no branch filter is applied.
+      unattributable_pay: round2(cur.unattributablePay),
+      partial_last_week: todayYmd <= curEnd,
+      has_prior_data: hasMeaningfulPriorYear(series),
     });
   } catch (err) {
     console.error("Payroll revenue-trend error:", err);

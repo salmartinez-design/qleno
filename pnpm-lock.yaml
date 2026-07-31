@@ -215,6 +215,9 @@ importers:
       '@workspace/lms-curriculum':
         specifier: workspace:*
         version: link:../../lib/lms-curriculum
+      '@workspace/payroll-metrics':
+        specifier: workspace:*
+        version: link:../../lib/payroll-metrics
       '@workspace/training':
         specifier: workspace:*
         version: link:../../lib/training
@@ -603,6 +606,9 @@ importers:
       '@workspace/lms-curriculum':
         specifier: workspace:*
         version: link:../../lib/lms-curriculum
+      '@workspace/payroll-metrics':
+        specifier: workspace:*
+        version: link:../../lib/payroll-metrics
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -776,6 +782,8 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
+
+  lib/payroll-metrics: {}
 
   lib/training: {}
 
