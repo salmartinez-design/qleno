@@ -8170,10 +8170,36 @@ export default function JobsPage() {
       .catch(() => {});
   }, [token]);
 
-  // Scroll to start of dispatch window on mount and date change
+  // [open-at-now 2026-08-02] Open the board at the CURRENT time of day, not at
+  // the start of the dispatch window.
+  //
+  // This used to be an unconditional `scrollLeft = 0`, which pins the viewport
+  // to DAY_START (8 AM by default) every time the board mounts or the date
+  // changes. At 10 AM that means the first thing on screen is two hours of
+  // finished work, and the dispatcher has to scroll right before the board
+  // tells them anything about right now (Sal: "this view needs to open up to
+  // the time of the day").
+  //
+  // Geometry: the technician column is `position: sticky; left: 0` INSIDE this
+  // same scroller, so it overlays the left COL_W px of the viewport at every
+  // scroll offset. A slot i sits at content x = COL_W + i*SLOT_W, so landing it
+  // flush against the sticky column means scrollLeft = i*SLOT_W — the COL_W
+  // terms cancel and must NOT be added again.
+  //
+  // One slot (30 min) of lead-in so the job that started just before now is
+  // still on screen rather than hidden behind the left edge.
   useEffect(() => {
     if (!timelineRef.current) return;
-    timelineRef.current.scrollLeft = 0;
+    const el = timelineRef.current;
+    // Only today has a "now". Any other date keeps opening at the window start.
+    if (dateKey(selectedDate) !== dateKey(new Date())) { el.scrollLeft = 0; return; }
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    // Before the window opens, start at the start. Past DAY_END the browser
+    // clamps to max scroll on its own, which correctly parks at end of day.
+    if (nowMins <= DAY_START) { el.scrollLeft = 0; return; }
+    const slot = (nowMins - DAY_START) / 30 - 1;
+    el.scrollLeft = Math.max(0, slot * SLOT_W);
   }, [selectedDate, loading]);
 
   // Close zone dropdown on outside click
