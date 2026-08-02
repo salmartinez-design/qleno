@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DollarSign, Clock, TrendingUp } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { MILEAGE_PAY_TYPES } from "@workspace/payroll-metrics";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -22,7 +23,11 @@ type EmpEarnings = {
   totals: { job_count: number; job_total: number; commission: number; hrs_scheduled: number; hrs_worked: number; mileage?: number; effective_rate?: number | null };
 };
 
-const MILEAGE_KEYS = ["mileage", "mileage_reimbursement"];
+// [one-definition 2026-07-31] Was a local copy of the mileage type list. Two
+// copies of "which additional_pay types are mileage" is exactly how the payroll
+// screens ended up with six names for two numbers — this now comes from the
+// same package the server splits with.
+const MILEAGE_KEYS = MILEAGE_PAY_TYPES;
 type WindowSum = { commission: number; tips: number; mileage: number; hours: number };
 const EMPTY_SUM: WindowSum = { commission: 0, tips: 0, mileage: 0, hours: 0 };
 // [rewards-rollup-gate 2026-07-31] A window fetch has THREE outcomes, not two.

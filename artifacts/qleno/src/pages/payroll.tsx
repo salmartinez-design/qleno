@@ -8,6 +8,9 @@ import { useBranch } from "@/contexts/branch-context";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle, Navigation } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
+// Canonical metric definitions — the SAME module the api-server computes with,
+// so a component can't quietly redefine what "payroll" or "labor %" means.
+import { addPay, totalPay, laborRatio, makeRevenue, EMPTY_PAY, type PayComponents } from "@workspace/payroll-metrics";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -409,24 +412,37 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
   const resPct = data?.res_tech_pay_pct ? Math.round(data.res_tech_pay_pct * 100) : 35;
   // [reconciliation 2026-06-04] Day totals so the office can set both dates to a
   // single day and reconcile Revenue · Commission · Allowed hrs against MC.
+  // [pay-components 2026-07-31] Pay comes from the server's canonical
+  // PayComponents, summed with the canonical adder — the UI no longer decides
+  // what "payroll" means. Falls back to the legacy grand_total shape so an
+  // older API response still renders while a deploy is mid-flight.
+  const teamPay: PayComponents = employees.reduce((acc: PayComponents, e: any) => addPay(acc, (e.pay_components as PayComponents) ?? {
+    commission: Number(e.totals?.commission || 0),
+    additional: Number(e.totals?.grand_total ?? e.totals?.commission ?? 0) - Number(e.totals?.commission || 0),
+    mileage_applied: 0,
+    mileage_pending: Number(e.totals?.mileage || 0),
+  }), EMPTY_PAY);
+  const teamTotalPay = totalPay(teamPay);
   const dayTotals = employees.reduce((a: any, e: any) => ({
     revenue: a.revenue + Number(e.totals?.job_total || 0),
-    commission: a.commission + Number(e.totals?.commission || 0),
-    // Total pay (commission + tips + mileage + additional) for the labor-cost ratio.
-    payroll: a.payroll + Number(e.totals?.grand_total ?? e.totals?.commission ?? 0),
     allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
     worked: a.worked + Number(e.totals?.hrs_worked || 0),
-    // [payroll-mileage 2026-07-23] Mileage accrued this period across the team.
-    // totals.mileage is the driving reimbursement earned (every non-discarded
-    // leg); applied mileage is already inside grand_total, so this is shown as
-    // its own figure, never re-added to Total Pay.
-    mileage: a.mileage + Number(e.totals?.mileage || 0),
-  }), { revenue: 0, commission: 0, payroll: 0, allowed: 0, worked: 0, mileage: 0 });
+  }), { revenue: 0, allowed: 0, worked: 0 });
   const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isSingleDay = period.start === period.end;
   // Payroll as % of revenue — the labor-cost target to "stay under" (MC parity).
   // <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
-  const payrollPct = dayTotals.revenue > 0 ? Math.round((dayTotals.payroll / dayTotals.revenue) * 1000) / 10 : null;
+  //
+  // [labor-derivable 2026-07-31] This ratio's numerator is TOTAL pay, not
+  // commission. It used to sit beside a Commission card and a Mileage card with
+  // no card for the ~$370 of tips in between, so 28.7% could not be reconciled
+  // from anything on screen (Sal, reasonably: "need to confirm these numbers are
+  // accurate"). The strip below now prints every component AND the total, so the
+  // percentage can always be checked against its own inputs. `revenue` here is
+  // per-employee job totals — i.e. already attributed revenue, jobs that had a
+  // tech — so this is the apples-to-apples basis by construction.
+  const laborRatioTeam = laborRatio(teamPay, makeRevenue(dayTotals.revenue, dayTotals.revenue), 'attributed');
+  const payrollPct = laborRatioTeam.pct;
   const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#0F7A63' : payrollPct <= 50 ? '#B45309' : '#B3261E';
 
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
@@ -439,15 +455,29 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
         <span style={{ fontSize: 11, color: '#9E9B94' }}>Pay rules: {resPct}% residential · tiered deep/move % · commercial hourly</span>
       </div>
 
+      {/* [labor-derivable 2026-07-31] auto-fit rather than a fixed 7 columns:
+          the strip now carries every pay component plus the total, so
+          Labor % = Total pay ÷ Billed can be verified without leaving the
+          page. Wraps to a second row on narrow screens instead of crushing. */}
       {employees.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#E5E2DC', border: '1px solid #E5E2DC', borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, background: '#E5E2DC', border: '1px solid #E5E2DC', borderRadius: 14, overflow: 'hidden' }}>
           {[
             { k: isSingleDay ? 'Billed · this day' : 'Billed', v: money2(dayTotals.revenue) },
-            { k: 'Commission', v: money2(dayTotals.commission), accent: true },
-            // [payroll-mileage 2026-07-23] Team mileage reimbursement for the
-            // period, alongside Commission so the office sees both pay components.
-            { k: 'Mileage', v: money2(dayTotals.mileage), color: '#0A6E8A' },
-            { k: 'Labor %', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor },
+            { k: 'Commission', v: money2(teamPay.commission), accent: true },
+            // Tips, bonuses, event pay. Previously invisible — it was inside the
+            // Labor % numerator with no card of its own, which is exactly what
+            // made the headline irreconcilable.
+            { k: 'Tips & extra', v: money2(teamPay.additional) },
+            // [payroll-mileage 2026-07-23] Split applied vs pending. Only APPLIED
+            // mileage is money that moved, so only it belongs in Total pay; the
+            // pending figure is shown underneath as a record, never banked
+            // ("no money until reviewed" — CLAUDE.md).
+            {
+              k: 'Mileage applied', v: money2(teamPay.mileage_applied), color: '#0A6E8A',
+              sub: teamPay.mileage_pending > 0 ? `${money2(teamPay.mileage_pending)} pending review` : undefined,
+            },
+            { k: 'Total pay', v: money2(teamTotalPay), accent: true },
+            { k: 'Labor %', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor, sub: 'total pay ÷ billed' },
             { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
             { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
             { k: 'Employees', v: String(employees.length) },
@@ -455,6 +485,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
             <div key={s.k} style={{ background: '#fff', padding: '16px 18px' }}>
               <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: FF }}>{s.k}</div>
               <div style={{ fontSize: 21, fontWeight: 800, marginTop: 4, color: s.color ?? (s.accent ? 'var(--brand)' : '#1A1917'), fontFamily: FF }}>{s.v}</div>
+              {s.sub && <div style={{ fontSize: 10, color: '#9E9B94', marginTop: 3, fontFamily: FF }}>{s.sub}</div>}
             </div>
           ))}
         </div>
@@ -734,7 +765,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                   )}
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                     <span style={{ fontSize: 15, fontWeight: 800, color: '#00A383' }}>${job.commission.toFixed(2)}</span>
-                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#9B9890', background: '#F4F2EE', borderRadius: 5, padding: '2px 6px', marginLeft: 8 }}>{laborOf(billed, Number(job.commission || 0))}</span>
+                                    {/* [pct-disambiguation 2026-07-31] This badge is pay ÷ BILLED.
+                                        The "Fee split X%" in the row subtitle is the commission
+                                        rate applied to the pay BASE, which is not always the billed
+                                        amount — on multi-tech splits the two legitimately differ
+                                        (Samaah shawar: subtitle 15.85%, this badge 16%). Two
+                                        percentages under one unlabelled style read as a bug. Both
+                                        now name their own denominator on hover. */}
+                                    <span title="labor % = pay ÷ billed (the row subtitle % is the commission rate on the pay base)"
+                                      style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#9B9890', background: '#F4F2EE', borderRadius: 5, padding: '2px 6px', marginLeft: 8 }}>{laborOf(billed, Number(job.commission || 0))}</span>
                                   </td>
                                 </tr>
                                 );
@@ -922,16 +961,26 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
 // Headline shows payroll as % of revenue — the labor-cost KPI.
 function PayrollToRevenueChart() {
   const [weeks, setWeeks] = useState(26);
+  // [trend-branch-scope 2026-07-31] This chart used to fetch company-wide while
+  // the cards above it were branch-filtered, so with "Oak Lawn" selected the
+  // headline silently blended Oak Lawn + Schaumburg. Same page, two scopes.
+  const { activeBranchId } = useBranch();
   const { data, isLoading } = useQuery<any>({
-    queryKey: ['payroll-revenue-trend', weeks],
-    queryFn: () => apiFetch(`/payroll/revenue-trend?weeks=${weeks}`),
+    queryKey: ['payroll-revenue-trend', weeks, activeBranchId],
+    queryFn: () => apiFetch(`/payroll/revenue-trend?weeks=${weeks}${activeBranchId !== 'all' ? `&branch_id=${activeBranchId}` : ''}`),
   });
   const series: any[] = data?.weeks || [];
   const hasPrior = !!data?.has_prior_data;
   const money0 = (n: number) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-  const pct = data?.payroll_pct;
+  // Headline is now the ATTRIBUTED basis — pay ÷ the revenue that actually had
+  // pay behind it. `payroll_pct` (billed basis) is still returned, but leading
+  // with it understates labor by exactly the share of revenue with no payroll.
+  const pct = data?.labor_pct ?? data?.payroll_pct;
   // Payroll % of revenue: <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
   const pctColor = pct == null ? '#9E9B94' : pct < 40 ? '#0F7A63' : pct <= 50 ? '#B45309' : '#B3261E';
+  const unattributedPctVal = Number(data?.unattributed_pct || 0);
+  const showUnattributed = !!data?.unattributed_material;
+  const unattributablePay = Number(data?.unattributable_pay || 0);
 
   return (
     <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
@@ -939,7 +988,7 @@ function PayrollToRevenueChart() {
         <div>
           <p style={{ fontSize: 15, fontWeight: 700, color: '#1A1917', margin: '0 0 2px' }}>Payroll to Revenue</p>
           <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>
-            {data ? <>Revenue {money0(data.total_revenue)} · Payroll {money0(data.total_payroll)} · last {weeks} weeks</> : 'Weekly labor cost vs revenue'}
+            {data ? <>Revenue {money0(data.total_revenue)} · Payroll {money0(data.total_payroll)} · last {weeks} weeks{data.partial_last_week ? ' (current week partial)' : ''}</> : 'Weekly labor cost vs revenue'}
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -947,6 +996,8 @@ function PayrollToRevenueChart() {
             <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Payroll % of rev</p>
               <p style={{ fontSize: 20, fontWeight: 800, color: pctColor, margin: 0 }}>{pct}%</p>
+              {/* The ratio always shows its own inputs. */}
+              <p style={{ fontSize: 10, color: '#9E9B94', margin: '1px 0 0' }}>{money0(data?.labor_numerator)} ÷ {money0(data?.labor_denominator)}</p>
             </div>
           )}
           <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8 }}>
@@ -961,6 +1012,25 @@ function PayrollToRevenueChart() {
           </div>
         </div>
       </div>
+
+      {/* [trend-unattributed 2026-07-31] When a material share of revenue came
+          from jobs that produced no payroll at all (no assigned tech, $0
+          computed commission, charged-cancels — for Phes, most likely
+          pre-cutover MaidCentral history imported as completed jobs), the
+          billed-basis ratio flatters itself by exactly that share. Disclose it
+          rather than print a confident percentage over a denominator that had
+          no labor behind it. */}
+      {showUnattributed && (
+        <div style={{ background: '#FDF6E9', border: '1px solid #F2DFB8', borderRadius: 10, padding: '10px 14px', color: '#7A5A12', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+          <strong>{unattributedPctVal}% of revenue in this window had no payroll behind it</strong> ({money0(data?.total_unattributed_revenue)} from jobs with no assigned tech, no computed commission, or a charged cancel).
+          The headline % is measured against the {money0(data?.total_attributed_revenue)} that did — billed-basis would read {data?.payroll_pct}%.
+        </div>
+      )}
+      {unattributablePay > 0 && (
+        <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 10, padding: '10px 14px', color: '#6B6860', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+          {money0(unattributablePay)} of pay (adjustments and tips with no linked job) can't be assigned to a branch and is excluded from this branch view.
+        </div>
+      )}
 
       {isLoading ? (
         <div style={{ padding: '60px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>
@@ -984,7 +1054,8 @@ function PayrollToRevenueChart() {
       )}
       <p style={{ fontSize: 11, color: '#9E9B94', margin: '8px 2px 0' }}>
         Payroll = commission + tips/additional + applied mileage. Revenue = completed-job totals.
-        {hasPrior ? ' Dashed lines = same weeks last year.' : ' Year-over-year overlay turns on automatically once a year of history exists.'}
+        {' '}Labor % is measured against revenue that had payroll behind it.
+        {hasPrior ? ' Dashed lines = same weeks last year.' : ' Year-over-year overlay turns on once most of the window has prior-year history.'}
       </p>
     </div>
   );

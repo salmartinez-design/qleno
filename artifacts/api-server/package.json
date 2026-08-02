@@ -17,7 +17,8 @@
     "test:promos": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/auto-promos.test.ts",
     "test:optout": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/opt-out.test.ts",
     "test:isolation": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/tech-isolation.test.ts",
-    "test:skip-normalize": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/recurring-skip-normalize.test.ts"
+    "test:skip-normalize": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/recurring-skip-normalize.test.ts",
+    "test:payroll-metrics": "tsx --test src/tests/payroll-metrics-invariants.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
@@ -29,6 +30,7 @@
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/lms-curriculum": "workspace:*",
+    "@workspace/payroll-metrics": "workspace:*",
     "@workspace/training": "workspace:*",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
