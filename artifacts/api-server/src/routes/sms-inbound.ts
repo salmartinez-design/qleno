@@ -101,18 +101,27 @@ router.post("/", async (req, res) => {
     const upperBody = bodyText.toUpperCase().trim();
     if (["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(upperBody)) {
       try {
-        const co = await db.select({ id: companiesTable.id }).from(companiesTable)
-          .where(eq(companiesTable.twilio_from_number, toPhone)).limit(1);
-        if (co.length) {
-          const { setSmsOptOutByPhone } = await import("../lib/opt-out.js");
+        // [stop-branch-number 2026-08-02] Resolve the tenant the SAME way the
+        // main comms webhook does. This used to match on
+        // `companies.twilio_from_number` only — but Phes keeps its Twilio
+        // numbers on the BRANCHES (Oak Lawn / Schaumburg), which is documented
+        // in resolveSender and has already bitten the outbound side more than
+        // once. A STOP arriving on a branch number found no company row, so
+        // this entire block silently did nothing: no opt-out flag, no cadence
+        // stop. Same bug class as the hand-rolled Twilio sends that kept
+        // missing the branch numbers; resolveTenantByNumber checks both.
+        const { resolveTenantByNumber } = await import("../lib/sms-store.js");
+        const companyId = await resolveTenantByNumber(toPhone);
+        if (companyId != null) {
+          const { setSmsOptOutByPhone, sendSmsOptOutConfirmation } = await import("../lib/opt-out.js");
           const { handleInboundReply } = await import("../lib/lead-sync.js");
-          // [opt-out-confirmation 2026-07-12] Record the opt-out + stop cadences.
-          // We do NOT send an app-level confirmation: Twilio's carrier opt-out
-          // blocks the number the instant STOP arrives, so our reply fails 21610
-          // (verified in prod). The compliance confirmation must come from Twilio's
-          // Advanced Opt-Out config, not here.
-          await setSmsOptOutByPhone(co[0].id, fromPhone, true).catch(() => {});
-          await handleInboundReply(co[0].id, fromPhone, true).catch(() => {});
+          await setSmsOptOutByPhone(companyId, fromPhone, true).catch(() => {});
+          await handleInboundReply(companyId, fromPhone, true).catch(() => {});
+          // Confirmation: see the long note in routes/comms-inbound.ts. Safe to
+          // attempt in both worlds — rejected 21610 (caught, non-fatal) when
+          // Twilio already answered, delivered when Twilio's opt-out management
+          // isn't active on this number.
+          await sendSmsOptOutConfirmation(companyId, fromPhone, toPhone).catch(() => {});
         }
       } catch (e) { console.warn("[sms-inbound] STOP handling failed:", (e as any)?.message ?? e); }
       return res.send("<Response></Response>");

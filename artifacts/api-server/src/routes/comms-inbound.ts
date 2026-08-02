@@ -110,14 +110,35 @@ router.post("/inbound", async (req, res) => {
       if (isStopKeyword(body)) {
         const n = await setSmsOptOutByPhone(companyId, from, true);
         console.log(`[comms/inbound] SMS opt-OUT recorded for ${n} client(s) (company=${companyId})`);
-        // [opt-out-confirmation 2026-07-12] We do NOT send an app-level
-        // "you're unsubscribed" reply here. Twilio's carrier opt-out blocks the
-        // number the instant STOP arrives, so any reply from the same number
-        // fails with error 21610 ("cannot send to unsubscribed recipient") —
-        // verified in prod (Leen Subei, Jul 12). The compliance confirmation MUST
-        // come from Twilio's own Advanced Opt-Out (Messaging Service → Opt-Out
-        // Management), not our code. The opt-out is recorded above and surfaced on
-        // the lead + inbox; the customer-facing text is Twilio's job.
+        // [opt-out-confirmation 2026-08-02] Send the confirmation again.
+        //
+        // The 2026-07-12 change removed this call, reasoning that Twilio's
+        // carrier opt-out blocks the number the instant STOP arrives (error
+        // 21610, seen in prod on Leen Subei) so the confirmation "MUST come from
+        // Twilio's Advanced Opt-Out". That holds only when Twilio's opt-out
+        // management is actually ACTIVE on the number. When it isn't, Twilio
+        // neither blocks nor confirms — and with our call removed, nobody
+        // confirmed at all. The customer texts STOP and hears nothing back,
+        // which is what Sal is seeing.
+        //
+        // Restoring the call is safe in both worlds, which is exactly what
+        // sendSmsOptOutConfirmation was built for:
+        //   • Twilio handles opt-out  -> our send is rejected 21610, caught and
+        //     logged inside, never fatal. The opt-out already stuck.
+        //   • Twilio does NOT handle it -> our confirmation is the only one the
+        //     customer gets, and it lands.
+        // It also logs into sms_messages, so the office can SEE the confirmation
+        // in the thread instead of guessing (a Twilio-generated one never passes
+        // through this app and is invisible here — the reason this looked broken
+        // from the inbox either way).
+        //
+        // Legality: the opt-out confirmation is the one message permitted after
+        // a STOP under CTIA guidelines, and `from` is the number they texted.
+        try {
+          const { sendSmsOptOutConfirmation } = await import("../lib/opt-out.js");
+          const sent = await sendSmsOptOutConfirmation(companyId, from, to);
+          console.log(`[comms/inbound] opt-out confirmation ${sent ? "sent" : "not delivered (Twilio likely answered it)"} to ${from}`);
+        } catch (e) { console.warn("[comms/inbound] opt-out confirmation failed:", (e as any)?.message ?? e); }
       } else if (isStartKeyword(body)) {
         const n = await setSmsOptOutByPhone(companyId, from, false);
         console.log(`[comms/inbound] SMS opt-IN (resubscribe) for ${n} client(s) (company=${companyId})`);
