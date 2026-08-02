@@ -204,60 +204,130 @@ export default function MobileDashboard() {
   }
 
   // ── Press-and-hold drag-to-reorder (mobile) ──────────────────────────────
-  // Long-press a tile to pick it up, drag over another to reorder, release to
-  // save (same per-user card-prefs endpoint). The Customize sheet's up/down
-  // arrows remain as an alternative. A brief move before the hold fires reads
-  // as a scroll/tap and cancels the pick-up, so normal scrolling is unaffected.
-  const LONG_PRESS_MS = 320;
+  // Long-press a tile to pick it up, drag to reorder, release to save (same
+  // per-user card-prefs endpoint). The Customize sheet's up/down arrows remain
+  // as an alternative. A brief move before the hold fires reads as a scroll/tap
+  // and cancels the pick-up, so normal scrolling is unaffected.
+  //
+  // [drag-smoothness 2026-08-02] Rewritten — the old version was slow and
+  // clunky (Sal) for four compounding reasons, all fixed here:
+  //
+  //   1. THE CARD NEVER FOLLOWED YOUR FINGER. It only scaled 1.03 and gained a
+  //      shadow; nothing translated. You'd drag and the card sat still while
+  //      the list reshuffled underneath, which reads as lag no matter how fast
+  //      the code is. The dragged card now tracks the pointer 1:1.
+  //   2. LAYOUT THRASH. reorderToward() called getBoundingClientRect() on every
+  //      visible tile on every single pointermove — ~10 forced synchronous
+  //      reflows per event, at up to 120 events/sec. Rects are now measured
+  //      ONCE on pick-up and reused.
+  //   3. OSCILLATION. It reordered the moment the pointer entered a tile's
+  //      bounds, which reflowed the DOM, which often put a different tile under
+  //      the pointer, which reordered again — cards flickering between slots.
+  //      Now a swap only happens when the pointer crosses a tile's MIDPOINT.
+  //   4. TELEPORTING. Reordering reshuffles DOM nodes, and CSS transitions
+  //      don't animate that, so the other cards jumped between positions.
+  //
+  // The shape of the fix: the DOM order does NOT change during the drag. The
+  // dragged card is translated by the pointer delta (written straight to
+  // .style, no React state, so it can't drop a frame), and the cards it has
+  // passed are translated out of its way by exactly its height — a transform,
+  // so it animates and never touches layout. The real `order` is committed once
+  // on drop. Nothing reflows mid-drag.
+  const LONG_PRESS_MS = 220; // 320 felt like waiting; 220 still clears a scroll
   const MOVE_CANCEL_PX = 8;
+  const TILE_GAP = 12;       // matches the container's flex gap
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  // Where the dragged card would land. Changes only on midpoint crossings, so
+  // this drives cheap, infrequent re-renders — the per-frame motion is a
+  // direct DOM write instead.
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const didDrag = useRef(false);
   const tileEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  const drag = useRef<{
+    key: string; startY: number; fromIndex: number; height: number;
+    mids: number[]; keys: string[]; pointerId: number;
+  } | null>(null);
+  const rafId = useRef<number | null>(null);
+  // Live pointer delta. Held in a ref so pointermove can write the transform
+  // straight to the DOM, and read back in render so React's occasional
+  // re-render (a dropIndex change) re-applies the SAME value instead of
+  // snapping the card back to 0 for a frame.
+  const dragDy = useRef(0);
 
   function cancelPress() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     pressStart.current = null;
   }
 
+  function beginDrag(k: string, pointerId: number, startY: number) {
+    const keys = visibleKeys;
+    const fromIndex = keys.indexOf(k);
+    const self = tileEls.current.get(k);
+    if (fromIndex < 0 || !self) return;
+    // Measure every tile ONCE, here. Nothing reflows for the rest of the drag.
+    const mids = keys.map(kk => {
+      const el = tileEls.current.get(kk);
+      if (!el) return Number.POSITIVE_INFINITY;
+      const r = el.getBoundingClientRect();
+      return r.top + r.height / 2;
+    });
+    drag.current = { key: k, startY, fromIndex, height: self.getBoundingClientRect().height, mids, keys, pointerId };
+    dragDy.current = 0;
+    didDrag.current = true;
+    setDraggingKey(k);
+    setDropIndex(fromIndex);
+    try { (navigator as any).vibrate?.(12); } catch { /* no haptics — fine */ }
+  }
+
   function onTilePointerDown(e: ReactPointerEvent, k: string) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     didDrag.current = false;
-    pressStart.current = { x: e.clientX, y: e.clientY };
+    const { clientX, clientY, pointerId, currentTarget } = e;
+    pressStart.current = { x: clientX, y: clientY };
     cancelPress();
     pressTimer.current = setTimeout(() => {
-      didDrag.current = true;
-      setDraggingKey(k);
-      try { (navigator as any).vibrate?.(12); } catch { /* no haptics — fine */ }
+      // Capture the pointer so moves keep arriving even when the finger is over
+      // the 12px gap between cards or has left the list entirely. Without this
+      // the drag visibly stalls whenever you cross a gap.
+      try { currentTarget.setPointerCapture(pointerId); } catch { /* older webview */ }
+      if (!drag.current && pressStart.current) beginDrag(k, pointerId, pressStart.current.y);
     }, LONG_PRESS_MS);
   }
 
-  // Move the dragged key to the slot of whichever VISIBLE tile the pointer is
-  // over. Rects are read live so this stays correct as the DOM reflows.
-  function reorderToward(dk: string, clientY: number) {
-    for (const k of visibleKeys) {
-      if (k === dk) continue;
-      const el = tileEls.current.get(k);
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      if (clientY >= r.top && clientY <= r.bottom) {
-        setOrder(prev => {
-          const from = prev.indexOf(dk), toK = prev.indexOf(k);
-          if (from < 0 || toK < 0 || from === toK) return prev;
-          const next = [...prev];
-          next.splice(from, 1);
-          const insAt = next.indexOf(k);
-          next.splice(from < toK ? insAt + 1 : insAt, 0, dk);
-          return next;
-        });
-        break;
-      }
-    }
-  }
-
   function onTilePointerMove(e: ReactPointerEvent) {
-    if (draggingKey) { reorderToward(draggingKey, e.clientY); return; }
+    const d = drag.current;
+    if (d) {
+      const clientY = e.clientY;
+      const el = tileEls.current.get(d.key);
+      // Per-frame motion goes straight to the element. Routing this through
+      // React state would re-render every card (each one re-running its
+      // render(data)) on every pointermove — the difference between 60fps and
+      // the stutter this replaces.
+      dragDy.current = clientY - d.startY;
+      if (el) el.style.transform = `translateY(${dragDy.current}px) scale(1.03)`;
+      if (rafId.current != null) return; // coalesce target math to one per frame
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        // Walk out from the card's original slot for as long as the pointer has
+        // cleared the next neighbour's MIDPOINT. Midpoint rather than edge is
+        // what stops the swap-flicker; measuring against the ORIGINAL midpoints
+        // (captured at pick-up) is what keeps this reflow-free.
+        let idx = d.fromIndex;
+        if (clientY > d.mids[d.fromIndex]) {
+          for (let i = d.fromIndex + 1; i < d.mids.length; i++) {
+            if (clientY > d.mids[i]) idx = i; else break;
+          }
+        } else {
+          for (let i = d.fromIndex - 1; i >= 0; i--) {
+            if (clientY < d.mids[i]) idx = i; else break;
+          }
+        }
+        setDropIndex(prev => (prev === idx ? prev : idx));
+      });
+      return;
+    }
     if (pressStart.current) {
       const dx = e.clientX - pressStart.current.x;
       const dy = e.clientY - pressStart.current.y;
@@ -266,11 +336,41 @@ export default function MobileDashboard() {
   }
 
   function onTilePointerUp() {
-    if (draggingKey) {
+    const d = drag.current;
+    if (d) {
+      if (rafId.current != null) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+      const el = tileEls.current.get(d.key);
+      if (el) el.style.transform = ""; // hand styling back to React
+      const to = dropIndex;
+      drag.current = null;
       setDraggingKey(null);
-      savePrefs(); // reuse the existing per-user card-prefs PUT (persists current order)
+      setDropIndex(null);
+      // Commit the reorder ONCE, on drop — the only DOM reshuffle of the whole
+      // interaction. Order is rebuilt over the full list (visible + hidden) so
+      // hidden cards keep their relative places.
+      if (to != null && to !== d.fromIndex) {
+        const movedKey = d.key, anchorKey = d.keys[to];
+        setOrder(prev => {
+          const next = prev.filter(x => x !== movedKey);
+          const at = next.indexOf(anchorKey);
+          if (at < 0) return prev;
+          next.splice(to > d.fromIndex ? at + 1 : at, 0, movedKey);
+          return next;
+        });
+      }
+      savePrefs(); // per-user card-prefs PUT, persists the current order
     }
     cancelPress();
+  }
+
+  // How far a given tile slides to make room. Pure transform — no layout.
+  function shiftFor(index: number): number {
+    const d = drag.current;
+    if (!d || dropIndex == null || index === d.fromIndex) return 0;
+    const step = d.height + TILE_GAP;
+    if (dropIndex > d.fromIndex && index > d.fromIndex && index <= dropIndex) return -step;
+    if (dropIndex < d.fromIndex && index >= dropIndex && index < d.fromIndex) return step;
+    return 0;
   }
 
   // While dragging, block page scroll so the finger moves the tile, not the page.
@@ -285,6 +385,9 @@ export default function MobileDashboard() {
       document.body.style.userSelect = prevUserSelect;
     };
   }, [draggingKey]);
+
+  // Drop a pending rAF if the component unmounts mid-drag.
+  useEffect(() => () => { if (rafId.current != null) cancelAnimationFrame(rafId.current); }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, fontFamily: FF, paddingBottom: 24 }}>
@@ -311,10 +414,11 @@ export default function MobileDashboard() {
           No cards selected. Tap Customize to add some.
         </div>
       ) : (
-        visibleKeys.map(k => {
+        visibleKeys.map((k, index) => {
           const def = cardDef(k);
           if (!def || !data) return null;
           const dragging = draggingKey === k;
+          const shift = draggingKey ? shiftFor(index) : 0;
           return (
             <div key={k}
               ref={el => { if (el) tileEls.current.set(k, el); else tileEls.current.delete(k); }}
@@ -331,10 +435,22 @@ export default function MobileDashboard() {
                 ...CARD, padding: 16, position: "relative",
                 cursor: CARD_HREF[k] ? "pointer" : "default",
                 touchAction: "pan-y", userSelect: "none",
-                transition: dragging ? "none" : "transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease",
-                transform: dragging ? "scale(1.03)" : "none",
+                // The dragged card gets NO transition — it must sit exactly
+                // under the finger, and easing toward the pointer is precisely
+                // what "slow and clunky" feels like. Its siblings DO ease, so
+                // making room reads as a slide rather than a jump.
+                transition: dragging
+                  ? "box-shadow 0.15s ease"
+                  : "transform 0.18s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.15s ease, opacity 0.15s ease",
+                // Mirrors what pointermove writes directly to .style, so an
+                // interleaved re-render re-applies the same value.
+                transform: dragging
+                  ? `translateY(${dragDy.current}px) scale(1.03)`
+                  : shift ? `translateY(${shift}px)` : "none",
                 boxShadow: dragging ? "0 8px 24px rgba(0,0,0,0.16)" : "none",
                 opacity: draggingKey && !dragging ? 0.85 : 1,
+                // Promote to its own layer so dragging never repaints the list.
+                willChange: draggingKey ? "transform" : undefined,
                 zIndex: dragging ? 5 : undefined,
               }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em" }}>{def.label}</div>
