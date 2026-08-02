@@ -603,6 +603,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/dashboard-cards':
+        specifier: workspace:*
+        version: link:../../lib/dashboard-cards
       '@workspace/lms-curriculum':
         specifier: workspace:*
         version: link:../../lib/lms-curriculum
@@ -733,6 +736,8 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/dashboard-cards: {}
 
   lib/db:
     dependencies:

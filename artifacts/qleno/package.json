@@ -54,6 +54,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/dashboard-cards": "workspace:*",
     "@workspace/lms-curriculum": "workspace:*",
     "@workspace/payroll-metrics": "workspace:*",
     "class-variance-authority": "catalog:",
