@@ -8,6 +8,9 @@ import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
 import { useSourceLabeler } from "@/lib/acquisition-sources";
 import MobileDashboard from "@/components/mobile-dashboard";
+// One definition of what each tile is called — shared with the mobile
+// dashboard. See lib/dashboard-cards.
+import { cardDef } from "@workspace/dashboard-cards";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1498,13 +1501,21 @@ export default function Dashboard() {
     { key: 'unassigned',      label: 'Unassigned',      dispatchKey: 'unassigned' },
   ];
 
-  // Intelligence strip — hide if all values are dashes
+  // Intelligence strip — hide if all values are dashes.
+  // [card-registry 2026-08-02] Labels and sub-captions come from
+  // @workspace/dashboard-cards, the same registry the mobile dashboard reads,
+  // so a tile can't be called one thing here and another thing there. This file
+  // still owns the layout and supplies the values; it no longer owns the names.
   const hcp = kpis?.hcp;
+  const tile = (key: string, value: string) => {
+    const def = cardDef(key);
+    return { label: def?.label ?? key, sub: def?.sub ?? '', value };
+  };
   const HCP_TILES = [
-    { label: 'Daily Revenue',        value: hcp == null ? '—' : fmt$(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-    { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
-    { label: 'Quotes Given',         value: hcp == null ? '—' : String(hcp.quotes_given_today), sub: 'today' },
-    { label: 'Booked Online',        value: hcp == null ? '—' : String(hcp.booked_online_month), sub: 'this month' },
+    tile('revenue_booked_today',    hcp == null ? '—' : fmt$(hcp.rev_booked_today)),
+    tile('jobs_newly_booked_today', hcp == null ? '—' : String(hcp.new_jobs_today)),
+    tile('quotes_today',            hcp == null ? '—' : String(hcp.quotes_given_today)),
+    tile('booked_online_month',     hcp == null ? '—' : String(hcp.booked_online_month)),
   ];
 
   const intelligenceValues = [
@@ -1590,14 +1601,14 @@ export default function Dashboard() {
           <p style={SECTION_LABEL}>Money · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}{summary ? ` · ${fmtRange(summary.window.from, summary.window.to)}` : ''}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
-              label="Cash collected"
+              label={cardDef("cash_collected")!.label}
               value={summary ? fmtWF(summary.collected.value) : '—'}
               delta={summary?.collected.delta_pct}
               sub={summary ? `payments received${summary.collected.company_wide ? ' · all branches' : ''}` : 'Loading…'}
               href="/invoices" navigate={navigate}
             />
             <MoneyCard
-              label="Booked today"
+              label={cardDef("jobs_newly_booked_today")!.label}
               value={hcp == null ? '—' : String(hcp.new_jobs_today)}
               sub={hcp == null ? 'Loading…' : `${fmtWF(hcp.rev_booked_today)} scheduled for today`}
               href={`/reports/jobs?booked_on=${ctToday()}`} navigate={navigate}
@@ -1636,18 +1647,18 @@ export default function Dashboard() {
           <p style={SECTION_LABEL}>Book of business</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
-              label="Avg bill"
+              label={cardDef("avg_bill_30d")!.label}
               value={kpis == null ? '—' : (kpis.avg_bill > 0 ? `$${kpis.avg_bill.toFixed(0)}` : '—')}
-              sub="last 30 days"
+              sub={cardDef("avg_bill_30d")!.sub ?? ''}
             />
             <MoneyCard
-              label="Active clients"
+              label={cardDef("active_clients")!.label}
               value={kpis == null ? '—' : (kpis.active_clients != null ? String(kpis.active_clients) : '—')}
               sub={kpis?.recurring_count != null ? `${kpis.recurring_count} recurring` : ' '}
               href="/clients" navigate={navigate}
             />
             <MoneyCard
-              label="Next 7 days"
+              label={cardDef("next_7_days")!.label}
               value={kpis == null ? '—' : (kpis.next7_revenue > 0 ? fmtWF(kpis.next7_revenue) : '—')}
               sub={kpis?.next7_jobs != null ? `${kpis.next7_jobs} jobs on the books` : ' '}
               href="/dispatch" navigate={navigate}
@@ -1789,17 +1800,17 @@ export default function Dashboard() {
           <p style={SECTION_LABEL}>Business health</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
-              label="Rate trend"
+              label={cardDef("rate_trend")!.label}
               value={bizHealth == null ? '—' : `${bizHealth.rate_trend > 0 ? '+' : ''}${bizHealth.rate_trend}%`}
               sub="avg bill, 12mo vs prior 12mo"
             />
             <MoneyCard
-              label="Payroll %"
+              label={cardDef("payroll_pct")!.label}
               value={bizHealth == null ? '—' : `${bizHealth.payroll_pct}%`}
               sub={`payroll cost / revenue, ${bizHealth?.payroll_window ?? '—'}`}
             />
             <MoneyCard
-              label="Retention"
+              label={cardDef("retention")!.label}
               value={bizHealth == null ? '—' : `${bizHealth.retention}%`}
               sub="recurring clients active"
             />

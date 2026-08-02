@@ -13,6 +13,9 @@
       "path": "./lib/api-zod"
     },
     {
+      "path": "./lib/dashboard-cards"
+    },
+    {
       "path": "./lib/lms-curriculum"
     },
     {

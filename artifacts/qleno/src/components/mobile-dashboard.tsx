@@ -4,6 +4,9 @@ import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useLocation } from "wouter";
 import { Settings2, ArrowUp, ArrowDown, X, RotateCcw, ChevronRight } from "lucide-react";
+// One definition of what each tile is called, what it means and where it goes —
+// shared with the desktop dashboard. See lib/dashboard-cards.
+import { CARD_KEYS, cardDef, defaultCardsForRole, normalizeCardKeys } from "@workspace/dashboard-cards";
 
 // Role-based, user-customizable MOBILE dashboard. Each user picks which cards
 // to show and in what order; defaults differ by role but every card is in the
@@ -39,17 +42,23 @@ function Big({ t, c = INK }: { t: string; c?: string }) {
   return <span style={{ fontSize: 28, fontWeight: 800, color: c, fontFamily: FF, lineHeight: 1.1 }}>{t}</span>;
 }
 
-interface LibCard { key: string; label: string; sub?: string; render: (d: CardData) => ReactNode; }
+// [card-registry 2026-08-02] A card's key, label, sub-caption and destination
+// now come from @workspace/dashboard-cards — the SAME registry the desktop
+// dashboard reads. This file only decides how a value is drawn. That split is
+// the point: mobile and desktop used to each own their own copy of every
+// label, which is how "Avg bill" ended up meaning last-30-days on one surface
+// and last-12-months on the other. Renderers are keyed by card key; a registry
+// card with no renderer here simply isn't offered on mobile yet.
+type CardRenderer = (d: CardData) => ReactNode;
 
-// Full card library — every card available to every user.
-const LIBRARY: LibCard[] = [
-  { key: "revenue_booked_today", label: "Daily Revenue",        sub: "today's scheduled jobs", render: d => <Big t={money(d.revenue_booked_today)} /> },
-  { key: "revenue_newly_booked_today", label: "Booked Today",   sub: "new jobs booked today",  render: d => <Big t={money(d.revenue_newly_booked_today)} /> },
-  { key: "daily_revenue",        label: "Completed Today",      sub: "jobs marked complete",   render: d => <Big t={money(d.daily_revenue)} /> },
-  { key: "jobs_today",           label: "Jobs Today",           render: d => <Big t={String(d.jobs_today)} /> },
-  { key: "jobs_scheduled_today", label: "Jobs Scheduled Today", render: d => <Big t={String(d.jobs_scheduled_today)} /> },
-  { key: "late_clockins",        label: "Late Clock-ins",       sub: "no clock-in past start +20m", render: d => <Big t={String(d.late_clockins)} c={d.late_clockins > 0 ? RED : INK} /> },
-  { key: "todays_status",        label: "Today's Status",       render: d => {
+const RENDERERS: Record<string, CardRenderer> = {
+  revenue_booked_today: d => <Big t={money(d.revenue_booked_today)} />,
+  revenue_newly_booked_today: d => <Big t={money(d.revenue_newly_booked_today)} />,
+  daily_revenue: d => <Big t={money(d.daily_revenue)} />,
+  jobs_today: d => <Big t={String(d.jobs_today)} />,
+  jobs_scheduled_today: d => <Big t={String(d.jobs_scheduled_today)} />,
+  late_clockins: d => <Big t={String(d.late_clockins)} c={d.late_clockins > 0 ? RED : INK} />,
+  todays_status: d => {
       const s = d.todays_status;
       const items: [string, number][] = [["In progress", s.in_progress], ["Scheduled", s.scheduled], ["Complete", s.complete], ["Flagged", s.flagged], ["Unassigned", s.unassigned]];
       return (
@@ -61,50 +70,46 @@ const LIBRARY: LibCard[] = [
           ))}
         </div>
       );
-    } },
-  { key: "unassigned_jobs",      label: "Unassigned Jobs",      render: d => <Big t={String(d.unassigned_jobs)} c={d.unassigned_jobs > 0 ? RED : INK} /> },
-  { key: "techs_today",          label: "Techs Today",          sub: "working today",          render: d => <Big t={String(d.techs_today)} /> },
-  { key: "next_7_days",          label: "Next 7 Days",          render: d => (
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <Big t={money(d.next_7_days_revenue)} />
-        <span style={{ fontSize: 13, color: MUTE, fontFamily: FF }}>{d.next_7_days_jobs} jobs</span>
-      </div>
-    ) },
-  { key: "quotes_today",         label: "Quotes Today",         sub: "created today",          render: d => <Big t={String(d.quotes_today)} /> },
-  { key: "closed_quotes_today",  label: "Closed Today",         sub: "won, of today's quotes", render: d => <Big t={String(d.closed_quotes_today)} /> },
-  { key: "close_rate_today",     label: "Close Rate Today",     sub: "closed / total, today",  render: d => <Big t={`${d.close_rate_today}%`} c={MINT} /> },
-  { key: "leads",                label: "Leads",                sub: "this month",             render: d => <Big t={String(d.leads)} /> },
-  { key: "quotes",               label: "Quotes",               sub: "this month",             render: d => <Big t={String(d.quotes)} /> },
-  { key: "closed_quotes",        label: "Closed Quotes",        sub: "won this month",         render: d => <Big t={String(d.closed_quotes)} /> },
-  { key: "close_rate",           label: "Close Rate",           sub: "closed / total, this month", render: d => <Big t={`${d.close_rate}%`} c={MINT} /> },
-  { key: "monthly_revenue",      label: "Monthly Revenue",      sub: "month to date",          render: d => <Big t={money(d.monthly_revenue)} /> },
-  { key: "avg_bill",             label: "Avg Bill",             sub: "per job, last 12 months", render: d => <Big t={money2(d.avg_bill)} /> },
-  { key: "active_clients",       label: "Active Clients",       render: d => <Big t={String(d.active_clients)} /> },
-  { key: "rate_trend",           label: "Rate Trend",           sub: "avg bill, 12mo vs prior 12mo", render: d => <Big t={signPct(d.rate_trend)} c={d.rate_trend < 0 ? RED : MINT} /> },
-  { key: "retention",            label: "Retention",            sub: "recurring clients active", render: d => <Big t={`${d.retention}%`} c={MINT} /> },
-  { key: "payroll_pct",          label: "Payroll %",            sub: "payroll / revenue, Apr 2026", render: d => <Big t={`${d.payroll_pct}%`} /> },
-];
-const LIB_KEYS = LIBRARY.map(l => l.key);
-const cardDef = (k: string) => LIBRARY.find(l => l.key === k);
-
-// Default sets shown before any customization.
-const OWNER_DEFAULT = ["revenue_booked_today", "revenue_newly_booked_today", "jobs_today", "quotes_today", "closed_quotes_today", "close_rate_today", "leads", "quotes", "closed_quotes", "close_rate"];
-const OFFICE_DEFAULT = ["jobs_scheduled_today", "late_clockins", "todays_status", "unassigned_jobs", "techs_today", "next_7_days"];
-const roleDefault = (role: string) => (role === "owner" ? OWNER_DEFAULT : OFFICE_DEFAULT);
-
-// Tap a metric card to open the underlying list/report it summarizes.
-const CARD_HREF: Record<string, string> = {
-  leads: "/leads",
-  quotes: "/quotes", closed_quotes: "/quotes", close_rate: "/quotes",
-  quotes_today: "/quotes", closed_quotes_today: "/quotes", close_rate_today: "/quotes",
-  daily_revenue: "/reports/revenue", revenue_booked_today: "/reports/revenue", revenue_newly_booked_today: "/reports/revenue",
-  monthly_revenue: "/reports/revenue", avg_bill: "/reports/revenue", rate_trend: "/reports/revenue",
-  jobs_today: "/dispatch", jobs_scheduled_today: "/dispatch", unassigned_jobs: "/dispatch",
-  todays_status: "/dispatch", late_clockins: "/dispatch", techs_today: "/dispatch", next_7_days: "/dispatch",
-  active_clients: "/customers",
-  retention: "/reports/satisfaction",
-  payroll_pct: "/reports/payroll-to-revenue",
+    },
+  unassigned_jobs: d => <Big t={String(d.unassigned_jobs)} c={d.unassigned_jobs > 0 ? RED : INK} />,
+  techs_today: d => <Big t={String(d.techs_today)} />,
+  next_7_days: d => (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+      <Big t={money(d.next_7_days_revenue)} />
+      <span style={{ fontSize: 13, color: MUTE, fontFamily: FF }}>{d.next_7_days_jobs} jobs</span>
+    </div>
+  ),
+  quotes_today: d => <Big t={String(d.quotes_today)} />,
+  closed_quotes_today: d => <Big t={String(d.closed_quotes_today)} />,
+  close_rate_today: d => <Big t={`${d.close_rate_today}%`} c={MINT} />,
+  leads: d => <Big t={String(d.leads)} />,
+  quotes: d => <Big t={String(d.quotes)} />,
+  closed_quotes: d => <Big t={String(d.closed_quotes)} />,
+  close_rate: d => <Big t={`${d.close_rate}%`} c={MINT} />,
+  monthly_revenue: d => <Big t={money(d.monthly_revenue)} />,
+  avg_bill_12mo: d => <Big t={money2(d.avg_bill_12mo ?? d.avg_bill)} />,
+  active_clients: d => <Big t={String(d.active_clients)} />,
+  rate_trend: d => <Big t={signPct(d.rate_trend)} c={d.rate_trend < 0 ? RED : MINT} />,
+  retention: d => <Big t={`${d.retention}%`} c={MINT} />,
+  payroll_pct: d => <Big t={`${d.payroll_pct}%`} />,
 };
+
+// Only registry cards this surface can actually draw. A registry entry with no
+// renderer (desktop-only tiles whose metric /mobile-cards doesn't return yet)
+// is simply not offered here — better than showing an empty card.
+const LIB_KEYS = CARD_KEYS.filter(k => RENDERERS[k]);
+
+// Sub-captions that depend on live data rather than a fixed string. The Payroll
+// card used to hardcode "payroll / revenue, Apr 2026" — a literal that was four
+// months stale by August, even though the server had been sending the real
+// window in `payroll_window` all along.
+function subFor(def: { key: string; sub?: string; dynamicSub?: boolean }, d: CardData): string | undefined {
+  if (!def.dynamicSub) return def.sub;
+  if (def.key === "payroll_pct") return `payroll / revenue, ${d.payroll_window || "last week"}`;
+  return def.sub;
+}
+
+const roleDefault = (role: string) => defaultCardsForRole(role).filter(k => RENDERERS[k]);
 
 export default function MobileDashboard() {
   const { activeBranchId } = useBranch();
@@ -132,12 +137,19 @@ export default function MobileDashboard() {
         const r = await fetch(`${API}/api/dashboard/card-prefs`, { headers: getAuthHeaders() });
         const rows = await r.json();
         if (cancelled) return;
-        const known = Array.isArray(rows) ? rows.filter((x: any) => LIB_KEYS.includes(x.card_key)) : [];
-        if (known.length) {
-          const ord = known.map((x: any) => x.card_key);
+        // [card-registry 2026-08-02] Saved prefs are keyed by card_key, so the
+        // `avg_bill` -> `avg_bill_12mo` rename would have silently dropped that
+        // card off the dashboard of anyone who had customised. normalizeCardKeys
+        // maps legacy keys forward, drops retired ones and de-dupes.
+        const raw = Array.isArray(rows) ? rows : [];
+        const ord = normalizeCardKeys(raw.map((x: any) => String(x.card_key))).filter(k => RENDERERS[k]);
+        if (ord.length) {
           for (const k of LIB_KEYS) if (!ord.includes(k)) ord.push(k);
+          const visible = new Set(
+            normalizeCardKeys(raw.filter((x: any) => x.visible).map((x: any) => String(x.card_key)))
+          );
           setOrder(ord);
-          setSelected(new Set(known.filter((x: any) => x.visible).map((x: any) => x.card_key)));
+          setSelected(visible);
         } else {
           applyDefault();
         }
@@ -325,11 +337,11 @@ export default function MobileDashboard() {
               onClick={() => {
                 // A long-press drag also ends in a click — suppress navigation then.
                 if (didDrag.current) { didDrag.current = false; return; }
-                if (CARD_HREF[k]) setLocation(CARD_HREF[k]);
+                if (def.href) setLocation(def.href);
               }}
               style={{
                 ...CARD, padding: 16, position: "relative",
-                cursor: CARD_HREF[k] ? "pointer" : "default",
+                cursor: def.href ? "pointer" : "default",
                 touchAction: "pan-y", userSelect: "none",
                 transition: dragging ? "none" : "transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease",
                 transform: dragging ? "scale(1.03)" : "none",
@@ -338,9 +350,9 @@ export default function MobileDashboard() {
                 zIndex: dragging ? 5 : undefined,
               }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em" }}>{def.label}</div>
-              <div style={{ marginTop: 6 }}>{def.render(data)}</div>
-              {def.sub && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>{def.sub}</div>}
-              {CARD_HREF[k] && !draggingKey && <ChevronRight size={16} style={{ position: "absolute", top: 16, right: 14, color: "#C4C0B8" }} />}
+              <div style={{ marginTop: 6 }}>{RENDERERS[def.key]?.(data)}</div>
+              {subFor(def, data) && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>{subFor(def, data)}</div>}
+              {def.href && !draggingKey && <ChevronRight size={16} style={{ position: "absolute", top: 16, right: 14, color: "#C4C0B8" }} />}
             </div>
           );
         })
