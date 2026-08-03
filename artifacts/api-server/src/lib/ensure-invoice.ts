@@ -287,14 +287,18 @@ export async function ensureInvoiceForCompletedJob(
     const lineItems = (built?.lineItems ?? []).map((li: any) => ({ ...li, job_id: jobId }));
     const netAmount = built?.subtotal ?? 0;
 
-    // [invoice-zero-guard 2026-06-20; commercial-exception 2026-07-03] Skip $0
-    // auto-invoices for RESIDENTIAL jobs — a cancelled/credited occurrence would
-    // otherwise spawn a $0 draft that clutters AR. But COMMERCIAL jobs (account
-    // like KMA/PPM, or a commercial client) MUST get an invoice even at $0: the
-    // office reconciles the day one-invoice-per-job, and a $0 draft is the signal
-    // that a rate still needs setting on that common-areas/turnover visit.
-    const isCommercialJob = !!job.account_id || clientType === "commercial";
-    if (netAmount <= 0 && !isCommercialJob) return NO_OP;
+    // [zero-still-invoices 2026-08-03] A $0 visit gets an invoice too. Sal:
+    // "Even if job is zeroed out it should create an invoice."
+    //
+    // Reverses [invoice-zero-guard 2026-06-20], which skipped $0 RESIDENTIAL
+    // completions so a comped or fully-discounted job wouldn't "clutter AR".
+    // What it actually did was make the work vanish: no invoice means no row on
+    // the client's history, nothing in the coverage ledger, and no way to tell a
+    // comped clean apart from one that was never billed. $0 is a PRICE — the
+    // customer owes nothing — and it belongs on a document that says so.
+    //
+    // A $0 invoice adds $0 to AR, so nothing it can clutter is a number anyone
+    // reads. What it does add is the record.
 
     // [account-auto-issue 2026-07-21] Issue a REAL invoice now when the company
     // flag is on, it's not a batch_invoice client, and the visit is priced.
@@ -319,9 +323,16 @@ export async function ensureInvoiceForCompletedJob(
     // and combineInvoices() moves the members to 'batched' so the dollars land
     // on the bundle exactly once.
     //
-    // The one thing still held back is an unpriced ($0) visit: there is no
-    // amount to put into AR yet, and that draft IS the "set a rate" signal.
-    const issueNow = autoIssue && netAmount > 0;
+    // [zero-still-invoices 2026-08-03] $0 issues too. There are no carve-outs
+    // left: if the job completed, it has a real invoice.
+    //
+    // The "unpriced visit" signal does NOT depend on the draft status and never
+    // did — a $0 invoice reads as $0 on every screen. The two places that
+    // actually chase it down still do: the weekly/monthly close refuses to fold
+    // an unpriced visit into a bundle (`held_unpriced`), and the nightly
+    // billing-integrity sweep flags it. Holding the document hostage was never
+    // what surfaced the problem; it just hid the work as well as the price.
+    const issueNow = autoIssue;
 
     const [newInv] = await db
       .insert(invoicesTable)
