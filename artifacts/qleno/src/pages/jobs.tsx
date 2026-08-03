@@ -3991,13 +3991,25 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               [double-charge 2026-08-03] `charge_succeeded_at` only knows about
               charges Qleno made, so it stays null when the office takes the
               money in the Square app, marks the invoice paid by hand, or banks a
-              check — and the button stayed live next to a PAID badge. The
-              invoice status sitting right below is the authority on whether this
-              visit has been collected; a settled invoice hides the button. */}
-          {canCharge && job.status === "complete" && !job.charge_succeeded_at && !invoiceSettled && (
-            <button onClick={openChargeModal}
-              style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
-              <DollarSign size={13} /> Charge Client
+              check — and the button stayed live next to a PAID badge.
+
+              Grayed out, NOT hidden, when the invoice is settled. A button that
+              vanishes reads as a missing feature and sends the office looking
+              for another way to collect; a disabled button that says why is the
+              answer to "did this get paid?" in the same glance. The invoice
+              status rendered just below is the authority — not the job's stamp. */}
+          {canCharge && job.status === "complete" && !job.charge_succeeded_at && (
+            <button onClick={invoiceSettled ? undefined : openChargeModal}
+              disabled={invoiceSettled}
+              title={invoiceSettled
+                ? "Already paid — this visit's invoice is settled. Charging again would double-charge the customer."
+                : undefined}
+              style={{ padding: "10px 12px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF, display: "flex", alignItems: "center", gap: 5,
+                border: invoiceSettled ? "1px solid #E5E2DC" : "1px solid #6EE7B7",
+                backgroundColor: invoiceSettled ? "#F0EEE9" : "#E6F6F1",
+                color: invoiceSettled ? "#A29E95" : "#065F46",
+                cursor: invoiceSettled ? "not-allowed" : "pointer" }}>
+              <DollarSign size={13} /> {invoiceSettled ? "Paid" : "Charge Client"}
             </button>
           )}
           {/* Invoice status — completed jobs only. Shows View Invoice link + paid/unpaid badge. */}
