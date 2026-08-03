@@ -238,6 +238,82 @@ router.get("/techs-with-status", requireAuth, requireRole("owner", "admin", "off
   }
 });
 
+// [assignability-audit 2026-08-03] GET /api/users/assignability-audit?branch_id=N
+//
+// Why a technician ISN'T in the assign dropdown.
+//
+// /techs-with-status excludes a user for any of SEVEN independent reasons, and
+// the UI shows none of them — the person simply isn't in the list. Maribel hit
+// this trying to assign Jesus to a commercial job and had no way to find out
+// why; it became a WhatsApp thread to Sal. This is the same medicine as
+// /dispatch/zone-coverage-audit: don't make someone guess which filter ate the
+// row, name it.
+//
+// Returns every non-assignable user in the tenant WITH the specific reasons, so
+// the office can self-serve. Mirrors the techs-with-status WHERE clauses
+// exactly — if that query changes, change these checks with it.
+router.get("/assignability-audit", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const branchIdRaw = req.query.branch_id;
+    const branchIdNum = (typeof branchIdRaw === "string" && branchIdRaw !== "all" && branchIdRaw !== "")
+      ? parseInt(branchIdRaw, 10) : null;
+    const nameQ = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+
+    // Deliberately UNFILTERED (tenant scope only) — the whole point is to see
+    // the rows the assign query drops.
+    const rows = await db.execute(sql`
+      SELECT u.id, u.first_name, u.last_name, u.role, u.is_active, u.archived_at,
+             COALESCE(u.is_sandbox, false) AS is_sandbox, u.show_on_dispatch,
+             u.home_branch_id, COALESCE(u.tags, '{}') AS tags,
+             (SELECT b.name FROM branches b WHERE b.id = u.home_branch_id) AS home_branch_name
+        FROM users u
+       WHERE (u.company_id = ${companyId}
+              OR EXISTS (SELECT 1 FROM user_companies uc
+                          WHERE uc.user_id = u.id AND uc.company_id = ${companyId}))
+       ORDER BY u.first_name, u.last_name`);
+
+    const OFFICE_ROLES = new Set(["admin", "owner", "office", "super_admin", "accountant"]);
+    const audit = (rows.rows as any[]).map(u => {
+      const name = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
+      const tags: string[] = Array.isArray(u.tags) ? u.tags : [];
+      const reasons: string[] = [];
+
+      if (u.is_active !== true) reasons.push("Marked inactive");
+      if (u.archived_at != null) reasons.push("Archived");
+      if (u.is_sandbox === true) reasons.push("Sandbox/test account");
+      // NOT FALSE in SQL — only an explicit false hides them; NULL is fine.
+      if (u.show_on_dispatch === false) reasons.push('"Show on dispatch" is off for this employee');
+      if (OFFICE_ROLES.has(String(u.role)) && !tags.some(t => t === "field" || t === "technician")) {
+        reasons.push(`Role is "${u.role}" and the employee isn't tagged field/technician`);
+      }
+      // The branch rule that most often does it quietly: a tech with a home
+      // branch can only be assigned within that branch. NULL = anywhere.
+      if (branchIdNum != null && u.home_branch_id != null && Number(u.home_branch_id) !== branchIdNum) {
+        reasons.push(`Home branch is ${u.home_branch_name ?? `#${u.home_branch_id}`} — this job is on a different branch`);
+      }
+
+      return {
+        id: u.id, name, role: u.role,
+        home_branch_id: u.home_branch_id ?? null,
+        home_branch_name: u.home_branch_name ?? null,
+        assignable: reasons.length === 0,
+        reasons,
+      };
+    });
+
+    const filtered = nameQ ? audit.filter(a => a.name.toLowerCase().includes(nameQ)) : audit;
+    return res.json({
+      branch_id: branchIdNum,
+      assignable: filtered.filter(a => a.assignable),
+      not_assignable: filtered.filter(a => !a.assignable),
+    });
+  } catch (err) {
+    console.error("assignability-audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /**
  * Bulk-reset password for multiple users at once. Owner / admin only.
  *
