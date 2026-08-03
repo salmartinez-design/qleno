@@ -4200,33 +4200,26 @@ async function runKmaAccountSetup(): Promise<void> {
   console.log(`[kma-setup] Account ${acctId} ensured; inserted ${inserted} properties (roster ${ROSTER.length}).`);
 }
 
-// One-time June fill: the recurring engine only generates forward from when a
-// schedule is saved, so schedules set up on/after Jun 3 left Jun 1-2 empty and
-// the dashboard showed $0 for those days. This generates each active schedule's
-// visits back to Jun 1, 2026. Idempotent — the engine dedupes on
-// (recurring_schedule_id, scheduled_date), so it won't duplicate days that
-// already have jobs and is safe to re-run on every cold start.
-async function runJuneRecurringFill(): Promise<void> {
-  const { generateJobsFromSchedule, DAYS_AHEAD } = await import("./lib/recurring-jobs.js");
-  const from = new Date("2026-06-01T00:00:00");
-  const horizon = new Date();
-  horizon.setDate(horizon.getDate() + DAYS_AHEAD);
-  const scheds = await db.execute(sql`
-    SELECT * FROM recurring_schedules WHERE company_id = ${PHES} AND is_active = true
-  `);
-  let created = 0;
-  for (const s of scheds.rows as any[]) {
-    try {
-      const cl = await db.execute(sql`SELECT zip FROM clients WHERE id = ${s.customer_id} LIMIT 1`);
-      const zip = (cl.rows[0] as any)?.zip ?? null;
-      const gen = await generateJobsFromSchedule(s as any, from, horizon, null, zip);
-      created += gen.created;
-    } catch (err: any) {
-      console.warn("[june-fill] schedule", s.id, "—", err?.message ?? err);
-    }
-  }
-  console.log(`[june-fill] generated ${created} job(s) from Jun 1 across ${scheds.rows.length} schedules.`);
-}
+// [june-fill REMOVED 2026-08-03] `runJuneRecurringFill` used to live here. It was
+// a one-time backfill for Jun 1-2, 2026 — schedules saved on/after Jun 3 left
+// those two days empty and the dashboard read $0. It was written to re-run
+// harmlessly on every cold start, on the reasoning that the engine dedupes on
+// (recurring_schedule_id, scheduled_date) so a filled day would just be skipped.
+//
+// That reasoning had a hole: a visit the OFFICE DELETED is also an unfilled day.
+// So every boot re-swept all ~119 active schedules from Jun 1 forward and
+// re-created deleted work. It is the reason "we delete a service and it comes
+// back" survived every fix aimed at the engine's skip logic — those fixes were
+// correct, and this ran anyway, from whatever code the booting deploy carried.
+//
+// Measured on production: 2026-07-30 15:27 UTC created 55 jobs across 18
+// schedules, 30 of them on dates carrying a deletion tombstone — eight minutes
+// after the #1339 deploy, i.e. the fix's own cold start resurrected them.
+// 2026-08-03 18:53 UTC created 3 more, all 3 tombstoned.
+//
+// June 2026 is closed. Do NOT reintroduce a from-a-fixed-past-date sweep on the
+// boot path. A backfill is a one-time operation: run it from a route or a script
+// with a dry-run, then delete it. Forward generation is the nightly engine's job.
 
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
@@ -4383,11 +4376,10 @@ export async function runPhesDataMigration(): Promise<void> {
     console.warn("[phes-migration] kma-account-setup — non-fatal:", err?.message ?? err);
   }
 
-  try {
-    await runJuneRecurringFill();
-  } catch (err: any) {
-    console.warn("[phes-migration] june-recurring-fill — non-fatal:", err?.message ?? err);
-  }
+  // [june-fill REMOVED 2026-08-03] runJuneRecurringFill() was called here. See the
+  // note at its former definition above — it resurrected deleted recurring visits
+  // on every cold start. Nothing replaces it; forward generation is the nightly
+  // engine's job.
 
   try {
     await runScopeVisibility();

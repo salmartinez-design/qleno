@@ -265,8 +265,19 @@ const MIGRATION_TIMEOUT_MS = 45_000; // the larger mixed schema+seed migrations
 // those writes against prod. Railway injects RAILWAY_ENVIRONMENT on every deploy,
 // so production boots are unchanged; a laptop boot has neither variable and skips.
 // Set RUN_STARTUP_MIGRATIONS=true to opt in deliberately (e.g. seeding a local DB).
+//
+// [preview-guard 2026-08-03] Presence of RAILWAY_ENVIRONMENT was too loose: every
+// PR preview environment gets one too (value = "qleno-pr-1234"), AND every preview
+// inherits the byte-identical production DATABASE_URL. So each preview deploy was
+// replaying the full business-row migration against LIVE data, on whatever
+// pre-fix code its branch happened to carry. That is how deleted recurring visits
+// kept coming back after the engine fix had already shipped to main: a stale
+// preview would cold-start, run the June backfill with old skip logic, and
+// re-create occurrences the office had deleted (30 of them on 2026-07-30 alone).
+// Only the production environment may write business rows.
+const RAILWAY_ENV = process.env.RAILWAY_ENVIRONMENT ?? null;
 const RUN_DATA_MIGRATIONS =
-  !!process.env.RAILWAY_ENVIRONMENT || process.env.RUN_STARTUP_MIGRATIONS === "true";
+  RAILWAY_ENV === "production" || process.env.RUN_STARTUP_MIGRATIONS === "true";
 
 function withBootTimeout<T>(
   label: string,
@@ -766,7 +777,10 @@ async function runStartupMigrations() {
     console.error("[startup] ensureSquarePaymentEventsSchema — non-fatal:", err?.message ?? err);
   }
   if (!RUN_DATA_MIGRATIONS) {
-    console.log("[startup] skipping seedIfNeeded + data migrations — not a Railway boot (set RUN_STARTUP_MIGRATIONS=true to force)");
+    console.log(
+      `[startup] skipping seedIfNeeded + data migrations — environment is ${RAILWAY_ENV ?? "local"}, not production ` +
+      `(set RUN_STARTUP_MIGRATIONS=true to force)`,
+    );
   }
   if (RUN_DATA_MIGRATIONS) {
     try {
