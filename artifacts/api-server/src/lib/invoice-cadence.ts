@@ -3,15 +3,22 @@
 // The rule Sal set: no completed job is ever left sitting as a draft, and
 // issuing is NOT gated on payment. What differs per account is only the SHAPE
 // of the document:
+// [issue-on-completion 2026-08-03] ensure-invoice now ISSUES a real invoice for
+// every completed priced visit, on EVERY cadence — the bundled accounts no
+// longer sit on unbilled drafts waiting for a close that might never come. So
+// what a cadence controls is only the document the customer is handed:
 //   per_job  (PPM, Meg Daday, the condo assocs, all residential)
-//       → ensure-invoice issues one invoice per completed visit. Nothing here.
+//       → the per-visit invoice IS the document. Nothing here.
 //   weekly   (National Able)
-//       → visits accumulate as pending drafts Mon–Fri; the Friday close folds
-//         the week into ONE issued invoice and emails the billing contact.
+//       → each Mon–Fri visit is issued as it completes; the Friday close folds
+//         the week into ONE invoice and emails the billing contact.
 //   monthly  (Cucci, KMA, Daveco, ProManage, Jennifer Halper)
-//       → visits accumulate all month; the period-end close folds the month
-//         into ONE issued invoice. No email (matches the #1174 default —
+//       → each visit is issued as it completes; the period-end close folds the
+//         month into ONE invoice. No email (matches the #1174 default —
 //         emailing an account invoice stays a deliberate human action).
+// Folding moves each member to 'batched', so the money is on the bundle and
+// counted exactly once. If a close never runs, the work is still billed as
+// per-visit invoices — the failure mode is a messier bill, not a missed one.
 //   custom   → treated as monthly. The only custom cadence in use is a
 //              month-end bundle; a real per-account calendar can come later.
 //
@@ -163,11 +170,22 @@ export async function closeAccountWindow(opts: {
         FROM invoices i
         JOIN jobs j ON j.id = i.job_id
        WHERE i.company_id = ${companyId} AND i.account_id = ${accountId}
-         AND i.status = 'draft' AND i.batch_status = 'pending'
-         -- Never fold a document the customer already has. status='draft'
-         -- implies this today, but the guard is explicit: superseding an
-         -- emailed invoice would zero out a $420 bill sitting in someone's
-         -- inbox and replace it with a bundle they never asked about.
+         AND (
+              -- [issue-on-completion 2026-08-03] The normal case now: the visit
+              -- already has a REAL issued invoice, and the close reshapes the
+              -- window into one document the customer receives. Folding issued
+              -- invoices is safe because combineInvoices() moves each member to
+              -- 'batched' — the dollars sit on the bundle, counted once.
+              (i.status::text = 'sent' AND COALESCE(i.batch_status, '') NOT IN ('batch_parent', 'consolidated'))
+              -- Still-pending drafts: an unpriced visit that has since been
+              -- given a rate, plus every row written before issue-on-completion.
+              -- Kept so the backlog closes out instead of stranding.
+           OR (i.status::text = 'draft' AND i.batch_status = 'pending')
+         )
+         -- A member of an existing bundle is already billed on its parent.
+         AND i.parent_invoice_id IS NULL
+         -- Never fold a document the customer already has: replacing an emailed
+         -- $420 bill with a bundle they never asked about is not a correction.
          AND i.sent_at IS NULL
          AND j.scheduled_date >= ${win.start} AND j.scheduled_date <= ${win.end}
        ORDER BY j.scheduled_date ASC, i.id ASC`);

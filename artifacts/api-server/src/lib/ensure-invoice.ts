@@ -301,13 +301,27 @@ export async function ensureInvoiceForCompletedJob(
     // Applies to residential AND account jobs alike. A $0 commercial visit
     // (allowed through the guard above so an unpriced job stays visible) is held
     // as a pending draft — never issued into AR at $0.
-    // [cadence 2026-07-22] A bundled account (weekly/monthly) never issues its
-    // own per-visit document — the visit is held as a pending draft and the
-    // period close folds the window into one invoice. 'custom' is treated as
-    // monthly (the only custom cadence in use is a month-end bundle); per_job
-    // and residential are unaffected.
-    const isBundledAccount = !!job.account_id && (accountCadence === "weekly" || accountCadence === "monthly" || accountCadence === "custom");
-    const issueNow = !isBatch && !isBundledAccount && autoIssue && netAmount > 0;
+    // [issue-on-completion 2026-08-03] Every completed, priced visit produces a
+    // REAL invoice. Not a draft. Sal: "once the service is completed it should
+    // generate invoice. Not a draft."
+    //
+    // Reversing [cadence 2026-07-22], which held bundled accounts (weekly /
+    // monthly) and residential batch_invoice clients as pending drafts and
+    // trusted a period close to fold them later. When that close didn't run —
+    // or a manual merge convinced it the window was already shut — the work was
+    // never billed, and a draft is invisible in AR, so nobody found out. That is
+    // literally how KMA's three $150 July 1 visits and National Able's Jul 1
+    // job 4344 ended up stranded. A draft nobody looks at is not a safety net.
+    //
+    // Cadence still decides the SHAPE of the document the customer receives —
+    // it just no longer decides whether the work gets billed. The weekly and
+    // monthly closes now fold ISSUED per-visit invoices (see invoice-cadence.ts),
+    // and combineInvoices() moves the members to 'batched' so the dollars land
+    // on the bundle exactly once.
+    //
+    // The one thing still held back is an unpriced ($0) visit: there is no
+    // amount to put into AR yet, and that draft IS the "set a rate" signal.
+    const issueNow = autoIssue && netAmount > 0;
 
     const [newInv] = await db
       .insert(invoicesTable)
@@ -330,12 +344,15 @@ export async function ensureInvoiceForCompletedJob(
         //      push below) with sent_at NULL — and every surface labels
         //      sent-with-no-sent_at as "ISSUED", never "SENT", so both
         //      complaints stay fixed. Emailing/charging remains a human
-        //      action. batch_invoice clients + account jobs keep the
-        //      draft+pending tag for month-end consolidation/merge.
+        //      action.
+        //   4. [issue-on-completion 2026-08-03] The last carve-outs are gone:
+        //      bundled accounts and batch_invoice clients issue per visit too,
+        //      and the weekly/monthly close folds those issued invoices. Only
+        //      an unpriced $0 visit is still written as a draft.
         status: issueNow ? "sent" : "draft",
-        // Drafts held for consolidation/merge stay 'pending': residential
-        // batch_invoice clients and any account job that didn't issue (e.g. a
-        // $0 unpriced visit awaiting a rate).
+        // The only rows left holding 'pending' are the unpriced ones — an
+        // account or batch_invoice visit that came in at $0 and is waiting on a
+        // rate before it can be billed or folded.
         batch_status: !issueNow && (isBatch || !!job.account_id) ? "pending" : null,
         sent_at: null,
         payment_source: paymentSource,
