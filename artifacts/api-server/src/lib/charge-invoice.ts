@@ -24,6 +24,7 @@ import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, accountsTable, jobsTable, paymentsTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveInvoicePaymentSource } from "./payment-source.js";
+import { cascadeBatchPayment } from "./invoice-billing.js";
 
 export type ChargeOutcome = "paid" | "failed" | "needs_manual" | "invalid_state";
 
@@ -166,6 +167,12 @@ async function markPaid(
       ...(ids.square ? { square_payment_id: ids.square } : {}),
     })
     .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)));
+
+  // [batch-invoicing 2026-08-03] A combined invoice settles its members too.
+  // They stay 'batched' (never back into A/R) but carry the paid_at, so per-visit
+  // revenue reporting sees the money.
+  await cascadeBatchPayment(db as any, companyId, invoiceId, new Date())
+    .catch((e) => console.error("[charge] batch cascade non-fatal:", e));
 
   await db.insert(paymentsTable).values({
     company_id: companyId,

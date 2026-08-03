@@ -72,7 +72,11 @@ async function syncJobInvoiceDraft(
     // keep any UNPAID invoice in sync with its job. Terminal states are left
     // alone: 'paid' (money already moved — never silently mutate; unmark/refund
     // first), and 'void'/'superseded' (already closed out).
-    if (!existing || ["paid", "void", "superseded"].includes(existing.status)) return;
+    // [batch-invoicing 2026-08-03] 'batched' is terminal here too: the member's
+    // dollars are already summed onto a combined parent, so silently re-pricing
+    // it would make the parent's total stop matching its own lines. The office
+    // splits the batch, edits, and re-combines.
+    if (!existing || ["paid", "void", "superseded", "batched"].includes(existing.status)) return;
 
     // Cancellation: void the (unpaid) invoice so AR stays clean.
     if (opts.cancel) {
@@ -5415,7 +5419,7 @@ async function loadJobBilling(jobId: number, companyId: number): Promise<JobBill
     LEFT JOIN clients c ON c.id = j.client_id
     LEFT JOIN invoices inv ON inv.id = (
       SELECT id FROM invoices WHERE job_id = j.id AND company_id = ${companyId}
-        AND status <> 'void' AND status <> 'superseded'
+        AND status::text NOT IN ('void', 'superseded', 'batched')
       ORDER BY created_at DESC LIMIT 1)
     WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1`);
   if (!r.rows.length) return null;

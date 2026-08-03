@@ -3,15 +3,22 @@
 // The rule Sal set: no completed job is ever left sitting as a draft, and
 // issuing is NOT gated on payment. What differs per account is only the SHAPE
 // of the document:
+// [issue-on-completion 2026-08-03] ensure-invoice now ISSUES a real invoice for
+// every completed priced visit, on EVERY cadence — the bundled accounts no
+// longer sit on unbilled drafts waiting for a close that might never come. So
+// what a cadence controls is only the document the customer is handed:
 //   per_job  (PPM, Meg Daday, the condo assocs, all residential)
-//       → ensure-invoice issues one invoice per completed visit. Nothing here.
+//       → the per-visit invoice IS the document. Nothing here.
 //   weekly   (National Able)
-//       → visits accumulate as pending drafts Mon–Fri; the Friday close folds
-//         the week into ONE issued invoice and emails the billing contact.
+//       → each Mon–Fri visit is issued as it completes; the Friday close folds
+//         the week into ONE invoice and emails the billing contact.
 //   monthly  (Cucci, KMA, Daveco, ProManage, Jennifer Halper)
-//       → visits accumulate all month; the period-end close folds the month
-//         into ONE issued invoice. No email (matches the #1174 default —
+//       → each visit is issued as it completes; the period-end close folds the
+//         month into ONE invoice. No email (matches the #1174 default —
 //         emailing an account invoice stays a deliberate human action).
+// Folding moves each member to 'batched', so the money is on the bundle and
+// counted exactly once. If a close never runs, the work is still billed as
+// per-visit invoices — the failure mode is a messier bill, not a missed one.
 //   custom   → treated as monthly. The only custom cadence in use is a
 //              month-end bundle; a real per-account calendar can come later.
 //
@@ -27,6 +34,7 @@
 // "no pushing" — #1174), so a bundled account invoice never reaches QB either.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { combineInvoices } from "./invoice-billing.js";
 
 export type Cadence = "per_job" | "weekly" | "monthly" | "custom";
 export type BundleCadence = "weekly" | "monthly";
@@ -103,11 +111,6 @@ export function windowsBetween(cadence: BundleCadence, from: string, to: string)
   return out;
 }
 
-function svcDateLabel(ymd: string | null): string {
-  if (!ymd) return "";
-  return utc(String(ymd)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-}
-
 export type CloseResult = {
   account_id: number;
   account_name: string;
@@ -154,34 +157,52 @@ export async function closeAccountWindow(opts: {
   };
 
   try {
-    // Already closed? Any superseded child inside the window means this window
-    // was folded. Checked BEFORE doing any work so a re-run is cheap.
-    const done = await db.execute(sql`
-      SELECT i.id FROM invoices i
-        JOIN jobs j ON j.id = i.job_id
-       WHERE i.company_id = ${companyId} AND i.account_id = ${accountId}
-         AND i.status = 'superseded'
-         AND j.scheduled_date >= ${win.start} AND j.scheduled_date <= ${win.end}
-       LIMIT 1`);
-    if ((done as any).rows.length) {
-      return { ...base, status: "already_closed", message: `${win.label} is already closed for ${accountName}` };
-    }
-
+    // [batch-invoicing 2026-08-03] The old guard here read "any SUPERSEDED child
+    // inside the window means this window is closed." `POST /invoices/merge`
+    // also wrote 'superseded', so one manual merge on Jul 29 permanently
+    // convinced this function that KMA's July was closed — the month could
+    // never bundle again (design D4). The guard now looks only at 'batched'
+    // members, the status this engine itself writes, AND only reports rather
+    // than blocks: anything still pending gets billed regardless, so a partial
+    // manual merge can no longer strand the rest of the month.
     const pend = await db.execute(sql`
       SELECT i.id, i.invoice_number, i.total, i.job_id, j.scheduled_date
         FROM invoices i
         JOIN jobs j ON j.id = i.job_id
        WHERE i.company_id = ${companyId} AND i.account_id = ${accountId}
-         AND i.status = 'draft' AND i.batch_status = 'pending'
-         -- Never fold a document the customer already has. status='draft'
-         -- implies this today, but the guard is explicit: superseding an
-         -- emailed invoice would zero out a $420 bill sitting in someone's
-         -- inbox and replace it with a bundle they never asked about.
+         AND (
+              -- [issue-on-completion 2026-08-03] The normal case now: the visit
+              -- already has a REAL issued invoice, and the close reshapes the
+              -- window into one document the customer receives. Folding issued
+              -- invoices is safe because combineInvoices() moves each member to
+              -- 'batched' — the dollars sit on the bundle, counted once.
+              (i.status::text = 'sent' AND COALESCE(i.batch_status, '') NOT IN ('batch_parent', 'consolidated'))
+              -- Still-pending drafts: an unpriced visit that has since been
+              -- given a rate, plus every row written before issue-on-completion.
+              -- Kept so the backlog closes out instead of stranding.
+           OR (i.status::text = 'draft' AND i.batch_status = 'pending')
+         )
+         -- A member of an existing bundle is already billed on its parent.
+         AND i.parent_invoice_id IS NULL
+         -- Never fold a document the customer already has: replacing an emailed
+         -- $420 bill with a bundle they never asked about is not a correction.
          AND i.sent_at IS NULL
          AND j.scheduled_date >= ${win.start} AND j.scheduled_date <= ${win.end}
        ORDER BY j.scheduled_date ASC, i.id ASC`);
     const all = (pend as any).rows as any[];
-    if (!all.length) return base;
+    if (!all.length) {
+      const prior = await db.execute(sql`
+        SELECT i.id FROM invoices i
+          JOIN jobs j ON j.id = i.job_id
+         WHERE i.company_id = ${companyId} AND i.account_id = ${accountId}
+           AND i.status::text = 'batched'
+           AND j.scheduled_date >= ${win.start} AND j.scheduled_date <= ${win.end}
+         LIMIT 1`);
+      if ((prior as any).rows.length) {
+        return { ...base, status: "already_closed", message: `${win.label} is already closed for ${accountName}` };
+      }
+      return base;
+    }
 
     // A $0 visit is an UNSET RATE, not a free clean. Bundling it would bury the
     // problem inside a big invoice, so it is left pending and reported instead.
@@ -192,23 +213,13 @@ export async function closeAccountWindow(opts: {
         message: `${unpriced.length} visit(s) in ${win.label} are still $0 — set the rate, then re-run the close` };
     }
 
-    const parent = priced[0];
-    const folded = priced.slice(1);
-    const lines = priced.map(r => ({
-      description: `Cleaning — ${svcDateLabel(r.scheduled_date ? String(r.scheduled_date) : null)}${r.invoice_number ? ` (#${r.invoice_number})` : ""}`,
-      quantity: 1,
-      unit_price: parseFloat(r.total || "0"),
-      total: parseFloat(r.total || "0"),
-      source_invoice_id: r.id,
-      job_id: r.job_id,
-      service_date: r.scheduled_date ? String(r.scheduled_date).slice(0, 10) : null,
-    }));
-    const total = Math.round(lines.reduce((s, l) => s + l.total, 0) * 100) / 100;
+    const total = Math.round(priced.reduce((s, r) => s + parseFloat(r.total || "0"), 0) * 100) / 100;
 
     if (dryRun) {
-      return { ...base, status: "closed", parent_invoice_id: parent.id,
-        parent_invoice_number: parent.invoice_number ?? null, visit_count: lines.length, total,
-        unpriced_invoice_ids: unpriced.map(u => u.id), message: "DRY RUN — nothing written" };
+      return { ...base, status: "closed", parent_invoice_id: null,
+        parent_invoice_number: null, visit_count: priced.length, total,
+        unpriced_invoice_ids: unpriced.map(u => u.id),
+        message: `DRY RUN — would combine ${priced.length} visit(s) into one invoice, nothing written` };
     }
 
     // Net terms come from the account, so a net-30 account keeps net-30 on the
@@ -219,33 +230,49 @@ export async function closeAccountWindow(opts: {
     const due = utc(win.end); due.setUTCDate(due.getUTCDate() + termsDays);
     const termsLabel = termsDays === 30 ? "net_30" : termsDays === 15 ? "net_15" : termsDays === 7 ? "net_7" : "due_on_receipt";
 
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`
-        UPDATE invoices SET
-          line_items = ${JSON.stringify(lines)}::jsonb,
-          subtotal = ${total.toFixed(2)}, total = ${total.toFixed(2)},
-          status = 'sent', batch_status = 'consolidated',
-          due_date = ${iso(due)}, payment_terms = ${termsLabel},
-          service_date = ${win.end}
-        WHERE id = ${parent.id} AND company_id = ${companyId}`);
-      if (folded.length) {
-        await tx.execute(sql`
-          UPDATE invoices SET
-            status = 'superseded', subtotal = '0.00', total = '0.00',
-            parent_invoice_id = ${parent.id}, batch_status = 'consolidated'
-          WHERE company_id = ${companyId} AND id = ANY(${folded.map(f => f.id)}::int[])`);
-      }
-    });
+    // [batch-invoicing 2026-08-03] The fold is no longer implemented here. It
+    // calls the ONE combine primitive (design S-2), the same one the office
+    // button and the manual merge use, so the three can't drift apart again.
+    //
+    // What that changes for the customer: members keep their number and their
+    // amount and stay on screen as 'batched'. The old code overwrote the
+    // earliest visit's invoice in place and set every other one to
+    // `status='superseded', total='0.00'` — and the list view hides superseded.
+    // That is the literal mechanism behind Maribel's "they disappeared."
+    let parentId: number;
+    let parentNumber: string | null;
+    if (priced.length === 1) {
+      // One visit in the window is not a batch. Issue the visit's own invoice
+      // rather than wrapping a single line in a parent document.
+      const only = priced[0];
+      await db.execute(sql`
+        UPDATE invoices SET status = 'sent', batch_status = 'consolidated',
+               due_date = ${iso(due)}, payment_terms = ${termsLabel},
+               service_date = COALESCE(service_date, ${only.scheduled_date ? String(only.scheduled_date).slice(0, 10) : win.end})
+         WHERE id = ${only.id} AND company_id = ${companyId}`);
+      parentId = only.id;
+      parentNumber = only.invoice_number ?? null;
+    } else {
+      const combined = await combineInvoices({
+        companyId,
+        memberInvoiceIds: priced.map(r => r.id),
+        actorUserId: userId,
+        paymentTerms: termsLabel,
+        issuedOn: win.end,
+      });
+      parentId = combined.parent_id;
+      parentNumber = combined.parent_number;
+    }
 
-    const out: CloseResult = { ...base, status: "closed", parent_invoice_id: parent.id,
-      parent_invoice_number: parent.invoice_number ?? null, visit_count: lines.length, total,
+    const out: CloseResult = { ...base, status: "closed", parent_invoice_id: parentId,
+      parent_invoice_number: parentNumber, visit_count: priced.length, total,
       unpriced_invoice_ids: unpriced.map(u => u.id), message: null };
 
     // Weekly accounts get the bundle emailed to the billing contact (Sal:
     // "auto-issue Friday + email the contact"). Monthly bundles are issued
     // silently — emailing those stays a human action, same as #1174.
     if (email) {
-      const sent = await emailAccountInvoice(companyId, parent.id, accountId, userId);
+      const sent = await emailAccountInvoice(companyId, parentId, accountId, userId);
       out.emailed = sent.sent;
       out.email_reason = sent.reason;
     }

@@ -14,7 +14,11 @@ import { branchesTable } from "./branches";
 // values are added to the live DB via pre-push-fix.ts (ALTER TYPE ADD VALUE
 // IF NOT EXISTS) BEFORE drizzle-kit push runs, so push sees no enum diff.
 export const invoiceStatusEnum = pgEnum("invoice_status", [
-  "draft", "sent", "paid", "overdue", "void", "superseded"
+  "draft", "sent", "paid", "overdue", "void", "superseded",
+  // [batch-invoicing 2026-08-03] A member of a combined invoice. It keeps its
+  // number and its total and stays visible — unlike 'superseded', which zeroed
+  // the row and hid it. See docs/BATCH_INVOICING_DESIGN.md D-1.
+  "batched",
 ]);
 
 export const invoicesTable = pgTable("invoices", {

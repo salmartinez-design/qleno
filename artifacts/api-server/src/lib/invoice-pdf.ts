@@ -43,6 +43,10 @@ export interface InvoicePdfItem {
   quantity: string | number;
   unit_price: string | number;
   total: string | number;
+  // [batch-invoicing 2026-08-03] Per-visit service date. Present on combined
+  // invoices, where one date at the top of the page would be a lie — the
+  // document covers a period, so it prints the period.
+  service_date?: string | null;
 }
 
 export interface InvoicePdfData {
@@ -120,7 +124,14 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.fillColor(INK).text(numStr, right - numW, y + 30, { lineBreak: false });
     doc.font("Helvetica").fillColor(MUTE);
     doc.text("No. ", right - numW - doc.widthOfString("No. "), y + 30, { lineBreak: false });
-    const statusLabel = data.paid ? "PAID" : (data.status || "").toUpperCase();
+    // [batch-invoicing 2026-08-03 · D6] The badge prints only what a CUSTOMER
+    // should read. It used to echo the raw status, so every invoice emailed out
+    // before it was formally issued arrived stamped DRAFT — the three KMA July
+    // PDFs went to the customer that way. Internal states (draft, sent,
+    // batched, superseded, void) print no badge at all: the document is the
+    // bill, and a bill does not need to announce its own row status.
+    const rawStatus = (data.status || "").toLowerCase();
+    const statusLabel = data.paid ? "PAID" : rawStatus === "overdue" ? "OVERDUE" : "";
     if (statusLabel) {
       const sw = doc.widthOfString(statusLabel) + 16;
       const statusColor = data.paid ? "#166534" : statusLabel === "OVERDUE" ? "#991B1B" : "#92400E";
@@ -144,13 +155,36 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       by = doc.y + 2;
     }
     let dy = y + 1;
-    const dateRow = (label: string, val: string | null) => {
-      doc.fillColor(FAINT).fontSize(10).font("Helvetica").text(`${label} `, right - 220, dy, { width: 140, align: "right" });
-      doc.fillColor(BODY).fontSize(10).font("Helvetica").text(val || "—", right - 80, dy, { width: 80, align: "right" });
+    // `wide` gives the value column room for a date RANGE without letting it
+    // wrap or collide with the Bill To block on the left (which ends at
+    // right - 250).
+    const dateRow = (label: string, val: string | null, wide = false) => {
+      const valX = wide ? right - 130 : right - 80;
+      const valW = wide ? 130 : 80;
+      doc.fillColor(FAINT).fontSize(10).font("Helvetica").text(`${label} `, valX - 120, dy, { width: 115, align: "right" });
+      doc.fillColor(BODY).fontSize(10).font("Helvetica").text(val || "—", valX, dy, { width: valW, align: "right", lineBreak: false });
       dy += 15;
     };
+    // [batch-invoicing 2026-08-03 · D7] Service line. A single-visit invoice
+    // prints its date; a combined one prints the span its visits actually
+    // cover, derived from the lines rather than from one field that can only
+    // hold one answer. Falls back to the header date, then to "—".
+    const lineDates = (data.items || [])
+      .map((it) => (it.service_date ? String(it.service_date).slice(0, 10) : null))
+      .filter((d): d is string => !!d)
+      .sort();
+    const first = lineDates[0] ?? null;
+    const last = lineDates.length ? lineDates[lineDates.length - 1] : null;
+    const isRange = !!first && !!last && first !== last;
+    // Same year on both ends → print the year once ("Jul 1 – Jul 29, 2026").
+    const serviceLabel = isRange
+      ? `${first!.slice(0, 4) === last!.slice(0, 4)
+          ? fmtDate(first)!.replace(/,\s*\d{4}$/, "")
+          : fmtDate(first)} – ${fmtDate(last)}`
+      : fmtDate(first ?? data.serviceDate);
+
     dateRow("Issued", fmtDate(data.issuedDate));
-    dateRow("Service", fmtDate(data.serviceDate));
+    dateRow(isRange ? "Service period" : "Service", serviceLabel, isRange);
     dateRow("Due", fmtDate(data.dueDate) || "On receipt");
     y = Math.max(by, dy) + 14;
 

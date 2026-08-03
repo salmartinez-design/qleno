@@ -168,6 +168,11 @@ export async function reconcileSquarePayment(opts: {
       await tx.execute(sql`
         UPDATE invoices SET status = 'paid', paid_at = now()
          WHERE id = ${inv.id} AND company_id = ${companyId}`);
+
+      // [batch-invoicing 2026-08-03] Cascade to the combined members, if any.
+      await tx.execute(sql`
+        UPDATE invoices SET paid_at = now()
+         WHERE company_id = ${companyId} AND parent_invoice_id = ${inv.id} AND status::text = 'batched'`);
     });
 
     return { ...withEntity(NONE("applied", null,
