@@ -181,6 +181,18 @@ function startNotificationCron() {
         .then((r) => { if (r.closed) console.log(`[cron] invoice_cadence_close: ${r.closed} window(s) closed, ${r.emailed} emailed across ${r.companies} tenant(s)`); })
         .catch((e: Error) => console.error("[cron] invoice_cadence_close error:", e));
     }
+    // [batch-invoicing 2026-08-03] 6 AM CT → billing integrity sweep, one hour
+    // after the cadence close so it grades the work that close just did.
+    // READ-ONLY: it reports uninvoiced visits, double-billed visits, $0 visits
+    // and stale windows, and repairs nothing. The July KMA mess was silent for
+    // a month; this is what breaks the silence. See docs/BATCH_INVOICING_DESIGN.md §5 S-3.
+    if (ctH === 6 && fired["billing_integrity"] !== `${ctDate}-6`) {
+      fired["billing_integrity"] = `${ctDate}-6`;
+      import("./lib/billing-integrity.js")
+        .then(({ runBillingIntegrityCron }) => runBillingIntegrityCron(ctDate))
+        .then((r) => { if (r.flagged) console.warn(`[cron] billing_integrity: ${r.flagged} of ${r.companies} tenant(s) need review`); })
+        .catch((e: Error) => console.error("[cron] billing_integrity error:", e));
+    }
     // [service-suspension 2026-07-11] 8 AM CT → suspension lifecycle messages:
     // the 30-days-before-expiry "want to resume?" reminder + the at-expiry
     // final notice (flag for office; NO automatic cancel/resume). Idempotent

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable, accountsTable } from "@workspace/db/schema";
 import crypto from "crypto";
-import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray, notInArray } from "drizzle-orm";
+import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
@@ -14,6 +14,7 @@ import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 import { preserveJobIds } from "../lib/invoice-job-ids.js";
+import { combineInvoices, splitBatchInvoice, cascadeBatchPayment } from "../lib/invoice-billing.js";
 
 const router = Router();
 
@@ -89,7 +90,18 @@ router.get("/", requireAuth, async (req, res) => {
       // continuity) but shouldn't clutter the working list — voiding an invoice
       // shouldn't leave a dead NET-30 row on screen. Still reachable via the
       // explicit "Void" filter (status=void).
-      conditions.push(notInArray(invoicesTable.status, ["void", "superseded"]));
+      // [batch-invoicing 2026-08-03] ONE exception: a 'superseded' row that
+      // points at a parent is not clutter — it is a visit that was merged in
+      // July by the old destructive fold, and hiding it is literally what
+      // Maribel meant by "They disapeared." 28 rows company-wide, all July 2026,
+      // all still carrying their real amount. They come back into the list
+      // labelled COMBINED with a "Billed on #<parent>" chip, so the money is
+      // traceable from either end. Superseded rows with no parent (the ~1,050
+      // MaidCentral-mirror leftovers) stay hidden — those really are clutter.
+      conditions.push(sql`(
+        ${invoicesTable.status}::text NOT IN ('void', 'superseded')
+        OR (${invoicesTable.status}::text = 'superseded' AND ${invoicesTable.parent_invoice_id} IS NOT NULL)
+      )`);
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
     // [account-visibility 2026-07-02] Commercial/account invoices are
@@ -202,6 +214,18 @@ router.get("/", requireAuth, async (req, res) => {
         )`,
         refunded_amount: invoicesTable.refunded_amount,
         refunded_at: invoicesTable.refunded_at,
+        // [batch-invoicing 2026-08-03] Combining used to blank a member out and
+        // hide it — Maribel's "They disapeared." Members now stay in the list at
+        // full value with status 'batched', so the list has to say WHERE the
+        // money went. These three fields are what the row renders that with:
+        // a member shows "Billed on #<parent>", a parent shows "N visits".
+        batch_status: invoicesTable.batch_status,
+        parent_invoice_id: invoicesTable.parent_invoice_id,
+        parent_invoice_number: sql<string | null>`(SELECT p.invoice_number FROM invoices p WHERE p.id = ${invoicesTable.parent_invoice_id})`,
+        // ::text on the status compare, deliberately — a bare 'batched' literal
+        // is parsed as the enum and errors outright on a database that has not
+        // run the migration yet, taking the whole invoice list down with it.
+        batch_member_count: sql<number>`(SELECT COUNT(*)::int FROM invoices m WHERE m.parent_invoice_id = ${invoicesTable.id} AND m.status::text = 'batched')`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -477,6 +501,24 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
   }
 });
 
+// [batch-invoicing 2026-08-03] GET /api/invoices/integrity — the same read-only
+// sweep the 6 AM cron runs, on demand. Answers "is our billing actually whole
+// right now?" without anyone opening a psql session. Writes nothing.
+router.get("/integrity", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const { runBillingIntegrityCheck } = await import("../lib/billing-integrity.js");
+    const report = await runBillingIntegrityCheck(
+      req.auth!.companyId as number,
+      typeof req.query.as_of === "string" ? req.query.as_of : undefined,
+    );
+    return res.json(report);
+  } catch (err) {
+    console.error("Billing integrity error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to run the billing integrity check" });
+  }
+});
+
+// NOTE: registered BEFORE /:id — a literal path after a param route is dead.
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
@@ -533,6 +575,10 @@ router.get("/:id", requireAuth, async (req, res) => {
         refunded_amount: invoicesTable.refunded_amount,
         refund_reason: invoicesTable.refund_reason,
         refunded_at: invoicesTable.refunded_at,
+        // [batch-invoicing 2026-08-03] Which side of a combine this invoice is on.
+        batch_status: invoicesTable.batch_status,
+        parent_invoice_id: invoicesTable.parent_invoice_id,
+        parent_invoice_number: sql<string | null>`(SELECT p.invoice_number FROM invoices p WHERE p.id = ${invoicesTable.parent_invoice_id})`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -541,7 +587,19 @@ router.get("/:id", requireAuth, async (req, res) => {
 
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    return res.json(formatInvoice(invoice));
+    // [batch-invoicing 2026-08-03] A combined invoice carries its members with
+    // it. Before this, the parent showed line items and the members were gone
+    // from the list — there was no way to get from the bill back to the visits
+    // it covers. The detail page renders these as links, and they are what the
+    // Split action puts back.
+    const batchMembers = (await db.execute(sql`
+      SELECT i.id, i.invoice_number, i.total::text AS total, i.status::text AS status,
+             COALESCE(i.service_date, (SELECT j.scheduled_date FROM jobs j WHERE j.id = i.job_id))::text AS service_date
+        FROM invoices i
+       WHERE i.company_id = ${req.auth!.companyId} AND i.parent_invoice_id = ${invoiceId}
+       ORDER BY COALESCE(i.service_date, (SELECT j.scheduled_date FROM jobs j WHERE j.id = i.job_id)) NULLS LAST, i.id`) as any).rows;
+
+    return res.json({ ...formatInvoice(invoice), batch_members: batchMembers });
   } catch (err) {
     console.error("Get invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get invoice" });
@@ -613,6 +671,9 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
       quantity: it.quantity ?? 1,
       unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
       total: it.total ?? it.amount ?? 0,
+      // [batch-invoicing 2026-08-03] Carried through so the PDF can print a
+      // service PERIOD on a combined invoice instead of one arbitrary date.
+      service_date: it.service_date ?? null,
     }));
     const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
     const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
@@ -706,14 +767,22 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     // Edit guard: a paid or void invoice is immutable. Editing happens on
     // draft / sent / overdue (overdue is a display-derivation of sent). Paid →
     // reverse via refund flow; void → already inert. Keeps the books honest.
+    // [batch-invoicing 2026-08-03] 'batched' joins them: a member's dollars now
+    // live on the combined parent, so editing it here would silently desync the
+    // two. Split the batch first, then edit.
     const [current] = await db
       .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips, line_items: invoicesTable.line_items })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
     if (!current) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-    if (current.status === "paid" || current.status === "void" || current.status === "superseded") {
-      return res.status(409).json({ error: "Conflict", message: `A ${current.status} invoice cannot be edited` });
+    if (["paid", "void", "superseded", "batched"].includes(current.status)) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: current.status === "batched"
+          ? "This visit is part of a combined invoice — edit the combined invoice, or split it first"
+          : `A ${current.status} invoice cannot be edited`,
+      });
     }
 
     // [invoice-view-crash 2026-06-20] Normalize line_items numeric fields to
@@ -881,6 +950,7 @@ export async function buildInvoicePdfBuffer(companyId: number, invoiceId: number
     quantity: it.quantity ?? 1,
     unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
     total: it.total ?? it.amount ?? 0,
+    service_date: it.service_date ?? null,
   }));
   const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
   const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
@@ -1185,7 +1255,7 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)))
       .limit(1);
     const preJobId: number | null = pre?.job_id ?? null;
-    if (preJobId != null && !pre?.manually_edited_at && !["paid", "void", "superseded"].includes((pre?.status ?? "") as string)) {
+    if (preJobId != null && !pre?.manually_edited_at && !["paid", "void", "superseded", "batched"].includes((pre?.status ?? "") as string)) {
       try {
         const built = await buildJobLineItems(req.auth!.companyId as number, preJobId);
         if (built) {
@@ -1220,11 +1290,17 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
       processed_by: req.auth!.userId,
     });
 
+    const paidAt = payDate ? new Date(payDate) : new Date();
     const [updated] = await db
       .update(invoicesTable)
-      .set({ status: "paid", paid_at: payDate ? new Date(payDate) : new Date() })
+      .set({ status: "paid", paid_at: paidAt })
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
+
+    // [batch-invoicing 2026-08-03] If this is a combined invoice, stamp its
+    // members paid too. They stay 'batched' (so they never re-enter A/R), but
+    // per-visit revenue reporting needs to know the money landed.
+    await cascadeBatchPayment(db as any, req.auth!.companyId as number, invoiceId, paidAt);
 
     await db.insert(notificationLogTable).values({
       company_id: req.auth!.companyId,
@@ -1287,6 +1363,10 @@ router.post("/:id/mark-unpaid", requireAuth, requireRole("owner", "admin", "offi
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
+    // Reverse the batch cascade too, or members keep a paid_at their parent no
+    // longer has.
+    await cascadeBatchPayment(db as any, req.auth!.companyId as number, invoiceId, null);
+
     // Drop the manual payment record(s) the Mark Paid action inserted. (Guarded
     // above against processor payments, so these are office manual marks only.)
     await db.delete(paymentsTable)
@@ -1347,6 +1427,9 @@ router.post("/:id/void", requireAuth, requireRole("owner", "admin", "office"), a
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
     if (invoice.status === "paid") return res.status(409).json({ error: "Conflict", message: "A paid invoice cannot be voided — issue a refund instead" });
     if (invoice.status === "superseded") return res.status(409).json({ error: "Conflict", message: "A superseded (folded) invoice is already inert" });
+    // [batch-invoicing 2026-08-03] Voiding a member would leave the parent
+    // billing for work that no longer has a document behind it. Split first.
+    if (invoice.status === "batched") return res.status(409).json({ error: "Conflict", message: "This visit is part of a combined invoice — split the batch before voiding it" });
     if (invoice.status === "void") return res.json({ ok: true, already_void: true });
 
     const [updated] = await db
@@ -1388,8 +1471,13 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
     if (!inv) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-    if (inv.status === "paid" || inv.status === "void" || inv.status === "superseded") {
-      return res.status(409).json({ error: "Conflict", message: `A ${inv.status} invoice cannot be recalculated` });
+    if (["paid", "void", "superseded", "batched"].includes(inv.status)) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: inv.status === "batched"
+          ? "This visit is part of a combined invoice — recalculate the combined invoice, or split it first"
+          : `A ${inv.status} invoice cannot be recalculated`,
+      });
     }
     if (!inv.job_id) {
       return res.status(400).json({ error: "Bad Request", message: "This invoice is not linked to a job — edit its line items directly" });
@@ -1555,77 +1643,73 @@ router.post("/merge", requireAuth, requireRole("owner", "admin", "office"), asyn
       return res.status(404).json({ error: "Not Found", message: "One or more invoices not found" });
     }
 
-    const bad = rows.find((r) => !["draft", "sent", "overdue"].includes(r.status as string));
-    if (bad) {
-      return res.status(409).json({ error: "Conflict", message: `Invoice ${bad.invoice_number || bad.id} is '${bad.status}' — only unpaid invoices can be merged` });
-    }
+    // [batch-invoicing 2026-08-03] The fold lives in ONE place now (design S-2).
+    // This route had its own copy — as did the cadence cron, batch-invoicing.ts,
+    // bill-week, and the account generate button. Five implementations of
+    // "combine invoices", each with its own idempotency rule, none aware of the
+    // others. That is why this broke every month, and it is why the fix was
+    // consolidation rather than repair.
+    //
+    // The behaviour change the office will notice: the merged invoices no longer
+    // go 'superseded' with their totals zeroed and vanish from the list. They
+    // stay, at their real amounts, marked 'batched' and linked to the parent.
+    const combined = await combineInvoices({
+      companyId, memberInvoiceIds: ids, actorUserId: req.auth!.userId,
+    });
+    const [parent] = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.id, combined.parent_id)));
 
-    // Same customer only — one account, or (if no account) one client.
-    const accountIds = new Set(rows.map((r) => r.account_id ?? null));
-    const clientIds = new Set(rows.map((r) => r.client_id ?? null));
-    const sameAccount = accountIds.size === 1 && [...accountIds][0] != null;
-    const sameClient = clientIds.size === 1 && [...clientIds][0] != null;
-    if (!sameAccount && !sameClient) {
-      return res.status(400).json({ error: "Bad Request", message: "All selected invoices must belong to the same customer" });
-    }
+    logAudit(req, "MERGE", "invoice", combined.parent_id, null,
+      { merged_invoice_ids: ids, count: ids.length, total: combined.total });
 
-    // Parent = every folded invoice's lines flattened + summed total.
-    const parentLines: any[] = [];
-    let parentTotal = 0;
-    for (const r of rows) {
-      parentTotal += parseFloat(String(r.total ?? "0"));
-      const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
-      if (childLines.length > 0) {
-        // [job-card-invoice-link 2026-07-06] Carry the child's job linkage onto
-        // the parent's lines. The folded child goes 'superseded' (hidden from
-        // the job card's invoice lookup), so without a job_id on the parent's
-        // line_items the job would show "No invoice yet" after a merge. Lines
-        // that already carry their own job_id (consolidated children) keep it.
-        for (const l of childLines) {
-          parentLines.push(r.job_id != null && l.job_id == null ? { ...l, job_id: r.job_id } : l);
-        }
-      } else {
-        const t = parseFloat(String(r.total ?? "0"));
-        parentLines.push({ description: `Invoice ${r.invoice_number || r.id}`, quantity: 1, unit_price: t, total: t, ...(r.job_id != null ? { job_id: r.job_id } : {}) });
-      }
-    }
-    parentTotal = Math.round(parentTotal * 100) / 100;
-    const first = rows[0];
+    // [D-9] No QuickBooks push. QB is disconnected until exactly-one-document-
+    // per-dollar is verified in production; the old `queueSync` here is what
+    // put duplicate invoices in the books in the first place.
 
-    const [parent] = await db.insert(invoicesTable).values({
-      company_id: companyId,
-      account_id: sameAccount ? first.account_id : null,
-      client_id: sameAccount ? null : first.client_id,
-      status: "draft",
-      line_items: parentLines,
-      subtotal: parentTotal.toFixed(2),
-      total: parentTotal.toFixed(2),
-      payment_terms: first.payment_terms,
-      due_date: first.due_date,
-      created_by: req.auth!.userId,
-    }).returning();
-
-    try {
-      const invNum = await getNextInvoiceNumber(companyId, parent.id);
-      await db.update(invoicesTable).set({ invoice_number: invNum }).where(eq(invoicesTable.id, parent.id));
-    } catch (numErr) {
-      console.error("[invoice-merge] number assignment non-fatal:", numErr);
-    }
-
-    // Fold the sources: superseded + parent link (drops them from AR).
-    await db.update(invoicesTable)
-      .set({ status: "superseded", parent_invoice_id: parent.id })
-      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)));
-
-    logAudit(req, "MERGE", "invoice", parent.id, null, { merged_invoice_ids: ids, count: ids.length, total: parentTotal });
-
-    // Only the parent goes to QuickBooks (one consolidated document).
-    queueSync(() => syncInvoice(companyId, parent.id));
-
-    return res.status(201).json({ ok: true, invoice: parent, merged_count: ids.length, total: parentTotal });
-  } catch (err) {
+    return res.status(201).json({ ok: true, invoice: parent, merged_count: ids.length, total: parseFloat(combined.total) });
+  } catch (err: any) {
+    // combineInvoices rejects with a message the office can act on ("job 4344 is
+    // already on invoice 933 — void the duplicate first"). Surface it as a 409
+    // rather than burying it in a generic 500; a refused merge that explains
+    // itself is the whole point of moving the guard into the engine.
     console.error("Invoice merge error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to merge invoices" });
+    const msg = err?.message || "Failed to merge invoices";
+    const conflict = /already|combine|same customer|at least two/i.test(msg);
+    return res.status(conflict ? 409 : 500).json({ error: conflict ? "Conflict" : "Internal Server Error", message: msg });
+  }
+});
+
+// [batch-invoicing 2026-08-03] POST /api/invoices/:id/split — undo a combine.
+//
+// Every guard that refuses to edit, void, or recalc a 'batched' member tells the
+// office to "split the batch first", so the undo has to actually exist. It
+// returns each member to 'sent' at its own number and its own total, moves the
+// billing coverage back down to the members, and voids the now-empty parent.
+//
+// Refused on a PAID parent: money has moved against that document, so unwinding
+// it silently would leave a payment pointing at a voided invoice. Unmark it paid
+// (or refund) first — the same rule every other terminal transition follows.
+router.post("/:id/split", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const result = await splitBatchInvoice(companyId, invoiceId);
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, { batch_status: "batch_parent" },
+      { action: "split", member_ids: result.member_ids, count: result.member_ids.length });
+
+    return res.json({ ok: true, split_count: result.member_ids.length, member_invoice_ids: result.member_ids });
+  } catch (err: any) {
+    console.error("Invoice split error:", err);
+    const msg = err?.message || "Failed to split invoice";
+    const conflict = /paid|no combined members/i.test(msg);
+    const missing = /not found/i.test(msg);
+    return res.status(missing ? 404 : conflict ? 409 : 500).json({
+      error: missing ? "Not Found" : conflict ? "Conflict" : "Internal Server Error",
+      message: msg,
+    });
   }
 });
 

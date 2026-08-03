@@ -65,6 +65,10 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
   overdue: { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" },
   draft:   { background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC" },
   sent:    { background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4" },
+  void:    { background: "#F0EEE9", color: "#9E9B94", border: "1px solid #E5E2DC" },
+  // [batch-invoicing 2026-08-03] Member of a combined invoice — it keeps its
+  // number and full amount; the charge is carried by the parent.
+  batched: { background: "#F3F0FF", color: "#5B21B6", border: "1px solid #E4DDFA" },
 };
 
 function StatusBadge({ status, label }: { status: string; label?: string }) {
@@ -161,6 +165,7 @@ export default function InvoiceDetailPage() {
   const [markingInvoiced, setMarkingInvoiced] = useState(false);
   const [charging, setCharging] = useState(false);
   const [voiding, setVoiding] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
   const [markingUnpaid, setMarkingUnpaid] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -298,6 +303,33 @@ export default function InvoiceDetailPage() {
       toast({ title: e?.message || "Failed to void invoice", variant: "destructive" });
     }
     setVoiding(false);
+  }
+
+  // [batch-invoicing 2026-08-03] Undo a combine. Every guard message in the app
+  // that says "split it first" points here, so the action has to actually exist
+  // on the screen the office lands on. The members go back to ISSUED at their
+  // own numbers and totals; the combined invoice is voided. Nothing is deleted.
+  async function handleSplit() {
+    if (!window.confirm(
+      "Split this combined invoice back into separate invoices?\n\n" +
+      "Each visit returns to its own invoice at its own amount, and this combined " +
+      "invoice is voided. Nothing is deleted."
+    )) return;
+    setSplitting(true);
+    try {
+      const r = await apiFetch(`/api/invoices/${invoiceId}/split`, { method: "POST" });
+      toast({
+        title: "Split back apart",
+        description: `${r?.split_count ?? batchMembers.length} invoice${(r?.split_count ?? batchMembers.length) === 1 ? "" : "s"} returned to the list at their own numbers.`,
+      });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      let msg = e?.message || "Failed to split this invoice";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: msg, variant: "destructive" });
+    }
+    setSplitting(false);
   }
 
   // One-click "Mark Paid = now". Payment is collected externally (Square); this
@@ -499,8 +531,18 @@ export default function InvoiceDetailPage() {
   const effectiveStatus = isOverdue ? "overdue" : invoice.status;
   // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED at
   // completion, never emailed — the badge must never claim SENT for it.
-  const statusLabel = effectiveStatus === "sent" && !invoice.sent_at ? "issued" : effectiveStatus;
-  const canEditInvoice = !["paid", "void", "superseded"].includes(invoice.status);
+  // [batch-invoicing 2026-08-03] "batched" is the schema word; the office reads
+  // COMBINED, and the banner below says which invoice carries the charge.
+  const canEditInvoice = !["paid", "void", "superseded", "batched"].includes(invoice.status);
+  // [batch-invoicing 2026-08-03] Which side of a combine this invoice is on.
+  // A member is ANY invoice carrying a parent link — 'batched' from here on, and
+  // the 28 legacy 'superseded' rows the old destructive July fold left behind.
+  // Both need to say where the charge went; that is the "They disapeared" fix.
+  const batchMembers: any[] = Array.isArray(invoice.batch_members) ? invoice.batch_members : [];
+  const isBatchMember = !!invoice.parent_invoice_id;
+  const isBatchParent = !isBatchMember && batchMembers.length > 0;
+  const statusLabel = isBatchMember && ["batched", "superseded"].includes(invoice.status) ? "combined"
+    : effectiveStatus === "sent" && !invoice.sent_at ? "issued" : effectiveStatus;
   const dueLabel = invoice.due_date
     ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "On receipt";
@@ -533,6 +575,66 @@ export default function InvoiceDetailPage() {
           <ArrowLeft size={15} /> Back to Invoices
         </button>
 
+        {/* [batch-invoicing 2026-08-03] Combined-invoice banner. This sits ABOVE
+            the document because it answers the question the office actually
+            arrives with: "where did this charge go, and what does this bill
+            cover?" Before this, a member looked like a stray zero-dollar record
+            and the combined invoice looked like a bill from nowhere. It is
+            no-print — the customer's PDF should never mention our bookkeeping. */}
+        {isBatchMember && (
+          <div className="no-print" style={{ marginBottom: 20, padding: "14px 16px", backgroundColor: "#F3F0FF", border: "1px solid #E4DDFA", borderRadius: 10 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#5B21B6" }}>
+              This visit was combined onto another invoice
+            </p>
+            <p style={{ margin: "6px 0 0", fontSize: 13, color: "#4C3A78", lineHeight: 1.6 }}>
+              This record keeps its own number and its full ${(invoice.total || 0).toFixed(2)} so the
+              visit history stays intact — but the customer is billed on{" "}
+              <button onClick={() => navigate(`/invoices/${invoice.parent_invoice_id}`)}
+                style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 800, color: "#5B21B6", textDecoration: "underline", cursor: "pointer" }}>
+                {invoice.parent_invoice_number || `invoice #${invoice.parent_invoice_id}`}
+              </button>
+              . Send, charge, and record payment there.
+              {invoice.status === "batched"
+                ? " Paying the combined invoice marks this one paid too."
+                : " This one was combined by the old merge, before payments cascaded — check the combined invoice for its payment status."}
+            </p>
+          </div>
+        )}
+        {isBatchParent && (
+          <div className="no-print" style={{ marginBottom: 20, padding: "14px 16px", backgroundColor: "#F3F0FF", border: "1px solid #E4DDFA", borderRadius: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 220, flex: 1 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#5B21B6" }}>
+                  Combined invoice — covers {batchMembers.length} visit{batchMembers.length === 1 ? "" : "s"}
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#4C3A78", lineHeight: 1.6 }}>
+                  This is the document the customer receives. Each visit below still has its own
+                  invoice record; nothing was deleted or zeroed out.
+                </p>
+              </div>
+              {invoice.status !== "paid" && (
+                <button onClick={handleSplit} disabled={splitting}
+                  title="Return each visit to its own separate invoice and void this combined one"
+                  style={{ padding: "8px 14px", backgroundColor: "#FFFFFF", color: "#5B21B6", border: "1px solid #E4DDFA", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {splitting ? "Splitting…" : "Split back apart"}
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: 12, borderTop: "1px solid #E4DDFA", paddingTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
+              {batchMembers.map((m: any) => (
+                <button key={m.id} onClick={() => navigate(`/invoices/${m.id}`)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
+                  <span style={{ fontSize: 12, color: "#4C3A78" }}>
+                    <span style={{ fontWeight: 700 }}>{m.invoice_number || `#${m.id}`}</span>
+                    {m.service_date ? ` · ${new Date(m.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#4C3A78" }}>${Number(m.total || 0).toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div id="invoice-doc" style={{ ...CARD, padding: 0, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20, padding: "26px 30px 18px", flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -547,7 +649,7 @@ export default function InvoiceDetailPage() {
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "0.12em", color: "#1A1917" }}>INVOICE</p>
               <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B6860" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{formatInvoiceNumber(invoice)}</span></p>
-              <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} label={statusLabel} /></div>
+              <div style={{ marginTop: 8 }}><StatusBadge status={statusLabel === "combined" ? "batched" : effectiveStatus} label={statusLabel} /></div>
             </div>
           </div>
           <div style={{ height: 3, background: "var(--brand)" }} />
@@ -766,13 +868,13 @@ export default function InvoiceDetailPage() {
               </button>
             </>
           )}
-          {!["paid", "void", "superseded"].includes(invoice.status) && !editing && (
+          {!["paid", "void", "superseded", "batched"].includes(invoice.status) && !editing && (
             <button onClick={startEdit}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               Edit
             </button>
           )}
-          {!["paid", "void", "superseded"].includes(invoice.status) && invoice.job_id && !editing && (
+          {!["paid", "void", "superseded", "batched"].includes(invoice.status) && invoice.job_id && !editing && (
             <button onClick={handleRecalc} disabled={recalcing}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {recalcing ? "Recalculating..." : "Recalc from Job"}
@@ -790,7 +892,7 @@ export default function InvoiceDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px" }}>
             {[
               { label: "Invoice Number", value: formatInvoiceNumber(invoice) },
-              { label: "Status", value: <StatusBadge status={effectiveStatus} label={statusLabel} /> },
+              { label: "Status", value: <StatusBadge status={statusLabel === "combined" ? "batched" : effectiveStatus} label={statusLabel} /> },
               { label: "Bill To", value: !canEditInvoice ? billToLabel : (
                 billToOpen ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

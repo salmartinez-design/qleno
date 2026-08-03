@@ -30,7 +30,36 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
   sent:       { background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4" },
   void:       { background: "#F0EEE9", color: "#9E9B94", border: "1px solid #E5E2DC" },
   superseded: { background: "#F5F3FF", color: "#6D28D9", border: "1px solid #EFDCCE" },
+  // [batch-invoicing 2026-08-03] A member of a combined invoice. It keeps its
+  // number and its full amount and STAYS IN THE LIST — the old behaviour zeroed
+  // it out and hid it, which is what Maribel meant by "They disapeared."
+  batched:    { background: "#F3F0FF", color: "#5B21B6", border: "1px solid #E4DDFA" },
 };
+
+// [batch-invoicing 2026-08-03] The one line that tells the office where a
+// visit's money went. On a member: "Billed on #6085". On the combined invoice
+// itself: "3 visits combined". Anything else renders nothing.
+function BatchChip({ inv, style }: { inv: any; style?: React.CSSProperties }) {
+  // Any invoice with a parent is a member — 'batched' going forward, and the 28
+  // legacy 'superseded' rows the old July fold created. Both need the same
+  // "here is where the money went" line; that is the whole point.
+  const isMember = !!inv.parent_invoice_id;
+  const memberCount = Number(inv.batch_member_count || 0);
+  const isParent = !isMember && memberCount > 0;
+  if (!isMember && !isParent) return null;
+  const label = isMember
+    ? `Billed on ${inv.parent_invoice_number || `#${inv.parent_invoice_id}`}`
+    : `${memberCount} visit${memberCount === 1 ? "" : "s"} combined`;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 4,
+      fontSize: 11, fontWeight: 700, fontFamily: FF, whiteSpace: "nowrap",
+      background: "#F3F0FF", color: "#5B21B6", border: "1px solid #E4DDFA", ...style,
+    }}>
+      {label}
+    </span>
+  );
+}
 
 const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
 const INPUT_STYLE: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" };
@@ -451,8 +480,15 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                 </div>
 
                 <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.5 }}>
-                  This will create one consolidated invoice. Individual visit records will be marked superseded.
-                  You can then send or charge from the invoice detail page.
+                  {/* [batch-invoicing 2026-08-03] The old copy promised the visits
+                      would be "marked superseded" — and they were: zeroed out and
+                      dropped from the list. Combining is non-destructive now, and
+                      the copy has to say so, because the office's real fear is
+                      that merging makes invoices disappear. */}
+                  This creates one combined invoice for the customer. Each visit keeps its own
+                  invoice number and amount and stays in the list, marked COMBINED, linked to
+                  the new invoice — and you can split them back apart at any time.
+                  Send or charge from the combined invoice's detail page.
                 </p>
               </div>
 
@@ -1235,18 +1271,23 @@ export default function InvoicesPage() {
                   const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
                   // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
                   // at completion, never emailed — label it honestly.
-                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
-                  const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
+                  // [batch-invoicing 2026-08-03] "batched" is a schema word. The
+                  // office reads "COMBINED" — the row still shows its own amount,
+                  // and the chip beside it says which invoice carries the charge.
+                  const statusLabel = effectiveStatus === "batched" || (effectiveStatus === "superseded" && inv.parent_invoice_id) ? "combined"
+                    : effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
+                  const s = (statusLabel === "combined" ? STATUS_STYLES.batched : STATUS_STYLES[effectiveStatus]) || STATUS_STYLES.draft;
                   return (
                     <div key={inv.id}
                       onClick={() => navigate(`/invoices/${inv.id}`)}
                       style={{ borderBottom: "1px solid #F0EEE9", padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</span>
                           <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" as const, fontFamily: FF }}>
                             {statusLabel}
                           </span>
+                          <BatchChip inv={inv} style={{ fontSize: 10 }} />
                         </div>
                         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
                           {formatInvoiceNumber(inv)}
@@ -1293,8 +1334,12 @@ export default function InvoicesPage() {
                   const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
                   // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
                   // at completion, never emailed — label it honestly.
-                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
-                  const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
+                  // [batch-invoicing 2026-08-03] "batched" is a schema word. The
+                  // office reads "COMBINED" — the row still shows its own amount,
+                  // and the chip beside it says which invoice carries the charge.
+                  const statusLabel = effectiveStatus === "batched" || (effectiveStatus === "superseded" && inv.parent_invoice_id) ? "combined"
+                    : effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
+                  const s = (statusLabel === "combined" ? STATUS_STYLES.batched : STATUS_STYLES[effectiveStatus]) || STATUS_STYLES.draft;
                   return (
                     /* [invoice-open-new-tab 2026-07-03] cmd/ctrl+click or middle-click
                        opens the invoice in a NEW tab (office keeps the list open and
@@ -1364,6 +1409,7 @@ export default function InvoicesPage() {
                           <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
                             {statusLabel}
                           </span>
+                          <BatchChip inv={inv} style={{ marginLeft: 4 }} />
                           {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
                             <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#FBF0E9", color: "#6D28D9", border: "1px solid #EFDCCE" }}>
                               {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}

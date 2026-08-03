@@ -610,7 +610,10 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
     // (e.g. ACC-4, ACC-26, #6322) and became phantom/double A/R. Void cleanup
     // goes through voidQbInvoice, not a push. A draft that later issues will
     // sync on the issue transition like every other invoice.
-    if (invoice.status === "draft" || invoice.status === "void" || invoice.status === "superseded") {
+    // [batch-invoicing 2026-08-03] 'batched' joins the skip list — a member's
+    // dollars are on the combined parent, and pushing both would double the
+    // receivable in QB (exactly the double-count that caused the disconnect).
+    if (["draft", "void", "superseded", "batched"].includes(invoice.status)) {
       await upsertQueue(companyId, "invoice", invoiceId, "skipped", undefined, `not pushed: status=${invoice.status}`);
       return;
     }
@@ -1195,7 +1198,7 @@ export async function backfillFromCutover(
     LEFT JOIN jobs j ON j.id = i.job_id
     WHERE i.company_id = ${companyId}
       AND i.qbo_invoice_id IS NULL
-      AND i.status NOT IN ('draft', 'void', 'superseded')
+      AND i.status NOT IN ('draft', 'void', 'superseded', 'batched')
       AND COALESCE(j.scheduled_date, i.created_at::date) >= ${cutoverStr}::date
   `);
   const list = rows.rows ?? rows;

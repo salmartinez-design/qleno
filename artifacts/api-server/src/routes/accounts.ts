@@ -5,11 +5,11 @@ import {
   jobsTable, invoicesTable, usersTable, clientsTable, recurringSchedulesTable,
   technicianPreferencesTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
+import { eq, and, sql, inArray, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { utcIso } from "../lib/time-serialize.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
-import { getNextInvoiceNumber } from "../lib/invoice-number.js";
+import { combineInvoices, ensurePerVisitInvoice } from "../lib/invoice-billing.js";
 
 const router = Router();
 
@@ -1027,30 +1027,14 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
           includeScheduled
             ? inArray(jobsTable.status, ["complete", "scheduled", "in_progress"])
             : eq(jobsTable.status, "complete"),
-          // Not already on a per-visit sent/paid invoice.
-          notExists(
-            db.select({ x: invoicesTable.id })
-              .from(invoicesTable)
-              .where(and(
-                eq(invoicesTable.job_id, jobsTable.id),
-                inArray(invoicesTable.status, ["sent", "paid"]),
-              ))
-          ),
-          // [account-batch 2026-07-02] Not already folded into a consolidated
-          // account invoice. Account consolidation stores each job_id inside the
-          // invoice's line_items (not invoices.job_id), so without this a job
-          // would keep showing as "uninvoiced" after consolidation and could be
-          // double-billed. A non-void invoice whose line_items contains this
-          // job_id means it's already consolidated.
-          // [job-ids-preserve 2026-07-23] …as does one whose `job_ids` array
-          // names it, which is where a hand-collapsed `quantity: N` line now
-          // keeps the ids it used to discard.
+          // [batch-invoicing 2026-08-03] Same one predicate the generate button
+          // and the completion engine use (design D-3), so the queue and the
+          // button can never disagree about what "uninvoiced" means. A draft
+          // counts as billed — the old `status IN ('sent','paid')` test showed
+          // already-invoiced visits as available and invited the double-bill.
           sql`NOT EXISTS (
-            SELECT 1 FROM invoices i
-             WHERE i.company_id = ${companyId}
-               AND i.status <> 'void'
-               AND (i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
-                 OR i.line_items @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobsTable.id}))))
+            SELECT 1 FROM invoice_job_links l
+             WHERE l.company_id = ${companyId} AND l.job_id = ${jobsTable.id} AND l.is_live
           )`
         )
       )
@@ -1086,7 +1070,13 @@ router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office")
       // invoices were merged into a parent (the parent is shown); VOID were
       // cancelled. Listing them tripled the row count and made the month total
       // meaningless (summed merged-away duplicates). Show only live invoices.
-      sql`${invoicesTable.status} NOT IN ('superseded', 'void')`,
+      // [batch-invoicing 2026-08-03] 'batched' joins the list, and it MUST: this
+      // route sums `total` over the rows it returns, so listing a combined
+      // invoice alongside its members would double the account's month total —
+      // the customer would appear to owe $1,875 on a $1,325 month. Members stay
+      // out of the tab and out of the sum; the parent row carries a
+      // "covers N visits" count and the members are one click away on it.
+      sql`${invoicesTable.status}::text NOT IN ('superseded', 'void', 'batched')`,
     ];
     if (/^\d{4}-\d{2}$/.test(month)) {
       conds.push(sql`to_char(${svcDate}, 'YYYY-MM') = ${month}`);
@@ -1106,6 +1096,10 @@ router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office")
         job_id: invoicesTable.job_id,
         service_date: svcDate,
         line_items: invoicesTable.line_items,
+        // How many visits this document combines. 0 for an ordinary per-visit
+        // invoice; N>0 means the row is one bill covering N services.
+        batch_member_count: sql<number>`(SELECT COUNT(*)::int FROM invoices m
+           WHERE m.company_id = ${invoicesTable.company_id} AND m.parent_invoice_id = ${invoicesTable.id})`,
       })
       .from(invoicesTable)
       .where(and(...conds))
@@ -1191,27 +1185,17 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
             : eq(jobsTable.status, "complete"),
           // Never bill a cancelled visit, even if explicitly selected.
           sql`${jobsTable.status} <> 'cancelled'`,
-          // Not already on a per-visit sent/paid invoice.
-          notExists(
-            db.select({ x: invoicesTable.id })
-              .from(invoicesTable)
-              .where(and(
-                eq(invoicesTable.job_id, jobsTable.id),
-                inArray(invoicesTable.status, ["sent", "paid"]),
-              ))
-          ),
-          // Not already folded into a consolidated account invoice (dedup —
-          // matches the uninvoiced-jobs list guard; prevents double-billing).
-          // [job-ids-preserve 2026-07-23] `job_ids` is the second line-item
-          // carrier — the ids a hand-collapsed `quantity: N` line would otherwise
-          // have dropped. Both shapes must be checked or a consolidated visit
-          // reads as uninvoiced and gets billed twice.
+          // [batch-invoicing 2026-08-03] "Already invoiced" is now ONE question,
+          // asked of the billing-coverage ledger (design D-3). What was here
+          // before was the single most expensive bug in this file: the per-visit
+          // check only counted `status IN ('sent','paid')`, so a bundled
+          // account's per-visit DRAFTS — which are invoices, by design — read as
+          // uninvoiced and this endpoint billed the work a second time. That is
+          // the duplicate push that double-counted revenue and forced the
+          // QuickBooks disconnect. A draft counts as billed.
           sql`NOT EXISTS (
-            SELECT 1 FROM invoices i
-             WHERE i.company_id = ${companyId}
-               AND i.status <> 'void'
-               AND (i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
-                 OR i.line_items @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobsTable.id}))))
+            SELECT 1 FROM invoice_job_links l
+             WHERE l.company_id = ${companyId} AND l.job_id = ${jobsTable.id} AND l.is_live
           )`
         )
       )
@@ -1249,63 +1233,56 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
     const dueDateStr = dueDate.toISOString().split("T")[0];
     const termsLabel = termsDays === 30 ? "net_30" : termsDays === 15 ? "net_15" : termsDays === 7 ? "net_7" : "due_on_receipt";
 
-    // Individual mode: one draft invoice per job, each billed to the account.
-    if (separate) {
-      const perJobPayloads = lineItems.map((li, idx) => ({
-        company_id: companyId,
-        account_id: id,
-        client_id: null as null | number,
-        // Link the single job so service date resolves (month filter, list view)
-        // and it matches the auto-draft-per-job path in ensure-invoice.ts.
-        job_id: li.job_id,
-        invoice_number: `ACC-${id}-${li.job_id}-${Date.now() + idx}`,
-        status: "draft" as const,
-        line_items: [li],
-        subtotal: li.total.toFixed(2),
-        tips: "0",
-        total: li.total.toFixed(2),
-        due_date: dueDateStr,
-        payment_terms: termsLabel,
-        created_by: req.auth!.userId,
-      }));
-      if (preview) {
-        return res.json({ ok: true, preview: true, separate: true, invoices: perJobPayloads, jobs_count: perJobPayloads.length });
-      }
-      const created = [];
-      for (const p of perJobPayloads) {
-        const [inv] = await db.insert(invoicesTable).values(p).returning();
-        created.push(inv);
-      }
-      return res.status(201).json({ ok: true, separate: true, invoices: created, invoices_created: created.length });
-    }
-
-    const invoiceNumber = `ACC-${id}-${Date.now()}`;
-
-    const invoicePayload = {
-      company_id: companyId,
-      account_id: id,
-      client_id: null as null | number,
-      invoice_number: invoiceNumber,
-      status: "draft" as const,
-      line_items: lineItems,
-      subtotal: subtotal.toFixed(2),
-      tips: "0",
-      total: subtotal.toFixed(2),
-      due_date: dueDateStr,
-      payment_terms: termsLabel,
-      created_by: req.auth!.userId,
-    };
-
+    // Preview writes nothing — it renders what the office is about to create.
     if (preview) {
-      return res.json({ ok: true, preview: true, invoice: invoicePayload, jobs_count: uninvoicedJobs.length });
+      const payload = {
+        company_id: companyId, account_id: id, client_id: null,
+        status: "draft", line_items: lineItems,
+        subtotal: subtotal.toFixed(2), tips: "0", total: subtotal.toFixed(2),
+        due_date: dueDateStr, payment_terms: termsLabel,
+      };
+      return separate
+        ? res.json({ ok: true, preview: true, separate: true, jobs_count: lineItems.length,
+            invoices: lineItems.map((li) => ({ ...payload, job_id: li.job_id, line_items: [li],
+              subtotal: li.total.toFixed(2), total: li.total.toFixed(2) })) })
+        : res.json({ ok: true, preview: true, invoice: payload, jobs_count: uninvoicedJobs.length });
     }
 
-    const [invoice] = await db
-      .insert(invoicesTable)
-      .values(invoicePayload)
-      .returning();
+    // [batch-invoicing 2026-08-03] Every visit gets its OWN invoice first, then
+    // the batch is assembled from those documents (design R1 + S-2). This used to
+    // build one invoice straight from the jobs table, which produced a document
+    // that competed with the per-visit invoices completion would later create —
+    // two live invoices, one visit. Numbering came from `ACC-5-<epoch>`, which is
+    // why Maribel couldn't find KMA's July invoices: unsearchable, unquotable,
+    // and impossible for the client to reference on a check. Both are gone; the
+    // shared sequence (6082+) numbers everything now.
+    const ensured: number[] = [];
+    const skipped: Array<{ job_id: number; reason: string }> = [];
+    for (const j of uninvoicedJobs) {
+      const r = await ensurePerVisitInvoice({ companyId, jobId: j.id, userId: req.auth!.userId });
+      if (r.invoiceId) ensured.push(r.invoiceId);
+      else skipped.push({ job_id: j.id, reason: r.reason ?? "skipped" });
+    }
+    if (!ensured.length) {
+      return res.json({ ok: true, invoice: null, message: "Nothing to invoice", skipped });
+    }
 
-    res.status(201).json({ ok: true, invoice, jobs_consolidated: uninvoicedJobs.length });
+    // Individual mode (turnovers): each visit stays its own document.
+    if (separate || ensured.length === 1) {
+      const created = await db.select().from(invoicesTable)
+        .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ensured)));
+      return res.status(201).json(separate
+        ? { ok: true, separate: true, invoices: created, invoices_created: created.length, skipped }
+        : { ok: true, invoice: created[0], jobs_consolidated: 1, skipped });
+    }
+
+    const combined = await combineInvoices({
+      companyId, memberInvoiceIds: ensured, actorUserId: req.auth!.userId, paymentTerms: termsLabel,
+    });
+    const [invoice] = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.id, combined.parent_id)));
+
+    res.status(201).json({ ok: true, invoice, jobs_consolidated: combined.covered_job_ids.length, skipped });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to generate invoice" });
@@ -1350,51 +1327,23 @@ router.post("/:id/bill-week", requireAuth, requireRole("owner", "admin", "office
     if (drafts.length === 0) return res.json({ ok: true, invoice: null, merged_count: 0, week: { start: ws, end: we }, message: `No unbilled visits for the week of ${ws}` });
     if (drafts.length === 1) return res.json({ ok: true, invoice: drafts[0], merged_count: 1, week: { start: ws, end: we }, message: "Only one visit this week — nothing to merge" });
 
-    // Fold: parent carries every child line (with job linkage preserved) + the
-    // summed total; children go 'superseded' + parent_invoice_id.
-    const parentLines: any[] = [];
-    let parentTotal = 0;
-    for (const r of drafts) {
-      parentTotal += parseFloat(String(r.total ?? "0"));
-      const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
-      if (childLines.length > 0) {
-        for (const l of childLines) parentLines.push(r.job_id != null && l.job_id == null ? { ...l, job_id: r.job_id } : l);
-      } else {
-        const t = parseFloat(String(r.total ?? "0"));
-        parentLines.push({ description: "Visit", quantity: 1, unit_price: t, total: t, ...(r.job_id != null ? { job_id: r.job_id } : {}) });
-      }
-    }
-    parentTotal = Math.round(parentTotal * 100) / 100;
-    const first = drafts[0];
+    // [batch-invoicing 2026-08-03] Was a fifth hand-rolled fold — same shape as
+    // the cadence cron, /invoices/merge, batch-invoicing.ts and generate-invoice,
+    // and like them it set the dailies to 'superseded' (which the list view
+    // hides). One primitive now (design S-2); the dailies survive as 'batched'.
+    const combined = await combineInvoices({
+      companyId,
+      memberInvoiceIds: drafts.map((d) => d.id),
+      actorUserId: req.auth!.userId,
+      paymentTerms: drafts[0].payment_terms,
+    });
+    const [parent] = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.id, combined.parent_id)));
 
-    const [parent] = await db.insert(invoicesTable).values({
-      company_id: companyId,
-      account_id: id,
-      client_id: null,
-      status: "draft",
-      line_items: parentLines,
-      subtotal: parentTotal.toFixed(2),
-      total: parentTotal.toFixed(2),
-      payment_terms: first.payment_terms,
-      due_date: first.due_date,
-      created_by: req.auth!.userId,
-    } as any).returning();
-
-    try {
-      const invNum = await getNextInvoiceNumber(companyId, parent.id);
-      await db.update(invoicesTable).set({ invoice_number: invNum }).where(eq(invoicesTable.id, parent.id));
-    } catch (e) { console.error("[bill-week] number assignment non-fatal:", e); }
-
-    const childIds = drafts.map((d) => d.id);
-    await db.update(invoicesTable)
-      .set({ status: "superseded", parent_invoice_id: parent.id })
-      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, childIds)));
-
-    import("../services/quickbooks-sync.js")
-      .then(({ syncInvoice }) => syncInvoice(companyId, parent.id).catch((e) => console.error("[bill-week] QB push non-fatal:", e)))
-      .catch(() => {});
-
-    return res.status(201).json({ ok: true, invoice: parent, merged_count: childIds.length, total: parentTotal, week: { start: ws, end: we } });
+    return res.status(201).json({
+      ok: true, invoice: parent, merged_count: combined.member_ids.length,
+      total: parseFloat(combined.total), week: { start: ws, end: we },
+    });
   } catch (err) {
     console.error("bill-week error:", err);
     res.status(500).json({ error: "Failed to bill week" });

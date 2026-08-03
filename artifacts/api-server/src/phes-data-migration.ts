@@ -2078,6 +2078,95 @@ async function runBookingSchemaGuard(): Promise<void> {
                  ALTER TABLE leads ALTER COLUMN referral_source TYPE text USING referral_source::text;
                END IF;
              END $$` },
+
+    // ── Billing coverage ledger ─────────────────────────────────────────────
+    // [batch-invoicing 2026-08-03] See docs/BATCH_INVOICING_DESIGN.md.
+    //
+    // Duplicate billing has recurred every month because "is this visit already
+    // invoiced?" was answered four different ways by four different engines,
+    // one of which probed `line_items @> {job_id}` against rows whose lines
+    // carried no job_id at all (KMA #966: five lines, zero ids). Convention
+    // failed. This makes it a database constraint instead: one live invoice per
+    // visit, enforced by a partial unique index. A future writer that tries to
+    // double-bill gets an error, not a duplicate document.
+    { label: "invoice_status += 'batched'", stmt:
+      "ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'batched'" },
+    { label: "invoice_job_links table", stmt: `
+      CREATE TABLE IF NOT EXISTS invoice_job_links (
+        id          SERIAL PRIMARY KEY,
+        company_id  INTEGER NOT NULL,
+        invoice_id  INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        job_id      INTEGER NOT NULL,
+        amount      NUMERIC(10,2),
+        -- TRUE on exactly one invoice per visit: the document that currently
+        -- carries this visit's money into A/R and (when reconnected) into QB.
+        -- FALSE on batched members, voided invoices, and superseded legacy rows
+        -- — they stay as history but are not receivables and never push.
+        is_live     BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (invoice_id, job_id)
+      )` },
+    { label: "invoice_job_links job idx", stmt:
+      "CREATE INDEX IF NOT EXISTS idx_ijl_job ON invoice_job_links (company_id, job_id)" },
+    { label: "invoice_job_links invoice idx", stmt:
+      "CREATE INDEX IF NOT EXISTS idx_ijl_invoice ON invoice_job_links (invoice_id)" },
+
+    // Backfill coverage from every carrier the old code used: invoices.job_id,
+    // line_items[].job_id, and line_items[].job_ids[]. Inserted is_live=FALSE
+    // so the promote below is the single place that decides the winner and the
+    // unique index can never be violated mid-backfill.
+    // The `~ '^[0-9]+$'` guard before ::int is load-bearing — a bare cast over
+    // mixed jsonb 500s the whole statement (the #1146 comm-log regression).
+    { label: "backfill invoice_job_links", stmt: `
+      INSERT INTO invoice_job_links (company_id, invoice_id, job_id, amount, is_live)
+      SELECT DISTINCT i.company_id, i.id, cov.job_id, NULL, FALSE
+        FROM invoices i
+        CROSS JOIN LATERAL (
+          SELECT i.job_id AS job_id WHERE i.job_id IS NOT NULL
+          UNION
+          SELECT (li->>'job_id')::int
+            FROM jsonb_array_elements(COALESCE(i.line_items,'[]'::jsonb)) li
+           WHERE li->>'job_id' ~ '^[0-9]+$'
+          UNION
+          SELECT jid::int
+            FROM jsonb_array_elements(COALESCE(i.line_items,'[]'::jsonb)) li,
+                 jsonb_array_elements_text(
+                   CASE WHEN jsonb_typeof(li->'job_ids')='array'
+                        THEN li->'job_ids' ELSE '[]'::jsonb END) jid
+           WHERE jid ~ '^[0-9]+$'
+        ) cov
+       WHERE cov.job_id IS NOT NULL
+      ON CONFLICT (invoice_id, job_id) DO NOTHING` },
+
+    // Promote exactly one live link per visit. Idempotent by construction: it
+    // only acts on visits that have NO live link yet, so re-running on every
+    // cold start is a no-op and it can never override a decision the app made
+    // later. void/superseded invoices are excluded from the candidate set, so a
+    // visit whose only invoices were deliberately voided correctly ends up with
+    // no live link — that is "unbilled", and the integrity report surfaces it
+    // rather than the engine silently re-billing it.
+    { label: "promote one live invoice per visit", stmt: `
+      UPDATE invoice_job_links l SET is_live = TRUE
+       WHERE l.is_live = FALSE
+         AND NOT EXISTS (
+           SELECT 1 FROM invoice_job_links l2
+            WHERE l2.company_id = l.company_id AND l2.job_id = l.job_id AND l2.is_live)
+         AND l.id = (
+           SELECT l3.id FROM invoice_job_links l3
+             JOIN invoices i3 ON i3.id = l3.invoice_id
+            WHERE l3.company_id = l.company_id AND l3.job_id = l.job_id
+              AND i3.status NOT IN ('void', 'superseded')
+            ORDER BY CASE i3.status
+                       WHEN 'paid'  THEN 0
+                       WHEN 'sent'  THEN 1
+                       WHEN 'overdue' THEN 2
+                       ELSE 3 END, l3.id
+            LIMIT 1)` },
+
+    // THE constraint. Everything above exists to make this creatable.
+    { label: "invoice_job_links one-live-per-job UNIQUE", stmt: `
+      CREATE UNIQUE INDEX IF NOT EXISTS invoice_job_links_one_live_per_job
+        ON invoice_job_links (company_id, job_id) WHERE is_live` },
   ];
 
   for (const { label, stmt } of guards) {

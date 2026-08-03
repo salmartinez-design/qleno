@@ -75,6 +75,24 @@ async function buildDispatchPayload(
       ))
       .orderBy(usersTable.first_name);
 
+    // [batch-invoicing 2026-08-03] The job's live billing document. First arm is
+    // the coverage ledger (invoice_job_links), which is authoritative: a partial
+    // unique index guarantees AT MOST ONE live link per job, so this can't
+    // return two answers the way the old jsonb probing could. Second arm is the
+    // legacy fallback for coverage that predates the ledger — direct FK, the
+    // job inside line_items, or a folded child pointing up to its parent. See
+    // docs/BATCH_INVOICING_DESIGN.md §5 S-1.
+    const liveInvoiceId = sql<number | null>`COALESCE(
+      (SELECT l.invoice_id FROM invoice_job_links l
+        WHERE l.company_id = ${jobsTable.company_id} AND l.job_id = ${jobsTable.id} AND l.is_live LIMIT 1),
+      (SELECT iv.id FROM invoices iv
+        WHERE iv.company_id = ${jobsTable.company_id}
+          AND iv.status::text NOT IN ('void','superseded','batched')
+          AND (iv.job_id = ${jobsTable.id}
+               OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+               OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id}))
+        ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1))`;
+
     const jobs = await db
       .select({
         id: jobsTable.id,
@@ -272,23 +290,19 @@ async function buildDispatchPayload(
         no_show_marked_by_tech: jobsTable.no_show_marked_by_tech,
         no_show_marked_by_user_id: jobsTable.no_show_marked_by_user_id,
         // [dispatch-invoice 2026-06-27] Live invoice for this job so the panel
-        // can show "View Invoice" + status without a second fetch. Uses the
-        // most-recent non-void, non-superseded invoice (idempotent engine
-        // ensures at most one, but guard order is safest). Null on pre-cutover
-        // or uncompleted jobs that have no invoice yet.
-        // [job-card-invoice-link 2026-07-06] Also matches invoices that carry
-        // the job INSIDE line_items (consolidated account invoices from
-        // POST /api/accounts/:id/generate-invoice, merge parents) — those have
-        // job_id NULL, so the direct-FK match alone left the job card showing
-        // "No invoice yet" even though the invoice existed (Maribel, Awaken
-        // Church common-areas). Direct job_id match wins over a line-item
-        // match; the @> containment predicate is the same one the account
-        // uninvoiced-jobs dedup guard uses. Third arm: historical merge
-        // parents created before lines carried job_id — follow the job's
-        // superseded child (which kept its job_id) up to its parent.
-        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        // can show "View Invoice" + status without a second fetch. Null on
+        // pre-cutover or uncompleted jobs that have no invoice yet.
+        // [batch-invoicing 2026-08-03] Resolved by `liveInvoiceId` above rather
+        // than three hand-copied jsonb probes. When the visit is on a combined
+        // invoice, the ledger points at the PARENT — the card shows the
+        // document the customer actually got, not the folded member.
+        invoice_id: sql<number | null>`${liveInvoiceId}`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
+        // The combined invoice's number, when this visit was folded into one.
+        // Drives the "Billed on #X" chip so a member never reads as missing.
+        invoice_number: sql<string | null>`(SELECT iv.invoice_number FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
+        invoice_is_batch: sql<boolean>`(SELECT iv.batch_status = 'batch_parent' FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
         // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
         commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })

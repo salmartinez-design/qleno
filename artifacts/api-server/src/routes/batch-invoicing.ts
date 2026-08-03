@@ -17,26 +17,30 @@
 //     WINDOW (cadence = 'weekly' Sun–Sat, or 'monthly'), keyed on the JOB's
 //     SERVICE DATE (jobs.scheduled_date) — NOT invoice created_at, so the lines
 //     and the window track when the work actually happened.
-//   - "Consolidate" folds the window's pending visits into the EARLIEST visit's
-//     invoice (the parent): the parent carries one line per visit (labeled with
-//     the service date), totals the window, is issued 'sent' due-on-receipt
-//     (due = today), and is pushed to QB. Every OTHER pending invoice is zeroed
-//     and marked 'superseded' with parent_invoice_id → the parent. Only the
-//     parent pushes to QB.
+//   - "Consolidate" hands the window's pending visits to the ONE combine engine
+//     (lib/invoice-billing.ts combineInvoices). It mints a NEW parent carrying
+//     one line per visit and marks each member 'batched' — members keep their
+//     number and their total and stay visible on the client. Nothing is zeroed.
 //   - Office may EXCLUDE individual visits before merging (exclude_invoice_ids)
 //     — excluded drafts are left untouched (kept, just not in the parent).
-//   - Idempotent per (client, window): once a superseded child exists for a
-//     visit inside the window, that window can't be re-consolidated.
+//   - Idempotent per (client, window): consolidated visits leave the pending
+//     pool (status 'batched'), so a re-run finds nothing and reports the parent
+//     that already covers the window.
+//
+// [batch-invoicing 2026-08-03] This route used to be its own fold — one of five
+// separate implementations of "combine invoices." It now delegates. Do NOT
+// reintroduce a local fold here; see docs/BATCH_INVOICING_DESIGN.md §5 S-2.
+// The QuickBooks push was removed with the disconnect (D-9).
 //
 // per_visit clients (all residential + most commercial) never reach here: their
 // completion invoice is issued 'sent' immediately and is its own document.
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, jobsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { queueSync } from "../services/quickbooks-sync.js";
+import { combineInvoices } from "../lib/invoice-billing.js";
 
 const router = Router();
 
@@ -192,94 +196,78 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
       .orderBy(jobsTable.scheduled_date, invoicesTable.id);
 
     if (pending.length === 0) {
+      // Nothing pending. Either there was never any work in this window, or the
+      // window is already consolidated — members left the pending pool when they
+      // became 'batched'. Name the parent so the office isn't left guessing.
+      const [done] = await db
+        .select({ parent_id: invoicesTable.parent_invoice_id })
+        .from(invoicesTable)
+        .innerJoin(jobsTable, eq(invoicesTable.job_id, jobsTable.id))
+        .where(and(
+          eq(invoicesTable.company_id, companyId),
+          eq(invoicesTable.client_id, clientId),
+          eq(invoicesTable.status, "batched"),
+          gte(jobsTable.scheduled_date, start),
+          lte(jobsTable.scheduled_date, end),
+        ))
+        .limit(1);
+      if (done?.parent_id) {
+        return res.status(409).json({
+          error: "Conflict",
+          message: `${label} is already consolidated for this client (invoice ${done.parent_id})`,
+          parent_invoice_id: done.parent_id,
+        });
+      }
       return res.status(404).json({ error: "Not Found", message: `No pending visits to consolidate for ${label}` });
     }
 
-    // Idempotency: if any visit in THIS window is already superseded, the window
-    // is already consolidated. (Keyed on service date via the job join.)
-    const [alreadyDone] = await db
-      .select({ id: invoicesTable.id })
-      .from(invoicesTable)
-      .innerJoin(jobsTable, eq(invoicesTable.job_id, jobsTable.id))
-      .where(and(
-        eq(invoicesTable.company_id, companyId),
-        eq(invoicesTable.client_id, clientId),
-        eq(invoicesTable.status, "superseded"),
-        gte(jobsTable.scheduled_date, start),
-        lte(jobsTable.scheduled_date, end),
-      ))
-      .limit(1);
-    if (alreadyDone) {
-      return res.status(409).json({ error: "Conflict", message: `${label} is already consolidated for this client` });
-    }
-
-    // The EARLIEST-service-date visit becomes the parent. Everything else folds in.
-    const parent = pending[0];
-    const folded = pending.slice(1).filter((p) => !excludeIds.includes(p.id));
+    const members = pending.filter((p) => !excludeIds.includes(p.id));
     const excluded = pending.filter((p) => excludeIds.includes(p.id));
-    if (excludeIds.includes(parent.id)) {
-      return res.status(400).json({ error: "Bad Request", message: "Cannot exclude the earliest visit of the window (it is the consolidation parent)" });
+    if (members.length === 0) {
+      return res.status(400).json({ error: "Bad Request", message: "Every visit in the window was excluded — nothing left to consolidate" });
     }
 
-    // One line per visit, labeled with the SERVICE DATE. Amounts come straight
-    // from each locked per-visit total — never recomputed.
-    const visitLine = (inv: any) => ({
-      description: `Cleaning — ${svcDateLabel(inv.service_date ? String(inv.service_date) : null)}${inv.invoice_number ? ` (#${inv.invoice_number})` : ""}`,
-      quantity: 1,
-      unit_price: parseFloat(inv.total || "0"),
-      total: parseFloat(inv.total || "0"),
-      source_invoice_id: inv.id,
-      job_id: inv.job_id,
-      service_date: inv.service_date ? String(inv.service_date).slice(0, 10) : null,
-    });
-
-    const parentLines = [visitLine(parent), ...folded.map(visitLine)];
-    const parentTotal = Math.round(parentLines.reduce((s, l) => s + l.total, 0) * 100) / 100;
-    const todayStr = new Date().toISOString().split("T")[0];
-
-    await db.transaction(async (tx) => {
-      // Parent: window total, one line per visit, issued 'sent' due-on-receipt.
-      await tx.update(invoicesTable)
+    // A single visit is already its own document. Issue it rather than minting a
+    // one-line parent on top of it (that would be two rows for one dollar).
+    if (members.length === 1) {
+      const only = members[0];
+      const todayStr = new Date().toISOString().split("T")[0];
+      await db.update(invoicesTable)
         .set({
-          line_items: parentLines,
-          subtotal: parentTotal.toFixed(2),
-          total: parentTotal.toFixed(2),
           status: "sent",
           sent_at: new Date(),
           due_date: todayStr,
           payment_terms: "due_on_receipt",
           batch_status: "consolidated",
         })
-        .where(and(eq(invoicesTable.id, parent.id), eq(invoicesTable.company_id, companyId)));
+        .where(and(eq(invoicesTable.id, only.id), eq(invoicesTable.company_id, companyId)));
 
-      // Folded children: zeroed, superseded, parent_invoice_id set. Records kept
-      // (commission + job_history reference the job, not the invoice).
-      if (folded.length > 0) {
-        await tx.update(invoicesTable)
-          .set({
-            status: "superseded",
-            subtotal: "0.00",
-            total: "0.00",
-            parent_invoice_id: parent.id,
-            batch_status: "consolidated",
-          })
-          .where(and(
-            eq(invoicesTable.company_id, companyId),
-            inArray(invoicesTable.id, folded.map((f) => f.id)),
-          ));
-      }
-      // Excluded drafts are intentionally left untouched.
+      logAudit(req, "UPDATE", "invoice", only.id, null, {
+        action: "consolidate", cadence, window: label, period_start: start, period_end: end,
+        parent_invoice_id: only.id, folded_count: 0, excluded_count: excluded.length, total: parseFloat(only.total || "0"),
+      });
+
+      return res.json({
+        ok: true, cadence, window: label, period_start: start, period_end: end,
+        parent_invoice_id: only.id, parent_number: only.invoice_number, parent_total: parseFloat(only.total || "0"),
+        folded_invoice_ids: [], excluded_invoice_ids: excluded.map((e) => e.id), visit_count: 1,
+      });
+    }
+
+    // Two or more visits: hand them to the one combine engine. It mints the
+    // parent, marks members 'batched' (numbers and totals intact), and moves the
+    // billing coverage onto the parent so no visit can be billed twice.
+    const combined = await combineInvoices({
+      companyId,
+      memberInvoiceIds: members.map((m) => m.id),
+      actorUserId: req.auth!.userId,
+      paymentTerms: "due_on_receipt",
     });
 
-    logAudit(req, "UPDATE", "invoice", parent.id, null, {
+    logAudit(req, "UPDATE", "invoice", combined.parent_id, null, {
       action: "consolidate", cadence, window: label, period_start: start, period_end: end,
-      parent_invoice_id: parent.id, folded_count: folded.length, excluded_count: excluded.length, total: parentTotal,
-    });
-
-    // Push ONLY the parent to QB (one consolidated document). Children never push.
-    queueSync(async () => {
-      const { syncInvoice } = await import("../services/quickbooks-sync.js");
-      await syncInvoice(companyId, parent.id);
+      parent_invoice_id: combined.parent_id, folded_count: combined.member_ids.length,
+      excluded_count: excluded.length, total: combined.total,
     });
 
     return res.json({
@@ -288,15 +276,21 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
       window: label,
       period_start: start,
       period_end: end,
-      parent_invoice_id: parent.id,
-      parent_total: parentTotal,
-      folded_invoice_ids: folded.map((f) => f.id),
+      parent_invoice_id: combined.parent_id,
+      parent_number: combined.parent_number,
+      parent_total: combined.total,
+      folded_invoice_ids: combined.member_ids,
       excluded_invoice_ids: excluded.map((e) => e.id),
-      visit_count: parentLines.length,
+      visit_count: combined.member_ids.length,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Consolidate error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to consolidate invoices" });
+    const msg = err?.message || "Failed to consolidate invoices";
+    const conflict = /already|combine|same customer|at least two/i.test(msg);
+    return res.status(conflict ? 409 : 500).json({
+      error: conflict ? "Conflict" : "Internal Server Error",
+      message: conflict ? msg : "Failed to consolidate invoices",
+    });
   }
 });
 

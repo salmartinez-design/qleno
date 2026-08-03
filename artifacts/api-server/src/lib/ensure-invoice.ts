@@ -63,8 +63,9 @@
 // pushing"); batch 'pending' drafts do NOT push either.
 import { db } from "@workspace/db";
 import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, ne, or, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getNextInvoiceNumber } from "./invoice-number.js";
+import { getVisitBillingState, setInvoiceCoverage } from "./invoice-billing.js";
 import { derivePaymentSource } from "./payment-source.js";
 import { buildJobLineItems } from "./invoice-line-items.js";
 
@@ -97,51 +98,31 @@ export async function ensureInvoiceForCompletedJob(
   userId: number | null,
 ): Promise<EnsureInvoiceResult> {
   try {
-    // Idempotency: a visit gets at most one live invoice. A pre-existing non-void
-    // invoice is handed back so callers can surface it without duplicating. A
-    // voided invoice does NOT block re-issue (office voided it deliberately).
+    // [batch-invoicing 2026-08-03] Idempotency now reads the billing-coverage
+    // ledger — the ONE predicate every billing path shares (design D-3). It
+    // replaces the jsonb probing that used to live here, which tested three
+    // separate line-item carriers and still went blind: KMA invoice 966 bundled
+    // five visits into lines that carried no job_id at all, so completion saw
+    // nothing, minted per-visit duplicates, and double-billed the month.
+    // invoice_job_links records coverage explicitly instead of inferring it, and
+    // a unique index makes two live invoices on one visit impossible.
     //
-    // [dupe-guard 2026-07-22] A visit is linked to an invoice by TWO carriers and
-    // this check must test BOTH:
-    //   (1) invoices.job_id          — the per-visit document.
-    //   (2) line_items[].job_id      — the visit folded into a consolidated /
-    //                                  bundled account invoice.
-    // Checking only (1) is what put the same July visit on two live invoices for
-    // Azzarello, Halper, and Cucci: POST /accounts/:id/generate-invoice built the
-    // month's batch first, then completion came along, saw no row with that
-    // job_id, and minted a second per-visit invoice for work already billed —
-    // inflating A/R by $1,330.93. The same `@>` containment predicate already
-    // guards the batch side (routes/accounts.ts uninvoiced-jobs selector); this
-    // makes the guard bidirectional so neither path can double-bill the other.
-    //
-    // KNOWN GAP (tracked separately): a hand-edited invoice collapsed to a single
-    // `quantity: N` line records only the FIRST job_id, so the other N-1 visits
-    // are billed but unnamed and remain invisible here. The durable fix is to
-    // preserve every job_id through a manual consolidate — see the follow-up.
-    const existing = await db
-      .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total })
-      .from(invoicesTable)
-      .where(and(
-        eq(invoicesTable.company_id, companyId),
-        ne(invoicesTable.status, "void"),
-        or(
-          eq(invoicesTable.job_id, jobId),
-          sql`${invoicesTable.line_items} @> jsonb_build_array(jsonb_build_object('job_id', ${jobId}::int))`,
-          // [job-ids-preserve 2026-07-23] Second line-item carrier. A hand-edit
-          // that collapses several job lines into one `quantity: N` line keeps the
-          // other ids here instead of dropping them (lib/invoice-job-ids.ts), so a
-          // consolidated visit is still recognised as billed. jsonb `@>` treats
-          // arrays as subsets, so this matches the id anywhere in `job_ids`.
-          sql`${invoicesTable.line_items} @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobId}::int)))`,
-        ),
-      ))
-      // Prefer the per-visit document when both carriers match, so callers that
-      // surface "the job's invoice" keep getting exactly what they got before.
-      .orderBy(sql`(${invoicesTable.job_id} = ${jobId}) DESC`, invoicesTable.id)
-      .limit(1);
-    if (existing[0]) {
-      return { created: false, skipped: false, invoiceId: existing[0].id, status: existing[0].status, total: existing[0].total, error: false };
+    // A DRAFT counts as billed. That is the D1 fix: a bundled account's
+    // per-visit drafts are real coverage, and treating them as "not invoiced"
+    // is what let Generate Invoice re-bill work that already had an invoice.
+    const coverage = await getVisitBillingState(companyId, jobId);
+    if (coverage.live) {
+      return {
+        created: false, skipped: false, invoiceId: coverage.live.id,
+        status: coverage.live.status, total: coverage.live.total, error: false,
+      };
     }
+    // [tombstone 2026-08-03] Void means the office deliberately un-billed this
+    // visit — do not regenerate it (design D-5). The old `ne(status,'void')`
+    // did the opposite: voiding KMA's duplicates 6342/6344/6349 on Jul 22
+    // regenerated them as 7112/7113/7114 the same day. Cleaning up duplicates
+    // created duplicates. Re-billing is now an explicit office action.
+    if (coverage.voided) return NO_OP;
 
     const [job] = await db
       .select({
@@ -300,7 +281,10 @@ export async function ensureInvoiceForCompletedJob(
     // (scope + ALL add-ons + ALL discounts) — same code the draft re-sync and
     // the office recalc use, so they can never diverge.
     const built = await buildJobLineItems(companyId, jobId);
-    const lineItems = built?.lineItems ?? [];
+    // [batch-invoicing 2026-08-03] Every line carries its job_id (design D-4).
+    // A line without one is a line that survives a merge unattributed — which is
+    // exactly how KMA's bundle became invisible to the dedup check.
+    const lineItems = (built?.lineItems ?? []).map((li: any) => ({ ...li, job_id: jobId }));
     const netAmount = built?.subtotal ?? 0;
 
     // [invoice-zero-guard 2026-06-20; commercial-exception 2026-07-03] Skip $0
@@ -359,10 +343,27 @@ export async function ensureInvoiceForCompletedJob(
         subtotal: netAmount.toFixed(2),
         total: netAmount.toFixed(2),
         due_date: dueDateStr,
+        // [batch-invoicing 2026-08-03] Stamp the visit date (design D7). Without
+        // it every bundled document printed "Service —", which is exactly what
+        // KMA received on two of their three July invoices.
+        service_date: sched,
         payment_terms: termsLabel,
         created_by: userId,
       })
       .returning({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total });
+
+    // [batch-invoicing 2026-08-03] Claim the visit in the coverage ledger. This
+    // is what makes every other billing path — the account button, the cadence
+    // close, the uninvoiced-jobs selector — see that this work is already
+    // billed, and what makes a second live invoice on the same visit a database
+    // error rather than a silent duplicate.
+    try {
+      await setInvoiceCoverage(db as any, {
+        companyId, invoiceId: newInv.id, jobs: [{ job_id: jobId, amount: netAmount.toFixed(2) }], live: true,
+      });
+    } catch (linkErr) {
+      console.error("[ensure-invoice] coverage link non-fatal:", linkErr);
+    }
 
     // Mint the canonical bare-integer invoice number (6082+ sequence).
     try {

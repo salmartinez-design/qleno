@@ -1714,6 +1714,14 @@ export default function AccountDetailPage() {
                       // at completion, never emailed — never label it "sent".
                       const stLabel = st === "sent" && !inv.sent_at ? "issued" : st;
                       const stCls = st === "paid" ? "bg-green-50 text-green-700" : st === "sent" ? "bg-blue-50 text-blue-700" : st === "overdue" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500";
+                      // [batch-invoicing 2026-08-03] This tab lists one row per
+                      // customer-owed document — the members of a combined invoice
+                      // are deliberately left out, because this table sums its own
+                      // rows into the month total and listing both sides would
+                      // double it. So the row itself has to say how many visits it
+                      // covers, otherwise a $550 line looks like a single service
+                      // and the office can't tell it apart from an over-charge.
+                      const batchCount = Number(inv.batch_member_count || 0);
                       // Only issued/overdue invoices can be charged (draft = send
                       // first; paid/void = nothing to charge).
                       const chargeable = st === "sent" || st === "overdue";
@@ -1722,6 +1730,12 @@ export default function AccountDetailPage() {
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
                           <td className="px-4 py-3 font-medium whitespace-nowrap">
                             <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{formatInvoiceNumber(inv)}</Link>
+                            {batchCount > 0 && (
+                              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide"
+                                    style={{ background: "#F3F0FF", color: "#5B21B6", border: "1px solid #E4DDFA" }}>
+                                {batchCount} visit{batchCount === 1 ? "" : "s"} combined
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
                           <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{stLabel}</span></td>

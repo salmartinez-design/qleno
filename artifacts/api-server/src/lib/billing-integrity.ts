@@ -1,0 +1,195 @@
+// [batch-invoicing 2026-08-03] Billing integrity check — design §5 S-3.
+//
+// The July KMA failure was silent. Nothing in the system said "seven documents
+// exist for this account, they don't sum to what you billed, and two of them
+// cover the same visit." The office found out when the customer asked, and
+// Maribel found out when the invoices "disapeared."
+//
+// So the third leg of making the fix stick is a report that runs on its own and
+// says what's wrong before anyone has to ask. It is READ-ONLY by design: it
+// never repairs, never voids, never bills. It reports, and a person decides.
+// Automatic repair is how a one-visit discrepancy becomes a month of quiet
+// double-billing.
+//
+// Four checks, each mapping to a defect that actually happened:
+//   uncovered_visits   — completed, billable, priced work with no live invoice
+//                        ($2,120.62 across 17 visits when this was written)
+//   contested_visits   — one visit claimed by two live invoices. Should be
+//                        IMPOSSIBLE once the partial unique index is in place;
+//                        if this is ever non-empty the index is missing.
+//   unpriced_visits    — completed work sitting at $0.00, which invoices as a
+//                        zero-dollar document nobody notices (D5)
+//   stale_windows      — a bundled account whose billing window closed and was
+//                        never invoiced
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+
+export type IntegrityFinding = {
+  job_id: number;
+  scheduled_date: string | null;
+  customer: string | null;
+  amount: string | null;
+  detail?: string | null;
+};
+
+export type BillingIntegrityReport = {
+  company_id: number;
+  as_of: string;
+  ok: boolean;
+  uncovered_visits: IntegrityFinding[];
+  uncovered_total: number;
+  contested_visits: IntegrityFinding[];
+  unpriced_visits: IntegrityFinding[];
+  stale_windows: { account_id: number; account_name: string | null; window_end: string; cadence: string | null }[];
+};
+
+// Nothing before the cutover is in scope — pre-cutover money lived in
+// MaidCentral and is not Qleno's to reconcile.
+const CUTOVER = "2026-07-01";
+
+export async function runBillingIntegrityCheck(
+  companyId: number,
+  asOf?: string,
+): Promise<BillingIntegrityReport> {
+  const today = asOf || new Date().toISOString().slice(0, 10);
+
+  // 1. Completed billable visits with no live billing document. This is the
+  //    "we did the work and never billed it" number — the one that costs money
+  //    directly rather than just looking wrong.
+  const uncovered = (await db.execute(sql`
+    SELECT j.id AS job_id,
+           j.scheduled_date::text AS scheduled_date,
+           COALESCE(a.account_name, concat(c.first_name, ' ', c.last_name)) AS customer,
+           j.billed_amount::text AS amount
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+     WHERE j.company_id = ${companyId}
+       AND j.status = 'complete'
+       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date <= ${today}::date
+       AND COALESCE(j.non_billable, FALSE) = FALSE
+       AND COALESCE(j.billed_amount, 0) > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM invoice_job_links l
+          WHERE l.company_id = j.company_id AND l.job_id = j.id AND l.is_live)
+     ORDER BY j.scheduled_date DESC`) as any).rows as IntegrityFinding[];
+
+  // 2. Two live invoices for one visit. The partial unique index
+  //    invoice_job_links_one_live_per_job makes this a constraint violation at
+  //    write time, so a non-empty result here means the index did not get
+  //    created — which is a deploy problem, not a data problem. Report it
+  //    loudly rather than assuming the guarantee holds.
+  const contested = (await db.execute(sql`
+    SELECT l.job_id,
+           j.scheduled_date::text AS scheduled_date,
+           COALESCE(a.account_name, concat(c.first_name, ' ', c.last_name)) AS customer,
+           NULL::text AS amount,
+           string_agg(l.invoice_id::text, ', ' ORDER BY l.invoice_id) AS detail
+      FROM invoice_job_links l
+      JOIN jobs j ON j.id = l.job_id
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+     WHERE l.company_id = ${companyId} AND l.is_live
+     GROUP BY l.job_id, j.scheduled_date, a.account_name, c.first_name, c.last_name
+    HAVING COUNT(*) > 1`) as any).rows as IntegrityFinding[];
+
+  // 3. Completed billable work priced at zero. It invoices as a $0.00 document
+  //    that reads as "handled" on every screen while earning nothing.
+  const unpriced = (await db.execute(sql`
+    SELECT j.id AS job_id,
+           j.scheduled_date::text AS scheduled_date,
+           COALESCE(a.account_name, concat(c.first_name, ' ', c.last_name)) AS customer,
+           '0.00'::text AS amount
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+     WHERE j.company_id = ${companyId}
+       AND j.status = 'complete'
+       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date <= ${today}::date
+       AND COALESCE(j.non_billable, FALSE) = FALSE
+       AND COALESCE(j.billed_amount, 0) = 0
+     ORDER BY j.scheduled_date DESC`) as any).rows as IntegrityFinding[];
+
+  // 4. Bundled accounts whose window has closed with work still sitting
+  //    uninvoiced. D4 was exactly this: one blocked window stayed blocked
+  //    forever and nobody was told.
+  const stale = (await db.execute(sql`
+    SELECT a.id AS account_id, a.account_name,
+           MAX(j.scheduled_date)::text AS window_end,
+           a.invoice_frequency::text AS cadence
+      FROM accounts a
+      JOIN jobs j ON j.account_id = a.id AND j.company_id = a.company_id
+     WHERE a.company_id = ${companyId}
+       AND a.invoice_frequency IN ('weekly', 'monthly', 'custom')
+       AND j.status = 'complete'
+       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date < date_trunc('month', ${today}::date)
+       AND COALESCE(j.non_billable, FALSE) = FALSE
+       AND NOT EXISTS (
+         SELECT 1 FROM invoice_job_links l
+          WHERE l.company_id = j.company_id AND l.job_id = j.id AND l.is_live)
+     GROUP BY a.id, a.account_name, a.invoice_frequency
+     ORDER BY a.account_name`) as any).rows as BillingIntegrityReport["stale_windows"];
+
+  const uncoveredTotal = Math.round(
+    uncovered.reduce((s, r) => s + parseFloat(r.amount || "0"), 0) * 100,
+  ) / 100;
+
+  return {
+    company_id: companyId,
+    as_of: today,
+    ok: !uncovered.length && !contested.length && !unpriced.length && !stale.length,
+    uncovered_visits: uncovered,
+    uncovered_total: uncoveredTotal,
+    contested_visits: contested,
+    unpriced_visits: unpriced,
+    stale_windows: stale,
+  };
+}
+
+/**
+ * Cron entry point — runs the check for every tenant and logs a one-line
+ * summary per tenant that has something wrong. Silent when everything is
+ * clean, so a noisy log means real work is waiting.
+ */
+export async function runBillingIntegrityCron(asOf?: string): Promise<{
+  companies: number;
+  flagged: number;
+  reports: BillingIntegrityReport[];
+}> {
+  const companies = (await db.execute(sql`SELECT id FROM companies ORDER BY id`) as any).rows as { id: number }[];
+  const reports: BillingIntegrityReport[] = [];
+  let flagged = 0;
+
+  for (const c of companies) {
+    try {
+      const report = await runBillingIntegrityCheck(Number(c.id), asOf);
+      reports.push(report);
+      if (report.ok) continue;
+      flagged++;
+      console.warn(
+        `[billing-integrity] company ${c.id}: ` +
+        `${report.uncovered_visits.length} uninvoiced ($${report.uncovered_total.toFixed(2)}), ` +
+        `${report.contested_visits.length} double-billed, ` +
+        `${report.unpriced_visits.length} unpriced, ` +
+        `${report.stale_windows.length} stale window(s)`,
+      );
+      if (report.contested_visits.length) {
+        // This should be structurally impossible. If it fires, the unique index
+        // is missing and double-billing is live again.
+        console.error(
+          `[billing-integrity] company ${c.id}: DOUBLE-BILLED VISITS — ` +
+          `the one-live-invoice-per-job index may not exist. Jobs: ` +
+          report.contested_visits.map((v) => `${v.job_id} (invoices ${v.detail})`).join("; "),
+        );
+      }
+    } catch (err) {
+      // One tenant's failure must not stop the sweep.
+      console.error(`[billing-integrity] company ${c.id} check failed:`, err);
+    }
+  }
+
+  return { companies: companies.length, flagged, reports };
+}
