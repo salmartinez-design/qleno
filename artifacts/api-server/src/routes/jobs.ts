@@ -4599,7 +4599,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
              inv.id as invoice_id, inv.total as invoice_total, inv.status as invoice_status
       FROM jobs j
       JOIN clients c ON c.id = j.client_id
-      LEFT JOIN invoices inv ON inv.job_id = j.id AND inv.status != 'paid'
+      LEFT JOIN invoices inv ON inv.job_id = j.id AND inv.status::text IN ('draft', 'sent', 'overdue')
       WHERE j.id = ${jobId} AND j.company_id = ${companyId}
       LIMIT 1
     `);
@@ -4610,9 +4610,53 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     if (job.status !== "complete") return res.status(400).json({ error: "Job must be completed before charging" });
     if (job.charge_succeeded_at) return res.status(400).json({ error: "Job already charged successfully" });
 
-    // Check for existing successful payment (applies to both processors)
+    // [double-charge 2026-08-03] The settled-invoice gate. `charge_succeeded_at`
+    // only records a charge QLENO made, so it is blind to money collected any
+    // other way — a Square terminal payment reconciled by the webhook, an office
+    // Mark Paid, a check. Kathleen Kurtzweil (job 8401 / invoice #7231) was paid
+    // $195 in the Square app; the invoice read PAID in the panel while the
+    // Charge button stayed live and every guard below passed. 774 completed jobs
+    // were in that state. The invoice is the authority on whether this visit has
+    // been collected — ask it, not the job's charge stamp.
+    const settled = await db.execute(sql`
+      SELECT inv.invoice_number, inv.status::text AS status,
+             par.invoice_number AS parent_number, par.status::text AS parent_status
+        FROM invoices inv
+        LEFT JOIN invoices par ON par.id = inv.parent_invoice_id
+       WHERE inv.job_id = ${jobId} AND inv.company_id = ${companyId}
+         AND inv.status::text IN ('paid', 'batched')
+       ORDER BY inv.id DESC
+       LIMIT 1
+    `);
+    if (settled.rows.length) {
+      const s = settled.rows[0] as any;
+      // A batched member carries no money of its own — the parent holds the
+      // total the customer actually received and pays. Charging the member
+      // would collect against an invoice nobody was ever sent.
+      if (s.status === "batched") {
+        const paid = s.parent_status === "paid";
+        return res.status(400).json({
+          error: paid
+            ? `This visit was billed on combined invoice #${s.parent_number}, which is already paid — charging would double-charge the customer.`
+            : `This visit is billed on combined invoice #${s.parent_number}. Charge that invoice, not the individual job.`,
+        });
+      }
+      return res.status(400).json({
+        error: `Invoice #${s.invoice_number} for this job is already paid — charging would double-charge the customer. If the payment needs reversing, open the invoice and Mark Unpaid (or refund it) first.`,
+      });
+    }
+
+    // Check for existing successful payment (applies to both processors).
+    // Matches on job_id OR the job's invoice, because payments recorded by the
+    // Square reconciler and the invoice-level charge route are keyed to the
+    // invoice — a job_id-only lookup misses them.
     const existingPmt = await db.execute(sql`
-      SELECT id FROM payments WHERE job_id = ${jobId} AND status = 'completed' LIMIT 1
+      SELECT p.id FROM payments p
+       WHERE p.company_id = ${companyId} AND p.status = 'completed'
+         AND (p.job_id = ${jobId}
+              OR p.invoice_id IN (SELECT i.id FROM invoices i
+                                   WHERE i.job_id = ${jobId} AND i.company_id = ${companyId}))
+       LIMIT 1
     `);
     if (existingPmt.rows.length > 0) return res.status(400).json({ error: "Payment already recorded for this job" });
 

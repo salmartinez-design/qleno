@@ -111,7 +111,8 @@ export async function reconcileSquarePayment(opts: {
     // receivable, and a customer paying it early is exactly the case that
     // should reconcile rather than sit in review. void/paid/superseded are out.
     const open = (await db.execute(sql`
-      SELECT i.id, i.invoice_number, i.total, i.status::text AS status, i.due_date::text AS due_date
+      SELECT i.id, i.invoice_number, i.total, i.status::text AS status, i.due_date::text AS due_date,
+             i.job_id
         FROM invoices i
        WHERE i.company_id = ${companyId}
          AND i.status IN ('draft', 'sent', 'overdue')
@@ -158,9 +159,13 @@ export async function reconcileSquarePayment(opts: {
          FOR UPDATE`) as any).rows[0];
       if (!stillOpen) throw new Error("ALREADY_SETTLED");
 
+      // [double-charge 2026-08-03] Stamp job_id, not just invoice_id. The job's
+      // "Charge Client" guard looks for a completed payment BY JOB; an
+      // invoice-only row is invisible to it, so a visit already paid at the
+      // Square terminal still offered a second charge.
       const ins = (await tx.execute(sql`
-        INSERT INTO payments (company_id, client_id, invoice_id, amount, method, status, square_payment_id)
-        VALUES (${companyId}, ${clientId}, ${inv.id}, ${(amountCents / 100).toFixed(2)},
+        INSERT INTO payments (company_id, client_id, invoice_id, job_id, amount, method, status, square_payment_id)
+        VALUES (${companyId}, ${clientId}, ${inv.id}, ${inv.job_id ?? null}, ${(amountCents / 100).toFixed(2)},
                 'square', 'completed', ${squarePaymentId})
         RETURNING id`) as any).rows[0];
       paymentId = ins?.id ?? null;

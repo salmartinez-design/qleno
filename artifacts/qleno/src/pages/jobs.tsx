@@ -1760,6 +1760,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     ? Number(job.invoice_total)
     : Number(job.amount ?? job.billed_amount ?? 0);
 
+  // [double-charge 2026-08-03] This visit's money is already collected or is
+  // carried by a combined invoice — either way the job must not be charged on
+  // its own. 'batched' means the member folded into a batch parent; the parent
+  // holds the amount the customer was actually billed.
+  const invoiceSettled = job.invoice_status === "paid" || job.invoice_status === "batched";
+
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");
   const [cancelNote, setCancelNote] = useState("");
@@ -3981,8 +3987,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Start Job
             </button>
           )}
-          {/* Charge Client — owner/admin/office, completed jobs not yet charged */}
-          {canCharge && job.status === "complete" && !job.charge_succeeded_at && (
+          {/* Charge Client — owner/admin/office, completed jobs not yet collected.
+              [double-charge 2026-08-03] `charge_succeeded_at` only knows about
+              charges Qleno made, so it stays null when the office takes the
+              money in the Square app, marks the invoice paid by hand, or banks a
+              check — and the button stayed live next to a PAID badge. The
+              invoice status sitting right below is the authority on whether this
+              visit has been collected; a settled invoice hides the button. */}
+          {canCharge && job.status === "complete" && !job.charge_succeeded_at && !invoiceSettled && (
             <button onClick={openChargeModal}
               style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
               <DollarSign size={13} /> Charge Client
