@@ -1239,6 +1239,16 @@ export async function runRecurringJobGeneration() {
     try {
       const result = await generateRecurringJobs(Number(company.id), DAYS_AHEAD);
       total += result.jobs_created;
+      // [morning-report 2026-08-04] Say out loud what the run just did and
+      // whether anything is double-booked. Duplicates went unnoticed for two
+      // weeks because the only record of the nightly run was a log line.
+      // Never allowed to fail the generation it reports on.
+      try {
+        const { runMorningReport } = await import("./recurring-morning-report.js");
+        await runMorningReport(Number(company.id), result);
+      } catch (repErr: any) {
+        console.error(`[morning-report] company ${company.id} skipped:`, repErr?.message ?? repErr);
+      }
     } catch (err) {
       console.error(`[recurring-jobs] company ${company.id} failed:`, err);
     }

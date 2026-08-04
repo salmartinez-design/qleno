@@ -1106,6 +1106,27 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureCommissionOverrideColumn — non-fatal:", err?.message ?? err);
   }
+  // [recurring-uniqueness 2026-08-04] Unique indexes that make it PHYSICALLY
+  // impossible for the recurring engine to stack two visits on one house on one
+  // day, or for a target to hold two active schedules. Three app-level fixes
+  // (#1210, #1339, #1351) failed to hold because the rule only ever lived in
+  // application code. This one is enforced by Postgres.
+  //
+  // Failure here is logged with a LOUD marker + the exact blocking rows, not the
+  // usual quiet "non-fatal" line. An index that silently fails to create leaves
+  // the hole wide open while reading as done — the invoice_job_links lesson
+  // (#1349 shipped an empty ledger because its backfill error was swallowed).
+  try {
+    await withBootTimeout("ensureRecurringUniqueness", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureRecurringUniqueness } = await import("./lib/recurring-uniqueness-migrate.js");
+      await ensureRecurringUniqueness();
+    });
+  } catch (err: any) {
+    console.error(
+      "[startup] !!! ensureRecurringUniqueness FAILED — DUPLICATE-VISIT PROTECTION IS NOT ACTIVE:",
+      err?.message ?? err,
+    );
+  }
 }
 
 // [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration

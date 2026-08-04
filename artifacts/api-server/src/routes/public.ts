@@ -15,6 +15,7 @@ import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
 import { normalizeReferralSource } from "../lib/referral-source.js";
+import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 
 const router = Router();
 
@@ -1147,19 +1148,57 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       const recurAllowedHrs = (recurHours != null && Number(recurHours) > 0) ? Number(recurHours).toFixed(2) : null;
       try {
         const { recurringSchedulesTable } = await import("@workspace/db/schema");
-        const [recurSched] = await db.insert(recurringSchedulesTable).values({
-          company_id: Number(company_id),
-          customer_id: clientId,
-          frequency: normalizedFreq as any,
-          day_of_week: null,                 // null → cadence anchors on start_date's weekday
-          start_date: firstVisitDate as any,
-          end_date: null,
-          service_type: serviceTypeEnum,
-          scheduled_time: schedTimeVal as any,
-          duration_minutes: recurDurationMin,
-          base_fee: String(adjustedTotal),   // = the first job's agreed per-visit price
-          notes: `Created from online booking widget — customer selected ${normalizedFreq}.`,
-        }).returning();
+
+        // [recurring-uniqueness 2026-08-04] A returning customer who already
+        // repeats must NOT get a second series stood up beside the first — that
+        // is how one house ends up stacked on one day, and the DB now rejects it
+        // outright, which would have failed the whole booking. Adopt them into
+        // the schedule they already have.
+        //
+        // Deliberately reuse WITHOUT overwriting: this is a public, unauthenticated
+        // endpoint, so a widget selection must never rewrite the cadence, price, or
+        // visit length the office negotiated with an existing customer. The booked
+        // visit still lands on the date they picked; the office gets told about the
+        // mismatch rather than the system silently choosing a side.
+        const _existingSchedId = await findActiveScheduleForTarget(db, {
+          companyId: Number(company_id),
+          clientId,
+        });
+        let recurSched: any;
+        if (_existingSchedId) {
+          const existing = await db.execute(drizzleSql`
+            SELECT * FROM recurring_schedules WHERE id = ${_existingSchedId} LIMIT 1
+          `);
+          recurSched = (existing.rows as any[])[0];
+          console.log(`[online-recurring] client ${clientId} already has schedule ${_existingSchedId} (${recurSched?.frequency}) — adopting booking into it instead of creating a second series (widget asked for ${normalizedFreq})`);
+          if (recurSched?.frequency !== normalizedFreq) {
+            try {
+              await db.execute(drizzleSql`
+                INSERT INTO notifications (company_id, type, title, body, link)
+                VALUES (
+                  ${Number(company_id)}, 'recurring_report',
+                  ${"Online booking asked for a different frequency"},
+                  ${`This customer books ${recurSched?.frequency} with us, but chose ${normalizedFreq} online. Their existing schedule was left as-is — confirm which one is right.`},
+                  ${`/clients/${clientId}`}
+                )
+              `);
+            } catch { /* alert is best-effort; never fail a booking over it */ }
+          }
+        } else {
+          [recurSched] = await db.insert(recurringSchedulesTable).values({
+            company_id: Number(company_id),
+            customer_id: clientId,
+            frequency: normalizedFreq as any,
+            day_of_week: null,                 // null → cadence anchors on start_date's weekday
+            start_date: firstVisitDate as any,
+            end_date: null,
+            service_type: serviceTypeEnum,
+            scheduled_time: schedTimeVal as any,
+            duration_minutes: recurDurationMin,
+            base_fee: String(adjustedTotal),   // = the first job's agreed per-visit price
+            notes: `Created from online booking widget — customer selected ${normalizedFreq}.`,
+          }).returning();
+        }
 
         // Adopt the already-created first visit into the series (dedup skips this
         // slot; allowed_hours stamped so the first job's hours cell isn't blank).
@@ -1236,15 +1275,31 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       const lockExpiryStr = lockExpiry.toISOString().split("T")[0];
       const normalizedRecurFreq = normalizeFreq(upsellCadenceVal);
       try {
-        // Create recurring_schedule with actual start date
-        const recurSchedule = await db.execute(
-          drizzleSql`
-            INSERT INTO recurring_schedules (company_id, customer_id, frequency, start_date, service_type, base_fee, notes, is_active, created_at)
-            VALUES (${company_id}, ${clientId}, ${upsellCadenceVal}::recurring_frequency, ${lockStart}::date, ${"recurring"}, ${lockedRate}, ${"Upsell accepted from online booking widget."}, true, NOW())
-            RETURNING id
-          `
-        );
-        const scheduleId = (recurSchedule.rows[0] as any).id;
+        // [recurring-uniqueness 2026-08-04] Reuse the customer's active schedule
+        // if they already have one. A customer who already repeats shouldn't have
+        // been shown a convert-to-recurring upsell at all, so this is the rare
+        // case — but an unguarded insert would now be rejected by the DB and take
+        // the whole accepted upsell down with it. The rate lock below attaches to
+        // whichever schedule is the real one, so the price they were promised
+        // still binds. Cadence is left as the office set it (public endpoint).
+        let scheduleId: number;
+        const _existingUpsellSched = await findActiveScheduleForTarget(db, {
+          companyId: Number(company_id),
+          clientId,
+        });
+        if (_existingUpsellSched) {
+          scheduleId = _existingUpsellSched;
+          console.log(`[online-upsell] client ${clientId} already had schedule ${scheduleId} — attaching the rate lock to it instead of creating a second series`);
+        } else {
+          const recurSchedule = await db.execute(
+            drizzleSql`
+              INSERT INTO recurring_schedules (company_id, customer_id, frequency, start_date, service_type, base_fee, notes, is_active, created_at)
+              VALUES (${company_id}, ${clientId}, ${upsellCadenceVal}::recurring_frequency, ${lockStart}::date, ${"recurring"}, ${lockedRate}, ${"Upsell accepted from online booking widget."}, true, NOW())
+              RETURNING id
+            `
+          );
+          scheduleId = Number((recurSchedule.rows[0] as any).id);
+        }
         await db.execute(
           drizzleSql`
             INSERT INTO rate_locks (company_id, client_id, recurring_schedule_id, locked_rate, cadence, lock_start_date, lock_expires_at, active, created_at)
