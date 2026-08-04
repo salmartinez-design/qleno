@@ -2138,4 +2138,64 @@ router.post(
   },
 );
 
+// [inline-mileage-confirm 2026-07-23] Apply pending mileage straight from the
+// payroll screen, by DATE RANGE (+ optional user) — no separate review page,
+// no pay_period_id lookup. The mileage-review page filters legs by
+// pay_period_id, but the compute tagged them to a period that doesn't line up
+// with the payroll screen's date window, so that page showed 0 legs and the
+// mileage was un-applyable (Sal: "where is the review? I can't click into it").
+// This matches legs the SAME way the payroll screen does — leg_date in range —
+// so what the office sees is exactly what confirms. computed OR reviewed legs
+// both apply (a one-click confirm = review + apply). Applied/discarded are
+// skipped. A leg whose period is already approved/exported is skipped, not
+// force-applied. Owner/admin only, same as the per-leg apply.
+router.post("/mileage/confirm-range", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const { pay_period_start, pay_period_end, user_id } = req.body ?? {};
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(String(pay_period_start)) || !dateRe.test(String(pay_period_end))) {
+      return badRequest(res, "pay_period_start and pay_period_end (YYYY-MM-DD) required");
+    }
+    const conds = [
+      eq(mileageLegsTable.company_id, companyId),
+      gte(mileageLegsTable.leg_date, String(pay_period_start)),
+      lte(mileageLegsTable.leg_date, String(pay_period_end)),
+      inArray(mileageLegsTable.status, ["computed", "reviewed"]),
+    ];
+    if (user_id != null && Number.isFinite(Number(user_id))) {
+      conds.push(eq(mileageLegsTable.user_id, Number(user_id)));
+    }
+    const legs = await db.select().from(mileageLegsTable).where(and(...conds));
+
+    const applied: Array<{ leg_id: number; pay_adjustment_id: number; user_id: number; amount: string }> = [];
+    const skipped: Array<{ leg_id: number; reason: string }> = [];
+    const periodCache = new Map<number, any>();
+    for (const leg of legs) {
+      // Don't move money into a locked period.
+      let period = periodCache.get(leg.pay_period_id);
+      if (period === undefined) { period = await loadPeriod(companyId, leg.pay_period_id); periodCache.set(leg.pay_period_id, period); }
+      if (period && (period.status === "approved" || period.status === "exported")) {
+        skipped.push({ leg_id: leg.id, reason: `period ${period.status}` });
+        continue;
+      }
+      const r = await applyLegInternal(companyId, userId, leg);
+      applied.push({ ...r, user_id: leg.user_id, amount: String(leg.amount) });
+    }
+    const total = applied.reduce((s, a) => s + Number(a.amount || 0), 0);
+    return res.json({
+      data: {
+        applied_count: applied.length,
+        skipped_count: skipped.length,
+        total_amount: Math.round(total * 100) / 100,
+        applied, skipped,
+      },
+    });
+  } catch (err) {
+    console.error("POST /pay/mileage/confirm-range:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to confirm mileage" });
+  }
+});
+
 export default router;
