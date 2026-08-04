@@ -6,6 +6,7 @@ import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
 import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
+import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 
 const router = Router();
 
@@ -109,10 +110,21 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     // [biweekly-fix 2026-07-27] Canonicalize every_2_weeks -> biweekly so the
     // recurring_frequency enum insert doesn't reject it (and the engine agrees).
     const frequency = normalizeRecurringFreq(frequencyRaw);
-    const [row] = await db.insert(recurringSchedulesTable).values({
-      company_id: req.auth!.companyId,
+
+    // [recurring-uniqueness 2026-08-04] One active schedule per client, enforced
+    // in the DB. Calling this endpoint for a client who already repeats is a
+    // cadence CHANGE, not a request for a second parallel series — so update the
+    // existing row rather than inserting a second one that Postgres would now
+    // reject outright. skipped_dates is intentionally left alone: the client's
+    // deleted/skipped visits must not come back because the cadence changed.
+    const _existingId = await findActiveScheduleForTarget(db, {
+      companyId: req.auth!.companyId!,
+      clientId: Number(customer_id),
+    });
+    const _values = {
+      company_id: req.auth!.companyId!,
       customer_id,
-      frequency,
+      frequency: frequency as any, // normalizeRecurringFreq returns string; column wants the enum union
       day_of_week: day_of_week || null,
       start_date,
       end_date: end_date || null,
@@ -121,7 +133,17 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       duration_minutes: duration_minutes || null,
       base_fee: base_fee || null,
       notes: notes || null,
-    }).returning();
+    };
+    const [row] = _existingId
+      ? await db.update(recurringSchedulesTable).set(_values)
+          .where(and(
+            eq(recurringSchedulesTable.id, _existingId),
+            eq(recurringSchedulesTable.company_id, req.auth!.companyId!),
+          )).returning()
+      : await db.insert(recurringSchedulesTable).values(_values).returning();
+    if (_existingId) {
+      console.log(`[recurring create] client ${customer_id} already had schedule ${_existingId} — updated it instead of creating a duplicate`);
+    }
 
     // [scheduling-engine 2026-04-29] Synchronously generate the next
     // 90 days of occurrences so the dispatch board, the client

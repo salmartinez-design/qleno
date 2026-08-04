@@ -25,6 +25,7 @@ import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import multer from "multer";
 import crypto from "node:crypto";
 import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
+import { tombstoneJobOccurrence, findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 
 // [photos-r2 2026-06-24] In-memory upload buffer for job photos → streamed to
 // R2. 15 MB cap (phone photos run a few MB). Accept only images.
@@ -796,9 +797,21 @@ router.post("/", requireAuth, async (req, res) => {
           if (p) { _svcStreet = p.address ?? null; _svcCity = p.city ?? null; _svcState = p.state ?? null; _svcZip = p.zip ?? null; }
         }
 
-        const [sched] = await db
-          .insert(recurringSchedulesTable)
-          .values({
+        // [recurring-uniqueness 2026-08-04] Reuse the target's existing active
+        // schedule instead of standing up a second one beside it. This path used
+        // to INSERT unconditionally, so creating a job with a cadence for a client
+        // who ALREADY repeats produced a parallel series — the Kathryn Galley
+        // shape (six active schedules, six staggered anchors, all six converging
+        // on 2026-10-29). The uniqueness index now rejects the second row, so an
+        // unguarded insert here would 500 instead of duplicating; either way the
+        // office's intent is a cadence CHANGE, not a second series, so the
+        // existing row is updated to the cadence they just picked. Same rule the
+        // quote re-book path already follows.
+        //
+        // skipped_dates is deliberately NOT in the value set — the existing
+        // schedule's tombstones (visits the office deleted or skipped) must
+        // survive a cadence change, or the next run resurrects every one of them.
+        const _schedValues = {
             company_id: req.auth!.companyId!,
             customer_id: _scheduleCustomerId,
             frequency: frequency as any, // narrowed to string; column wants the freq enum union
@@ -825,8 +838,32 @@ router.post("/", requireAuth, async (req, res) => {
             service_address_city: _svcCity,
             service_address_state: _svcState,
             service_address_zip: _svcZip,
-          })
-          .returning();
+        };
+
+        const _existingSchedId = await findActiveScheduleForTarget(db, {
+          companyId: req.auth!.companyId!,
+          clientId: _scheduleCustomerId ?? null,
+          accountId: account_id || null,
+          accountPropertyId: account_property_id || null,
+        });
+
+        const [sched] = _existingSchedId
+          ? await db
+              .update(recurringSchedulesTable)
+              .set(_schedValues)
+              .where(and(
+                eq(recurringSchedulesTable.id, _existingSchedId),
+                eq(recurringSchedulesTable.company_id, req.auth!.companyId!),
+              ))
+              .returning()
+          : await db
+              .insert(recurringSchedulesTable)
+              .values(_schedValues)
+              .returning();
+
+        if (_existingSchedId) {
+          console.log(`[job-create recurrence] reused existing schedule ${_existingSchedId} instead of creating a duplicate series`);
+        }
 
         // Link THIS job as the first occurrence so the generator dedupe skips it.
         // [recurring-dup-fix 2026-07-13] Also stamp occurrence_date (= its own
@@ -2446,11 +2483,25 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // the pgEnum types for frequency / day_of_week) and binds
         // each value as exactly one parameter. Same pattern as
         // POST /api/recurring (routes/recurring.ts:54-66).
-        const [insertedRow] = await tx
-          .insert(recurringSchedulesTable)
-          .values({
-            company_id: companyId,
-            customer_id: Number(before.client_id),
+        // [no-parallel-schedules 2026-08-04] Reuse the target's existing active
+        // schedule instead of inserting a second one. This branch used to
+        // INSERT unconditionally, so every "make this recurring" save produced
+        // a NEW parallel series anchored to that job's date. Six saves on
+        // Kathryn Galley across five minutes on 2026-07-27 gave her six active
+        // biweekly schedules; they converged on 2026-10-29 and the nightly
+        // engine put six visits on her house that day. Updating the existing
+        // schedule in place is what the office believes it is doing when it
+        // edits a recurrence — a second row was never the intent.
+        const existingScheduleId = await findActiveScheduleForTarget(tx, {
+          companyId,
+          clientId: before.client_id != null ? Number(before.client_id) : null,
+          accountId: (before as any).account_id ?? null,
+          accountPropertyId: (before as any).account_property_id ?? null,
+        });
+
+        const scheduleValues = {
+          company_id: companyId,
+          customer_id: Number(before.client_id),
             frequency: fmap.f as any,
             // [monthly-weekday 2026-07-21] Prefer the explicit weekday the modal
             // sent for a monthly_weekday cadence; otherwise anchor on the date's
@@ -2470,12 +2521,31 @@ router.patch("/:id", requireAuth, async (req, res) => {
             notes: effectiveNotes,
             instructions: effectiveNotes,
             is_active: true,
-            parking_fee_enabled: effParkingEnabled,
-            parking_fee_amount: effParkingAmount,
-            parking_fee_days: effParkingDays,
-          })
-          .returning({ id: recurringSchedulesTable.id });
-        createdScheduleId = Number(insertedRow.id);
+          parking_fee_enabled: effParkingEnabled,
+          parking_fee_amount: effParkingAmount,
+          parking_fee_days: effParkingDays,
+        };
+
+        if (existingScheduleId != null) {
+          // Re-anchor the existing series on this job's date and adopt the new
+          // cadence. company_id / customer_id are identity, not settings — they
+          // stay put so the row keeps its tenant scoping.
+          const { company_id: _c, customer_id: _u, ...updatable } = scheduleValues as any;
+          await tx
+            .update(recurringSchedulesTable)
+            .set(updatable)
+            .where(and(
+              eq(recurringSchedulesTable.id, existingScheduleId),
+              eq(recurringSchedulesTable.company_id, companyId),
+            ));
+          createdScheduleId = existingScheduleId;
+        } else {
+          const [insertedRow] = await tx
+            .insert(recurringSchedulesTable)
+            .values(scheduleValues as any)
+            .returning({ id: recurringSchedulesTable.id });
+          createdScheduleId = Number(insertedRow.id);
+        }
         setParts.recurring_schedule_id = createdScheduleId;
       }
 
@@ -3888,33 +3958,14 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // auto-restored"). Resolve an unlinked occurrence to its target schedule the
     // same way the cancellation SKIP flow does (routes/cancellation.ts), then
     // tombstone that schedule so the delete sticks.
+    //
+    // [tombstone-both-dates 2026-08-04] Delegated to the shared writer. It
+    // tombstones BOTH the cadence slot and the day the visit actually sits on
+    // (a moved visit differs), across EVERY schedule that could regenerate the
+    // slot — not just the arbitrary `LIMIT 1` one this used to pick. See
+    // lib/recurring-tombstone.ts for the two defects that motivated it.
     async function tombstoneOccurrence(exec: any = db) {
-      const skipDate = recurInfo?.occ ?? recurInfo?.sched;
-      if (!skipDate) return;
-      let sid = recurInfo?.recurring_schedule_id ?? null;
-      if (sid == null) {
-        const acctId = recurInfo?.account_id ?? null;
-        const sres = await exec.execute(sql`
-          SELECT id FROM recurring_schedules
-           WHERE company_id = ${companyId}
-             AND (is_active OR paused_by_suspension)
-             AND ${acctId != null
-               ? sql`account_id = ${acctId} AND account_property_id IS NOT DISTINCT FROM ${recurInfo?.account_property_id ?? null}`
-               : sql`customer_id = ${recurInfo?.client_id ?? null}`}
-           ORDER BY is_active DESC, id DESC
-           LIMIT 1
-        `);
-        sid = (sres.rows[0] as any)?.id ?? null;
-      }
-      if (sid != null) {
-        await exec.execute(sql`
-          UPDATE recurring_schedules
-          SET skipped_dates = ARRAY(
-            SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
-          )
-          WHERE id = ${sid} AND company_id = ${companyId}
-        `);
-      }
+      await tombstoneJobOccurrence(exec, companyId!, recurInfo);
     }
 
     // [delete-any-job 2026-06-05] Unified delete. Previously the plain path
