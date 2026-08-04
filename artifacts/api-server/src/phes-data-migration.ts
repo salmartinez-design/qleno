@@ -2117,9 +2117,19 @@ async function runBookingSchemaGuard(): Promise<void> {
     // unique index can never be violated mid-backfill.
     // The `~ '^[0-9]+$'` guard before ::int is load-bearing — a bare cast over
     // mixed jsonb 500s the whole statement (the #1146 comm-log regression).
+    // The `NULL::numeric` cast is load-bearing. A bare NULL in a SELECT list is
+    // type `unknown`, which Postgres resolves to `text` here and then refuses:
+    // "column amount is of type numeric but expression is of type text". The
+    // per-statement catch below logged that as non-fatal and carried on, so this
+    // backfill threw on EVERY boot since it shipped and invoice_job_links stayed
+    // empty company-wide — while the uninvoiced-jobs queue, the Generate Invoice
+    // button and the completion engine had already switched to reading it as
+    // THE dedup predicate. An empty ledger means every already-invoiced visit
+    // reads as unbilled, which is the KMA double-bill re-armed. Verified on
+    // production 2026-08-03: 0 rows present, 1150 expected.
     { label: "backfill invoice_job_links", stmt: `
       INSERT INTO invoice_job_links (company_id, invoice_id, job_id, amount, is_live)
-      SELECT DISTINCT i.company_id, i.id, cov.job_id, NULL, FALSE
+      SELECT DISTINCT i.company_id, i.id, cov.job_id, NULL::numeric, FALSE
         FROM invoices i
         CROSS JOIN LATERAL (
           SELECT i.job_id AS job_id WHERE i.job_id IS NOT NULL

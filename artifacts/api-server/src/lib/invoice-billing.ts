@@ -29,6 +29,28 @@ import { getNextInvoiceNumber } from "./invoice-number.js";
 type Executor = { execute: (q: any) => Promise<any> };
 const ex = (tx?: Executor): Executor => tx ?? (db as unknown as Executor);
 
+// Drizzle's `sql` template does NOT bind a JS array as one array parameter — it
+// spreads the elements into separate placeholders. So `= ANY(${ids}::int[])`
+// emits `ANY(($2)::int[])` for one id (Postgres: malformed array literal: "9099")
+// and `ANY(($2, $3)::int[])` for two (cannot cast type record to integer[]).
+// BOTH throw — the pattern never works, at any length.
+//
+// That is what broke Heritage's "Consolidate 4" button on 2026-08-03: every
+// per-visit invoice called setInvoiceCoverage with a single job, hit the
+// one-element form, and the 500 surfaced as "Failed to generate invoice".
+// Same trap already documented at routes/users.ts:189 and routes/sms.ts:379.
+//
+// Every id list in this file goes through here instead: a real parameterized IN
+// list, one placeholder per value, values coerced to numbers so nothing but a
+// number can reach the query. Callers all guard against empty lists; if one ever
+// slips through, `IN (NULL)` matches nothing — which fails CLOSED in both
+// directions (an empty NOT IN deletes nothing rather than everything).
+const idList = (ids: Array<number | string>) => {
+  const clean = ids.map(Number).filter((n) => Number.isFinite(n));
+  if (!clean.length) return sql`NULL`;
+  return sql.join(clean.map((n) => sql`${n}`), sql`, `);
+};
+
 export type CoveredJob = { job_id: number; amount?: string | number | null };
 
 export type LiveInvoice = {
@@ -108,7 +130,7 @@ export async function findLiveInvoicesForJobs(
       FROM invoice_job_links l
       JOIN invoices i ON i.id = l.invoice_id
      WHERE l.company_id = ${companyId} AND l.is_live
-       AND l.job_id = ANY(${jobIds}::int[])`);
+       AND l.job_id IN (${idList(jobIds)})`);
   for (const row of r.rows ?? []) out.set(Number(row.job_id), row);
   return out;
 }
@@ -134,7 +156,7 @@ export async function setInvoiceCoverage(
   if (keep.length) {
     await tx.execute(sql`
       DELETE FROM invoice_job_links
-       WHERE invoice_id = ${invoiceId} AND NOT (job_id = ANY(${keep}::int[]))`);
+       WHERE invoice_id = ${invoiceId} AND job_id NOT IN (${idList(keep)})`);
   } else {
     await tx.execute(sql`DELETE FROM invoice_job_links WHERE invoice_id = ${invoiceId}`);
     return;
@@ -297,7 +319,7 @@ export async function combineInvoices(opts: {
              billing_contact_name, billing_contact_email, bill_to_name,
              po_number, branch_id, payment_source
         FROM invoices
-       WHERE company_id = ${companyId} AND id = ANY(${ids}::int[])
+       WHERE company_id = ${companyId} AND id IN (${idList(ids)})
        ORDER BY id
        FOR UPDATE`);
     const members: any[] = mres.rows ?? [];
@@ -340,7 +362,7 @@ export async function combineInvoices(opts: {
     // which is exactly the lesson of #966's id-less line items.
     const lres: any = await tx.execute(sql`
       SELECT DISTINCT job_id FROM invoice_job_links
-       WHERE company_id = ${companyId} AND invoice_id = ANY(${ids}::int[])`);
+       WHERE company_id = ${companyId} AND invoice_id IN (${idList(ids)})`);
     for (const row of lres.rows ?? []) {
       const jid = Number(row.job_id);
       if (!covered.some((c) => c.job_id === jid)) covered.push({ job_id: jid });
@@ -357,7 +379,7 @@ export async function combineInvoices(opts: {
                COALESCE(p.property_name, NULLIF(TRIM(j.address_street), '')) AS place
           FROM jobs j
           LEFT JOIN account_properties p ON p.id = j.account_property_id
-         WHERE j.company_id = ${companyId} AND j.id = ANY(${jobIdsOnLines}::int[])`);
+         WHERE j.company_id = ${companyId} AND j.id IN (${idList(jobIdsOnLines)})`);
       const info = new Map<number, any>();
       for (const r of jres.rows ?? []) info.set(Number(r.id), r);
       for (const l of lines) {
@@ -385,8 +407,8 @@ export async function combineInvoices(opts: {
           FROM invoice_job_links l
           JOIN invoices i ON i.id = l.invoice_id
          WHERE l.company_id = ${companyId} AND l.is_live
-           AND l.job_id = ANY(${covered.map((c) => c.job_id)}::int[])
-           AND NOT (l.invoice_id = ANY(${ids}::int[]))
+           AND l.job_id IN (${idList(covered.map((c) => c.job_id))})
+           AND l.invoice_id NOT IN (${idList(ids)})
          LIMIT 3`);
       if (conflict.rows?.length) {
         const which = conflict.rows
@@ -429,14 +451,14 @@ export async function combineInvoices(opts: {
     await tx.execute(sql`
       UPDATE invoices
          SET status = 'batched', parent_invoice_id = ${parentId}, batch_status = 'batched'
-       WHERE company_id = ${companyId} AND id = ANY(${ids}::int[])`);
+       WHERE company_id = ${companyId} AND id IN (${idList(ids)})`);
 
     // Hand the money over: members go inert, then the parent claims the visits.
     // Order matters — the unique index would reject the parent's claim while a
     // member still held it, which is precisely the protection we want.
     await tx.execute(sql`
       UPDATE invoice_job_links SET is_live = FALSE
-       WHERE company_id = ${companyId} AND invoice_id = ANY(${ids}::int[])`);
+       WHERE company_id = ${companyId} AND invoice_id IN (${idList(ids)})`);
     await setInvoiceCoverage(tx, { companyId, invoiceId: parentId, jobs: covered, live: true });
 
     return {
@@ -471,10 +493,10 @@ export async function splitBatchInvoice(companyId: number, parentId: number): Pr
     await tx.execute(sql`DELETE FROM invoice_job_links WHERE invoice_id = ${parentId}`);
     await tx.execute(sql`
       UPDATE invoices SET status = 'sent', parent_invoice_id = NULL, batch_status = NULL
-       WHERE company_id = ${companyId} AND id = ANY(${memberIds}::int[])`);
+       WHERE company_id = ${companyId} AND id IN (${idList(memberIds)})`);
     await tx.execute(sql`
       UPDATE invoice_job_links SET is_live = TRUE
-       WHERE company_id = ${companyId} AND invoice_id = ANY(${memberIds}::int[])`);
+       WHERE company_id = ${companyId} AND invoice_id IN (${idList(memberIds)})`);
     await tx.execute(sql`
       UPDATE invoices SET status = 'void', batch_status = NULL
        WHERE company_id = ${companyId} AND id = ${parentId}`);
