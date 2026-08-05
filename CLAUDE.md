@@ -449,10 +449,12 @@ take a look at neighbors and fix the same problem if you see it.
    against production: 241 weekday-anchored dates planned, 0 on the wrong day.
    **Only `semi_monthly` and `monthly` WITH an explicit `days_of_month` may
    snap to a business day** — never plain `monthly`.
-   Residue: visits written on the old path before the fix reached production
-   still sit on the calendar (72 identified as extras wedged beside an intact
-   correct series; none carry money). Cleanup script:
-   `scratchpad/fix-drift2.mjs` (dry-run default, `--apply` to commit).
+   Residue is CLEANED (2026-08-04). Visits written on the old path before the
+   fix reached production have all been dealt with: 72 extras wedged beside an
+   intact correct series deleted, then a second pass deleted 16 more and moved 9
+   back onto the correct weekday. Past-dated visits were left alone. Backups
+   written before each pass. Company-wide off-weekday count is now 0 — do NOT
+   re-run a bulk cleanup looking for more.
 5. ~~"Cook County" prefix showing in address display~~ — FIXED (no such logic exists)
 6. ~~Callback button not clickable on Very Dirty flow~~ — FIXED (fully functional)
 7. ~~"onetime" showing instead of "One Time" in booking summary~~ — FIXED (wLabel mapper)
