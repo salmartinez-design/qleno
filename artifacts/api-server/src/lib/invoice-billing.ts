@@ -227,18 +227,41 @@ export async function ensurePerVisitInvoice(opts: {
   userId?: number | null;
   /** Re-bill a visit whose invoice was voided. Only ever set from an explicit office action. */
   force?: boolean;
+  /**
+   * [single-path 2026-08-05] Office-supplied overrides. These exist so the
+   * manual create route (POST /api/invoices) can delegate here instead of
+   * hand-rolling its own INSERT — which it did until now, writing no
+   * invoice_job_links row and therefore bypassing BOTH the unique index (S-1)
+   * and the integrity sweep's double-bill check. A duplicate created that way
+   * was invisible to every safety net in the system.
+   *
+   * Nothing here changes the dedup or coverage behaviour; they only affect the
+   * shape of the document once we've decided it may be created.
+   */
+  overrides?: {
+    /** 'net_30' | 'net_15' | 'net_7' | 'due_on_receipt' — beats the customer default. */
+    paymentTerms?: string | null;
+    /** Issue straight into A/R instead of parking a draft. */
+    issue?: boolean;
+    poNumber?: string | null;
+    billingContactName?: string | null;
+    billingContactEmail?: string | null;
+    tips?: number;
+  };
 }): Promise<{ invoiceId: number | null; created: boolean; reason?: string }> {
-  const { companyId, jobId, userId = null, force = false } = opts;
+  const { companyId, jobId, userId = null, force = false, overrides = {} } = opts;
   const state = await getVisitBillingState(companyId, jobId);
-  if (state.live) return { invoiceId: state.live.id, created: false };
+  if (state.live) return { invoiceId: state.live.id, created: false, reason: "already_invoiced" };
   if (state.voided && !force) return { invoiceId: null, created: false, reason: "voided" };
 
   const jr: any = await db.execute(sql`
     SELECT j.id, j.client_id, j.account_id, j.status::text AS status, j.scheduled_date,
            j.non_billable, j.invoice_hold,
-           COALESCE(a.payment_terms_days, c.payment_terms_days, 0) AS terms_days
+           COALESCE(a.payment_terms_days, c.payment_terms_days, 0) AS terms_days,
+           cl.payment_terms::text AS client_terms
       FROM jobs j
       LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN clients cl ON cl.id = j.client_id
       LEFT JOIN companies c ON c.id = j.company_id
      WHERE j.id = ${jobId} AND j.company_id = ${companyId}
      LIMIT 1`);
@@ -251,20 +274,38 @@ export async function ensurePerVisitInvoice(opts: {
   const built = await buildJobLineItems(companyId, jobId);
   const lines = (built?.lineItems ?? []).map((li: any) => ({ ...li, job_id: jobId }));
   const amount = built?.subtotal ?? 0;
+  const tips = Number(overrides.tips ?? 0) || 0;
+  const total = Math.round((amount + tips) * 100) / 100;
 
+  // Terms precedence: explicit override → account/company days → the client's
+  // own net terms. The last leg is why the route used to look up the client
+  // itself; keep it so residential net_15/net_30 clients don't silently fall
+  // back to due-on-receipt when the company default is 0.
   const termsDays = Number(job.terms_days ?? 0) || 0;
-  const terms = termsDays === 30 ? "net_30" : termsDays === 15 ? "net_15" : termsDays === 7 ? "net_7" : "due_on_receipt";
+  const terms = overrides.paymentTerms
+    || (termsDays === 30 ? "net_30" : termsDays === 15 ? "net_15" : termsDays === 7 ? "net_7" : null)
+    || job.client_terms
+    || "due_on_receipt";
   const sched = job.scheduled_date ? String(job.scheduled_date).slice(0, 10) : null;
+  const status = overrides.issue ? "sent" : "draft";
+  // [auto-issue 2026-07-08] sent_at stays NULL — every surface labels
+  // sent-with-no-sent_at as ISSUED, never SENT. Emailing is a human action.
+  // Only a draft is held for a cadence fold, so only a draft carries 'pending'.
+  const batchStatus = overrides.issue ? null : "pending";
 
   return await db.transaction(async (tx: any) => {
     const ins: any = await tx.execute(sql`
       INSERT INTO invoices (company_id, job_id, client_id, account_id, status, line_items,
-                            subtotal, total, due_date, service_date, payment_terms,
-                            batch_status, created_by)
-      VALUES (${companyId}, ${jobId}, ${job.client_id}, ${job.account_id}, 'draft',
-              ${JSON.stringify(lines)}::jsonb, ${amount.toFixed(2)}, ${amount.toFixed(2)},
+                            subtotal, tips, total, due_date, service_date, payment_terms,
+                            batch_status, po_number, billing_contact_name, billing_contact_email,
+                            created_by)
+      VALUES (${companyId}, ${jobId}, ${job.client_id}, ${job.account_id}, ${status},
+              ${JSON.stringify(lines)}::jsonb, ${amount.toFixed(2)}, ${tips.toFixed(2)},
+              ${total.toFixed(2)},
               ${dueDateFromTerms(terms, sched ? new Date(`${sched}T00:00:00.000Z`) : new Date())},
-              ${sched}, ${terms}, 'pending', ${userId})
+              ${sched}, ${terms}, ${batchStatus}, ${overrides.poNumber ?? null},
+              ${overrides.billingContactName ?? null}, ${overrides.billingContactEmail ?? null},
+              ${userId})
       RETURNING id`);
     const invoiceId = Number(ins.rows[0].id);
     const number = await getNextInvoiceNumber(companyId, invoiceId);

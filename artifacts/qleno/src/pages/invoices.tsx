@@ -519,25 +519,37 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number; current: string; errors: number } | null>(null);
-  const [summary, setSummary] = useState<{ created: number; errors: number; invoices: { id: number; clientName: string; amount: number }[] } | null>(null);
+  const [summary, setSummary] = useState<{ created: number; errors: number; skipped: number; invoices: { id: number; clientName: string; amount: number }[] } | null>(null);
 
   const { data: rawJobs = [], isLoading } = useQuery({
     queryKey: ["uninvoiced-jobs"],
     queryFn: () => apiFetch("/api/jobs?status=complete&uninvoiced=true&limit=200"),
   });
 
-  const jobs: any[] = useMemo(() => {
+  // [batch-scope 2026-08-05] Residential per-job work only — the same filter
+  // the "Not yet invoiced" panel on this page already applies. Commercial
+  // ACCOUNT jobs (PPM, Cucci, KMA) bill under their account, per-visit or via
+  // the cadence close; billing one here creates a document outside the bundle
+  // its account is going to fold. They also have no client_id, so they rendered
+  // as nameless rows — 64 of the 72 in this list were account visits.
+  const allJobs: any[] = useMemo(() => {
     const arr = Array.isArray(rawJobs) ? rawJobs : (rawJobs?.data || []);
-    if (!search.trim()) return arr;
-    return arr.filter((j: any) => (j.client_name || "").toLowerCase().includes(search.toLowerCase()));
-  }, [rawJobs, search]);
+    return arr.filter((j: any) => j.account_id == null);
+  }, [rawJobs]);
 
-  const allJobs: any[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs?.data || []);
-  const allSelected = allJobs.length > 0 && selected.size === allJobs.length;
+  const jobs: any[] = useMemo(() => {
+    if (!search.trim()) return allJobs;
+    return allJobs.filter((j: any) => (j.client_name || "").toLowerCase().includes(search.toLowerCase()));
+  }, [allJobs, search]);
+
+  // [select-all-scope 2026-08-05] Select All acts on what's ON SCREEN. It used
+  // to select every loaded job while the list rendered the filtered subset, so
+  // filtering to one client and hitting Select All quietly selected all of them.
+  const allSelected = jobs.length > 0 && jobs.every((j: any) => selected.has(j.id));
 
   function toggleAll() {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set(allJobs.map((j: any) => j.id)));
+    else setSelected(new Set(jobs.map((j: any) => j.id)));
   }
 
   function toggle(id: number) {
@@ -553,7 +565,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   async function handleGenerate() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    let created = 0; let errors = 0;
+    let created = 0; let errors = 0; let skipped = 0;
     const invoices: { id: number; clientName: string; amount: number }[] = [];
     setProgress({ done: 0, total: ids.length, current: "", errors: 0 });
 
@@ -566,12 +578,20 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
           method: "POST",
           body: JSON.stringify({ job_id: jobId, auto_send: false, auto_charge: false }),
         });
-        invoices.push({ id: inv.id, clientName: job?.client_name || `Job #${jobId}`, amount: parseFloat(job?.base_fee || "0") });
-        created++;
+        // [single-path 2026-08-05] The server now refuses to double-bill a visit
+        // and hands back the invoice that already covers it. Count that as
+        // skipped, not created — reporting it as a new draft is how the office
+        // ends up believing work was billed twice when it wasn't (and the
+        // reverse, when it was).
+        if (inv?.already_invoiced) skipped++;
+        else {
+          invoices.push({ id: inv.id, clientName: job?.client_name || `Job #${jobId}`, amount: parseFloat(inv?.total ?? job?.base_fee ?? "0") });
+          created++;
+        }
       } catch { errors++; }
-      setProgress(p => p ? { ...p, done: created + errors, errors } : null);
+      setProgress(p => p ? { ...p, done: created + skipped + errors, errors } : null);
     }
-    setSummary({ created, errors, invoices });
+    setSummary({ created, errors, skipped, invoices });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     qc.invalidateQueries({ queryKey: ["uninvoiced-jobs"] });
   }
@@ -609,6 +629,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                   </h3>
                   <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
                     Review each one, then send or charge from the invoice page.
+                    {summary.skipped > 0 && <span style={{ color: "#6B6860" }}> {summary.skipped} already had an invoice and {summary.skipped === 1 ? "was" : "were"} skipped.</span>}
                     {summary.errors > 0 && <span style={{ color: "#B3261E" }}> {summary.errors} failed.</span>}
                   </p>
                 </div>

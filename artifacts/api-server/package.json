@@ -18,7 +18,8 @@
     "test:optout": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/opt-out.test.ts",
     "test:isolation": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/tech-isolation.test.ts",
     "test:skip-normalize": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/recurring-skip-normalize.test.ts",
-    "test:payroll-metrics": "tsx --test src/tests/payroll-metrics-invariants.test.ts"
+    "test:payroll-metrics": "tsx --test src/tests/payroll-metrics-invariants.test.ts",
+    "test:billing": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/batch-invoicing.test.ts src/tests/billing-single-path.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

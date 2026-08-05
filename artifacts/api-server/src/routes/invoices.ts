@@ -14,7 +14,7 @@ import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 import { preserveJobIds } from "../lib/invoice-job-ids.js";
-import { combineInvoices, splitBatchInvoice, cascadeBatchPayment } from "../lib/invoice-billing.js";
+import { combineInvoices, splitBatchInvoice, cascadeBatchPayment, ensurePerVisitInvoice } from "../lib/invoice-billing.js";
 
 const router = Router();
 
@@ -295,48 +295,112 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
 
     let finalClientId = client_id;
     let finalLineItems = rawLineItems;
-    let jobRecord: any = null;
     let finalAccountId: number | null = null;
 
-    if (job_id && (!client_id || !rawLineItems)) {
-      const [job] = await db
-        .select({
-          id: jobsTable.id,
-          client_id: jobsTable.client_id,
-          account_id: jobsTable.account_id,
-          service_type: jobsTable.service_type,
-          base_fee: jobsTable.base_fee,
-          billed_amount: jobsTable.billed_amount,
-        })
-        .from(jobsTable)
-        .where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, req.auth!.companyId)))
-        .limit(1);
+    // [single-path 2026-08-05] A job-keyed invoice is created by ONE function,
+    // ensurePerVisitInvoice — the same one completion and the account button
+    // use (design D-3/D-6). This route used to build its own INSERT here, and
+    // that fork is what made the whole safety net decorative:
+    //
+    //   - it never checked getVisitBillingState, so it would happily mint a
+    //     second invoice for a visit that already had one;
+    //   - it never wrote an invoice_job_links row, so the partial unique index
+    //     (S-1 — "the only guarantee that doesn't depend on the next developer
+    //     knowing about this doc") had nothing to conflict with, and the
+    //     nightly integrity sweep's double-bill check could not see the
+    //     duplicate either. Both alarms read clean while the customer got two
+    //     invoices.
+    //   - for residential jobs it built its line from `base_fee` alone, so
+    //     every add-on and discount silently fell off the document.
+    //
+    // Delegating fixes all three at once. Ad-hoc invoices (client_id +
+    // explicit line_items, no job) keep the manual path below — there is no
+    // visit to claim coverage on.
+    //
+    // NARROWING: job_id now always routes here. The old guard was
+    // `job_id && (!client_id || !rawLineItems)`, so a caller could pass a
+    // job_id AND its own line_items and land in the manual path — creating a
+    // job-keyed invoice with no coverage claim, which is precisely the hole.
+    // Caller-supplied lines are ignored for job-keyed creates; the job's locked
+    // pricing is the source of truth. To adjust them, PUT line_items after.
+    //
+    // DELIBERATE DROP: the job path no longer runs the Stripe auto-charge block
+    // below. That block fired on any client with auto_charge + a Stripe
+    // customer REGARDLESS of whether the invoice was a draft, so "create a
+    // draft for review" could move money. Both callers (the batch selector and
+    // the job panel) send auto_send:false, so nothing in the UI ever wanted it,
+    // and card capture is Square's rail now anyway. Charging is an explicit
+    // action via /payments/charge-card.
+    if (job_id) {
+      const r = await ensurePerVisitInvoice({
+        companyId: req.auth!.companyId as number,
+        jobId: job_id,
+        userId: req.auth!.userId,
+        // [rebill 2026-08-05] D-5 makes void a tombstone, so the documented
+        // re-issue flow (void the wrong invoice, then re-create from the job)
+        // has to say out loud that it means to re-bill. `rebill: true` IS that
+        // explicit office action — without it a voided visit returns 409 and
+        // the office is told why, which is the whole point of the tombstone.
+        force: req.body?.rebill === true || req.body?.force === true,
+        overrides: {
+          paymentTerms: reqPaymentTerms || null,
+          issue: auto_send === true,
+          poNumber: po_number || null,
+          billingContactName: reqBillingName || null,
+          billingContactEmail: reqBillingEmail || null,
+          tips: tips || 0,
+        },
+      });
 
-      if (!job) return res.status(404).json({ error: "Not Found", message: "Job not found" });
-      jobRecord = job;
-      finalClientId = job.client_id;
-      finalAccountId = job.account_id ?? null;
-
-      // [account-invoice 2026-07-02] Account (commercial/PPM) jobs have NO
-      // client_id — their identity is the account. Build line items from the
-      // shared canonical builder (same as the completion auto-draft in
-      // ensure-invoice) so a manual "create invoice" / batch produces a real
-      // invoice billed to the account, instead of 400-ing on the missing
-      // client_id (the bug that left completed PPM turnovers uninvoiced).
-      if (finalAccountId) {
-        const built = await buildJobLineItems(req.auth!.companyId as number, job_id);
-        const amt = job.billed_amount ? parseFloat(job.billed_amount as string) : parseFloat(job.base_fee || "0");
-        finalLineItems = (built && built.lineItems.length)
-          ? built.lineItems
-          : [{ description: (job.service_type || "cleaning").replace(/_/g, " "), quantity: 1, unit_price: amt, total: amt }];
-      } else {
-        finalLineItems = [{
-          description: (job.service_type || "").replace(/_/g, " "),
-          quantity: 1,
-          rate: parseFloat(job.base_fee || "0"),
-          total: parseFloat(job.base_fee || "0"),
-        }];
+      // Refused. The visit is cancelled, non-billable, or deliberately voided
+      // (D-5: void is a tombstone — re-billing is an explicit office action,
+      // never a side effect of clicking Create).
+      if (!r.invoiceId) {
+        const status = r.reason === "job_not_found" ? 404 : 409;
+        const message =
+          r.reason === "job_not_found" ? "Job not found"
+          : r.reason === "cancelled" ? "This visit was cancelled — nothing to bill"
+          : r.reason === "non_billable" ? "This visit is marked non-billable (redo/guarantee)"
+          : r.reason === "voided" ? "This visit's invoice was voided. Re-billing it is an explicit action — resend with rebill: true to create a new one."
+          : "Could not create an invoice for this visit";
+        return res.status(status).json({ error: status === 404 ? "Not Found" : "Conflict", message, reason: r.reason });
       }
+
+      const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, r.invoiceId)).limit(1);
+
+      // Already covered by a live invoice. Hand back the one that exists rather
+      // than a duplicate — this is what makes the batch selector safe to click
+      // twice, and safe to click on a job whose draft the office forgot about.
+      if (!r.created) {
+        return res.status(200).json({
+          ...inv,
+          total: parseFloat(inv?.total || "0"),
+          already_invoiced: true,
+          message: `This visit is already on invoice ${inv?.invoice_number || r.invoiceId}`,
+        });
+      }
+
+      logAudit(req, "CREATE", "invoice", r.invoiceId, null, {
+        total: parseFloat(inv?.total || "0"), client_id: inv?.client_id ?? null,
+        account_id: inv?.account_id ?? null, job_id,
+      });
+      queueSync(() => syncInvoice(req.auth!.companyId as number, r.invoiceId!));
+
+      await db.insert(notificationLogTable).values({
+        company_id: req.auth!.companyId as number,
+        recipient: "system",
+        channel: "system",
+        trigger: "invoice_created",
+        status: "sent",
+        metadata: { invoice_id: r.invoiceId, amount: parseFloat(inv?.total || "0"), job_id } as any,
+      });
+
+      return res.status(201).json({
+        ...inv,
+        subtotal: parseFloat(inv?.subtotal || "0"),
+        tips: parseFloat(inv?.tips || "0"),
+        total: parseFloat(inv?.total || "0"),
+      });
     }
 
     if (!finalClientId && !finalAccountId) {

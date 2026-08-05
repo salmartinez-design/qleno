@@ -433,16 +433,24 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admi
       // [billing-cutover 2026-07-02] Pre-cutover jobs were invoiced + paid in
       // MaidCentral — never surface them as "not yet invoiced" in Qleno.
       conditions.push(gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE));
-      conditions.push(
-        notExists(
-          db.select({ id: invoicesTable.id })
-            .from(invoicesTable)
-            .where(and(
-              eq(invoicesTable.job_id, jobsTable.id),
-              inArray(invoicesTable.status, ["sent", "paid"])
-            ))
-        )
-      );
+      // [single-path 2026-08-05] THE dedup predicate (design D-3), shared with
+      // ensure-invoice, the account button, and the cadence close.
+      //
+      // Was `NOT EXISTS (… invoices WHERE job_id = j.id AND status IN
+      // ('sent','paid'))`, which answered a different question than every other
+      // billing surface and got two things wrong:
+      //   - a DRAFT read as un-billed, so the batch selector re-offered work
+      //     that already had an invoice (D-1's fix, missed here);
+      //   - a 'batched' member of a combined invoice read as un-billed too, so
+      //     every visit folded into a weekly/monthly bundle came straight back
+      //     into the queue as available to bill again.
+      // Both routes led to the same place: a second document for one dollar.
+      //
+      // invoice_job_links is the ledger, so 'void' correctly releases a visit
+      // (D-5 lets the office deliberately re-bill) while everything live holds.
+      conditions.push(sql`NOT EXISTS (
+        SELECT 1 FROM invoice_job_links l
+         WHERE l.company_id = ${req.auth!.companyId} AND l.job_id = ${jobsTable.id} AND l.is_live)`);
     }
 
     const jobs = await db
@@ -6350,7 +6358,12 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   if (query.payment_status === "paid") parts.push(sql`j.charge_succeeded_at IS NOT NULL`);
   else if (query.payment_status === "failed") parts.push(sql`j.charge_failed_at IS NOT NULL AND j.charge_succeeded_at IS NULL`);
   else if (query.payment_status === "unpaid") parts.push(sql`j.charge_succeeded_at IS NULL AND j.charge_failed_at IS NULL AND j.charge_attempted_at IS NULL`);
-  if (query.uninvoiced === "true") parts.push(sql`NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))`);
+  // [single-path 2026-08-05] THE dedup predicate (design D-3). See the long
+  // note on the same change in the GET / handler above — a draft counts as
+  // billed, and so does a 'batched' member of a combined invoice.
+  if (query.uninvoiced === "true") parts.push(sql`NOT EXISTS (
+    SELECT 1 FROM invoice_job_links l
+     WHERE l.company_id = ${companyId} AND l.job_id = j.id AND l.is_live)`);
   if (query.search) {
     const s = `%${String(query.search)}%`;
     parts.push(sql`(concat(c.first_name, ' ', c.last_name) ILIKE ${s} OR concat(u.first_name, ' ', u.last_name) ILIKE ${s} OR c.address ILIKE ${s} OR c.email ILIKE ${s} OR CAST(j.id AS TEXT) = ${String(query.search)})`);
@@ -6861,11 +6874,19 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
         return res.json({ success: true, affected: idList.length });
       }
       case "batch_invoice_preflight": {
+        // [single-path 2026-08-05] THE dedup predicate (design D-3). This is the
+        // "you're about to invoice N jobs, M already have invoices" confirmation,
+        // so asking the retired question here was the worst place to ask it: it
+        // counted drafts and 'batched' members as un-billed and told the office
+        // the batch was safe immediately before it wasn't.
+        const billed = sql`EXISTS (
+          SELECT 1 FROM invoice_job_links l
+           WHERE l.company_id = ${companyId} AND l.job_id = j.id AND l.is_live)`;
         const pf = await db.execute(sql`
           SELECT
-            COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))) AS to_invoice,
-            COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))) AS already_invoiced,
-            COALESCE(SUM(CAST(j.base_fee AS NUMERIC)) FILTER (WHERE NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))), 0) AS total_amount
+            COUNT(*) FILTER (WHERE NOT ${billed}) AS to_invoice,
+            COUNT(*) FILTER (WHERE ${billed}) AS already_invoiced,
+            COALESCE(SUM(CAST(j.base_fee AS NUMERIC)) FILTER (WHERE NOT ${billed}), 0) AS total_amount
           FROM jobs j WHERE j.id = ANY(${idList}::int[]) AND j.company_id = ${companyId}
         `);
         const r = (pf as any).rows?.[0] ?? {};
