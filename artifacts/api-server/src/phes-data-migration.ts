@@ -110,6 +110,74 @@ async function runBookingSchemaGuard(): Promise<void> {
     // default used for every job; a slug (jobs.service_type) is a package
     // override. The send path picks exact-match else the NULL default.
     { label: "notification_templates.service_type", stmt: "ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS service_type TEXT" },
+
+    // ── [customer-portal 2026-08-05] Portal identity ──────────────────────
+    // See docs/CUSTOMER_PORTAL_DESIGN.md. Residential and commercial customers
+    // share ONE login surface; who they are is here, what they may do is
+    // resolved from which column below is set. Creating the tables is inert on
+    // its own — nothing reads them until the portal auth routes land.
+    { label: "portal_provider enum", stmt: `DO $$ BEGIN
+        CREATE TYPE portal_provider AS ENUM ('google', 'apple');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$` },
+    { label: "portal_token_kind enum", stmt: `DO $$ BEGIN
+        CREATE TYPE portal_token_kind AS ENUM ('verify', 'reset', 'magic', 'impersonation');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$` },
+    { label: "portal_users", stmt: `
+      CREATE TABLE IF NOT EXISTS portal_users (
+        id                 SERIAL PRIMARY KEY,
+        company_id         INTEGER NOT NULL REFERENCES companies(id),
+        email              TEXT    NOT NULL,
+        name               TEXT,
+        password_hash      TEXT,
+        client_id          INTEGER REFERENCES clients(id),
+        account_contact_id INTEGER REFERENCES account_contacts(id),
+        is_active          BOOLEAN NOT NULL DEFAULT true,
+        email_verified_at  TIMESTAMP,
+        last_login_at      TIMESTAMP,
+        created_at         TIMESTAMP NOT NULL DEFAULT now(),
+        -- Exactly one attachment. This column IS the authorization story for a
+        -- portal session, so the database refuses a row that has both or
+        -- neither rather than trusting every future insert to remember.
+        CONSTRAINT portal_users_one_attachment CHECK (
+          (client_id IS NOT NULL AND account_contact_id IS NULL) OR
+          (client_id IS NULL AND account_contact_id IS NOT NULL)
+        )
+      )` },
+    // Email is unique per COMPANY, not globally — the same person may be a
+    // customer of two tenants. Lowercased so "Bob@" and "bob@" can't split.
+    { label: "portal_users email idx", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS portal_users_company_email_key ON portal_users (company_id, lower(email))" },
+    { label: "portal_users client idx", stmt: "CREATE INDEX IF NOT EXISTS portal_users_client_idx ON portal_users (client_id) WHERE client_id IS NOT NULL" },
+    { label: "portal_users contact idx", stmt: "CREATE INDEX IF NOT EXISTS portal_users_contact_idx ON portal_users (account_contact_id) WHERE account_contact_id IS NOT NULL" },
+    { label: "portal_identities", stmt: `
+      CREATE TABLE IF NOT EXISTS portal_identities (
+        id             SERIAL PRIMARY KEY,
+        company_id     INTEGER NOT NULL REFERENCES companies(id),
+        portal_user_id INTEGER NOT NULL REFERENCES portal_users(id) ON DELETE CASCADE,
+        provider       portal_provider NOT NULL,
+        subject        TEXT    NOT NULL,
+        created_at     TIMESTAMP NOT NULL DEFAULT now()
+      )` },
+    // Keyed on the provider's stable SUBJECT, never the email: users change
+    // emails at the provider, and Apple lets them hide behind a relay address.
+    { label: "portal_identities subject idx", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS portal_identities_provider_subject_key ON portal_identities (company_id, provider, subject)" },
+    { label: "portal_identities user idx", stmt: "CREATE INDEX IF NOT EXISTS portal_identities_user_idx ON portal_identities (portal_user_id)" },
+    { label: "portal_tokens", stmt: `
+      CREATE TABLE IF NOT EXISTS portal_tokens (
+        id                SERIAL PRIMARY KEY,
+        company_id        INTEGER NOT NULL REFERENCES companies(id),
+        portal_user_id    INTEGER NOT NULL REFERENCES portal_users(id) ON DELETE CASCADE,
+        kind              portal_token_kind NOT NULL,
+        -- Hashed at rest: a leaked row must not be a usable reset link. The raw
+        -- value exists only in the email that was sent.
+        token_hash        TEXT    NOT NULL,
+        expires_at        TIMESTAMP NOT NULL,
+        used_at           TIMESTAMP,
+        issued_by_user_id INTEGER REFERENCES users(id),
+        created_at        TIMESTAMP NOT NULL DEFAULT now()
+      )` },
+    { label: "portal_tokens hash idx", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS portal_tokens_hash_key ON portal_tokens (token_hash)" },
+    { label: "portal_tokens user idx", stmt: "CREATE INDEX IF NOT EXISTS portal_tokens_user_idx ON portal_tokens (portal_user_id)" },
+
     // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
     // building notes into every future job's per-visit note columns (see
     // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job
@@ -7258,6 +7326,38 @@ async function runNotificationTemplateSeed() {
 <p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) was <strong>denied</strong>.</p>
 <p style="margin:0 0 20px;color:#6B6860">{{decision_note}}</p>
 <p style="margin:0">Please reach out to the office with any questions.</p>`,
+        body_text: null,
+      },
+
+      // ── [customer-portal 2026-08-05] Portal invite + password reset ──────
+      // Both are TRANSACTIONAL: a customer clicked "forgot password", or the
+      // office deliberately invited them. They bypass the marketing comms gate
+      // (portal-auth.ts passes transactional=true), because a reset email that
+      // silently doesn't arrive is a customer locked out with no explanation.
+      {
+        trigger: "portal_invite", channel: "email",
+        subject: "Your {{company_name}} account is ready",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">We've set up an online account for you with {{company_name}}. You can see your upcoming visits, view and download your invoices, and pay online.</p>
+<p style="margin:0 0 24px">Choose a password to finish setting it up:</p>
+<div style="text-align:center;margin:0 0 24px">
+  <a href="{{portal_link}}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Set your password</a>
+</div>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 3 days. If it expires, use "Forgot password" on the sign-in page and we'll send a new one.</p>
+<p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
+        body_text: null,
+      },
+      {
+        trigger: "portal_password_reset", channel: "email",
+        subject: "Reset your {{company_name}} password",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 24px">Someone asked to reset the password for your {{company_name}} account. If that was you, choose a new one here:</p>
+<div style="text-align:center;margin:0 0 24px">
+  <a href="{{portal_link}}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset your password</a>
+</div>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 1 hour and can only be used once.</p>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email — your password hasn't changed.</p>
+<p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
         body_text: null,
       },
     ];

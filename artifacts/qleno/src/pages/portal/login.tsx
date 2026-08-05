@@ -11,6 +11,8 @@ export default function PortalLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [forgot, setForgot] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,16 +29,35 @@ export default function PortalLoginPage() {
     setError('');
     setSubmitting(true);
     try {
-      const r = await fetch(`${API}/api/portal/login`, {
+      const r = await fetch(`${API}/api/portal/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, company_slug: slug }),
       });
       const d = await r.json();
-      if (!r.ok) { setError(d.error || 'Login failed'); setSubmitting(false); return; }
+      if (!r.ok) { setError(d.message || d.error || 'Sign-in failed'); setSubmitting(false); return; }
       localStorage.setItem(`portal_token_${slug}`, d.token);
+      localStorage.setItem(`portal_caps_${slug}`, JSON.stringify(d.capabilities ?? {}));
       navigate(`/portal/${slug}/dashboard`);
     } catch { setError('Network error'); setSubmitting(false); }
+  }
+
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setError(''); setSubmitting(true);
+    try {
+      const r = await fetch(`${API}/api/portal/auth/forgot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, company_slug: slug }),
+      });
+      const d = await r.json();
+      // Always a success shape — the server will not confirm whether the
+      // address is on file, and neither does this copy.
+      setNotice(d.message || 'If that email has a login, a reset link is on its way');
+      setForgot(false);
+    } catch { setError('Network error'); }
+    finally { setSubmitting(false); }
   }
 
   const brandColor = company?.brand_color || 'var(--brand)';
@@ -62,8 +83,16 @@ export default function PortalLoginPage() {
             </div>
           )}
           <h2 style={{ fontSize:22, fontWeight:700, color:'#1A1917', margin:'0 0 6px 0' }}>{company?.name || 'Client Portal'}</h2>
-          <p style={{ fontSize:14, color:'#6B6860', margin:0 }}>Sign in to your client account</p>
+          <p style={{ fontSize:14, color:'#6B6860', margin:0 }}>
+            {forgot ? 'Enter your email and we will send a reset link' : 'Sign in to your account'}
+          </p>
         </div>
+
+        {notice && (
+          <div style={{ background:'#E6F6F1', border:'1px solid #C7E7DE', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
+            <p style={{ fontSize:13, color:'#0F7A63', margin:0 }}>{notice}</p>
+          </div>
+        )}
 
         {error && (
           <div style={{ background:'#FCEBEA', border:'1px solid #F1D0CB', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
@@ -71,20 +100,28 @@ export default function PortalLoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleLogin}>
+        <form onSubmit={forgot ? handleForgot : handleLogin}>
           <div style={{ marginBottom:14 }}>
             <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Email Address</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" required
               style={{ width:'100%', height:40, padding:'0 14px', border:'1px solid #E5E2DC', borderRadius:9, fontSize:14, color:'#1A1917', outline:'none', background:'#FFFFFF' }}/>
           </div>
-          <div style={{ marginBottom:24 }}>
-            <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-              style={{ width:'100%', height:40, padding:'0 14px', border:'1px solid #E5E2DC', borderRadius:9, fontSize:14, color:'#1A1917', outline:'none', background:'#FFFFFF' }}/>
-          </div>
+          {!forgot && (
+            <div style={{ marginBottom:24 }}>
+              <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
+                style={{ width:'100%', height:40, padding:'0 14px', border:'1px solid #E5E2DC', borderRadius:9, fontSize:14, color:'#1A1917', outline:'none', background:'#FFFFFF' }}/>
+            </div>
+          )}
           <button type="submit" disabled={submitting}
             style={{ width:'100%', height:46, background:brandColor, color:'#FFFFFF', border:'none', borderRadius:9, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-            {submitting ? 'Signing in…' : 'Sign In'}
+            {submitting ? (forgot ? 'Sending…' : 'Signing in…') : (forgot ? 'Send reset link' : 'Sign In')}
+          </button>
+
+          <button type="button"
+            onClick={() => { setForgot(f => !f); setError(''); setNotice(''); }}
+            style={{ display:'block', margin:'14px auto 0', background:'none', border:'none', padding:0, fontSize:13, color:'#6B6860', cursor:'pointer', fontFamily:'inherit', textDecoration:'underline' }}>
+            {forgot ? 'Back to sign in' : 'Forgot your password?'}
           </button>
         </form>
 
