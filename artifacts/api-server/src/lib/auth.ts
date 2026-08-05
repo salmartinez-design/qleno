@@ -59,6 +59,24 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = authHeader.substring(7);
   try {
     const payload = verifyToken(token);
+    // [portal-token-isolation 2026-08-05] A CUSTOMER portal token must never
+    // authenticate a STAFF endpoint. /api/portal/login signs a normal app JWT
+    // carrying role 'portal_client' (portal.ts), and this guard used to admit
+    // any valid token — so that customer token satisfied `requireAuth` on every
+    // staff route. ~320 routes are protected by requireAuth ALONE with no
+    // requireRole, and they scope by req.auth.companyId only. GET /invoices/:id
+    // is one: a logged-in customer could walk invoice ids and read every other
+    // customer's invoice in the tenant, PDF included.
+    //
+    // Rejected HERE rather than route-by-route because the leak is the absence
+    // of a check on hundreds of routes — an allowlist would have to be perfect
+    // forever. The portal is unaffected: routes/portal.ts runs its own
+    // requirePortalAuth, which verifies the token itself and never calls this.
+    // Anything the portal legitimately needs gets an explicit /api/portal route.
+    if (payload.role === "portal_client") {
+      res.status(403).json({ error: "Forbidden", message: "Portal sessions cannot access staff endpoints" });
+      return;
+    }
     req.auth = payload;
     // [accountant-readonly 2026-06-20] The 'accountant' role (external CPA) is
     // VIEW-ONLY across the entire app: permit safe read methods, reject every
