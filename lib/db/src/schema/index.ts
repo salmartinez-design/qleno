@@ -84,6 +84,7 @@ export * from "./event_timeclock";
 export * from "./account_rate_cards";
 export * from "./account_properties";
 export * from "./account_contacts";
+export * from "./portal";
 export * from "./document_templates";
 export * from "./document_signatures";
 export * from "./document_requests";

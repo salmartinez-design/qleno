@@ -41,8 +41,13 @@ if (!process.env.JWT_SECRET) {
 // truly stale (30-day-idle) pass routes to the login screen, never a blank
 // screen. Trade-off: no server-side revocation yet — a lost/offboarded device
 // stays valid until expiry. Add a revocation list as the proper follow-up.
-export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
+// [customer-portal 2026-08-05] `expiresIn` is optional and defaults to the same
+// 30 days, so every existing caller is unchanged. It exists because a CUSTOMER
+// portal session must not last 30 days: the 30-day lifetime is justified above
+// by a field tech's phone staying pinned to the app, which says nothing about a
+// customer's browser on an unknown device. The portal passes 12h.
+export function signToken(payload: AuthPayload, expiresIn: string = "30d"): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: expiresIn as any });
 }
 
 export function verifyToken(token: string): AuthPayload {
