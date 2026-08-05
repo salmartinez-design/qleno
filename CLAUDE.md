@@ -389,6 +389,16 @@ files or pays it.)*
 - Seed files must always use ON CONFLICT DO UPDATE — never plain INSERT
 - COMMS_ENABLED=false gate must never be bypassed — all SMS and email are suppressed until explicitly flipped to true in Railway env vars
 - EXCEPTION: Contact form at /api/contact must bypass COMMS_ENABLED gate — it is a direct inbound lead, not an automated communication
+- EXCEPTION (2026-08-05, Sal): customer-portal `portal_invite` and
+  `portal_password_reset` emails bypass the gate, same as the existing staff
+  password-reset / user-invite sends (`transactional: true` in
+  notificationService). Rationale: these are auth mail triggered by a deliberate
+  act — an office user clicking "Invite to portal", or a customer clicking
+  "forgot password". Silently dropping one leaves a customer locked out with no
+  explanation and no way to self-serve. **Consequence to know:** clicking Invite
+  emails a real customer even while COMMS_ENABLED=false mutes everything else.
+  These are the ONLY additions to this rule; anything automated or scheduled
+  still respects the gate.
 - Never mix the Ares project with Qleno/Phes
 
 ## Database Rules
