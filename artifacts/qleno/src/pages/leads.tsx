@@ -133,6 +133,7 @@ function actionLabel(type: string) {
     stage_contacted: "Status changed to Contacted", stage_quoted: "Status changed to Quoted",
     drip_enrolled: "Enrolled in drip", drip_stopped: "Drip stopped", drip_paused: "Drip paused",
     drip_touch_sent: "Drip message sent", assigned: "Assignee updated",
+    quote_created: "Quote created",
   } as Record<string, string>)[type] || type.replace(/_/g, " ");
 }
 
@@ -882,6 +883,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
   const [deleting, setDeleting] = useState(false);
   const [, navigate] = useLocation();
   const [sendingQuote, setSendingQuote] = useState(false);
+  const [openingWebQuote, setOpeningWebQuote] = useState(false);
 
   // Sync status if lead prop changes
   useEffect(() => { setEditStatus(lead.status); }, [lead.id, lead.status]);
@@ -910,6 +912,28 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
       onUpdated();
     } catch { toast({ title: "Failed to mark sent", variant: "destructive" }); }
     finally { setSendingQuote(false); }
+  }
+
+  // [web-quote-openable 2026-08-05] Open the price the visitor already saw on
+  // the website as a real, editable quote. The widget never wrote a quotes row
+  // for a price-but-didn't-pay visitor, so this tab could only show the number
+  // and a blank "Build a quote" (Maribel: "can't open and edit the quote to book
+  // it"). The server mints the quote from the captured snapshot on first click
+  // and returns the existing one after that, so this behaves exactly like the
+  // office-quote path from here on.
+  async function openWebQuote() {
+    setOpeningWebQuote(true);
+    try {
+      const r = await fetch(`${API}/api/leads/${lead.id}/web-quote`, { method: "POST", headers: getAuthHeaders() as HeadersInit });
+      if (!r.ok) throw new Error();
+      const { quote_id } = await r.json();
+      if (!quote_id) throw new Error();
+      onUpdated();
+      navigate(`/quotes/${quote_id}`);
+    } catch {
+      toast({ title: "Couldn't open the website quote", variant: "destructive" });
+      setOpeningWebQuote(false);
+    }
   }
 
   const { cfg } = leadSourceTag(lead);
@@ -1129,10 +1153,27 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                   </div>
                   <p style={{ fontSize: 11, color: "#9E9B94", margin: "12px 0 0", fontFamily: FF }}>"Mark as sent" starts the quote follow-up drip for this customer.</p>
                 </div>
+              ) : qprice > 0 ? (
+                // [web-quote-openable 2026-08-05] A website price is a quote —
+                // give it the same card and the same "Open / edit quote" button
+                // as an office quote. The first click mints the editable quote
+                // from the snapshot above (server-side, idempotent) and lands in
+                // the builder, so booking a web lead is one path, not two.
+                <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${qprice.toFixed(2)}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "3px 8px", borderRadius: 4, background: "#F0EEE9", color: "#6B6860", fontFamily: FF }}>Website</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {btn(openingWebQuote ? "Opening…" : "Open / edit quote", () => { if (!openingWebQuote) openWebQuote(); }, true)}
+                    {btn("Start a blank quote", () => navigate(`/quotes/new?lead_id=${lead.id}`))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "12px 0 0", fontFamily: FF }}>
+                    This is the price they saw on the website. Opening it makes an editable office quote with their details filled in — adjust it, then send or book it.
+                  </p>
+                </div>
               ) : (
                 <div style={{ textAlign: "center", padding: "30px 16px", color: "#9E9B94" }}>
-                  {qprice > 0 && <p style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: FF, margin: "0 0 4px" }}>${qprice.toFixed(2)}</p>}
-                  {qprice > 0 && <p style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, margin: "0 0 14px" }}>Online quote they saw on the website</p>}
                   <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No office quote for this lead yet.</p>
                   {btn("Build a quote", () => navigate(`/quotes/new?lead_id=${lead.id}`), true)}
                 </div>

@@ -10,6 +10,7 @@ import { ctDate, ctToday } from "../lib/ct-day.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { referralAliasPairs } from "../lib/referral-source.js";
+import { computePricing } from "../lib/pricing-engine.js";
 import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } from "../services/followUpService.js";
 
 const router = Router();
@@ -491,6 +492,179 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   } catch (err) {
     console.error("GET /leads/:id:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/web-quote ─────────────────────────────────────────────
+// [web-quote-openable 2026-08-05] Turn the price a website visitor already saw
+// into a REAL, editable office quote.
+//
+// The booking widget never wrote a `quotes` row for a visitor who priced but
+// didn't pay — the number lived only on `leads.quote_amount` + `leads.details`.
+// So the lead's Quote tab could show "$736.00 / Online quote they saw on the
+// website" with no way to open it, and the office's only option was "Build a
+// quote" from a blank builder (Maribel: "can't open and edit the quote to book
+// it" — Marian Jackson, who then booked anyway). This mints the quote on first
+// click from the captured snapshot, so a web lead lands in exactly the same
+// Open / edit quote → adjust → send/convert flow as an office lead.
+//
+// Idempotent: if the lead already has a quote (this endpoint, lead-sync, or a
+// completed booking) it returns that one instead of creating a duplicate.
+router.post("/:id/web-quote", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!; const userId = req.auth!.userId;
+    const leadId = parseInt(req.params.id);
+    if (!Number.isFinite(leadId)) return res.status(400).json({ error: "Bad request", message: "Invalid lead id" });
+
+    const leadRows = await db.execute(sql`
+      SELECT * FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`);
+    const lead: any = leadRows.rows[0];
+    if (!lead) return res.status(404).json({ error: "Not found" });
+
+    const existing = await db.execute(sql`
+      SELECT id FROM quotes WHERE company_id = ${companyId} AND lead_id = ${leadId}
+       ORDER BY created_at DESC LIMIT 1`);
+    if (existing.rows.length) {
+      return res.json({ quote_id: (existing.rows[0] as any).id, created: false });
+    }
+
+    const d: any = lead.details && typeof lead.details === "object" ? lead.details : {};
+    const num = (v: any) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+    const str = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    // The lead columns are often NULL on widget leads (the snapshot is the
+    // carrier) — fall back to `details` exactly like the builder's prefill does.
+    const sqftVal = num(lead.sqft) ?? num(d.sqft);
+    const bedroomsVal = num(lead.bedrooms) ?? num(d.bedrooms);
+    const bathroomsVal = num(lead.bathrooms) ?? num(d.bathrooms);
+    const frequencyVal = str(d.frequency);
+    const scopeName = str(lead.scope);
+    const amount = lead.quote_amount != null && !isNaN(Number(lead.quote_amount)) ? Number(lead.quote_amount) : null;
+    const referralRaw = str(lead.referral_source) ?? str(d.referral_source);
+    const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ").trim() || null;
+
+    // "How did you hear about us?" is a REQUIRED picker in the builder, and its
+    // option values are `acquisition_sources.slug`. Widget leads store the
+    // display NAME ("Google Ads"), so handing that through verbatim leaves the
+    // required field empty and the office has to re-answer a question the
+    // customer already answered. Match on slug OR name, and drop anything the
+    // tenant's list doesn't know rather than storing a value no picker can show.
+    let referral: string | null = null;
+    if (referralRaw) {
+      const rs = await db.execute(sql`
+        SELECT slug FROM acquisition_sources
+         WHERE company_id = ${companyId}
+           AND (LOWER(slug) = LOWER(${referralRaw}) OR LOWER(name) = LOWER(${referralRaw}))
+         ORDER BY is_active DESC, display_order ASC LIMIT 1`);
+      referral = (rs.rows[0] as any)?.slug ?? null;
+    }
+
+    // `leads.scope` carries the frequency-matched scope NAME the widget priced
+    // with (see book.tsx capScopeName), so a name match gives the builder the
+    // right scope + pricing method and it re-prices live on open. Prefer an
+    // active scope — Phes has retired duplicates of the same name (Deep Clean).
+    let scopeId: number | null = null;
+    let pricingMethod: string | null = null;
+    if (scopeName) {
+      const s = await db.execute(sql`
+        SELECT id, pricing_method FROM pricing_scopes
+         WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${scopeName})
+         ORDER BY is_active DESC, id ASC LIMIT 1`);
+      const row: any = s.rows[0];
+      if (row) { scopeId = row.id; pricingMethod = row.pricing_method ?? null; }
+    }
+
+    // Add-ons are captured as display NAMES; map them back to ids so the
+    // builder restores the checkboxes (it reads addons[].id).
+    const addonNames: string[] = Array.isArray(d.add_ons)
+      ? d.add_ons.filter((n: any) => typeof n === "string" && n.trim()).slice(0, 20).map((n: string) => n.trim())
+      : [];
+    let addonRows: Array<{ id: number; name: string }> = [];
+    if (addonNames.length) {
+      // NOTE: never `= ANY(${jsArray})` here — that binding silently fails.
+      const rows = await db.execute(sql`
+        SELECT id, name FROM pricing_addons
+         WHERE company_id = ${companyId}
+           AND LOWER(name) IN (${sql.join(addonNames.map(n => sql`${n.toLowerCase()}`), sql`, `)})`);
+      addonRows = (rows.rows as any[]).map(a => ({ id: a.id, name: a.name }));
+    }
+    const unmatchedAddons = addonNames.filter(n =>
+      !addonRows.some(a => a.name.toLowerCase() === n.toLowerCase()));
+
+    // Price through the SHARED engine (lib/pricing-engine), the same one the
+    // website and the builder use, so the quote carries a real breakdown:
+    // base + each add-on's own amount. Storing the website total as `base_price`
+    // with zero-priced add-ons would total correctly but read as a lie on the
+    // quote page ("Base $526, Oven Cleaning +$0.00"), and the builder would
+    // silently disagree the moment it re-priced on open.
+    let basePrice = amount;
+    let totalPrice = amount;
+    let addonsJson: any[] = addonRows.map(a => ({ id: a.id, name: a.name }));
+    let priced: any = null;
+    if (scopeId) {
+      try {
+        priced = await computePricing({
+          company_id: companyId,
+          scope_id: scopeId,
+          frequency: frequencyVal,
+          sqft: sqftVal,
+          addon_ids: addonRows.map(a => a.id),
+        });
+        basePrice = priced.base_price;
+        totalPrice = priced.final_total;
+        addonsJson = (priced.addon_breakdown ?? []).map((a: any) => ({
+          id: a.id, qty: a.qty ?? 1, name: a.name, amount: a.amount,
+          price_type: a.price_type, every_visit: true,
+        }));
+      } catch (err) {
+        // Pricing rows can be missing/retired for an old lead — fall back to the
+        // flat website total rather than refusing to open the quote.
+        console.error(`[web-quote] repricing lead ${leadId} failed, using website total:`, err);
+      }
+    }
+    // Honest about drift: if today's prices don't reproduce what the visitor was
+    // shown, the office needs to SEE that, not have it quietly papered over.
+    const drifted = amount != null && totalPrice != null && Math.abs(totalPrice - amount) >= 0.01;
+
+    const home = [
+      bedroomsVal ? `${bedroomsVal} bed` : null,
+      bathroomsVal ? `${bathroomsVal} bath` : null,
+      sqftVal ? `${sqftVal} sq ft` : null,
+    ].filter(Boolean).join(", ");
+
+    // Provenance trail — internal only, so it never prints on the customer PDF.
+    const seen = [
+      `Created from the website quote this visitor saw${amount != null ? ` — $${amount.toFixed(2)}` : ""}.`,
+      scopeName ? `Service: ${scopeName}${frequencyVal ? ` (${frequencyVal})` : ""}.` : null,
+      home ? `${home}.` : null,
+      addonNames.length ? `Add-ons: ${addonNames.join(", ")}.` : null,
+      unmatchedAddons.length ? `Add-ons with no current price row (re-add manually): ${unmatchedAddons.join(", ")}.` : null,
+      drifted ? `Heads up: current pricing works out to $${Number(totalPrice).toFixed(2)}, not the $${Number(amount).toFixed(2)} they saw — check before sending.` : null,
+    ].filter(Boolean).join(" ");
+
+    const inserted = await db.execute(sql`
+      INSERT INTO quotes (
+        company_id, lead_id, client_id, lead_name, lead_email, lead_phone, address,
+        service_type, frequency, scope_id, pricing_method,
+        sqft, bedrooms, bathrooms, addons, estimated_hours,
+        base_price, total_price, referral_source, internal_memo,
+        status, created_by, created_at
+      ) VALUES (
+        ${companyId}, ${leadId}, ${lead.client_id ?? null}, ${name}, ${lead.email ?? null}, ${lead.phone ?? null}, ${lead.address ?? null},
+        ${scopeName}, ${frequencyVal}, ${scopeId}, ${pricingMethod},
+        ${sqftVal}, ${bedroomsVal}, ${bathroomsVal}, ${JSON.stringify(addonsJson)}::jsonb, ${priced?.total_hours ?? null},
+        ${basePrice}, ${totalPrice}, ${referral}, ${seen},
+        'draft', ${userId ?? null}, NOW()
+      ) RETURNING id`);
+    const quoteId = (inserted.rows[0] as any).id;
+
+    await claimLeadOnAction(companyId, leadId, req.auth ?? undefined); // first-touch ownership
+    await logActivity(leadId, companyId, "quote_created",
+      `Opened the website quote${amount != null ? ` ($${amount.toFixed(2)})` : ""} as an editable office quote`, userId);
+
+    return res.status(201).json({ quote_id: quoteId, created: true });
+  } catch (err) {
+    console.error("POST /leads/:id/web-quote:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not open the website quote" });
   }
 });
 
