@@ -115,7 +115,10 @@ function jobPool(j: PayrollJob, cfg: CompanyPayConfig): { total: number; basisLa
   if (isCommercial) {
     const allowed = num(j.allowed_hours);
     const actual = num(j.actual_hours);
-    const hrs = cfg.commercial_comp_mode === "actual_hours" && actual > 0 ? actual : allowed;
+    // [allowed-hours-no-budget 2026-08-04] No budget on the job → pay the hours
+    // actually clocked rather than rate × 0 = $0. Mirrors commission-compute.ts
+    // and commission-paytype.ts so all three engines agree.
+    const hrs = (cfg.commercial_comp_mode === "actual_hours" || allowed <= 0) && actual > 0 ? actual : allowed;
     return { total: round2(cfg.commercial_hourly_rate * hrs), basisLabel: `$${cfg.commercial_hourly_rate.toFixed(0)}/hr × ${hrs.toFixed(1)}h pool`, isCommercial };
   }
   const jobTotal = num(j.billed_amount) || num(j.base_fee);
