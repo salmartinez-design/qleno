@@ -7049,6 +7049,7 @@ async function runNotificationTemplateSeed() {
   <p style="margin:0;font-size:15px;color:#1A1917">{{service_address}}</p>
 </td></tr>
 </table>
+{{invoice_lines_html}}
 <div style="text-align:center;margin:0 0 24px">
   <a href="{{invoice_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View and Pay Invoice</a>
 </div>
@@ -7252,6 +7253,38 @@ async function runNotificationTemplateSeed() {
         )
       `);
       seeded++;
+    }
+
+    // [invoice-email-lines 2026-08-05] The seed above only INSERTs when a
+    // template is missing — deliberately, so a tenant's own edits in Settings
+    // are never stomped by a redeploy. That means an existing invoice_sent row
+    // (every live tenant has one) would never pick up the new
+    // {{invoice_lines_html}} tag, and the emailed invoice would keep showing an
+    // amount with no visits behind it.
+    //
+    // So patch it in place, once: drop the tag directly above the "View and Pay"
+    // button when the shipped CTA markup is still intact, and otherwise APPEND
+    // it. The anchor is the full CTA opening tag from the seed above, which
+    // occurs exactly once — matching on the whole tag rather than a prefix means
+    // a tenant who reworked their template simply falls through to the append
+    // branch instead of having the tag spliced into an unexpected spot.
+    // Guarded on NOT LIKE, so it runs once and a tenant who deliberately DELETES
+    // the tag doesn't get it forced back on the next cold start.
+    try {
+      const CTA = '<div style="text-align:center;margin:0 0 24px">';
+      await db.execute(sql`
+        UPDATE notification_templates
+           SET body_html = CASE
+                 WHEN body_html LIKE ${`%${CTA}%`}
+                   THEN replace(body_html, ${CTA}, ${`{{invoice_lines_html}}\n${CTA}`})
+                 ELSE body_html || E'\n{{invoice_lines_html}}'
+               END
+         WHERE trigger = 'invoice_sent'
+           AND channel = 'email'
+           AND body_html IS NOT NULL
+           AND body_html NOT LIKE '%invoice_lines_html%'`);
+    } catch (e) {
+      console.error("[notification-templates] invoice_lines_html patch (non-fatal):", (e as any)?.message);
     }
 
     // Verify count

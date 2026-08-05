@@ -569,6 +569,102 @@ export default function AccountDetailPage() {
       setChargingInvId(null);
     }
   }
+  // [bulk-invoice-ops 2026-08-05] Select invoices in the month and act on the
+  // whole set — download one zip of separate PDFs, or email them (Maribel:
+  // "select invoices and download in bulk generating a zip file with all the
+  // invoices separately… we should also be able to email the invoices in bulk
+  // or individually"). Selection is cleared whenever the month changes, so the
+  // action bar can never act on a row that scrolled out of view.
+  const [invSel, setInvSel] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<null | "pdf" | "email">(null);
+  useEffect(() => { setInvSel(new Set()); }, [invMonth, id]);
+
+  const toggleInvSel = (invId: number, on: boolean) =>
+    setInvSel(prev => {
+      const next = new Set(prev);
+      if (on) next.add(invId); else next.delete(invId);
+      return next;
+    });
+  const invSelTotal = acctInvoices
+    .filter((i: any) => invSel.has(i.id))
+    .reduce((sum: number, i: any) => sum + parseFloat(i.total || "0"), 0);
+
+  // Download the selected invoices as one zip of individual PDFs. The response
+  // is a binary body, not JSON, so this reads a blob and clicks a synthetic
+  // anchor rather than navigating (which would drop the auth header).
+  async function downloadSelectedPdfs() {
+    if (!invSel.size) return;
+    setBulkBusy("pdf");
+    try {
+      const r = await fetch(`${API}/api/invoices/bulk-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() } as HeadersInit,
+        body: JSON.stringify({ invoice_ids: Array.from(invSel) }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        toast({ title: "Could not build the download", description: err.message || "Please try again.", variant: "destructive" });
+        return;
+      }
+      // Any invoice the server could not render is named in this header — say so
+      // rather than let a short zip pass for a complete one.
+      const skipped = r.headers.get("X-Invoice-Render-Failures");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(account?.account_name || "invoices").replace(/[^\w-]+/g, "-")}-${invMonth}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast(skipped
+        ? { title: `Downloaded — ${skipped.split(",").length} could not be rendered`, description: `Missing from the zip: ${skipped}`, variant: "destructive" }
+        : { title: `Downloaded ${invSel.size} invoice${invSel.size === 1 ? "" : "s"}` });
+    } catch {
+      toast({ title: "Network error", description: "The download did not start — please try again.", variant: "destructive" });
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  // Email the selected invoices. Each one goes out on the same path as the
+  // single Send — invoice detail in the body plus the PDF attached.
+  async function emailSelectedInvoices() {
+    if (!invSel.size) return;
+    if (!window.confirm(`Email ${invSel.size} invoice${invSel.size === 1 ? "" : "s"} to this account's billing contacts?`)) return;
+    setBulkBusy("email");
+    try {
+      const r = await fetch(`${API}/api/invoices/bulk-send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() } as HeadersInit,
+        body: JSON.stringify({ invoice_ids: Array.from(invSel) }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Could not send", description: out.message || "Please try again.", variant: "destructive" });
+        return;
+      }
+      // A partial batch is the common case (one contact missing an email), so
+      // report BOTH numbers and name the first failure — "12 sent" alone would
+      // hide the three that silently didn't.
+      const firstFail = (out.results || []).find((x: any) => !x.sent);
+      toast(out.failed
+        ? {
+            title: `${out.sent} sent · ${out.failed} not sent`,
+            description: firstFail ? `${firstFail.invoice_number}: ${firstFail.message}` : undefined,
+            variant: "destructive",
+          }
+        : { title: `${out.sent} invoice${out.sent === 1 ? "" : "s"} emailed` });
+      setInvSel(new Set());
+      loadAcctInvoices();
+    } catch {
+      toast({ title: "Network error", description: "Nothing was sent — please try again.", variant: "destructive" });
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
   function shiftMonth(delta: number) {
     const [y, m] = invMonth.split("-").map(Number);
     const d = new Date(y, m - 1 + delta, 1);
@@ -1686,6 +1782,42 @@ export default function AccountDetailPage() {
                 {acctInvoices.length} invoice{acctInvoices.length === 1 ? "" : "s"} · <span className="font-semibold text-[var(--brand)]">{fmtDecimal(parseFloat(acctInvTotal))}</span>
               </p>
             </div>
+            {/* [bulk-invoice-ops 2026-08-05] Action bar for the current selection.
+                Qleno Night bar + mint primary, same treatment as the merge bar on
+                /invoices, so "a set of rows is selected" looks identical wherever
+                the office meets it. Renders only when something is selected. */}
+            {invSel.size > 0 && (
+              <div className="rounded-[10px] px-4 py-3 flex items-center justify-between flex-wrap gap-2.5" style={{ backgroundColor: "#0A0E1A" }}>
+                <span className="text-sm font-bold text-white">
+                  {invSel.size} selected · {fmtDecimal(invSelTotal)}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setInvSel(new Set())}
+                    disabled={!!bulkBusy}
+                    className="px-3.5 py-2 rounded-lg text-[13px] font-semibold disabled:opacity-60"
+                    style={{ border: "1px solid #3A3E4A", color: "#C9C5BD", backgroundColor: "transparent" }}>
+                    Clear
+                  </button>
+                  <button
+                    onClick={downloadSelectedPdfs}
+                    disabled={!!bulkBusy}
+                    title="Download one zip containing each invoice as its own PDF"
+                    className="px-3.5 py-2 rounded-lg text-[13px] font-semibold disabled:opacity-60"
+                    style={{ border: "1px solid #3A3E4A", color: "#FFFFFF", backgroundColor: "transparent" }}>
+                    {bulkBusy === "pdf" ? "Preparing…" : "Download PDFs"}
+                  </button>
+                  <button
+                    onClick={emailSelectedInvoices}
+                    disabled={!!bulkBusy}
+                    title="Email each selected invoice to this account's billing contacts"
+                    className="px-4 py-2 rounded-lg text-[13px] font-bold text-white disabled:opacity-60"
+                    style={{ backgroundColor: "var(--brand)" }}>
+                    {bulkBusy === "email" ? "Sending…" : "Email invoices"}
+                  </button>
+                </div>
+              </div>
+            )}
             {invLoading ? (
               <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
             ) : !acctInvoices.length ? (
@@ -1698,6 +1830,14 @@ export default function AccountDetailPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="w-9 px-4 py-2.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select all invoices in ${monthLabel}`}
+                          className="align-middle accent-[var(--brand)]"
+                          checked={acctInvoices.length > 0 && acctInvoices.every((i: any) => invSel.has(i.id))}
+                          onChange={e => setInvSel(e.target.checked ? new Set(acctInvoices.map((i: any) => i.id)) : new Set())} />
+                      </th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Invoice</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Description</th>
@@ -1726,7 +1866,15 @@ export default function AccountDetailPage() {
                       // first; paid/void = nothing to charge).
                       const chargeable = st === "sent" || st === "overdue";
                       return (
-                        <tr key={inv.id} className="hover:bg-gray-50">
+                        <tr key={inv.id} className={`hover:bg-gray-50 ${invSel.has(inv.id) ? "bg-[#F7F6F3]" : ""}`}>
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select invoice ${formatInvoiceNumber(inv)}`}
+                              className="align-middle accent-[var(--brand)]"
+                              checked={invSel.has(inv.id)}
+                              onChange={e => toggleInvSel(inv.id, e.target.checked)} />
+                          </td>
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
                           <td className="px-4 py-3 font-medium whitespace-nowrap">
                             <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{formatInvoiceNumber(inv)}</Link>
@@ -1760,7 +1908,7 @@ export default function AccountDetailPage() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-gray-100 bg-gray-50">
-                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
+                      <td colSpan={5} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
                       <td className="px-4 py-2.5 text-right text-sm font-bold text-[var(--brand)]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
                       {acctHasCard && <td className="px-4 py-2.5"></td>}
                     </tr>
