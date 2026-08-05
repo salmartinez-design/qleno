@@ -13,7 +13,7 @@
  * LOCAL date parts — never `toISOString()` — to avoid the timezone
  * off-by-one that shifts a clicked day to the previous date.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -54,17 +54,33 @@ function parseYmd(s: string | undefined): Date | null {
 // every styled calendar in the app reads the same.
 const DAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 export function CalendarPopover({
   value,
   onChange,
   ariaLabel,
   block,
+  minYear,
+  maxYear,
 }: {
   value: string;
   onChange: (ymd: string) => void;
   ariaLabel?: string;
   /** Full-width trigger that matches a form text input (vs. inline pill). */
   block?: boolean;
+  /**
+   * [year-picker 2026-08-04] Jump range for the month/year dropdowns. The
+   * chevrons alone step ONE month at a time, so a date of birth 40 years back
+   * was 480 clicks away — Sal: "i cant go back 40 years". Default window spans
+   * 100 years back (covers any DOB or hire date) through 5 years ahead (covers
+   * scheduling). Callers can narrow it.
+   */
+  minYear?: number;
+  maxYear?: number;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -109,7 +125,33 @@ export function CalendarPopover({
     d.setDate(gridStart.getDate() + i);
     cells.push(d);
   }
-  const monthLabel = visibleMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  // Month + year are dropdowns, not a static label — see the minYear note.
+  const yearFrom = minYear ?? today.getFullYear() - 100;
+  const yearTo = maxYear ?? today.getFullYear() + 5;
+  // Newest first — a DOB or hire date is far more often recent than 1926.
+  const yearOptions: number[] = [];
+  for (let y = yearTo; y >= yearFrom; y--) yearOptions.push(y);
+  // A year outside the window (imported legacy data) still has to render, or
+  // the select would silently snap the visible month to a different year.
+  if (!yearOptions.includes(visibleMonth.getFullYear())) {
+    yearOptions.push(visibleMonth.getFullYear());
+    yearOptions.sort((a, b) => b - a);
+  }
+
+  const selectStyle: CSSProperties = {
+    border: "none",
+    background: "transparent",
+    fontFamily: FF,
+    fontSize: 14,
+    fontWeight: 800,
+    color: INK,
+    cursor: "pointer",
+    padding: "2px 2px",
+    borderRadius: 6,
+    outline: "none",
+    appearance: "none",
+    textAlignLast: "center",
+  };
 
   return (
     <div ref={wrapRef} style={{ position: "relative", display: block ? "block" : "inline-block", width: block ? "100%" : undefined }}>
@@ -173,7 +215,32 @@ export function CalendarPopover({
             >
               <ChevronLeft size={16} />
             </button>
-            <div style={{ fontSize: 14, fontWeight: 800, color: INK }}>{monthLabel}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <select
+                aria-label="Month"
+                value={visibleMonth.getMonth()}
+                onChange={(e) =>
+                  setVisibleMonth((m) => new Date(m.getFullYear(), Number(e.target.value), 1))
+                }
+                style={selectStyle}
+              >
+                {MONTH_NAMES.map((name, i) => (
+                  <option key={name} value={i}>{name}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Year"
+                value={visibleMonth.getFullYear()}
+                onChange={(e) =>
+                  setVisibleMonth((m) => new Date(Number(e.target.value), m.getMonth(), 1))
+                }
+                style={selectStyle}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => setVisibleMonth((m) => addMonths(m, 1))}

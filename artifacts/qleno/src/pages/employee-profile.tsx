@@ -61,16 +61,6 @@ const PAY_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
   mileage:       { bg: '#FEF9C3', color: '#78350F' },
 };
 
-const TICKET_TYPE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  breakage:               { bg: '#FCEBEA', color: '#B3261E', label: 'Breakage' },
-  complaint_poor_cleaning:{ bg: '#FDF3E4', color: '#B45309', label: 'Complaint - Poor Cleaning' },
-  complaint_attitude:     { bg: '#FDF3E4', color: '#B45309', label: 'Complaint - Attitude' },
-  compliment:             { bg: '#E6F6F1', color: '#0F7A63', label: 'Compliment' },
-  incident:               { bg: '#FCEBEA', color: '#B3261E', label: 'Incident' },
-  note:                   { bg: '#F0EEE9', color: '#6B6860', label: 'Note' },
-  time_off_request:       { bg: '#E0F2FE', color: '#075985', label: 'Time-Off Request' },
-};
-
 const SCORE_LABELS = ['', 'Poor', 'Fair', 'Good', 'Excellent'];
 const SCORE_COLORS = ['', '#B3261E', '#B45309', '#2F3646', '#0F7A63'];
 const SCORE_BGS   = ['', '#FCEBEA', '#FDF3E4', '#EFEFF2', '#E6F6F1'];
@@ -93,10 +83,17 @@ const NOTE_TYPES: { value: string; label: string; hint: string }[] = [
   { value: 'general',         label: 'General Note',            hint: 'Note content…' },
 ];
 
+// [tab-consolidate 2026-08-04] 14 tabs across two rows, four of them about
+// money and two about the same person's record. Sal: "we have a lot of pages
+// for the same theme… earnings, pay configuration, incentives should all be
+// only one page" and "user account and information should be one page".
+//   Earnings + Pay Configuration + Additional Pay + Incentives → Pay
+//   Information + User Account                                 → Profile
+// Retired slugs redirect via ?tab= (see the alias block below), so old
+// bookmarks and deep links still land somewhere real.
 const TABS = [
-  'Information','Earnings','Attendance','Availability',
-  'User Account','Performance Score','Pay Configuration','Additional Pay',
-  'Jobs','Notes','Incentives',
+  'Profile','Pay','Attendance','Availability',
+  'Performance Score','Jobs','Notes',
   'Discipline','Quality','Onboarding',
 ];
 
@@ -657,7 +654,7 @@ export default function EmployeeProfilePage() {
   const isOwner = getTokenRole() === 'owner';
   const { activateView } = useEmployeeView();
 
-  const [activeTab, setActiveTab] = useState('Information');
+  const [activeTab, setActiveTab] = useState('Profile');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -674,10 +671,11 @@ export default function EmployeeProfilePage() {
     // [attendance-consolidate 2026-07-24] HR Attendance + Leave Balance folded
     // into the Attendance tab — redirect any stale deep links / bookmarks.
     if (t === 'hr-attendance' || t === 'leave-balance') setActiveTab('Attendance');
-    // [tab-cleanup 2026-07-24] Pay folded into Earnings; Contacts lives on the
-    // Information tab now. Redirect any stale deep links / bookmarks.
-    if (t === 'pay') setActiveTab('Earnings');
-    if (t === 'contacts') setActiveTab('Information');
+    // [tab-consolidate 2026-08-04] Every retired money slug lands on Pay;
+    // every retired record slug lands on Profile. 'pay' used to redirect to
+    // Earnings — now it IS the tab.
+    if (['pay', 'earnings', 'pay-configuration', 'additional-pay', 'incentives'].includes(t || '')) setActiveTab('Pay');
+    if (['information', 'user-account', 'account', 'contacts'].includes(t || '')) setActiveTab('Profile');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
 
@@ -1085,11 +1083,10 @@ export default function EmployeeProfilePage() {
   });
   const attnSummary: any = attnSummaryResp?.data || null;
 
-  const { data: ticketsData, refetch: refetchTickets } = useQuery({
-    queryKey: ['contact-tickets', userId],
-    queryFn: () => apiFetch(`/users/${userId}/contact-tickets`),
-    enabled: activeTab === 'Contact Tickets',
-  });
+  // [tab-consolidate 2026-08-04] The 'Contact Tickets' and 'Payroll History'
+  // queries + render blocks were removed here: neither slug had been in TABS
+  // for a long time, so no click or deep link could reach them. Payroll
+  // History also duplicated the Published Pay list that lives on Pay.
 
   const { data: notesData, refetch: refetchNotes } = useQuery({
     queryKey: ['employee-notes', userId],
@@ -1113,13 +1110,7 @@ export default function EmployeeProfilePage() {
   const { data: additionalPayData, refetch: refetchPay } = useQuery({
     queryKey: ['additional-pay', userId],
     queryFn: () => apiFetch(`/users/${userId}/additional-pay`),
-    enabled: activeTab === 'Additional Pay',
-  });
-
-  const { data: payrollHistoryData } = useQuery({
-    queryKey: ['payroll-history', userId],
-    queryFn: () => apiFetch(`/users/${userId}/payroll-history`),
-    enabled: activeTab === 'Payroll History',
+    enabled: activeTab === 'Pay',
   });
 
   // [Phase 2] Published-pay snapshots for this tech. Access-scoping is enforced
@@ -1128,8 +1119,8 @@ export default function EmployeeProfilePage() {
   const { data: payData } = useQuery({
     queryKey: ['pay-history', userId],
     queryFn: () => apiFetch(`/payroll/pay-history?user_id=${userId}`),
-    // [tab-cleanup 2026-07-24] Published Pay now lives under the Earnings tab.
-    enabled: activeTab === 'Earnings',
+    // [tab-consolidate 2026-08-04] Everything about money loads with the Pay tab.
+    enabled: activeTab === 'Pay',
   });
 
   const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
@@ -1251,7 +1242,7 @@ export default function EmployeeProfilePage() {
   const { data: incentivesData = [] } = useQuery<any[]>({
     queryKey: ['incentives-earned', userId],
     queryFn: () => apiFetch(`/incentives/earned?employee_id=${userId}`),
-    enabled: activeTab === 'Incentives',
+    enabled: activeTab === 'Pay',
   });
 
   const [form, setForm] = useState<Record<string, any>>({});
@@ -1317,15 +1308,6 @@ export default function EmployeeProfilePage() {
     setNoteModal(false); setNoteContent(''); setNoteType('documented_conversation');
     refetchNotes();
     showToast('Note added');
-  }
-
-  const [ticketModal, setTicketModal] = useState(false);
-  const [newTicket, setNewTicket] = useState({ ticket_type: 'note', notes: '' });
-  async function addTicket() {
-    await apiFetch(`/users/${userId}/contact-tickets`, { method: 'POST', body: JSON.stringify(newTicket) });
-    setTicketModal(false); setNewTicket({ ticket_type: 'note', notes: '' });
-    refetchTickets();
-    showToast('Ticket added');
   }
 
   const [payModal, setPayModal] = useState(false);
@@ -1672,16 +1654,43 @@ export default function EmployeeProfilePage() {
         {/* ── TAB CONTENT ── */}
         <div style={{ marginBottom:40 }}>
 
-          {/* ── EARNINGS TAB ── one money page: live earnings (selectable range)
-              on top, published paychecks + history below. Pay used to be its own
-              tab; merged here 2026-07-24 to kill the redundant split. */}
-          {activeTab === 'Earnings' && (() => {
+          {/* ── PAY TAB ── everything about this person's money on ONE page.
+              Was four separate tabs (Earnings, Pay Configuration, Additional
+              Pay, Incentives) — Sal: "earnings, pay configuration, incentives
+              should all be only one page". Order follows how the office thinks:
+              what they earned → how they're paid → one-off pay → incentives. */}
+          {activeTab === 'Pay' && (() => {
             const weeks: any[] = payData?.weeks ?? [];
             const money = (n: any) => `$${Number(n || 0).toFixed(2)}`;
             const fmtRange = (s: string, e: string) => {
               const d = (x: string) => { const [y, m, day] = x.split('-'); return `${parseInt(m)}/${parseInt(day)}`; };
               return `${d(s)} – ${d(e)}, ${s.slice(0, 4)}`;
             };
+
+            // Additional pay (bonuses, reimbursements, deductions).
+            const pays: any[] = additionalPayData?.data || [];
+            const pending = pays.filter(p => p.status === 'pending');
+            const paid    = pays.filter(p => p.status === 'paid');
+            const voided  = pays.filter(p => p.status === 'voided');
+            const signed  = (p: any) => (p.type === 'amount_owed' ? -parseFloat(p.amount || 0) : parseFloat(p.amount || 0));
+            const pendingTotal = pending.reduce((s: number, p: any) => s + signed(p), 0);
+            const paidTotal    = paid.reduce((s: number, p: any) => s + signed(p), 0);
+
+            // Incentives. Most employees have none — the section only renders
+            // when there's something to show, instead of an empty table taking
+            // up a third of the page for everyone.
+            const thisYear = new Date().getFullYear();
+            const ytdAll = incentivesData.filter((i: any) => i.earned_date && new Date(i.earned_date + 'T12:00').getFullYear() === thisYear);
+            const ytdEarned = ytdAll.reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const ytdPaid = ytdAll.filter((i: any) => i.status === 'paid' || i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const pendingUnpaid = ytdAll.filter((i: any) => i.status === 'approved' && !i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const INC_STATUS: Record<string, { bg: string; color: string; label: string }> = {
+              pending_approval: { bg:'#FDF3E4', color:'#B45309', label:'Pending Approval' },
+              approved:         { bg:'#EFEFF2', color:'#2F3646', label:'Approved' },
+              rejected:         { bg:'#F0EEE9', color:'#6B6860', label:'Rejected' },
+              paid:             { bg:'#E6F6F1', color:'#0F7A63', label:'Paid' },
+            };
+
             return (
               <div style={{ display:'flex', flexDirection:'column', gap:'24px' }}>
                 <EarningsPanel userId={userId} />
@@ -1741,12 +1750,189 @@ export default function EmployeeProfilePage() {
                     </div>
                   )}
                 </SectionCard>
+
+                <SectionCard title="How this employee is paid">
+                  <PayMatrixPanel userId={userId} embedded />
+
+                  {/* [tab-consolidate 2026-08-04] users.pay_type / pay_rate used
+                      to sit on the Information tab under "Pay & Tax Info", so the
+                      profile showed one rate and Pay Configuration showed another
+                      — two different answers to "what does this person make".
+                      Paychecks are computed from the matrix above only (see
+                      lib/payroll-compute.ts). These two fields still feed the
+                      labor-cost estimate on the dashboard and the overtime
+                      estimate in reports, so they can't just be deleted. Kept
+                      here, on the same page, honestly labelled. */}
+                  <div style={{ marginTop:20, paddingTop:18, borderTop:'1px solid #EEECE7' }}>
+                    <p style={{ margin:'0 0 4px', fontSize:12, fontWeight:700, color:'#1A1917' }}>Estimate rate (reports only)</p>
+                    <p style={{ margin:'0 0 12px', fontSize:12, color:'#9E9B94', lineHeight:1.5 }}>
+                      Used only for the labor-cost estimate on the dashboard and the overtime check in reports. It does not change anyone's paycheck — the rates above do that.
+                    </p>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:16 }}>
+                      <Field label="Estimate Pay Type">
+                        <Select value={form.pay_type||''} onChange={v=>setField('pay_type',v)} options={[
+                          {value:'',label:'Select…'},{value:'hourly',label:'Hourly'},{value:'per_job',label:'Per Job'},{value:'fee_split',label:'Fee Split'}
+                        ]}/>
+                      </Field>
+                      <Field label="Estimate Rate ($)"><Input type="number" value={form.pay_rate||''} onChange={v=>setField('pay_rate',v)}/></Field>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>
+                      <button onClick={saveProfile} disabled={saving}
+                        style={{ display:'flex',alignItems:'center',gap:8,padding:'8px 16px',background:'#FFFFFF',color:'#1A1917',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
+                        <Save size={13}/>{saving ? 'Saving…' : 'Save estimate rate'}
+                      </button>
+                    </div>
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="Additional Pay">
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:14 }}>
+                    {[
+                      { label:'Pending', value:`$${pendingTotal.toFixed(2)}`, count: pending.length, color:'#B45309', bg:'#FDF3E4' },
+                      { label:'Paid', value:`$${paidTotal.toFixed(2)}`, count: paid.length, color:'#0F7A63', bg:'#E6F6F1' },
+                      { label:'Voided', value:`${voided.length} entries`, count: voided.length, color:'#6B6860', bg:'#F0EEE9' },
+                    ].map(c => (
+                      <div key={c.label} style={{ background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                          <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{c.label}</span>
+                          <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:10, background:c.bg, color:c.color }}>{c.count}</span>
+                        </div>
+                        <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginBottom:12 }}>
+                    <button onClick={() => { setBulkStep(1); setBulkSelectedEmps([]); setBulkPayType('bonus'); setBulkAmount(''); setBulkNotes(''); setBulkEmpSearch(''); setBulkPayModal(true); }}
+                      style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'#FFFFFF',color:'#1A1917',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
+                      <Users size={14}/> Bulk Pay
+                    </button>
+                    <button onClick={() => setPayModal(true)}
+                      style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
+                      <Plus size={14}/> Add Pay Entry
+                    </button>
+                  </div>
+
+                  <div style={{ border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom:'1px solid #EEECE7', background:'#F7F6F3' }}>
+                          {['Date','Type','Amount','Status','Notes',''].map(h=>(
+                            <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase' as const,letterSpacing:'0.05em' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pays.map((p: any) => {
+                          const typeStyle = PAY_TYPE_COLORS[p.type] || { bg:'#F0EEE9',color:'#6B6860' };
+                          const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.pending;
+                          const isDeduction = p.type === 'amount_owed';
+                          const isVoided = p.status === 'voided';
+                          return (
+                            <tr key={p.id} style={{ borderBottom:'1px solid #F0EEE9', opacity: isVoided ? 0.55 : 1 }}>
+                              <td style={{ padding:'11px 16px',fontSize:13,color:'#1A1917' }}>{new Date(p.created_at).toLocaleDateString()}</td>
+                              <td style={{ padding:'11px 16px' }}>
+                                <span style={{ background:typeStyle.bg,color:typeStyle.color,padding:'3px 9px',borderRadius:20,fontSize:11,fontWeight:600 }}>
+                                  {PAY_LABELS[p.type] || p.type?.replace(/_/g,' ')}
+                                </span>
+                              </td>
+                              <td style={{ padding:'11px 16px',fontSize:13,fontWeight:700,color: isDeduction ? '#B3261E' : '#0F7A63', textDecoration: isVoided ? 'line-through' : undefined }}>
+                                {isDeduction ? '-' : '+'} ${parseFloat(p.amount||0).toFixed(2)}
+                              </td>
+                              <td style={{ padding:'11px 16px' }}>
+                                <span style={{ background:statusStyle.bg,color:statusStyle.color,padding:'3px 8px',borderRadius:4,fontSize:11,fontWeight:700 }}>
+                                  {statusStyle.label}
+                                </span>
+                              </td>
+                              <td style={{ padding:'11px 16px',fontSize:13,color:'#6B6860',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                                {p.notes || '—'}
+                              </td>
+                              <td style={{ padding:'11px 16px', textAlign:'right' as const }}>
+                                {!isVoided && p.status === 'pending' && (
+                                  <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                                    <button
+                                      onClick={() => voidPay(p.id)}
+                                      disabled={voidingId === p.id}
+                                      title="Void"
+                                      style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#B45309',fontFamily:'inherit' }}>
+                                      <Ban size={11}/> Void
+                                    </button>
+                                    {['owner', 'admin', 'office'].includes(getTokenRole() || '') && (
+                                      <button
+                                        onClick={() => deletePay(p.id)}
+                                        disabled={deletingId === p.id}
+                                        title="Delete"
+                                        style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #F1D0CB',borderRadius:6,fontSize:11,fontWeight:600,background:'#FCEBEA',cursor:'pointer',color:'#B3261E',fontFamily:'inherit' }}>
+                                        <Trash2 size={11}/>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {!pays.length && (
+                          <tr><td colSpan={6} style={{ padding:'32px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No additional pay entries yet</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+
+                {incentivesData.length > 0 && (
+                  <SectionCard title="Incentives">
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:14 }}>
+                      {[
+                        { label:'Earned YTD', value:`$${ytdEarned.toFixed(2)}`, color:'#1A1917' },
+                        { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#0F7A63' },
+                        { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#B45309' : '#9E9B94' },
+                      ].map(c => (
+                        <div key={c.label} style={{ background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', textAlign:'center' }}>
+                          <div style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em', marginBottom:6 }}>{c.label}</div>
+                          <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom:'1px solid #EEECE7', background:'#F7F6F3' }}>
+                            {['Program','Amount','Earned Date','Status','Paid Date'].map(h => (
+                              <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {incentivesData.map((inc: any) => {
+                            const s = INC_STATUS[inc.status] ?? INC_STATUS.approved;
+                            return (
+                              <tr key={inc.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
+                                <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || '—'}</td>
+                                <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0F7A63' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
+                                <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
+                                  {inc.earned_date ? new Date(inc.earned_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
+                                </td>
+                                <td style={{ padding:'12px 16px' }}>
+                                  <span style={{ padding:'2px 7px', borderRadius:4, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
+                                </td>
+                                <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
+                                  {inc.paid_date ? new Date(inc.paid_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </SectionCard>
+                )}
               </div>
             );
           })()}
 
-          {/* ── INFORMATION TAB ── */}
-          {activeTab === 'Information' && (
+          {/* ── PROFILE TAB ── */}
+          {activeTab === 'Profile' && (
             <div>
               <SectionCard title="Employee Info">
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
@@ -1810,14 +1996,131 @@ export default function EmployeeProfilePage() {
                 )}
               </SectionCard>
 
-              <SectionCard title="Pay & Tax Info">
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-                  <Field label="Pay Type">
-                    <Select value={form.pay_type||''} onChange={v=>setField('pay_type',v)} options={[
-                      {value:'',label:'Select…'},{value:'hourly',label:'Hourly'},{value:'per_job',label:'Per Job'},{value:'fee_split',label:'Fee Split'}
-                    ]}/>
+              {/* [tab-consolidate 2026-08-04] The whole User Account tab folded
+                  in here. Sal: "user account and information should be one page".
+                  The Permissions card that used to sit below this was four
+                  toggles hardcoded to off with empty handlers — it was wired to
+                  nothing and saved nothing, so it's gone rather than moved. */}
+              <SectionCard title="Login & Access">
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:16 }}>
+                  <Field label="Login Email">
+                    <Input value={form.email||''} onChange={v=>setField('email',v)}/>
+                    <span style={{ fontSize:11, color:'#9E9B94' }}>What they sign in with. Their personal email above is for contacting them.</span>
                   </Field>
-                  <Field label="Pay Rate ($)"><Input type="number" value={form.pay_rate||''} onChange={v=>setField('pay_rate',v)}/></Field>
+                  <Field label="Role">
+                    {/* Admin privileges are owner-controlled: only the owner can
+                        change a role (grant/revoke admin). Everyone else sees it
+                        read-only — the server enforces this too. */}
+                    {isOwner ? (
+                      <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
+                        {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
+                        {value:'office',label:'Office'},{value:'technician',label:'Technician'},
+                        {value:'trainee',label:'Trainee'},
+                        {value:'accountant',label:'Accountant (View-only)'}
+                      ]}/>
+                    ) : (
+                      <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#F7F6F3', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
+                        {(form.role||'').replace('_',' ') || '—'}
+                        <span style={{ marginLeft:8, fontSize:11, color:'#9E9B94' }}>· only the owner can change this</span>
+                      </div>
+                    )}
+                  </Field>
+                </div>
+                <div style={{ marginTop:16 }}>
+                  <Toggle value={!!form.is_active} onChange={v=>setField('is_active',v)} label="Account Active"/>
+                </div>
+                {/* [dispatch-visibility 2026-07-09] Hide placeholder / QA-test
+                    accounts (Trainee Placeholder, Test Auditor) from the daily
+                    jobs board without deactivating the login. Default ON. The
+                    accountant/CPA role is already excluded from the board by
+                    role, so this toggle is really for stray technician-role
+                    placeholders. */}
+                <div style={{ marginTop:16 }}>
+                  <Toggle value={form.show_on_dispatch !== false} onChange={v=>setField('show_on_dispatch',v)} label="Show on dispatch board"/>
+                  <p style={{ margin:'6px 0 0', fontSize:12, color:'#9E9B94' }}>
+                    Turn off for placeholder or test accounts you don't want appearing on the daily jobs board. The account stays active everywhere else.
+                  </p>
+                </div>
+                {user.invite_sent_at && (
+                  <div style={{ marginTop:12, padding:'10px 12px', background:'#FDF3E4', borderRadius:8 }}>
+                    <p style={{ margin:0,fontSize:12,color:'#B45309' }}>
+                      Invite sent {new Date(user.invite_sent_at).toLocaleDateString()}&nbsp;·&nbsp;
+                      {user.invite_accepted_at ? 'Accepted' : 'Pending acceptance'}
+                    </p>
+                  </div>
+                )}
+                <div style={{ marginTop:16, display:'flex', gap:10 }}>
+                  <button
+                    onClick={async () => {
+                      const np = window.prompt(`Set a new password for ${fullName} (min 6 characters).\nGive this password to the employee — they sign in with their email + this password.`);
+                      if (np == null) return;
+                      if (np.trim().length < 6) { showToast("Password must be at least 6 characters"); return; }
+                      try {
+                        await apiFetch("/users/bulk-reset-password", {
+                          method: "POST",
+                          body: JSON.stringify({ userIds: [userId], newPassword: np.trim() }),
+                        });
+                        showToast("Password set — give it to the employee");
+                      } catch {
+                        showToast("Couldn't set password (owner/admin only)");
+                      }
+                    }}
+                    style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
+                    Reset Password
+                  </button>
+                  <button
+                    disabled={sendingReset}
+                    onClick={async () => {
+                      setSendingReset(true);
+                      setResetLinkInfo(null);
+                      setResetLinkCopied(false);
+                      try {
+                        const r = await apiFetch(`/users/${userId}/send-reset-link`, { method: "POST" });
+                        const d = await r.json();
+                        if (!r.ok || !d.success) { showToast(d?.message || "Couldn't create reset link"); return; }
+                        setResetLinkInfo({ link: d.reset_link, smsSent: !!d.sms_sent, phone: d.phone ?? null });
+                        showToast(d.message || "Reset link ready");
+                      } catch {
+                        showToast("Couldn't create reset link");
+                      } finally {
+                        setSendingReset(false);
+                      }
+                    }}
+                    style={{ padding:'8px 14px',border:'none',borderRadius:8,fontSize:12,fontWeight:700,background:'var(--brand, #00C9A0)',cursor: sendingReset ? 'default' : 'pointer',color:'#0A0E1A',fontFamily:'inherit',opacity: sendingReset ? 0.6 : 1 }}>
+                    {sendingReset ? "Working…" : "Text reset link"}
+                  </button>
+                </div>
+                {resetLinkInfo && (
+                  <div style={{ marginTop:12, padding:'12px 14px', background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:8 }}>
+                    <p style={{ margin:'0 0 6px', fontSize:12, fontWeight:700, color:'#1A1917' }}>
+                      {resetLinkInfo.smsSent
+                        ? `Texted to ${resetLinkInfo.phone} — the link expires in 1 hour.`
+                        : resetLinkInfo.phone
+                          ? `Texting is off right now. Copy this link and send it to ${fullName} — it expires in 1 hour.`
+                          : `No phone on file for ${fullName}. Copy this link and send it — it expires in 1 hour.`}
+                    </p>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <input readOnly value={resetLinkInfo.link} onFocus={e => e.currentTarget.select()}
+                        style={{ flex:1, minWidth:0, padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, color:'#6B6860', fontFamily:'inherit', background:'#FFFFFF' }} />
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(resetLinkInfo.link); setResetLinkCopied(true); setTimeout(() => setResetLinkCopied(false), 2000); }
+                          catch { /* clipboard blocked — link stays visible for manual copy */ }
+                        }}
+                        style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, fontWeight:700, background:'#FFFFFF', cursor:'pointer', color:'#1A1917', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+                        {resetLinkCopied ? "Copied" : "Copy link"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </SectionCard>
+
+              {/* [tab-consolidate 2026-08-04] Was "Pay & Tax Info" — the two pay
+                  fields moved to the Pay tab so there's one place that answers
+                  "what does this person make". What's left here is tax + bank,
+                  which is genuinely profile data. */}
+              <SectionCard title="Tax & Banking">
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
                   <Field label="W2 / 1099">
                     <Select value={form.w2_1099||''} onChange={v=>setField('w2_1099',v)} options={[
                       {value:'',label:'Select…'},{value:'w2',label:'W2'},{value:'1099',label:'1099'}
@@ -2604,142 +2907,6 @@ export default function EmployeeProfilePage() {
             </SectionCard>
           )}
 
-          {/* ── USER ACCOUNT TAB ── */}
-          {activeTab === 'User Account' && (
-            <div>
-              <SectionCard title="Account Details">
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:16 }}>
-                  <Field label="Login Email"><Input value={form.email||''} onChange={v=>setField('email',v)}/></Field>
-                  <Field label="Role">
-                    {/* Admin privileges are owner-controlled: only the owner can
-                        change a role (grant/revoke admin). Everyone else sees it
-                        read-only — the server enforces this too. */}
-                    {isOwner ? (
-                      <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
-                        {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
-                        {value:'office',label:'Office'},{value:'technician',label:'Technician'},
-                        {value:'trainee',label:'Trainee'},
-                        {value:'accountant',label:'Accountant (View-only)'}
-                      ]}/>
-                    ) : (
-                      <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#F7F6F3', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
-                        {(form.role||'').replace('_',' ') || '—'}
-                        <span style={{ marginLeft:8, fontSize:11, color:'#9E9B94' }}>· only the owner can change this</span>
-                      </div>
-                    )}
-                  </Field>
-                </div>
-                <div style={{ marginTop:16 }}>
-                  <Toggle value={!!form.is_active} onChange={v=>setField('is_active',v)} label="Account Active"/>
-                </div>
-                {/* [dispatch-visibility 2026-07-09] Hide placeholder / QA-test
-                    accounts (Trainee Placeholder, Test Auditor) from the daily
-                    jobs board without deactivating the login. Default ON. The
-                    accountant/CPA role is already excluded from the board by
-                    role, so this toggle is really for stray technician-role
-                    placeholders. */}
-                <div style={{ marginTop:16 }}>
-                  <Toggle value={form.show_on_dispatch !== false} onChange={v=>setField('show_on_dispatch',v)} label="Show on dispatch board"/>
-                  <p style={{ margin:'6px 0 0', fontSize:12, color:'#9E9B94' }}>
-                    Turn off for placeholder or test accounts you don't want appearing on the daily jobs board. The account stays active everywhere else.
-                  </p>
-                </div>
-                {user.invite_sent_at && (
-                  <div style={{ marginTop:12, padding:'10px 12px', background:'#FDF3E4', borderRadius:8 }}>
-                    <p style={{ margin:0,fontSize:12,color:'#B45309' }}>
-                      Invite sent {new Date(user.invite_sent_at).toLocaleDateString()}&nbsp;·&nbsp;
-                      {user.invite_accepted_at ? 'Accepted' : 'Pending acceptance'}
-                    </p>
-                  </div>
-                )}
-                <div style={{ marginTop:16, display:'flex', gap:10 }}>
-                  <button
-                    onClick={async () => {
-                      const np = window.prompt(`Set a new password for ${fullName} (min 6 characters).\nGive this password to the employee — they sign in with their email + this password.`);
-                      if (np == null) return;
-                      if (np.trim().length < 6) { showToast("Password must be at least 6 characters"); return; }
-                      try {
-                        await apiFetch("/users/bulk-reset-password", {
-                          method: "POST",
-                          body: JSON.stringify({ userIds: [userId], newPassword: np.trim() }),
-                        });
-                        showToast("Password set — give it to the employee");
-                      } catch {
-                        showToast("Couldn't set password (owner/admin only)");
-                      }
-                    }}
-                    style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
-                    Reset Password
-                  </button>
-                  <button
-                    disabled={sendingReset}
-                    onClick={async () => {
-                      setSendingReset(true);
-                      setResetLinkInfo(null);
-                      setResetLinkCopied(false);
-                      try {
-                        const r = await apiFetch(`/users/${userId}/send-reset-link`, { method: "POST" });
-                        const d = await r.json();
-                        if (!r.ok || !d.success) { showToast(d?.message || "Couldn't create reset link"); return; }
-                        setResetLinkInfo({ link: d.reset_link, smsSent: !!d.sms_sent, phone: d.phone ?? null });
-                        showToast(d.message || "Reset link ready");
-                      } catch {
-                        showToast("Couldn't create reset link");
-                      } finally {
-                        setSendingReset(false);
-                      }
-                    }}
-                    style={{ padding:'8px 14px',border:'none',borderRadius:8,fontSize:12,fontWeight:700,background:'var(--brand, #00C9A0)',cursor: sendingReset ? 'default' : 'pointer',color:'#0A0E1A',fontFamily:'inherit',opacity: sendingReset ? 0.6 : 1 }}>
-                    {sendingReset ? "Working…" : "Text reset link"}
-                  </button>
-                </div>
-                {resetLinkInfo && (
-                  <div style={{ marginTop:12, padding:'12px 14px', background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:8 }}>
-                    <p style={{ margin:'0 0 6px', fontSize:12, fontWeight:700, color:'#1A1917' }}>
-                      {resetLinkInfo.smsSent
-                        ? `Texted to ${resetLinkInfo.phone} — the link expires in 1 hour.`
-                        : resetLinkInfo.phone
-                          ? `Texting is off right now. Copy this link and send it to ${fullName} — it expires in 1 hour.`
-                          : `No phone on file for ${fullName}. Copy this link and send it — it expires in 1 hour.`}
-                    </p>
-                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                      <input readOnly value={resetLinkInfo.link} onFocus={e => e.currentTarget.select()}
-                        style={{ flex:1, minWidth:0, padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, color:'#6B6860', fontFamily:'inherit', background:'#FFFFFF' }} />
-                      <button
-                        onClick={async () => {
-                          try { await navigator.clipboard.writeText(resetLinkInfo.link); setResetLinkCopied(true); setTimeout(() => setResetLinkCopied(false), 2000); }
-                          catch { /* clipboard blocked — link stays visible for manual copy */ }
-                        }}
-                        style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, fontWeight:700, background:'#FFFFFF', cursor:'pointer', color:'#1A1917', fontFamily:'inherit', whiteSpace:'nowrap' }}>
-                        {resetLinkCopied ? "Copied" : "Copy link"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </SectionCard>
-
-              <SectionCard title="Permissions">
-                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  <Toggle value={false} onChange={()=>{}} label="Can view other employees' schedules"/>
-                  <Toggle value={false} onChange={()=>{}} label="Can edit job notes"/>
-                  <Toggle value={false} onChange={()=>{}} label="Can access invoices"/>
-                  <Toggle value={false} onChange={()=>{}} label="Can approve time-off requests"/>
-                </div>
-              </SectionCard>
-
-              <div style={{ display:'flex', justifyContent:'flex-end' }}>
-                <button onClick={saveProfile} disabled={saving}
-                  style={{ display:'flex',alignItems:'center',gap:8,padding:'10px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                  <Save size={14}/>{saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── CONTACTS TAB ── */}
-          {/* Contacts tab removed 2026-07-24 — emergency contacts are edited on
-              the Information tab; a separate read-only tab was redundant. */}
-
           {/* ── SCORECARDS TAB ── */}
           {activeTab === 'Performance Score' && (
             <div>
@@ -2903,283 +3070,6 @@ export default function EmployeeProfilePage() {
             <OneOnOnesPanel userId={userId} employeeName={`${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() || 'this employee'} />
           )}
 
-          {/* ── PAY CONFIGURATION TAB (4-cell matrix) ── */}
-          {activeTab === 'Pay Configuration' && <PayMatrixPanel userId={userId} />}
-
-          {/* ── ADDITIONAL PAY TAB ── */}
-          {activeTab === 'Additional Pay' && (() => {
-            const pays: any[] = additionalPayData?.data || [];
-            const pending = pays.filter(p => p.status === 'pending');
-            const paid    = pays.filter(p => p.status === 'paid');
-            const voided  = pays.filter(p => p.status === 'voided');
-            const pendingTotal = pending.reduce((s: number, p: any) => s + (p.type === 'amount_owed' ? -parseFloat(p.amount||0) : parseFloat(p.amount||0)), 0);
-            const paidTotal    = paid.reduce((s: number, p: any) => s + (p.type === 'amount_owed' ? -parseFloat(p.amount||0) : parseFloat(p.amount||0)), 0);
-
-            return (
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {/* Summary cards */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-                  {[
-                    { label:'Pending', value:`$${pendingTotal.toFixed(2)}`, count: pending.length, color:'#B45309', bg:'#FDF3E4' },
-                    { label:'Paid', value:`$${paidTotal.toFixed(2)}`, count: paid.length, color:'#0F7A63', bg:'#E6F6F1' },
-                    { label:'Voided', value:`${voided.length} entries`, count: voided.length, color:'#6B6860', bg:'#F0EEE9' },
-                  ].map(c => (
-                    <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                        <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{c.label}</span>
-                        <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:10, background:c.bg, color:c.color }}>{c.count}</span>
-                      </div>
-                      <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Header + action buttons */}
-                <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
-                  <button onClick={() => { setBulkStep(1); setBulkSelectedEmps([]); setBulkPayType('bonus'); setBulkAmount(''); setBulkNotes(''); setBulkEmpSearch(''); setBulkPayModal(true); }}
-                    style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'#FFFFFF',color:'#1A1917',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                    <Users size={14}/> Bulk Pay
-                  </button>
-                  <button onClick={() => setPayModal(true)}
-                    style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                    <Plus size={14}/> Add Pay Entry
-                  </button>
-                </div>
-
-                {/* Pay table */}
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom:'1px solid #EEECE7', background:'#F7F6F3' }}>
-                        {['Date','Type','Amount','Status','Notes',''].map(h=>(
-                          <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase' as const,letterSpacing:'0.05em' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pays.map((p: any) => {
-                        const typeStyle = PAY_TYPE_COLORS[p.type] || { bg:'#F0EEE9',color:'#6B6860' };
-                        const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.pending;
-                        const isDeduction = p.type === 'amount_owed';
-                        const isVoided = p.status === 'voided';
-                        return (
-                          <tr key={p.id} style={{ borderBottom:'1px solid #F0EEE9', opacity: isVoided ? 0.55 : 1 }}>
-                            <td style={{ padding:'11px 16px',fontSize:13,color:'#1A1917' }}>{new Date(p.created_at).toLocaleDateString()}</td>
-                            <td style={{ padding:'11px 16px' }}>
-                              <span style={{ background:typeStyle.bg,color:typeStyle.color,padding:'3px 9px',borderRadius:20,fontSize:11,fontWeight:600 }}>
-                                {PAY_LABELS[p.type] || p.type?.replace(/_/g,' ')}
-                              </span>
-                            </td>
-                            <td style={{ padding:'11px 16px',fontSize:13,fontWeight:700,color: isDeduction ? '#B3261E' : '#0F7A63', textDecoration: isVoided ? 'line-through' : undefined }}>
-                              {isDeduction ? '-' : '+'} ${parseFloat(p.amount||0).toFixed(2)}
-                            </td>
-                            <td style={{ padding:'11px 16px' }}>
-                              <span style={{ background:statusStyle.bg,color:statusStyle.color,padding:'3px 8px',borderRadius:4,fontSize:11,fontWeight:700 }}>
-                                {statusStyle.label}
-                              </span>
-                            </td>
-                            <td style={{ padding:'11px 16px',fontSize:13,color:'#6B6860',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
-                              {p.notes || '—'}
-                            </td>
-                            <td style={{ padding:'11px 16px', textAlign:'right' as const }}>
-                              {!isVoided && (
-                                <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                                  {p.status === 'pending' && (
-                                    <>
-                                      <button
-                                        onClick={() => voidPay(p.id)}
-                                        disabled={voidingId === p.id}
-                                        title="Void"
-                                        style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#B45309',fontFamily:'inherit' }}>
-                                        <Ban size={11}/> Void
-                                      </button>
-                                      {['owner', 'admin', 'office'].includes(getTokenRole() || '') && (
-                                        <button
-                                          onClick={() => deletePay(p.id)}
-                                          disabled={deletingId === p.id}
-                                          title="Delete"
-                                          style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #F1D0CB',borderRadius:6,fontSize:11,fontWeight:600,background:'#FCEBEA',cursor:'pointer',color:'#B3261E',fontFamily:'inherit' }}>
-                                          <Trash2 size={11}/>
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {!pays.length && (
-                        <tr><td colSpan={6} style={{ padding:'40px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No additional pay entries yet</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* ── PAYROLL HISTORY TAB ── */}
-          {activeTab === 'Payroll History' && (() => {
-            const records: any[] = payrollHistoryData?.data || [];
-
-            const fmt = (v: any) => `$${parseFloat(v||0).toFixed(2)}`;
-            const fmtH = (v: any) => `${parseFloat(v||0).toFixed(1)} hrs`;
-
-            const PERIOD_LABELS: Record<string, string> = {
-              '2025-full': 'Full Year 2025',
-              '2026-ytd':  'YTD 2026',
-            };
-
-            const highlightRows = [
-              { key:'total_job_hours',   label:'Total Job Hours',     fmt: fmtH },
-              { key:'clock_hours',       label:'Clock Hours',         fmt: fmtH },
-              { key:'overtime_hours',    label:'Overtime Hours',      fmt: fmtH },
-              { key:'commission_pay',    label:'Commission Pay',      fmt },
-              { key:'hourly_pay',        label:'Hourly Pay',          fmt },
-              { key:'tips',              label:'Tips',                fmt },
-              { key:'bonus',             label:'Bonus',               fmt },
-              { key:'overtime',          label:'Overtime Pay',        fmt },
-              { key:'sick_pay',          label:'Sick Pay',            fmt },
-              { key:'holiday_pay',       label:'Holiday Pay',         fmt },
-              { key:'vacation_pay',      label:'Vacation Pay',        fmt },
-              { key:'reimbursements',    label:'Reimbursements',      fmt },
-              { key:'gross_wage',        label:'Gross Wage',          fmt },
-              { key:'avg_wage',          label:'Avg Wage/Hr',         fmt },
-            ];
-
-            if (!records.length) {
-              return (
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'60px 0', textAlign:'center', color:'#9E9B94', fontSize:14 }}>
-                  <TrendingUp size={32} style={{ marginBottom:12, color:'#E5E2DC' }}/>
-                  <p style={{ margin:'0 0 4px 0', fontWeight:600 }}>No payroll history</p>
-                  <p style={{ margin:0, fontSize:12 }}>Imported MaidCentral data will appear here</p>
-                </div>
-              );
-            }
-
-            return (
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {/* Source notice */}
-                <div style={{ background:'var(--brand-dim)', border:'1px solid rgba(var(--brand-rgb),0.2)', borderRadius:8, padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
-                  <TrendingUp size={14} style={{ color:'var(--brand)', flexShrink:0 }}/>
-                  <span style={{ fontSize:12, color:'var(--brand)', fontWeight:600 }}>
-                    Payroll data imported from MaidCentral — {records.length} period{records.length!==1?'s':''} on file
-                  </span>
-                </div>
-
-                {/* Period cards */}
-                {records.map((r: any) => {
-                  const isExpanded = expandedPeriod === r.id?.toString();
-                  const periodName = PERIOD_LABELS[r.period_label] || r.period_label;
-                  const start = new Date(r.period_start + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-                  const end   = new Date(r.period_end   + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-
-                  return (
-                    <div key={r.id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, overflow:'hidden' }}>
-                      {/* Card header */}
-                      <div
-                        onClick={() => setExpandedPeriod(isExpanded ? null : r.id?.toString())}
-                        style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px', cursor:'pointer', userSelect:'none' as const }}
-                      >
-                        <div>
-                          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
-                            <span style={{ fontSize:15, fontWeight:700, color:'#1A1917' }}>{periodName}</span>
-                            <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'var(--brand-dim)', color:'var(--brand)' }}>
-                              {r.migration_source === 'mc_import' ? 'MaidCentral' : r.migration_source}
-                            </span>
-                          </div>
-                          <span style={{ fontSize:12, color:'#9E9B94' }}>{start} — {end}</span>
-                        </div>
-                        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-                          {/* Quick stats */}
-                          <div style={{ textAlign:'right' as const }}>
-                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Gross Wage</div>
-                            <div style={{ fontSize:18, fontWeight:800, color:'#1A1917' }}>{fmt(r.gross_wage)}</div>
-                          </div>
-                          <div style={{ textAlign:'right' as const }}>
-                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Job Hours</div>
-                            <div style={{ fontSize:18, fontWeight:800, color:'var(--brand)' }}>{fmtH(r.total_job_hours)}</div>
-                          </div>
-                          <button
-                            onClick={e => { e.stopPropagation(); setPrintRecord({ ...r, periodName, start, end }); }}
-                            title="Download PDF"
-                            style={{ display:'flex',alignItems:'center',gap:5,padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:8,background:'#FFFFFF',cursor:'pointer',fontSize:12,fontWeight:600,color:'#6B6860',fontFamily:'inherit' }}>
-                            <Download size={13}/> PDF
-                          </button>
-                          {isExpanded
-                            ? <ChevronUp size={18} style={{ color:'#9E9B94' }}/>
-                            : <ChevronDown size={18} style={{ color:'#9E9B94' }}/>
-                          }
-                        </div>
-                      </div>
-
-                      {/* Expanded detail */}
-                      {isExpanded && (
-                        <div style={{ borderTop:'1px solid #EEECE7', padding:'20px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 40px' }}>
-                          {highlightRows.map((row, idx) => {
-                            const val = r[row.key];
-                            const isZero = !val || parseFloat(val) === 0;
-                            return (
-                              <div key={row.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #F0EEE9', gridColumn: idx === highlightRows.length - 1 && highlightRows.length % 2 !== 0 ? '1 / -1' : undefined }}>
-                                <span style={{ fontSize:12, color: isZero ? '#C4C0B8' : '#6B6860' }}>{row.label}</span>
-                                <span style={{ fontSize:13, fontWeight:700, color: isZero ? '#C4C0B8' : (row.key === 'gross_wage' ? 'var(--brand)' : '#1A1917') }}>
-                                  {row.fmt(val)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* ── CONTACT TICKETS TAB ── */}
-          {activeTab === 'Contact Tickets' && (
-            <div>
-              <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
-                <button onClick={() => setTicketModal(true)}
-                  style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                  <Plus size={14}/> New Ticket
-                </button>
-              </div>
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                      {['Date','Type','Client','Notes'].map(h=>(
-                        <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(ticketsData?.data || []).map((t: any) => {
-                      const ts = TICKET_TYPE_STYLES[t.ticket_type] || { bg:'#F0EEE9', color:'#6B6860', label: t.ticket_type };
-                      return (
-                        <tr key={t.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(t.created_at).toLocaleDateString()}</td>
-                          <td style={{ padding:'12px 16px' }}>
-                            <span style={{ background:ts.bg,color:ts.color,padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600 }}>{ts.label}</span>
-                          </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{t.client_name || '—'}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860', maxWidth:300 }}>{t.notes || '—'}</td>
-                        </tr>
-                      );
-                    })}
-                    {!(ticketsData?.data||[]).length && (
-                      <tr><td colSpan={4} style={{ padding:'32px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No contact tickets</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* ── JOBS TAB ── */}
           {activeTab === 'Jobs' && (
             <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
@@ -3218,77 +3108,6 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── NOTES TAB ── */}
-          {activeTab === 'Incentives' && (() => {
-            const thisYear = new Date().getFullYear();
-            const ytdAll = incentivesData.filter((i: any) => i.earned_date && new Date(i.earned_date + 'T12:00').getFullYear() === thisYear);
-            const ytdEarned = ytdAll.reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const ytdPaid = ytdAll.filter((i: any) => i.status === 'paid' || i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const pendingUnpaid = ytdAll.filter((i: any) => i.status === 'approved' && !i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const STATUS_S: Record<string, { bg: string; color: string; label: string }> = {
-              pending_approval: { bg:'#FDF3E4', color:'#B45309', label:'Pending Approval' },
-              approved:         { bg:'#EFEFF2', color:'#2F3646', label:'Approved' },
-              rejected:         { bg:'#F0EEE9', color:'#6B6860', label:'Rejected' },
-              paid:             { bg:'#E6F6F1', color:'#0F7A63', label:'Paid' },
-            };
-            return (
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {/* YTD summary cards */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-                  {[
-                    { label:'Earned YTD', value:`$${ytdEarned.toFixed(2)}`, color:'#1A1917' },
-                    { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#0F7A63' },
-                    { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#B45309' : '#9E9B94' },
-                  ].map(c => (
-                    <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', textAlign:'center' }}>
-                      <div style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em', marginBottom:6 }}>{c.label}</div>
-                      <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* History table */}
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                  <div style={{ padding:'12px 18px', borderBottom:'1px solid #EEECE7' }}>
-                    <p style={{ margin:0, fontSize:13, fontWeight:700, color:'#1A1917' }}>Incentive History</p>
-                  </div>
-                  {incentivesData.length === 0 ? (
-                    <div style={{ padding:'40px 0', textAlign:'center', color:'#9E9B94', fontSize:13 }}>No incentives earned yet</div>
-                  ) : (
-                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                      <thead>
-                        <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                          {['Program','Amount','Earned Date','Status','Paid Date'].map(h => (
-                            <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {incentivesData.map((inc: any) => {
-                          const s = STATUS_S[inc.status] ?? STATUS_S.approved;
-                          return (
-                            <tr key={inc.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
-                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || '—'}</td>
-                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0F7A63' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
-                                {inc.earned_date ? new Date(inc.earned_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
-                              </td>
-                              <td style={{ padding:'12px 16px' }}>
-                                <span style={{ padding:'2px 7px', borderRadius:4, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
-                              </td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
-                                {inc.paid_date ? new Date(inc.paid_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
           {activeTab === 'Notes' && (
             <div>
               <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
@@ -3355,33 +3174,6 @@ export default function EmployeeProfilePage() {
                 <button onClick={() => { setNoteModal(false); setNoteContent(''); setNoteType('documented_conversation'); }}
                   style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                 <button onClick={addNote} style={{ padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>Add Note</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {ticketModal && (
-          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-            <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-              <h3 style={{ margin:'0 0 16px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>New Contact Ticket</h3>
-              <div style={{ marginBottom:12 }}>
-                <Field label="Type">
-                  <select value={newTicket.ticket_type} onChange={e=>setNewTicket(p=>({...p,ticket_type:e.target.value}))}
-                    style={{ height:36,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%' }}>
-                    {Object.entries(TICKET_TYPE_STYLES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                  </select>
-                </Field>
-              </div>
-              <div style={{ marginBottom:16 }}>
-                <Field label="Notes">
-                  <textarea value={newTicket.notes} onChange={e=>setNewTicket(p=>({...p,notes:e.target.value}))}
-                    style={{ width:'100%',height:80,padding:'10px 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,resize:'vertical',outline:'none',fontFamily:'inherit' }}/>
-                </Field>
-              </div>
-              <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-                <button onClick={() => setTicketModal(false)}
-                  style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-                <button onClick={addTicket} style={{ padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>Add Ticket</button>
               </div>
             </div>
           </div>
@@ -3705,7 +3497,10 @@ export default function EmployeeProfilePage() {
 // and validation: hourly is $/hr ($10–$100 reasonable), commission
 // is % (0–100 in UI, persisted as 0–1 fraction). Tenant defaults
 // inherit on new employee creation server-side.
-function PayMatrixPanel({ userId }: { userId: string }) {
+// [tab-consolidate 2026-08-04] `embedded` drops the standalone page chrome
+// (own <h1>, page padding, 720px cap) so this can sit as one section inside
+// the merged Pay tab instead of being its own tab.
+function PayMatrixPanel({ userId, embedded }: { userId: number | string; embedded?: boolean }) {
   const [resType, setResType] = useState<"commission" | "hourly">("commission");
   const [resRate, setResRate] = useState<string>("35");
   const [comType, setComType] = useState<"commission" | "hourly">("hourly");
@@ -3783,8 +3578,10 @@ function PayMatrixPanel({ userId }: { userId: string }) {
   if (loading) return <div style={{ padding: 24, color: "#9E9B94", fontSize: 13 }}>Loading…</div>;
 
   const sectionStyle: React.CSSProperties = {
-    background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
-    padding: "20px 22px", marginBottom: 16,
+    // Embedded, these two sit inside a white card already — a white-on-white
+    // nested card reads as a rendering glitch, so drop to the page tint.
+    background: embedded ? "#F7F6F3" : "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
+    padding: "20px 22px", marginBottom: embedded ? 0 : 16,
   };
   const labelStyle: React.CSSProperties = {
     fontSize: 12, fontWeight: 700, color: "#6B6860",
@@ -3839,13 +3636,15 @@ function PayMatrixPanel({ userId }: { userId: string }) {
   );
 
   return (
-    <div style={{ padding: "20px 22px 60px", maxWidth: 720 }}>
-      <h1 style={{ fontSize: 18, fontWeight: 800, color: "#1A1917", marginBottom: 4 }}>Pay configuration</h1>
-      <p style={{ fontSize: 12, color: "#6B6860", marginBottom: 20, lineHeight: 1.5 }}>
-        How this employee gets paid on residential vs commercial jobs. Each cell is independent — a tech can be on commission for residential and hourly for commercial. Rates apply per-tech to the job's commercial flag (driven by the client's <code>client_type</code>).
+    <div style={embedded ? undefined : { padding: "20px 22px 60px", maxWidth: 720 }}>
+      {!embedded && <h1 style={{ fontSize: 18, fontWeight: 800, color: "#1A1917", marginBottom: 4 }}>Pay configuration</h1>}
+      <p style={{ fontSize: 12, color: "#6B6860", marginBottom: embedded ? 14 : 20, lineHeight: 1.5, marginTop: 0 }}>
+        This is what actually drives paychecks. Residential and commercial are set separately — someone can be on commission for houses and hourly for commercial buildings.
       </p>
-      {renderSection("Residential pay", resType, setResType, resRate, setResRate)}
-      {renderSection("Commercial pay", comType, setComType, comRate, setComRate)}
+      <div style={embedded ? { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 } : undefined}>
+        {renderSection("Residential pay", resType, setResType, resRate, setResRate)}
+        {renderSection("Commercial pay", comType, setComType, comRate, setComRate)}
+      </div>
       {error && (
         <div style={{ background: "#FCEBEA", border: "1px solid #FCA5A5", color: "#B3261E", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
           {error}
