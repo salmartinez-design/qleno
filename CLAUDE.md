@@ -436,7 +436,23 @@ take a look at neighbors and fix the same problem if you see it.
 1. ~~Booking widget add-on ID mapping~~ — FIXED (dynamic lookup by name)
 2. ~~Zone check failing for valid zips (e.g. 60805)~~ — FIXED (branchRouter updated)
 3. Loyalty discount auto-applying with no code entered — OPEN (discount migration will fix)
-4. Recurring job anchor dates landing on Monday instead of correct day — OPEN (timezone bug in parseDate)
+4. ~~Recurring job anchor dates landing on Monday instead of correct day~~ —
+   FIXED in the engine. It was never a `parseDate` timezone bug (`parseDate`
+   builds a local-midnight Date and always has). The cause was the day-of-month
+   path: a `monthly` schedule with no `days_of_month` fell back to
+   `start.getDate()`, then `snapToBusinessDay` pushed any weekend landing
+   forward to Monday — so a Wednesday cadence became Monday from the 2nd
+   occurrence on. Closed by the `[monthly-weekday-drift 2026-07-09]` guard in
+   `lib/recurring-cadences.ts`: `monthly` with no `days_of_month` is the
+   residential "Every 4 weeks" case and falls through to the 28-day
+   weekday-anchored path. Verified 2026-08-04 by dry-running the real nightly
+   against production: 241 weekday-anchored dates planned, 0 on the wrong day.
+   **Only `semi_monthly` and `monthly` WITH an explicit `days_of_month` may
+   snap to a business day** — never plain `monthly`.
+   Residue: visits written on the old path before the fix reached production
+   still sit on the calendar (72 identified as extras wedged beside an intact
+   correct series; none carry money). Cleanup script:
+   `scratchpad/fix-drift2.mjs` (dry-run default, `--apply` to commit).
 5. ~~"Cook County" prefix showing in address display~~ — FIXED (no such logic exists)
 6. ~~Callback button not clickable on Very Dirty flow~~ — FIXED (fully functional)
 7. ~~"onetime" showing instead of "One Time" in booking summary~~ — FIXED (wLabel mapper)
