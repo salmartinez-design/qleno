@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, pgEnum, boolean, numeric } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, pgEnum, boolean, numeric, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -113,7 +113,27 @@ export const companiesTable = pgTable("companies", {
   // parity). Distinct from auto_send_invoices (emailing) and
   // auto_charge_on_invoice (billing), both still unwired. Batch/account
   // invoices keep their draft+pending merge flow regardless.
-  auto_issue_invoices: boolean("auto_issue_invoices").notNull().default(false),
+  // [tenant-billing 2026-08-05] Default flipped false → true. The whole
+  // post-[issue-on-completion] model assumes completion produces a real
+  // invoice; with this off a tenant lands in the abandoned pre-2026-08-03
+  // branch where everything parks as a draft+pending and the cadence close
+  // has nothing issued to fold. Defaulting off shipped every NEW tenant into
+  // the broken half. Existing rows keep whatever they have — this only sets
+  // the default for companies created from here on.
+  auto_issue_invoices: boolean("auto_issue_invoices").notNull().default(true),
+  // [tenant-billing 2026-08-05] Billing cutover: the first service date this
+  // tenant bills out of Qleno. Work scheduled BEFORE it was invoiced in the
+  // system they migrated from, so it must never surface in an uninvoiced
+  // queue, auto-invoice on completion, or count toward revenue here.
+  //
+  // Was the module constant INVOICE_CUTOVER_DATE = "2026-07-01" — Phes's
+  // MaidCentral migration date, hardcoded into eight billing queries. A
+  // tenant onboarding later inherits a floor that has nothing to do with
+  // them; one going live earlier silently loses its own history.
+  //
+  // NULL = no prior system, bill everything (clean-slate tenants). Same
+  // shape and same reasoning as qb_sync_start_date above.
+  invoice_cutover_date: date("invoice_cutover_date"),
   mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7250"),
   phone: text("phone"),
   email: text("email"),

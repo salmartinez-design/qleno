@@ -107,6 +107,44 @@ describe("billing coverage — one writer, one predicate (design D-3 / S-1 / S-2
     );
   });
 
+  /**
+   * [tenant-billing 2026-08-05] The cutover is tenant data, not a constant.
+   * It was hardcoded TWICE — ensure-invoice's exported INVOICE_CUTOVER_DATE and
+   * an independent private copy in billing-integrity — which had to be kept in
+   * sync by memory. Both are now companies.invoice_cutover_date.
+   */
+  it("no billing cutover is hardcoded", () => {
+    // The migration legitimately writes Phes's date once, to backfill existing
+    // rows so behaviour is unchanged. Everything else must read the column.
+    const ALLOWED = new Set(["phes-data-migration.ts"]);
+
+    const offenders = FILES.filter(
+      (f) => !ALLOWED.has(f.path) && /['"]2026-07-01['"]/.test(f.code),
+    ).map((f) => f.path);
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `Hardcoded billing cutover in: ${offenders.join(", ")}. ` +
+        "Read companies.invoice_cutover_date via lib/billing-cutover.ts instead — " +
+        "one tenant's migration date is not a property of the product.",
+    );
+  });
+
+  it("auto-issue defaults ON, so a new tenant isn't born into the draft-only branch", () => {
+    const schema = readFileSync(
+      join(SRC, "../../../lib/db/src/schema/companies.ts"),
+      "utf8",
+    );
+    assert.match(
+      schema,
+      /auto_issue_invoices:\s*boolean\("auto_issue_invoices"\)\.notNull\(\)\.default\(true\)/,
+      "companies.auto_issue_invoices must default to true. With it off, completion parks " +
+        "a draft+pending and the cadence close has nothing issued to fold — the abandoned " +
+        "pre-2026-08-03 branch, which is where every new tenant used to land.",
+    );
+  });
+
   it("the job-keyed create route delegates instead of hand-rolling an insert", () => {
     const route = FILES.find((f) => f.path === "routes/invoices.ts")!;
     assert.match(

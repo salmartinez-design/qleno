@@ -23,6 +23,7 @@
 //                        never invoiced
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { cutoverDate } from "./billing-cutover.js";
 
 export type IntegrityFinding = {
   job_id: number;
@@ -43,9 +44,12 @@ export type BillingIntegrityReport = {
   stale_windows: { account_id: number; account_name: string | null; window_end: string; cadence: string | null }[];
 };
 
-// Nothing before the cutover is in scope — pre-cutover money lived in
-// MaidCentral and is not Qleno's to reconcile.
-const CUTOVER = "2026-07-01";
+// Nothing before the cutover is in scope — pre-cutover money lived in the
+// system the tenant migrated from and is not Qleno's to reconcile.
+// [tenant-billing 2026-08-05] This was a SECOND hardcoded copy of Phes's
+// 2026-07-01, independent of the one in ensure-invoice: two constants that had
+// to be edited together and nothing saying so. Both are now
+// companies.invoice_cutover_date.
 
 export async function runBillingIntegrityCheck(
   companyId: number,
@@ -66,7 +70,7 @@ export async function runBillingIntegrityCheck(
       LEFT JOIN accounts a ON a.id = j.account_id
      WHERE j.company_id = ${companyId}
        AND j.status = 'complete'
-       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date >= ${cutoverDate(companyId)}
        AND j.scheduled_date <= ${today}::date
        AND COALESCE(j.non_billable, FALSE) = FALSE
        AND COALESCE(j.billed_amount, 0) > 0
@@ -106,7 +110,7 @@ export async function runBillingIntegrityCheck(
       LEFT JOIN accounts a ON a.id = j.account_id
      WHERE j.company_id = ${companyId}
        AND j.status = 'complete'
-       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date >= ${cutoverDate(companyId)}
        AND j.scheduled_date <= ${today}::date
        AND COALESCE(j.non_billable, FALSE) = FALSE
        AND COALESCE(j.billed_amount, 0) = 0
@@ -124,7 +128,7 @@ export async function runBillingIntegrityCheck(
      WHERE a.company_id = ${companyId}
        AND a.invoice_frequency IN ('weekly', 'monthly', 'custom')
        AND j.status = 'complete'
-       AND j.scheduled_date >= ${CUTOVER}::date
+       AND j.scheduled_date >= ${cutoverDate(companyId)}
        AND j.scheduled_date < date_trunc('month', ${today}::date)
        AND COALESCE(j.non_billable, FALSE) = FALSE
        AND NOT EXISTS (

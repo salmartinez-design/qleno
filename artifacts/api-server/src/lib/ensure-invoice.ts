@@ -66,18 +66,17 @@ import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable }
 import { eq, and, sql } from "drizzle-orm";
 import { getNextInvoiceNumber } from "./invoice-number.js";
 import { getVisitBillingState, setInvoiceCoverage } from "./invoice-billing.js";
+import { isBeforeCutover } from "./billing-cutover.js";
 import { derivePaymentSource } from "./payment-source.js";
 import { buildJobLineItems } from "./invoice-line-items.js";
 
-// [cutover-guard 2026-06-17; billing-cutover 2026-07-02] Phes billing cutover.
-// Everything scheduled BEFORE this date was invoiced + PAID in MaidCentral, so
-// Qleno must never bill it: the completion engine never auto-invoices these, AND
-// the "Not yet invoiced" queues (main Invoices screen + each account's Uninvoiced
-// Jobs tab) hide them so pre-cutover work doesn't clutter the billing queue.
-// Set to 2026-07-01 (Sal confirmed the switch-over; was 06-27, which risked
-// double-billing June 27–30). Single hardcoded constant for Phes; move to
-// tenant_settings when multi-tenant cutovers arrive (mirrors LATE_THRESHOLD_MINUTES).
-export const INVOICE_CUTOVER_DATE = "2026-07-01";
+// [tenant-billing 2026-08-05] `INVOICE_CUTOVER_DATE = "2026-07-01"` used to
+// live here and was imported by eight billing queries. It said of itself:
+// "Single hardcoded constant for Phes; move to tenant_settings when
+// multi-tenant cutovers arrive." They arrived. It is now
+// companies.invoice_cutover_date — see lib/billing-cutover.ts. Do NOT
+// reintroduce a module-level cutover; one tenant's migration date is not a
+// property of the product.
 
 export type EnsureInvoiceResult = {
   created: boolean;
@@ -172,13 +171,7 @@ export async function ensureInvoiceForCompletedJob(
     // or unresolved visit should be visible, not quietly invoiced.
     if (job.invoice_hold) return NO_OP;
 
-    // [cutover-guard 2026-06-17] Pre-cutover jobs are billed in MaidCentral, NOT
-    // Qleno. Never auto-invoice a job scheduled before the Qleno go-live date —
-    // otherwise a stale June job closed out in Qleno after July 1 would double-bill
-    // a customer already invoiced in MC. Scoped to the completion engine only;
-    // the office can still manually invoice a pre-cutover job if it ever needs it.
     const sched = job.scheduled_date ? String(job.scheduled_date).slice(0, 10) : null;
-    if (sched && sched < INVOICE_CUTOVER_DATE) return NO_OP;
 
     // Skip jobs already charged — money already moved, so an invoice would be a
     // duplicate AR artifact (spec §1 idempotency).
@@ -200,11 +193,26 @@ export async function ensureInvoiceForCompletedJob(
     // account invoices (guarded on the QB block below). A $0/unpriced account
     // job still stays a pending draft (the "rate needs setting" signal).
     const [co] = await db
-      .select({ payment_terms_days: companiesTable.payment_terms_days, auto_issue_invoices: companiesTable.auto_issue_invoices })
+      .select({
+        payment_terms_days: companiesTable.payment_terms_days,
+        auto_issue_invoices: companiesTable.auto_issue_invoices,
+        invoice_cutover_date: companiesTable.invoice_cutover_date,
+      })
       .from(companiesTable)
       .where(eq(companiesTable.id, companyId))
       .limit(1);
     const autoIssue = co?.auto_issue_invoices === true;
+
+    // [cutover-guard 2026-06-17; tenant-billing 2026-08-05] Pre-cutover work was
+    // invoiced in the system this tenant migrated from. Never auto-invoice it —
+    // a stale June job closed out in Qleno after go-live would double-bill a
+    // customer the old system already billed. Scoped to the completion engine;
+    // the office can still invoice a pre-cutover job by hand if it needs to.
+    //
+    // Now read from companies.invoice_cutover_date rather than a constant, so
+    // each tenant carries its own go-live date and a clean-slate tenant (NULL)
+    // has no floor at all. Moved below the company load for that reason.
+    if (isBeforeCutover(sched, co?.invoice_cutover_date ?? null)) return NO_OP;
 
     // [cadence 2026-07-22] An account's invoice_frequency decides WHETHER this
     // visit becomes its own document. per_job issues immediately (#1174).
