@@ -5,37 +5,57 @@ import {
   clientRatingsTable, additionalPayTable
 } from "@workspace/db/schema";
 import { eq, and, desc, gte, sql } from "drizzle-orm";
-import bcrypt from "bcryptjs";
-import { signToken, verifyToken } from "../lib/auth.js";
-import { Request, Response, NextFunction } from "express";
-import crypto from "crypto";
+import type { Request, Response, NextFunction } from "express";
+import { requirePortalAuth, requireCapability } from "../lib/portal-auth.js";
 
 const router = Router();
 
-declare global {
-  namespace Express {
-    interface Request {
-      portal?: { clientId: number; companyId: number };
-    }
+// [customer-portal 2026-08-05] This file used to own its own login and its own
+// session guard. Both are gone:
+//
+//  - The LOGIN was dead code. It gated on `clients.portal_password_hash`, a
+//    column absent from the Drizzle schema (it existed in ebda8989 / 2ac5a4c2
+//    and was removed), so `db.select()` never returned it and every attempt hit
+//    "Portal access not enabled". Nobody could ever sign in. Replaced by
+//    POST /api/portal/auth/login (routes/portal-auth.ts).
+//
+//  - The local GUARD read `payload.userId` as a CLIENT id. Under the new
+//    identity model that field is a portal_users id, so keeping it would have
+//    silently scoped every route below to the wrong customer's rows. It now
+//    uses the shared requirePortalAuth, which re-reads portal_users on each
+//    request and hands back the attachment.
+//
+// Also removed: an UNAUTHENTICATED POST /invite-client that accepted client_id,
+// company_id and a caller-chosen temp_password, then flipped portal_access on.
+// It took the tenant from the request body, so it was cross-tenant by
+// construction. Superseded by POST /api/portal/auth/invite, which is
+// staff-gated and reads the email off the record rather than the body.
+//
+// The routes here are residential (client-scoped) by nature. Commercial
+// customers reach their account through the /api/portal/account/* routes;
+// requireResidential below is what keeps the two from crossing.
+
+/**
+ * These routes address a single residential client. A commercial portal user
+ * has no client_id, so rather than letting `clientId` fall through as null and
+ * quietly matching nothing (or, worse, matching a row with a NULL client_id),
+ * refuse the request outright.
+ */
+function requireResidential(req: Request, res: Response, next: NextFunction): void {
+  const session = req.portalSession;
+  if (!session?.clientId) {
+    res.status(403).json({ error: "Forbidden", message: "Not available on a commercial account" });
+    return;
   }
+  next();
 }
 
-function requirePortalAuth(req: Request, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Unauthorized" }); return;
-  }
-  try {
-    const payload = verifyToken(authHeader.substring(7)) as any;
-    if (payload.role !== "portal_client") {
-      res.status(403).json({ error: "Forbidden" }); return;
-    }
-    req.portal = { clientId: payload.userId, companyId: payload.companyId };
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
-  }
-}
+// Resolve the client + company this request may touch. Straight off the
+// session, which came off the portal_users row — never off the request.
+const scope = (req: Request) => ({
+  clientId: req.portalSession!.clientId as number,
+  companyId: req.portalSession!.companyId,
+});
 
 router.get("/company/:slug", async (req, res) => {
   try {
@@ -49,61 +69,27 @@ router.get("/company/:slug", async (req, res) => {
   } catch (err) { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-router.post("/login", async (req, res) => {
+router.get("/me", requirePortalAuth, requireResidential, async (req, res) => {
   try {
-    const { email, password, company_slug } = req.body;
-    if (!email || !password || !company_slug) {
-      return res.status(400).json({ error: "Email, password, and company_slug required" });
-    }
-
-    const company = await db
-      .select({ id: companiesTable.id })
-      .from(companiesTable)
-      .where(eq(companiesTable.slug, company_slug))
-      .limit(1);
-    if (!company[0]) return res.status(404).json({ error: "Company not found" });
-
+    // Scoped to the session's own client AND company — a client id alone would
+    // match across tenants.
     const client = await db
       .select()
       .from(clientsTable)
       .where(and(
-        eq(clientsTable.email, email.toLowerCase()),
-        eq(clientsTable.company_id, company[0].id),
+        eq(clientsTable.id, scope(req).clientId),
+        eq(clientsTable.company_id, scope(req).companyId),
       ))
       .limit(1);
-
-    if (!client[0]) return res.status(401).json({ error: "Invalid credentials" });
-    if (!client[0].portal_access || !client[0].portal_password_hash) {
-      return res.status(403).json({ error: "Portal access not enabled for this account" });
-    }
-
-    const valid = await bcrypt.compare(password, client[0].portal_password_hash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
-
-    await db.update(clientsTable).set({ portal_last_login: new Date() }).where(eq(clientsTable.id, client[0].id));
-
-    const token = signToken({ userId: client[0].id, companyId: company[0].id, role: "portal_client", email: client[0].email || '' });
-    return res.json({ token, client: { id: client[0].id, first_name: client[0].first_name, last_name: client[0].last_name, email: client[0].email } });
-  } catch (err) {
-    console.error("Portal login error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-router.get("/me", requirePortalAuth, async (req, res) => {
-  try {
-    const client = await db
-      .select()
-      .from(clientsTable)
-      .where(eq(clientsTable.id, req.portal!.clientId))
-      .limit(1);
     if (!client[0]) return res.status(404).json({ error: "Not found" });
-    const { portal_password_hash: _, ...safe } = client[0];
-    return res.json(safe);
+    // This used to strip `portal_password_hash` before replying. That column is
+    // no longer on `clients` — credentials live on portal_users now and never
+    // travel through this route — so there is nothing to strip.
+    return res.json(client[0]);
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-router.get("/jobs", requirePortalAuth, async (req, res) => {
+router.get("/jobs", requirePortalAuth, requireResidential, async (req, res) => {
   try {
     const jobs = await db
       .select({
@@ -120,8 +106,8 @@ router.get("/jobs", requirePortalAuth, async (req, res) => {
       .from(jobsTable)
       .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
       .where(and(
-        eq(jobsTable.client_id, req.portal!.clientId),
-        eq(jobsTable.company_id, req.portal!.companyId),
+        eq(jobsTable.client_id, scope(req).clientId),
+        eq(jobsTable.company_id, scope(req).companyId),
       ))
       .orderBy(desc(jobsTable.scheduled_date))
       .limit(20);
@@ -134,7 +120,7 @@ router.get("/jobs", requirePortalAuth, async (req, res) => {
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-router.post("/rate", requirePortalAuth, async (req, res) => {
+router.post("/rate", requirePortalAuth, requireResidential, requireCapability("rateClean"), async (req, res) => {
   try {
     const { job_id, score, comment } = req.body;
     if (!job_id || !score) return res.status(400).json({ error: "job_id and score required" });
@@ -142,7 +128,7 @@ router.post("/rate", requirePortalAuth, async (req, res) => {
     const existing = await db
       .select({ id: clientRatingsTable.id })
       .from(clientRatingsTable)
-      .where(and(eq(clientRatingsTable.job_id, job_id), eq(clientRatingsTable.client_id, req.portal!.clientId)))
+      .where(and(eq(clientRatingsTable.job_id, job_id), eq(clientRatingsTable.client_id, scope(req).clientId)))
       .limit(1);
 
     if (existing[0]) {
@@ -151,8 +137,8 @@ router.post("/rate", requirePortalAuth, async (req, res) => {
         .where(eq(clientRatingsTable.id, existing[0].id));
     } else {
       await db.insert(clientRatingsTable).values({
-        company_id: req.portal!.companyId,
-        client_id: req.portal!.clientId,
+        company_id: scope(req).companyId,
+        client_id: scope(req).clientId,
         job_id,
         score,
         comment,
@@ -170,7 +156,7 @@ router.post("/rate", requirePortalAuth, async (req, res) => {
       const entryDate = job?.dt ? String(job.dt).slice(0, 10) : new Date().toISOString().slice(0, 10);
       const { captureJobScore } = await import("../lib/scorecard-engine.js");
       await captureJobScore({
-        companyId: req.portal!.companyId, jobId: job_id,
+        companyId: scope(req).companyId, jobId: job_id,
         score: Math.max(0, Math.min(4, Math.round(Number(score)))),
         entryDate, notes: comment || null,
       });
@@ -182,7 +168,7 @@ router.post("/rate", requirePortalAuth, async (req, res) => {
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-router.post("/tip", requirePortalAuth, async (req, res) => {
+router.post("/tip", requirePortalAuth, requireResidential, requireCapability("payInvoice"), async (req, res) => {
   try {
     const { job_id, amount } = req.body;
     if (!job_id || !amount) return res.status(400).json({ error: "job_id and amount required" });
@@ -190,7 +176,7 @@ router.post("/tip", requirePortalAuth, async (req, res) => {
     const job = await db
       .select({ assigned_user_id: jobsTable.assigned_user_id, company_id: jobsTable.company_id })
       .from(jobsTable)
-      .where(and(eq(jobsTable.id, job_id), eq(jobsTable.client_id, req.portal!.clientId)))
+      .where(and(eq(jobsTable.id, job_id), eq(jobsTable.client_id, scope(req).clientId)))
       .limit(1);
 
     if (!job[0] || !job[0].assigned_user_id) {
@@ -211,7 +197,7 @@ router.post("/tip", requirePortalAuth, async (req, res) => {
 });
 
 // ── POST /api/portal/profile-picture ────────────────────────────────────────
-router.post("/profile-picture", requirePortalAuth, async (req, res) => {
+router.post("/profile-picture", requirePortalAuth, requireResidential, async (req, res) => {
   try {
     const { image_data } = req.body; // base64 data URL e.g. "data:image/jpeg;base64,..."
     if (!image_data || typeof image_data !== "string") {
@@ -229,33 +215,10 @@ router.post("/profile-picture", requirePortalAuth, async (req, res) => {
       .update(clientsTable)
       .set({ profile_picture_url: image_data } as any)
       .where(and(
-        eq(clientsTable.id, req.portal!.clientId),
-        eq(clientsTable.company_id, req.portal!.companyId),
+        eq(clientsTable.id, scope(req).clientId),
+        eq(clientsTable.company_id, scope(req).companyId),
       ));
     return res.json({ success: true });
-  } catch { return res.status(500).json({ error: "Internal Server Error" }); }
-});
-
-router.post("/invite-client", async (req, res) => {
-  try {
-    const { client_id, company_id, temp_password } = req.body;
-    if (!client_id || !company_id || !temp_password) {
-      return res.status(400).json({ error: "client_id, company_id, and temp_password required" });
-    }
-
-    const password_hash = await bcrypt.hash(temp_password, 10);
-    const token = crypto.randomBytes(32).toString("hex");
-
-    await db.update(clientsTable)
-      .set({
-        portal_password_hash: password_hash,
-        portal_access: true,
-        portal_invite_token: token,
-        portal_invite_sent_at: new Date(),
-      })
-      .where(and(eq(clientsTable.id, client_id), eq(clientsTable.company_id, company_id)));
-
-    return res.json({ success: true, portal_invite_token: token });
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 

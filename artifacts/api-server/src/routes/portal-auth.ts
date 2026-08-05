@@ -27,6 +27,18 @@ import {
   normalizeEmail, findPortalUserByEmail,
 } from "../lib/portal-auth.js";
 
+// The portal is routed per company (/portal/:slug/...), so an emailed link must
+// carry the slug. Without it "/portal/set-password" resolves as slug =
+// "set-password" and the customer lands on a sign-in page for a company that
+// doesn't exist.
+async function portalLink(companyId: number, path: string, token: string): Promise<string> {
+  const co = await db.execute(sql`SELECT slug FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const slug = (co.rows[0] as any)?.slug;
+  return slug
+    ? `${appBaseUrl()}/portal/${slug}/${path}?token=${token}`
+    : `${appBaseUrl()}/portal/${path}?token=${token}`;
+}
+
 const router = Router();
 
 // One reply for every "did this email exist?" branch. Login, forgot-password
@@ -106,7 +118,7 @@ router.post("/invite", requireAuth, requireRole("owner", "admin", "office"), asy
     }
 
     const raw = await mintPortalToken({ companyId, portalUserId, kind: "verify" });
-    const link = `${appBaseUrl()}/portal/set-password?token=${raw}`;
+    const link = await portalLink(companyId, "set-password", raw);
     const sent = await sendNotification(
       "portal_invite", "email", companyId, normalizeEmail(email), null,
       { first_name: (name || "").split(" ")[0] || "", portal_link: link },
@@ -217,7 +229,7 @@ router.post("/forgot", async (req, res) => {
     const user = await findPortalUserByEmail(companyId, email);
     if (user?.is_active) {
       const raw = await mintPortalToken({ companyId, portalUserId: user.id, kind: "reset" });
-      const link = `${appBaseUrl()}/portal/set-password?token=${raw}`;
+      const link = await portalLink(companyId, "set-password", raw);
       await sendNotification(
         "portal_password_reset", "email", companyId, user.email, null,
         { first_name: (user.name || "").split(" ")[0] || "", portal_link: link },
