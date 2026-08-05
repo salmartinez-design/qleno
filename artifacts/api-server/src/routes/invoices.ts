@@ -1050,10 +1050,223 @@ export async function buildInvoicePdfBuffer(companyId: number, invoiceId: number
   return { buffer: pdf, filename: `${inv.invoice_number || `invoice-${invoiceId}`}.pdf` };
 }
 
-router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
-  try {
-    const invoiceId = parseInt(req.params.id);
+// [invoice-email-lines 2026-08-05] Render an invoice's line items as an email-safe
+// HTML table for the {{invoice_lines_html}} merge tag, so the emailed invoice
+// SHOWS the work instead of only naming an amount. Table-based with inline
+// styles and no flex/grid — Outlook renders nothing else reliably. Brand palette
+// matches invoice-pdf.ts and invoice-detail.tsx, so the email, the PDF and the
+// web invoice are one document in three places.
+//
+// Returns "" on any failure: the tag then merges to empty and the email still
+// goes out with the summary card. A line-item render must never block a send.
+const escHtml = (s: any) => String(s ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+async function renderInvoiceLinesHtml(companyId: number, invoiceId: number): Promise<string> {
+  try {
+    const [inv] = await db
+      .select({ line_items: invoicesTable.line_items, subtotal: invoicesTable.subtotal,
+                tips: invoicesTable.tips, total: invoicesTable.total })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+      .limit(1);
+    const items = Array.isArray(inv?.line_items) ? (inv!.line_items as any[]) : [];
+    if (!items.length) return "";
+
+    const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const cap = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    // Service date as a pure calendar date — never `new Date("2026-08-05")`,
+    // which parses as UTC midnight and prints the previous day west of GMT.
+    const svcDate = (d: any) => {
+      if (!d) return "";
+      const [y, m, day] = String(d).slice(0, 10).split("-").map(Number);
+      if (!y || !m || !day) return "";
+      return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    };
+
+    const rows = items.map((it) => {
+      const when = svcDate(it.service_date);
+      const desc = cap(String(it.description ?? it.name ?? "Service"));
+      const qty  = Number(it.quantity ?? 1);
+      const rate = it.unit_price ?? it.unit_rate ?? it.total ?? 0;
+      const amt  = it.total ?? it.amount ?? 0;
+      return `<tr>
+<td style="padding:9px 0;border-bottom:1px solid #F0EEE9;font-size:14px;color:#1A1917">${escHtml(desc)}${
+        when ? `<div style="font-size:12px;color:#9E9B94;margin-top:2px">${escHtml(when)}</div>` : ""
+      }</td>
+<td style="padding:9px 0;border-bottom:1px solid #F0EEE9;font-size:13px;color:#6B6860;text-align:right;white-space:nowrap">${escHtml(qty)}</td>
+<td style="padding:9px 0 9px 14px;border-bottom:1px solid #F0EEE9;font-size:13px;color:#6B6860;text-align:right;white-space:nowrap">${escHtml(money(rate))}</td>
+<td style="padding:9px 0 9px 14px;border-bottom:1px solid #F0EEE9;font-size:14px;color:#1A1917;font-weight:600;text-align:right;white-space:nowrap">${escHtml(money(amt))}</td>
+</tr>`;
+    }).join("");
+
+    const tips = Number(inv?.tips || 0);
+    const tipRow = tips > 0
+      ? `<tr><td colspan="3" style="padding:8px 0;text-align:right;font-size:13px;color:#6B6860">Tips</td>
+<td style="padding:8px 0 8px 14px;text-align:right;font-size:14px;color:#1A1917;font-weight:600;white-space:nowrap">${escHtml(money(tips))}</td></tr>`
+      : "";
+
+    return `<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;margin:0 0 24px">
+<tr>
+<th align="left" style="padding:0 0 7px;font-size:11px;font-weight:600;color:#9E9B94;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #E5E2DC">Description</th>
+<th align="right" style="padding:0 0 7px;font-size:11px;font-weight:600;color:#9E9B94;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #E5E2DC">Qty</th>
+<th align="right" style="padding:0 0 7px 14px;font-size:11px;font-weight:600;color:#9E9B94;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #E5E2DC">Rate</th>
+<th align="right" style="padding:0 0 7px 14px;font-size:11px;font-weight:600;color:#9E9B94;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #E5E2DC">Amount</th>
+</tr>
+${rows}${tipRow}
+<tr>
+<td colspan="3" style="padding:12px 0 0;text-align:right;font-size:14px;font-weight:700;color:#1A1917;border-top:2px solid #1A1917">Total due</td>
+<td style="padding:12px 0 0 14px;text-align:right;font-size:18px;font-weight:700;color:#1A1917;border-top:2px solid #1A1917;white-space:nowrap">${escHtml(money(inv?.total))}</td>
+</tr>
+</table>`;
+  } catch (err) {
+    console.error("[invoice-email-lines] render failed, sending without the table:", (err as any)?.message);
+    return "";
+  }
+}
+
+// [bulk-invoice-ops 2026-08-05] How many invoices one bulk request may touch.
+// Guards the ZIP (no Zip64) and keeps a bulk email from becoming an unbounded
+// loop against Resend. Well above a month of PPM invoices (~45 buildings).
+const BULK_INVOICE_LIMIT = 200;
+
+// Shared parse/validate for both bulk endpoints: a clean list of this company's
+// invoice ids, or an error string.
+function parseBulkIds(body: any): { ids: number[]; error?: string } {
+  const raw = Array.isArray(body?.invoice_ids) ? body.invoice_ids : null;
+  if (!raw) return { ids: [], error: "invoice_ids must be an array" };
+  const ids: number[] = Array.from(new Set<number>(raw.map((n: any) => parseInt(String(n))).filter((n: number) => Number.isFinite(n))));
+  if (!ids.length) return { ids: [], error: "Select at least one invoice" };
+  if (ids.length > BULK_INVOICE_LIMIT) {
+    return { ids: [], error: `Too many invoices — select ${BULK_INVOICE_LIMIT} or fewer (got ${ids.length})` };
+  }
+  return { ids };
+}
+
+// POST /api/invoices/bulk-pdf  Body: { invoice_ids: number[] }
+// Returns a ZIP with one PDF per invoice — Maribel's "select invoices and
+// download in bulk generating a zip file with all the invoices separately".
+// Deliberately NOT one merged PDF: each invoice has to stay its own document so
+// it can be filed and forwarded per building.
+router.post("/bulk-pdf", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const { ids, error } = parseBulkIds(req.body);
+    if (error) return res.status(400).json({ error: "Bad Request", message: error });
+
+    // Scope to this company FIRST — a tenant must never zip another tenant's
+    // invoices by guessing ids. Ordered by invoice number so the archive reads
+    // in the same order as the list the office selected from.
+    const owned = await db
+      .select({ id: invoicesTable.id, invoice_number: invoicesTable.invoice_number })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)))
+      .orderBy(invoicesTable.invoice_number, invoicesTable.id);
+    if (!owned.length) return res.status(404).json({ error: "Not Found", message: "No matching invoices found" });
+
+    // Render sequentially: pdfkit is CPU-bound and each render may fetch the
+    // company logo over the network. 200 parallel renders would spike the
+    // Railway dyno for no wall-clock win.
+    const entries: { name: string; content: Buffer }[] = [];
+    const failed: string[] = [];
+    for (const row of owned) {
+      const label = row.invoice_number || generateInvoiceNumber(row.id);
+      try {
+        const out = await buildInvoicePdfBuffer(companyId, row.id);
+        if (out) entries.push({ name: out.filename, content: out.buffer });
+        else failed.push(label);
+      } catch (e) {
+        console.error(`[bulk-pdf] invoice ${row.id} failed to render:`, (e as any)?.message);
+        failed.push(label);
+      }
+    }
+    if (!entries.length) {
+      return res.status(500).json({ error: "Internal Server Error", message: "None of the selected invoices could be rendered" });
+    }
+
+    const { buildZip } = await import("../lib/zip.js");
+    const zip = buildZip(entries);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    logAudit(req, "BULK_PDF_DOWNLOAD", "invoice", owned[0].id, null, {
+      requested: ids.length, included: entries.length, failed: failed.length,
+      invoice_ids: owned.map((o) => o.id),
+    });
+
+    // Any invoice that couldn't render is named in a response header rather than
+    // silently dropped — a short zip must not read as a complete one.
+    if (failed.length) res.setHeader("X-Invoice-Render-Failures", failed.join(","));
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Length", String(zip.length));
+    res.setHeader("Content-Disposition", `attachment; filename="invoices-${stamp}.zip"`);
+    return res.end(zip);
+  } catch (err) {
+    console.error("Bulk invoice PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build the invoice archive" });
+  }
+});
+
+// POST /api/invoices/bulk-send  Body: { invoice_ids: number[] }
+// Emails each selected invoice through the SAME path as the single send (PDF
+// attached, line items in the body, comm-log trace, resend-safe status rules).
+// Always 200 with a per-invoice verdict — a partial failure has to be readable
+// per row, not collapsed into one error the office can't act on.
+router.post("/bulk-send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const { ids, error } = parseBulkIds(req.body);
+    if (error) return res.status(400).json({ error: "Bad Request", message: error });
+
+    const owned = await db
+      .select({ id: invoicesTable.id })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)))
+      .orderBy(invoicesTable.invoice_number, invoicesTable.id);
+    if (!owned.length) return res.status(404).json({ error: "Not Found", message: "No matching invoices found" });
+
+    // Sequential on purpose: each send mints a pay link, renders a PDF and hits
+    // Resend. Firing 200 at once invites provider rate-limiting, and a partial
+    // rate-limited batch is far harder for the office to reconcile than a
+    // slightly slower one that reports cleanly.
+    const results: any[] = [];
+    for (const row of owned) {
+      try {
+        const out = await sendOneInvoice(companyId, row.id, req.auth!.userId ?? null);
+        results.push(out.ok
+          ? { invoice_id: row.id, invoice_number: out.invoice_number, sent: true, recipient: out.recipient }
+          : { invoice_id: row.id, invoice_number: out.invoice_number ?? generateInvoiceNumber(row.id), sent: false, message: out.message, reason: out.reason ?? null });
+      } catch (e) {
+        console.error(`[bulk-send] invoice ${row.id} threw:`, (e as any)?.message);
+        results.push({ invoice_id: row.id, invoice_number: generateInvoiceNumber(row.id), sent: false, message: "Failed to send invoice" });
+      }
+    }
+
+    const sent = results.filter((r) => r.sent).length;
+    logAudit(req, "UPDATE", "invoice", owned[0].id, null, {
+      action: "bulk_send", requested: ids.length, sent, failed: results.length - sent,
+    });
+    return res.json({ requested: ids.length, sent, failed: results.length - sent, results });
+  } catch (err) {
+    console.error("Bulk invoice send error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to send the selected invoices" });
+  }
+});
+
+// [bulk-invoice-ops 2026-08-05] The single-invoice send, extracted verbatim so
+// the BULK sender runs this exact path — recipient chain, pay link, PDF
+// attachment, comm-log trace, resend status rules, QB push. "Email these 30
+// invoices" must never become a second, subtly-different implementation of
+// "email this invoice"; five parallel implementations of "combine invoices" is
+// what produced the KMA mess (docs/BATCH_INVOICING_DESIGN.md §5 S-2).
+type SendInvoiceResult =
+  | { ok: true; invoice: any; recipient: string; invoice_number: string }
+  | { ok: false; status: number; message: string; reason?: string | null; invoice_number?: string };
+
+async function sendOneInvoice(
+  companyId: number,
+  invoiceId: number,
+  actorUserId: number | null,
+): Promise<SendInvoiceResult> {
     const [invoice] = await db
       .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, account_id: invoicesTable.account_id,
                 job_id: invoicesTable.job_id, total: invoicesTable.total,
@@ -1062,12 +1275,10 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
                 billing_contact_email: invoicesTable.billing_contact_email,
                 status: invoicesTable.status })
       .from(invoicesTable)
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
 
-    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-
-    const companyId = req.auth!.companyId;
+    if (!invoice) return { ok: false, status: 404, message: "Invoice not found" };
 
     const [client] = invoice.client_id ? await db
       .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
@@ -1090,19 +1301,30 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       if (row?.email) { recipientEmail = row.email; recipientName = recipientName || row.name || null; }
     }
 
+    const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
+
     if (!recipientEmail && !client?.phone) {
-      return res.status(400).json({
-        error: "Bad Request",
+      return {
+        ok: false,
+        status: 400,
+        invoice_number: invNum,
         message: invoice.account_id
           ? "No billing email on file — add an account contact with an email (mark it 'receives invoices') and try again."
           : "This client has no email or phone on file — add one and try again.",
-      });
+      };
     }
 
-    const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
     // Mint a Stripe pay-token so the email's "View and Pay" button charges the
     // invoice total on the public /pay/:token page.
-    const invLink = await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
+    const invLink = await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, actorUserId ?? undefined);
+    // [invoice-email-lines 2026-08-05] The emailed invoice now shows the actual
+    // WORK — one row per visit with its service date, qty, rate and amount —
+    // not just a number and an amount due (Maribel: "the email should display
+    // the invoice but also generate a pdf file"). An account contact approving
+    // a $2,400 month needs to see the visits inside the email, without opening
+    // an attachment. Rendered here and injected as {{invoice_lines_html}};
+    // templates that don't reference the tag are unaffected.
+    const linesHtml = await renderInvoiceLinesHtml(companyId, invoiceId);
     const mergeVars = {
       first_name:       recipientName || "",
       invoice_number:   invNum,
@@ -1110,6 +1332,7 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       invoice_due_date: invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "upon receipt",
       invoice_link:     invLink,
       service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
+      invoice_lines_html: linesHtml,
     };
     // [invoice-pdf-attach 2026-07-14] Attach the invoice PDF to the email so the
     // customer gets a real file, not just the info in the body (Maribel).
@@ -1167,7 +1390,7 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
         VALUES (${companyId}, ${invoice.client_id ?? null}, ${invoice.account_id ?? null}, ${invoice.job_id ?? null}, 'outbound', 'email',
                 ${delivered ? `Invoice ${invNum} emailed${bldg}` : `Invoice ${invNum} email NOT sent${bldg}${failReason ? ` — ${failReason}` : ""}`},
                 ${`Invoice ${invNum}${bldg}`}, ${recipientEmail ?? client?.phone ?? "unknown"},
-                ${delivered ? "sent" : "suppressed"}, 'system', ${req.auth!.userId})`);
+                ${delivered ? "sent" : "suppressed"}, 'system', ${actorUserId})`);
     } catch (e) { console.error("[invoice-send] comm-log trace non-fatal:", (e as any)?.message); }
 
     if (!delivered) {
@@ -1175,7 +1398,7 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
         failReason === "company_comms_disabled" ? "communications are turned OFF for this company — the email was suppressed, not sent" :
         failReason === "COMMS_ENABLED=false" ? "communications are globally disabled — the email was suppressed, not sent" :
         failReason ? failReason.replace(/_/g, " ") : "the message could not be delivered";
-      return res.status(422).json({ error: "Not Sent", message: `Invoice was NOT sent: ${human}.`, reason: failReason });
+      return { ok: false, status: 422, message: `Invoice was NOT sent: ${human}.`, reason: failReason, invoice_number: invNum };
     }
 
     // [invoice-resend 2026-07-14] Sending records sent_at, but must NOT downgrade
@@ -1186,7 +1409,7 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
     const [updated] = await db
       .update(invoicesTable)
       .set({ ...(keepStatus ? {} : { status: "sent" }), sent_at: new Date() })
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
       .returning();
 
     // [no-auto-issue 2026-07-06] Completion invoices no longer push to QB at
@@ -1194,11 +1417,26 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
     // fire-and-forget, no-op when QB isn't connected.
     queueSync(() => syncInvoice(companyId, invoiceId));
 
-    return res.json(formatInvoice({
-      ...updated,
-      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || recipientName || "",
-      client_email: recipientEmail,
-    }));
+    return {
+      ok: true,
+      invoice_number: invNum,
+      recipient: recipientEmail ?? client?.phone ?? "unknown",
+      invoice: formatInvoice({
+        ...updated,
+        client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || recipientName || "",
+        client_email: recipientEmail,
+      }),
+    };
+}
+
+router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const out = await sendOneInvoice(req.auth!.companyId as number, parseInt(req.params.id), req.auth!.userId ?? null);
+    if (!out.ok) {
+      const error = out.status === 404 ? "Not Found" : out.status === 400 ? "Bad Request" : "Not Sent";
+      return res.status(out.status).json({ error, message: out.message, ...(out.reason !== undefined ? { reason: out.reason } : {}) });
+    }
+    return res.json(out.invoice);
   } catch (err) {
     console.error("Send invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to send invoice" });

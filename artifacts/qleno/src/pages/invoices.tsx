@@ -1011,6 +1011,80 @@ export default function InvoicesPage() {
   function toggleMerge(id: number, on: boolean) {
     setMergeSel(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
   }
+  // [bulk-invoice-ops 2026-08-05] The row checkbox used to be merge-only, so a
+  // PAID invoice could not be ticked at all. Downloading and emailing apply to
+  // ANY invoice (Maribel re-sends paid ones routinely — "email invoices before
+  // AND after marked paid"), so selection is now open to every row and MERGE is
+  // the thing that's gated: the button only lights up when at least two of the
+  // selected invoices are actually mergeable.
+  const selectedInvoices = invoices.filter((i: any) => mergeSel.has(i.id));
+  const canMergeSelection = mergeSel.size >= 2 && selectedInvoices.every(isMergeable);
+  const [bulkBusy, setBulkBusy] = useState<null | "pdf" | "email">(null);
+  // Clear the selection whenever the visible list changes. Without this a tick
+  // survives a tab or date-range change, and "Email invoices" would send rows
+  // the office can no longer see — the count in the bar would not even match
+  // what's on screen. Selection must never outlive the list it was made from.
+  useEffect(() => { setMergeSel(new Set()); }, [activeTab, dateFrom, dateTo, search, activeBranchId]);
+
+  // One zip, one PDF per invoice. Reads a blob because the response is binary —
+  // navigating to the URL instead would drop the Authorization header.
+  async function downloadSelectedPdfs() {
+    if (!mergeSel.size) return;
+    setBulkBusy("pdf");
+    try {
+      const r = await fetch(`${API}/api/invoices/bulk-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() } as HeadersInit,
+        body: JSON.stringify({ invoice_ids: [...mergeSel] }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        toast({ title: "Could not build the download", description: err.message || "Please try again.", variant: "destructive" });
+        return;
+      }
+      const skipped = r.headers.get("X-Invoice-Render-Failures");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoices-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast(skipped
+        ? { title: `Downloaded — ${skipped.split(",").length} could not be rendered`, description: `Missing from the zip: ${skipped}`, variant: "destructive" }
+        : { title: `Downloaded ${mergeSel.size} invoice${mergeSel.size === 1 ? "" : "s"}` });
+    } catch {
+      toast({ title: "Network error", description: "The download did not start — please try again.", variant: "destructive" });
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  // Email each selected invoice on the same path as the single Send.
+  async function emailSelected() {
+    if (!mergeSel.size) return;
+    if (!window.confirm(`Email ${mergeSel.size} invoice${mergeSel.size === 1 ? "" : "s"} to their billing contacts?`)) return;
+    setBulkBusy("email");
+    try {
+      const out = await apiFetch(`/api/invoices/bulk-send`, { method: "POST", body: JSON.stringify({ invoice_ids: [...mergeSel] }) });
+      // Report sent AND not-sent: a missing billing email on three of thirty is
+      // the normal failure, and "27 sent" alone would bury it.
+      const firstFail = (out?.results || []).find((x: any) => !x.sent);
+      toast(out?.failed
+        ? { title: `${out.sent} sent · ${out.failed} not sent`, description: firstFail ? `${firstFail.invoice_number}: ${firstFail.message}` : undefined, variant: "destructive" }
+        : { title: `${out?.sent ?? 0} invoice${out?.sent === 1 ? "" : "s"} emailed` });
+      setMergeSel(new Set());
+      refetch();
+    } catch (e: any) {
+      let msg = e?.message || "";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: "Could not send", description: msg, variant: "destructive" });
+    } finally {
+      setBulkBusy(null);
+    }
+  }
   async function doMerge() {
     if (mergeSel.size < 2) return;
     setMerging(true);
@@ -1204,11 +1278,25 @@ export default function InvoicesPage() {
               <span style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, fontFamily: FF }}>
                 {mergeSel.size} selected · ${mergeTotal.toFixed(2)}
               </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setMergeSel(new Set())}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => setMergeSel(new Set())} disabled={!!bulkBusy || merging}
                   style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #3A3E4A", backgroundColor: "transparent", color: "#C9C5BD", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
-                <button onClick={doMerge} disabled={merging || mergeSel.size < 2}
-                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: mergeSel.size < 2 ? "not-allowed" : "pointer", opacity: mergeSel.size < 2 ? 0.6 : 1, fontFamily: FF }}>
+                <button onClick={downloadSelectedPdfs} disabled={!!bulkBusy || merging}
+                  title="Download one zip containing each invoice as its own PDF"
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #3A3E4A", backgroundColor: "transparent", color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: bulkBusy ? "default" : "pointer", opacity: bulkBusy ? 0.6 : 1, fontFamily: FF }}>
+                  {bulkBusy === "pdf" ? "Preparing…" : "Download PDFs"}
+                </button>
+                <button onClick={emailSelected} disabled={!!bulkBusy || merging}
+                  title="Email each selected invoice to its billing contact"
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #3A3E4A", backgroundColor: "transparent", color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: bulkBusy ? "default" : "pointer", opacity: bulkBusy ? 0.6 : 1, fontFamily: FF }}>
+                  {bulkBusy === "email" ? "Sending…" : "Email invoices"}
+                </button>
+                {/* Merge stays the gated action — it only makes sense for two or
+                    more invoices that are all still billable. Selecting a paid
+                    invoice to re-email must not offer to fold it into another. */}
+                <button onClick={doMerge} disabled={merging || !!bulkBusy || !canMergeSelection}
+                  title={canMergeSelection ? "Fold the selected invoices into one" : "Select two or more unpaid invoices to merge"}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: !canMergeSelection ? "not-allowed" : "pointer", opacity: !canMergeSelection ? 0.6 : 1, fontFamily: FF }}>
                   {merging ? "Merging…" : "Merge into one invoice"}
                 </button>
               </div>
@@ -1332,9 +1420,9 @@ export default function InvoicesPage() {
               <thead>
                 <tr>
                   <th style={{ ...TH, width: 34 }}>
-                    <input type="checkbox" aria-label="Select all mergeable"
-                      checked={invoices.filter(isMergeable).length > 0 && invoices.filter(isMergeable).every((i: any) => mergeSel.has(i.id))}
-                      onChange={e => setMergeSel(e.target.checked ? new Set(invoices.filter(isMergeable).map((i: any) => i.id)) : new Set())} />
+                    <input type="checkbox" aria-label="Select all invoices"
+                      checked={invoices.length > 0 && invoices.every((i: any) => mergeSel.has(i.id))}
+                      onChange={e => setMergeSel(e.target.checked ? new Set(invoices.map((i: any) => i.id)) : new Set())} />
                   </th>
                   {["Invoice #", "Client", "PO #", "Terms", "Amount", "Service Date", "Days Overdue", "Status", ""].map(h => (
                     <th key={h} style={{ ...TH, textAlign: h === "" ? "right" as const : "left" as const }}>{h}</th>
@@ -1378,7 +1466,6 @@ export default function InvoicesPage() {
                       <td style={{ padding: "13px 18px" }} onClick={e => e.stopPropagation()}>
                         <input type="checkbox"
                           aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
-                          disabled={!isMergeable(inv)}
                           checked={mergeSel.has(inv.id)}
                           onChange={e => toggleMerge(inv.id, e.target.checked)} />
                       </td>
