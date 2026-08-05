@@ -118,6 +118,44 @@ describe("Commission compute — routing", () => {
     });
     assert.equal(rows[0].amount, 80.0); // 20 × 4 (allowed, since actual=0)
   });
+
+  // [allowed-hours-no-budget 2026-08-04] Production case: Daveco job 18193 —
+  // commercial, Jesus Torres clocked 2 hours, allowed_hours NULL because the
+  // recurring schedule's duration was never filled in. Old behaviour: 20 × 0 =
+  // $0, and the $0 row was then dropped, so the cleaner disappeared from
+  // payroll silently. 230 future commercial visits were queued to do the same.
+  it("commercial with NO budget set pays the hours actually clocked, not $0", () => {
+    const rows = computeCommissionRows({
+      jobs: [job({ id: 18193, account_id: 5, allowed_hours: null, actual_hours: "2.00" })],
+      resRates: phesRates,
+      commercial: commercialAllowed,
+    });
+    assert.equal(rows.length, 1, "row must not be dropped from payroll");
+    assert.equal(rows[0].amount, 40.0); // 20 × 2 clocked
+    assert.equal(rows[0].basis, "commercial_hourly");
+  });
+
+  it("commercial with no budget AND no clock stays $0 (nothing was worked)", () => {
+    const rows = computeCommissionRows({
+      jobs: [job({ id: 1, account_id: 5, allowed_hours: null, actual_hours: "0" })],
+      resRates: phesRates,
+      commercial: commercialAllowed,
+    });
+    assert.equal(rows.length, 0);
+  });
+
+  it("a real budget still wins over clocked time — the efficiency incentive holds", () => {
+    const under = computeCommissionRows({
+      jobs: [job({ id: 1, account_id: 5, allowed_hours: "5.0", actual_hours: "2.0" })],
+      resRates: phesRates, commercial: commercialAllowed,
+    });
+    assert.equal(under[0].amount, 100.0); // faster than budget → still paid 5h
+    const over = computeCommissionRows({
+      jobs: [job({ id: 2, account_id: 5, allowed_hours: "8.0", actual_hours: "8.18" })],
+      resRates: phesRates, commercial: commercialAllowed,
+    });
+    assert.equal(over[0].amount, 160.0); // slower than budget → capped at 8h
+  });
 });
 
 describe("Commission compute — jobTotal waterfall + overrides + skips", () => {

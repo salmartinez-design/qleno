@@ -128,8 +128,15 @@ export function computeCommissionRows(input: {
     const jobTotal = commissionBase ?? (num(j.billed_amount) || num(j.base_fee));
     const allowedHrs = num(j.allowed_hours);
     const workedHrs = num(j.actual_hours);
+    // [allowed-hours-no-budget 2026-08-04] A commercial job with NO budget set
+    // (allowed_hours null/0 — every visit spawned by a recurring schedule whose
+    // duration_minutes was never filled in) used to compute rate × 0 = $0, and
+    // line ~152 below then dropped the row entirely, so the cleaner vanished
+    // from payroll with no warning. Fall back to hours actually clocked, which
+    // is the rule commission-paytype.ts already applies (see its matching
+    // [allowed-hours-no-budget] guard). Work that was clocked always pays.
     const commercialHours =
-      input.commercial.commercial_comp_mode === "actual_hours" && workedHrs > 0
+      (input.commercial.commercial_comp_mode === "actual_hours" || allowedHrs <= 0) && workedHrs > 0
         ? workedHrs
         : allowedHrs;
 
