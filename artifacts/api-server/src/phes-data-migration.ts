@@ -6829,6 +6829,29 @@ async function runNotificationTemplateSeed() {
       // Google review" — the survey thank-you page only shows the ask to clients
       // who have never tapped it before.
       ["clients.google_review_clicked_at",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_review_clicked_at TIMESTAMP`],
+      // [tenant-billing 2026-08-05] Billing cutover becomes per-tenant data
+      // instead of the INVOICE_CUTOVER_DATE constant.
+      //
+      // The backfill has to be ONE-TIME, and that is why it rides on the ADD
+      // COLUMN's DEFAULT rather than a separate UPDATE. `ADD COLUMN ... DEFAULT
+      // '2026-07-01'` stamps every existing row at the moment the column is
+      // created, and IF NOT EXISTS means that happens exactly once ever. The
+      // very next statement drops the default so new companies get NULL — no
+      // prior system, bill everything.
+      //
+      // A plain `UPDATE ... WHERE invoice_cutover_date IS NULL` would look
+      // equivalent and be wrong: it re-runs on every cold start, so an owner
+      // who deliberately clears their cutover (NULL is a meaningful value here,
+      // set via PUT /api/companies/billing-settings) would find it silently
+      // restored to Phes's migration date on the next deploy — a setting that
+      // un-sets itself, which is worse than not having the setting.
+      ["companies.invoice_cutover_date",            sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_cutover_date DATE DEFAULT '2026-07-01'`],
+      ["companies.invoice_cutover_date__no_default", sql`ALTER TABLE companies ALTER COLUMN invoice_cutover_date DROP DEFAULT`],
+      // [tenant-billing 2026-08-05] New tenants must auto-issue. With this off,
+      // completion parks a draft+pending and the cadence close has nothing
+      // issued to fold — the abandoned pre-2026-08-03 branch. Existing rows are
+      // untouched; this only changes the default for companies created later.
+      ["companies.auto_issue_invoices__default",    sql`ALTER TABLE companies ALTER COLUMN auto_issue_invoices SET DEFAULT true`],
       ["notifications.create_table",                sql`CREATE TABLE IF NOT EXISTS notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id integer NOT NULL, type varchar(50) NOT NULL, title varchar(255) NOT NULL, body text, link varchar(500), meta jsonb, read boolean DEFAULT false, created_at timestamptz DEFAULT now())`],
       ["notifications.idx_company_unread",          sql`CREATE INDEX IF NOT EXISTS idx_notifications_company_unread ON notifications(company_id, read, created_at DESC)`],
     ];

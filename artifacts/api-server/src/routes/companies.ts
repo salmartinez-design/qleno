@@ -5,8 +5,9 @@ import { eq, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import { mkdirSync } from "fs";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { renderW9 } from "../lib/w9-pdf.js";
+import { logAudit } from "../lib/audit.js";
 
 function getLogosDir(): string {
   const base = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
@@ -551,5 +552,89 @@ function clampPct(v: unknown, fallback: number): number {
   if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.min(100, n));
 }
+
+// [tenant-billing 2026-08-05] Billing settings — the two switches that decide
+// WHAT a tenant bills and WHETHER completion bills it. Both were compile-time
+// constants until now (INVOICE_CUTOVER_DATE, and a schema default nobody could
+// reach), so onboarding a tenant with a different migration date meant a deploy.
+//
+// Deliberately NOT folded into PATCH /me: that route is requireAuth with no
+// role gate, and these are not cosmetic. Moving the cutover forward hides
+// already-billed work from every queue; moving it back can re-expose a month
+// the prior system already collected on. Owner/admin only, and audited.
+router.get("/billing-settings", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const [co] = await db
+      .select({
+        invoice_cutover_date: companiesTable.invoice_cutover_date,
+        auto_issue_invoices: companiesTable.auto_issue_invoices,
+      })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, req.auth!.companyId as number))
+      .limit(1);
+    return res.json({
+      invoice_cutover_date: co?.invoice_cutover_date ?? null,
+      auto_issue_invoices: co?.auto_issue_invoices ?? true,
+    });
+  } catch (err) {
+    console.error("Get billing settings error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load billing settings" });
+  }
+});
+
+router.put("/billing-settings", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const { invoice_cutover_date, auto_issue_invoices } = req.body ?? {};
+
+    const patch: Record<string, unknown> = {};
+
+    if (invoice_cutover_date !== undefined) {
+      // null/"" clears it: "no prior system, bill everything." Anything else
+      // must be a real calendar date — a malformed string here would silently
+      // become a floor that matches nothing and empty every billing queue,
+      // which reads exactly like "all caught up."
+      const raw = invoice_cutover_date === null ? null : String(invoice_cutover_date).trim();
+      if (raw === null || raw === "") {
+        patch.invoice_cutover_date = null;
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00.000Z`))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "invoice_cutover_date must be YYYY-MM-DD, or null for no cutover",
+        });
+      } else {
+        patch.invoice_cutover_date = raw;
+      }
+    }
+
+    if (auto_issue_invoices !== undefined) {
+      if (typeof auto_issue_invoices !== "boolean") {
+        return res.status(400).json({ error: "Bad Request", message: "auto_issue_invoices must be true or false" });
+      }
+      patch.auto_issue_invoices = auto_issue_invoices;
+    }
+
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ error: "Bad Request", message: "Nothing to update" });
+    }
+
+    const [before] = await db
+      .select({
+        invoice_cutover_date: companiesTable.invoice_cutover_date,
+        auto_issue_invoices: companiesTable.auto_issue_invoices,
+      })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+
+    await db.update(companiesTable).set(patch).where(eq(companiesTable.id, companyId));
+    logAudit(req, "UPDATE", "company", companyId, before ?? null, patch);
+
+    return res.json({ ok: true, ...patch });
+  } catch (err) {
+    console.error("Update billing settings error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to update billing settings" });
+  }
+});
 
 export default router;

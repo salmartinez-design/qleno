@@ -11,7 +11,7 @@ import { appBaseUrl } from "../lib/app-url.js";
 import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
 import { chargeInvoice } from "../lib/charge-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
-import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
+import { onOrAfterCutover, cutoverDate } from "../lib/billing-cutover.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 import { preserveJobIds } from "../lib/invoice-job-ids.js";
 import { combineInvoices, splitBatchInvoice, cascadeBatchPayment, ensurePerVisitInvoice } from "../lib/invoice-billing.js";
@@ -259,12 +259,12 @@ router.get("/", requireAuth, async (req, res) => {
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
           sql`${invoicesTable.paid_at} >= now() - interval '30 days'`,
-          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
+          sql`${effDate} >= ${cutoverDate(req.auth!.companyId as number)}`)),
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
           sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`,
-          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
+          sql`${effDate} >= ${cutoverDate(req.auth!.companyId as number)}`)),
     ]);
 
     return res.json({

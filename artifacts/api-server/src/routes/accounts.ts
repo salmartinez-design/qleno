@@ -8,7 +8,7 @@ import {
 import { eq, and, sql, inArray, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { utcIso } from "../lib/time-serialize.js";
-import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
+import { onOrAfterCutover, cutoverDate } from "../lib/billing-cutover.js";
 import { combineInvoices, ensurePerVisitInvoice } from "../lib/invoice-billing.js";
 
 const router = Router();
@@ -1020,7 +1020,7 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
           eq(jobsTable.company_id, companyId),
           // [billing-cutover 2026-07-02] Pre-cutover visits were billed + paid in
           // MaidCentral — hide them from this account's Uninvoiced Jobs queue.
-          gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE),
+          onOrAfterCutover(companyId, jobsTable.scheduled_date),
           // [pre-bill-month 2026-07-03] Optional single-month window.
           monthValid ? gte(jobsTable.scheduled_date, monthFrom!) : undefined,
           monthValid ? lte(jobsTable.scheduled_date, monthTo!) : undefined,

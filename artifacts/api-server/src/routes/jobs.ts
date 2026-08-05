@@ -17,7 +17,7 @@ import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
-import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
+import { onOrAfterCutover, cutoverDate } from "../lib/billing-cutover.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
@@ -432,7 +432,7 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admi
     if (uninvoiced === "true") {
       // [billing-cutover 2026-07-02] Pre-cutover jobs were invoiced + paid in
       // MaidCentral — never surface them as "not yet invoiced" in Qleno.
-      conditions.push(gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE));
+      conditions.push(onOrAfterCutover(req.auth!.companyId as number, jobsTable.scheduled_date));
       // [single-path 2026-08-05] THE dedup predicate (design D-3), shared with
       // ensure-invoice, the account button, and the cadence close.
       //
