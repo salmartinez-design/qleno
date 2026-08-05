@@ -1377,26 +1377,36 @@ router.put("/:id/notification-preferences", requireAuth, requireRole("owner", "a
 });
 
 // ─── PORTAL INVITE ─────────────────────────────────────────────────────────────
-router.post("/:id/portal-invite", requireAuth, async (req, res) => {
+// [customer-portal 2026-08-05] Was a lie: it minted a token, wrote "Portal
+// invitation sent to …" into the communication log, returned "Invitation sent"
+// — and never called the mailer. The office read a success, the log agreed, and
+// the customer received nothing. It now runs the SAME invitePortalUser() the
+// account-contact invite runs, and reports what actually happened.
+router.post("/:id/portal-invite", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
+    const companyId = req.auth!.companyId as number;
     const clientId = parseInt(req.params.id);
-    const [client] = await db.select().from(clientsTable)
-      .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).limit(1);
-    if (!client) return res.status(404).json({ error: "Not Found" });
-    const token = crypto.randomBytes(32).toString("hex");
-    await db.update(clientsTable).set({
-      portal_invite_token: token,
-      portal_invite_sent_at: new Date(),
-    }).where(eq(clientsTable.id, clientId));
+    const { invitePortalUser } = await import("../lib/portal-invite.js");
+    const out = await invitePortalUser({ companyId, clientId });
+    if (!out.ok) {
+      return res.status(out.status).json({ error: out.status === 404 ? "Not Found" : "Bad Request", message: out.message });
+    }
+
+    // Trace row for the client's Communications feed. Written for a failed send
+    // too, and labelled honestly, so "did the invite go out?" has a real answer.
     await db.insert(clientCommunicationsTable).values({
-      company_id: req.auth!.companyId, client_id: clientId,
+      company_id: companyId, client_id: clientId,
       type: "system", direction: "outbound",
-      body: `Portal invitation sent to ${client.email || "client"}`,
+      body: out.emailed
+        ? `Portal invitation emailed`
+        : `Portal invitation NOT sent — login created, email did not send`,
       from_name: "System",
     });
-    return res.json({ success: true, token, message: "Invitation sent" });
+
+    return res.json({ success: true, emailed: out.emailed, message: out.message });
   } catch (err) {
-    return res.status(500).json({ error: "Internal Server Error" });
+    console.error("Client portal-invite error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to invite this client" });
   }
 });
 

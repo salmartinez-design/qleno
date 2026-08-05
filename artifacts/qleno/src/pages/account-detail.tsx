@@ -448,6 +448,37 @@ export default function AccountDetailPage() {
   // Contact
   const [showContact, setShowContact] = useState(false);
   const [editContact, setEditContact] = useState<any>(null);
+  // [customer-portal 2026-08-05] Invite an account contact to the customer
+  // portal. Confirms first: this sends mail to a real customer, so it must not
+  // be a stray click on a button that sits next to Edit and Delete.
+  const [invitingContactId, setInvitingContactId] = useState<number | null>(null);
+  async function inviteContactToPortal(c: any) {
+    if (!c.email) return;
+    if (!window.confirm(`Email ${c.name} at ${c.email} a link to set up portal access?`)) return;
+    setInvitingContactId(c.id);
+    try {
+      const r = await fetch(`${API}/api/portal/auth/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() } as HeadersInit,
+        body: JSON.stringify({ account_contact_id: c.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Could not send the invite", description: d.message || d.error, variant: "destructive" });
+        return;
+      }
+      // The login is created even when the email fails to leave (an unseeded
+      // template, comms switched off). Say which happened rather than reporting
+      // a success the customer never received.
+      toast(d.emailed
+        ? { title: `Invite sent to ${c.email}` }
+        : { title: "Portal login created, but the email did not send", description: d.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Network error", description: "Nothing was sent — please try again.", variant: "destructive" });
+    } finally {
+      setInvitingContactId(null);
+    }
+  }
   const [contactForm, setContactForm] = useState({
     name: "", role: "operations", email: "", phone: "",
     receives_invoices: false, receives_receipts: false,
@@ -1602,6 +1633,21 @@ export default function AccountDetailPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        {/* [customer-portal 2026-08-05] Turn this contact into a
+                            portal login. Disabled without an email, because the
+                            invite is delivered there and the server reads the
+                            address off this record rather than trusting the
+                            caller — so there is nowhere to send it. */}
+                        <button
+                          onClick={() => inviteContactToPortal(c)}
+                          disabled={!c.email || invitingContactId === c.id}
+                          title={c.email
+                            ? `Email ${c.name} a link to set up portal access`
+                            : "Add an email address to this contact first"}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-40 disabled:cursor-default"
+                          style={{ borderColor: "#E5E2DC", color: "var(--brand)", background: "#FFFFFF" }}>
+                          {invitingContactId === c.id ? "Sending…" : "Invite to portal"}
+                        </button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditContact(c)}>
                           <Pencil size={13} className="text-gray-400" />
                         </Button>

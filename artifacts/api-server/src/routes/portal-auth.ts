@@ -14,7 +14,7 @@
 // portal_users row through portal_identities.
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { portalUsersTable, clientsTable, accountContactsTable } from "@workspace/db/schema";
+import { portalUsersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -26,6 +26,7 @@ import {
   mintPortalToken, redeemPortalToken, revokePortalTokens,
   normalizeEmail, findPortalUserByEmail,
 } from "../lib/portal-auth.js";
+import { invitePortalUser } from "../lib/portal-invite.js";
 
 // The portal is routed per company (/portal/:slug/...), so an emailed link must
 // carry the slug. Without it "/portal/set-password" resolves as slug =
@@ -67,75 +68,20 @@ function sessionFromUser(user: {
 router.post("/invite", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId as number;
-    const clientId = req.body?.client_id ? parseInt(String(req.body.client_id)) : null;
-    const contactId = req.body?.account_contact_id ? parseInt(String(req.body.account_contact_id)) : null;
-
-    // Exactly one attachment — the same invariant the table's CHECK enforces.
-    if ((clientId == null) === (contactId == null)) {
-      return res.status(400).json({ error: "Bad Request", message: "Pass exactly one of client_id or account_contact_id" });
-    }
-
-    // Resolve the target WITHIN this tenant, and take the email from the record
-    // rather than the request body: letting a caller supply the address would
-    // turn this into a way to send a working login link anywhere.
-    let email: string | null = null;
-    let name: string | null = null;
-    if (clientId != null) {
-      const [c] = await db.select({ email: clientsTable.email, first: clientsTable.first_name, last: clientsTable.last_name })
-        .from(clientsTable)
-        .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId)))
-        .limit(1);
-      if (!c) return res.status(404).json({ error: "Not Found", message: "Client not found" });
-      email = c.email; name = [c.first, c.last].filter(Boolean).join(" ") || null;
-    } else {
-      const [c] = await db.select({ email: accountContactsTable.email, name: accountContactsTable.name })
-        .from(accountContactsTable)
-        .where(and(eq(accountContactsTable.id, contactId!), eq(accountContactsTable.company_id, companyId)))
-        .limit(1);
-      if (!c) return res.status(404).json({ error: "Not Found", message: "Account contact not found" });
-      email = c.email; name = c.name;
-    }
-    if (!email) {
-      return res.status(400).json({ error: "Bad Request", message: "That record has no email address — add one first" });
-    }
-
-    const existing = await findPortalUserByEmail(companyId, email);
-    let portalUserId: number;
-    if (existing) {
-      // Re-invite. Do NOT clear an existing password — a customer who already
-      // set one keeps working while the new link is outstanding.
-      portalUserId = existing.id;
-      await db.update(portalUsersTable).set({ is_active: true }).where(eq(portalUsersTable.id, existing.id));
-    } else {
-      const [created] = await db.insert(portalUsersTable).values({
-        company_id: companyId,
-        email: normalizeEmail(email),
-        name,
-        client_id: clientId,
-        account_contact_id: contactId,
-      }).returning({ id: portalUsersTable.id });
-      portalUserId = created.id;
-    }
-
-    const raw = await mintPortalToken({ companyId, portalUserId, kind: "verify" });
-    const link = await portalLink(companyId, "set-password", raw);
-    const sent = await sendNotification(
-      "portal_invite", "email", companyId, normalizeEmail(email), null,
-      { first_name: (name || "").split(" ")[0] || "", portal_link: link },
-      true, // transactional: an explicit staff action, must always go out
-    ).catch(() => false);
-
-    logAudit(req, "PORTAL_INVITE", "portal_user", portalUserId, null, {
-      client_id: clientId, account_contact_id: contactId, emailed: sent,
+    const out = await invitePortalUser({
+      companyId,
+      clientId: req.body?.client_id ? parseInt(String(req.body.client_id)) : null,
+      accountContactId: req.body?.account_contact_id ? parseInt(String(req.body.account_contact_id)) : null,
     });
-
-    // `emailed:false` usually means the portal_invite template hasn't been
-    // seeded yet — say so plainly rather than reporting a success that never
-    // reached anyone.
-    return res.json({
-      ok: true, portal_user_id: portalUserId, emailed: sent,
-      message: sent ? `Invite sent to ${email}` : `Portal login created, but the invite email did not send`,
+    if (!out.ok) {
+      return res.status(out.status).json({ error: out.status === 404 ? "Not Found" : "Bad Request", message: out.message });
+    }
+    logAudit(req, "PORTAL_INVITE", "portal_user", out.portalUserId ?? null, null, {
+      client_id: req.body?.client_id ?? null,
+      account_contact_id: req.body?.account_contact_id ?? null,
+      emailed: out.emailed,
     });
+    return res.json({ ok: true, portal_user_id: out.portalUserId, emailed: out.emailed, message: out.message });
   } catch (err) {
     console.error("Portal invite error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to invite this customer" });
