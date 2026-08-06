@@ -57,6 +57,30 @@ import { cutoverDate } from "./billing-cutover.js";
  */
 const effectivePrice = sql`COALESCE(NULLIF(j.billed_amount, 0), j.base_fee, 0)`;
 
+/**
+ * [cancel-fee-blindspot 2026-08-06] This visit's money already came in as a
+ * CANCELLATION or LOCKOUT FEE, so there is nothing left to invoice.
+ *
+ * A charged cancellation deliberately lives as `jobs.status = 'complete'` — see
+ * the note in routes/reports.ts: "charged cancellations live as
+ * status='complete'". The fee is recorded in cancellation_log, NOT as an
+ * invoice, and the job keeps its full base_fee. To every check that reasons
+ * from jobs + invoices alone, that is indistinguishable from "we cleaned a
+ * house for $1,000 and never billed it."
+ *
+ * Verified on production 2026-08-06: of 11 uncovered_visits, THREE were
+ * collected fees — Arlin Uddberg job 20293 ($1,000 cancellation, Jul 31), PPM
+ * job 20280 ($150 lockout), and job 8589 ($200 lockout). $1,350 of a $2,775.82
+ * "unbilled" total was money already in the bank. The Fees Collected report had
+ * it right the whole time; this sweep was reading the wrong ledger.
+ */
+const feeAlreadyCollected = sql`EXISTS (
+  SELECT 1 FROM cancellation_log cl
+   WHERE cl.company_id = j.company_id
+     AND cl.job_id = j.id
+     AND cl.cancel_action IN ('cancel', 'lockout')
+     AND COALESCE(cl.customer_charge_amount, 0) > 0)`;
+
 /** The live invoice covering this visit, if any. NULL when nothing covers it. */
 const liveInvoiceTotal = sql`(
   SELECT i.total
@@ -120,6 +144,7 @@ export async function runBillingIntegrityCheck(
        AND NOT EXISTS (
          SELECT 1 FROM invoice_job_links l
           WHERE l.company_id = j.company_id AND l.job_id = j.id AND l.is_live)
+       AND NOT ${feeAlreadyCollected}
      ORDER BY j.scheduled_date DESC`) as any).rows as IntegrityFinding[];
 
   // 2. Two live invoices for one visit. The partial unique index
@@ -167,6 +192,8 @@ export async function runBillingIntegrityCheck(
        AND j.scheduled_date <= ${today}::date
        AND COALESCE(j.non_billable, FALSE) = FALSE
        AND COALESCE(${liveInvoiceTotal}, ${effectivePrice}) = 0
+       -- A cancelled visit that was charged a fee is not an unset rate.
+       AND NOT ${feeAlreadyCollected}
      ORDER BY j.scheduled_date DESC`) as any).rows as IntegrityFinding[];
 
   // 4. Bundled accounts whose window has closed with work still sitting
