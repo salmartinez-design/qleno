@@ -145,6 +145,30 @@ describe("billing coverage — one writer, one predicate (design D-3 / S-1 / S-2
     );
   });
 
+  /**
+   * [integrity-signal 2026-08-06] jobs.billed_amount is an OPTIONAL OVERRIDE,
+   * not the price — computeJobBilledGross in lib/job-billed.ts falls back to
+   * base_fee + mods, and most jobs leave billed_amount NULL. Treating it as
+   * "the price" broke the integrity sweep in both directions at once: 230
+   * fully-priced visits reported as unpriced, and $420 of genuinely unbilled
+   * work (jobs 15630/15631) invisible to the check meant to catch it.
+   */
+  it("the integrity sweep never treats billed_amount as the price", () => {
+    const f = FILES.find((x) => x.path === "lib/billing-integrity.ts")!;
+    const offenders = [
+      /COALESCE\(\s*j\.billed_amount\s*,\s*0\s*\)\s*=\s*0/i,
+      /COALESCE\(\s*j\.billed_amount\s*,\s*0\s*\)\s*>\s*0/i,
+    ].filter((re) => re.test(f.code));
+
+    assert.deepEqual(
+      offenders.map(String),
+      [],
+      "billing-integrity.ts is gating on jobs.billed_amount again. It is an " +
+        "override, not the price: use the invoice total (what actually bills, " +
+        "matching invoice-cadence's held_unpriced) and fall back to base_fee.",
+    );
+  });
+
   it("the job-keyed create route delegates instead of hand-rolling an insert", () => {
     const route = FILES.find((f) => f.path === "routes/invoices.ts")!;
     assert.match(

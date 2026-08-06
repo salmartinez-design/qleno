@@ -12,18 +12,58 @@
 // double-billing.
 //
 // Four checks, each mapping to a defect that actually happened:
-//   uncovered_visits   — completed, billable, priced work with no live invoice
-//                        ($2,120.62 across 17 visits when this was written)
+//   uncovered_visits   — completed, billable, priced work with no live invoice.
+//                        The one that costs money directly. Priced by EITHER
+//                        billed_amount or base_fee — see the note below.
 //   contested_visits   — one visit claimed by two live invoices. Should be
 //                        IMPOSSIBLE once the partial unique index is in place;
 //                        if this is ever non-empty the index is missing.
-//   unpriced_visits    — completed work sitting at $0.00, which invoices as a
-//                        zero-dollar document nobody notices (D5)
+//   unpriced_visits    — completed work that BILLS $0.00 (its invoice totals
+//                        zero, or it has no invoice and no price), which reads
+//                        as "handled" on every screen while earning nothing (D8)
 //   stale_windows      — a bundled account whose billing window closed and was
 //                        never invoiced
+// [integrity-signal 2026-08-06] Checks 1 and 3 both asked whether
+// `jobs.billed_amount` was zero. It is NOT the price — lib/job-billed.ts
+// (computeJobBilledGross, the resolver the dispatch board and the invoice both
+// use) treats it as an OPTIONAL OVERRIDE and falls back to base_fee + mods.
+// Most jobs leave it NULL. So the two checks were wrong in opposite
+// directions, and the expensive one was the quiet one:
+//
+//   check 3 (unpriced)  reported every fully-priced job as $0 — 230 phantoms
+//                       on 2026-08-06, so the report said ok:false every night
+//                       and became the console warning nobody reads that D-8
+//                       and S-3 exist to prevent;
+//   check 1 (uncovered) gated on `billed_amount > 0`, so a visit priced only in
+//                       base_fee was INVISIBLE to the one check whose whole job
+//                       is finding work we did and never billed. Verified live:
+//                       jobs 15630 and 15631 (Jennifer Halper, Jul 13 + Jul 20,
+//                       $210 each) had no invoice and did not appear.
+//
+// Both now read the invoice — the document that actually bills — and fall back
+// to the same base_fee the resolver does.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { cutoverDate } from "./billing-cutover.js";
+
+/**
+ * A visit's price, for REPORTING. Mirrors computeJobBilledGross's residential
+ * fallback (`billed_amount` when set, else `base_fee`) in SQL.
+ *
+ * Deliberately an approximation: the real resolver also folds in mods, add-ons,
+ * discounts, and a commercial rate×hours branch, none of which belong in a
+ * monitoring query. It only ever decides "is this zero or not," and both inputs
+ * being zero is the signal we want either way.
+ */
+const effectivePrice = sql`COALESCE(NULLIF(j.billed_amount, 0), j.base_fee, 0)`;
+
+/** The live invoice covering this visit, if any. NULL when nothing covers it. */
+const liveInvoiceTotal = sql`(
+  SELECT i.total
+    FROM invoice_job_links l
+    JOIN invoices i ON i.id = l.invoice_id
+   WHERE l.company_id = j.company_id AND l.job_id = j.id AND l.is_live
+   LIMIT 1)`;
 
 export type IntegrityFinding = {
   job_id: number;
@@ -64,7 +104,7 @@ export async function runBillingIntegrityCheck(
     SELECT j.id AS job_id,
            j.scheduled_date::text AS scheduled_date,
            COALESCE(a.account_name, concat(c.first_name, ' ', c.last_name)) AS customer,
-           j.billed_amount::text AS amount
+           ${effectivePrice}::text AS amount
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
@@ -73,7 +113,10 @@ export async function runBillingIntegrityCheck(
        AND j.scheduled_date >= ${cutoverDate(companyId)}
        AND j.scheduled_date <= ${today}::date
        AND COALESCE(j.non_billable, FALSE) = FALSE
-       AND COALESCE(j.billed_amount, 0) > 0
+       -- Priced by EITHER carrier. The old billed_amount > 0 test hid every
+       -- visit priced only in base_fee, which is most of them. A $0 visit is a
+       -- real problem too, it just belongs in unpriced_visits rather than here.
+       AND ${effectivePrice} > 0
        AND NOT EXISTS (
          SELECT 1 FROM invoice_job_links l
           WHERE l.company_id = j.company_id AND l.job_id = j.id AND l.is_live)
@@ -98,13 +141,23 @@ export async function runBillingIntegrityCheck(
      GROUP BY l.job_id, j.scheduled_date, a.account_name, c.first_name, c.last_name
     HAVING COUNT(*) > 1`) as any).rows as IntegrityFinding[];
 
-  // 3. Completed billable work priced at zero. It invoices as a $0.00 document
-  //    that reads as "handled" on every screen while earning nothing.
+  // 3. Completed billable work that bills $0.00 — an unset rate. It produces a
+  //    zero-dollar document that reads as "handled" on every screen while
+  //    earning nothing (D-8).
+  //
+  //    "Bills $0" means the INVOICE covering it totals zero, which is the same
+  //    definition lib/invoice-cadence.ts already uses to refuse to fold a visit
+  //    into a bundle (`held_unpriced`). When nothing covers the visit yet, fall
+  //    back to its own price. Reading jobs.billed_amount instead is what
+  //    produced 230 false positives against production on 2026-08-06 — every
+  //    one of the five sampled had a correct non-zero invoice.
   const unpriced = (await db.execute(sql`
     SELECT j.id AS job_id,
            j.scheduled_date::text AS scheduled_date,
            COALESCE(a.account_name, concat(c.first_name, ' ', c.last_name)) AS customer,
-           '0.00'::text AS amount
+           '0.00'::text AS amount,
+           CASE WHEN ${liveInvoiceTotal} IS NOT NULL
+                THEN 'invoice totals $0' ELSE 'no rate set, not yet invoiced' END AS detail
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
@@ -113,7 +166,7 @@ export async function runBillingIntegrityCheck(
        AND j.scheduled_date >= ${cutoverDate(companyId)}
        AND j.scheduled_date <= ${today}::date
        AND COALESCE(j.non_billable, FALSE) = FALSE
-       AND COALESCE(j.billed_amount, 0) = 0
+       AND COALESCE(${liveInvoiceTotal}, ${effectivePrice}) = 0
      ORDER BY j.scheduled_date DESC`) as any).rows as IntegrityFinding[];
 
   // 4. Bundled accounts whose window has closed with work still sitting
