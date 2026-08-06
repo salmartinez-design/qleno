@@ -287,61 +287,104 @@ function MarkPaidMethodModal({ invoice, busy, onPick, onClose }: { invoice: any;
   );
 }
 
-// [weekly-cadence 2026-06-26] On-demand consolidated invoicing. Lists
-// batch_invoice clients' pending per-visit drafts for a billing window (weekly
-// Sun–Sat or monthly), keyed on SERVICE DATE, and folds a client's window into
-// one invoice via POST /api/batch-invoicing/:clientId/consolidate. Office stays
-// in control — nothing generates automatically.
+// [billing-windows 2026-08-06] Close a bundled customer's billing window.
+//
+// This panel used to list `batch_invoice` clients' PENDING PER-VISIT DRAFTS and
+// fold them via POST /api/batch-invoicing/:clientId/consolidate. That model was
+// retired by [issue-on-completion 2026-08-03], which made every completed,
+// priced visit issue a real invoice — so the only rows that still match
+// `status='draft' AND batch_status='pending'` are UNPRICED $0 visits, which the
+// close deliberately refuses to fold. The panel therefore said "No visits to
+// invoice this week" for every week and every month, forever, and no amount of
+// clicking could ever produce a different answer.
+//
+// Meanwhile the fold that actually runs your business — lib/invoice-cadence.ts,
+// keyed on ACCOUNT and folding ISSUED invoices — had no UI at all. It fires
+// once a night at 5 AM and there was no way to close a window early, or to
+// recover one the cron skipped.
+//
+// So this is now a window over that engine. Same function the cron calls
+// (design D-6: one primitive, two triggers), reached through
+// GET /api/batch-invoicing/accounts/preview (dry run, writes nothing) and
+// POST /api/batch-invoicing/accounts/close.
+//
+// SCOPE, stated plainly because the old panel's failure was silence: this
+// covers bundled ACCOUNTS (invoice_frequency weekly/monthly/custom). Residential
+// `batch_invoice` clients are NOT here — `clients` has no invoice_frequency
+// column, so there is no cadence to close. Those clients issue per visit and
+// their invoices can be merged from the list below. Giving them a real cadence
+// is the bill-to unification work; until then this panel says so rather than
+// rendering an empty list that looks like "nothing to bill."
 function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [cadence, setCadence] = useState<"weekly" | "monthly">("weekly");
-  // Anchor any date inside the target window; default = today.
-  const [anchor, setAnchor] = useState(() => new Date().toISOString().slice(0, 10));
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [excluded, setExcluded] = useState<Set<number>>(new Set()); // invoice ids to leave out
-  const [busyClient, setBusyClient] = useState<number | null>(null);
-  // Preview step: the client being previewed before consolidation fires
-  const [previewClient, setPreviewClient] = useState<any | null>(null);
+  const [busyAccount, setBusyAccount] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<any | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["weekly-invoicing", cadence, anchor],
-    queryFn: () => apiFetch(`/api/batch-invoicing?cadence=${cadence}&date=${anchor}`),
+  // force=1 shows windows that have not ended yet. The cron deliberately skips
+  // those; a human asking to see them is the entire point of a manual trigger.
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["billing-windows"],
+    queryFn: () => apiFetch("/api/batch-invoicing/accounts/preview?force=1"),
   });
-  const clients: any[] = data?.clients || [];
+  const results: any[] = data?.results || [];
 
-  function shiftWindow(deltaDays: number) {
-    const d = new Date(`${anchor}T00:00:00.000Z`);
-    d.setUTCDate(d.getUTCDate() + deltaDays);
-    setAnchor(d.toISOString().slice(0, 10));
-  }
-  const fmtRange = (a?: string, b?: string) => {
-    if (!a || !b) return "";
-    const f = (s: string) => new Date(`${s}T00:00:00.000Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-    return `${f(a)} – ${f(b)}`;
-  };
+  // A window is worth acting on when the dry run says it would produce an
+  // invoice. Everything else is shown as context, never as a dead button.
+  const billable = results.filter((r) => r.status === "closed" && (r.visit_count || 0) > 0);
+  const blocked = results.filter((r) => r.status === "held_unpriced");
+  const settled = results.filter((r) => r.status === "already_closed" || r.status === "nothing_to_bill");
+  const failed = results.filter((r) => r.status === "error");
 
-  async function consolidate(clientId: number) {
-    setBusyClient(clientId);
+  async function closeWindow(r: any) {
+    setBusyAccount(r.account_id);
     try {
-      const excludeForClient = (clients.find(c => c.client_id === clientId)?.visits || [])
-        .filter((v: any) => excluded.has(v.invoice_id)).map((v: any) => v.invoice_id);
-      const r = await apiFetch(`/api/batch-invoicing/${clientId}/consolidate`, {
+      const out = await apiFetch(`/api/batch-invoicing/accounts/close`, {
         method: "POST",
-        body: JSON.stringify({ cadence, date: anchor, exclude_invoice_ids: excludeForClient }),
+        body: JSON.stringify({ account_id: r.account_id, force: true }),
       });
-      toast({ title: "Weekly invoice created", description: `${r.visit_count} visit${r.visit_count !== 1 ? "s" : ""} · $${(r.parent_total || 0).toFixed(2)} · #${r.parent_invoice_id}` });
+      const done = (out?.results || []).find((x: any) => x.account_id === r.account_id);
+      if (done?.status === "closed") {
+        toast({
+          title: `${r.account_name} — ${r.window} billed`,
+          description: `${done.visit_count} visit${done.visit_count !== 1 ? "s" : ""} · $${Number(done.total || 0).toFixed(2)}${done.parent_invoice_number ? ` · #${done.parent_invoice_number}` : ""}`,
+        });
+      } else {
+        toast({ title: "Nothing was billed", description: done?.message || "The window reported no billable visits.", variant: "destructive" });
+      }
       qc.invalidateQueries({ queryKey: ["invoices"] });
       refetch();
       onDone();
     } catch (err: any) {
       let msg = err?.message || "Failed";
       try { msg = JSON.parse(msg).message || msg; } catch {}
-      toast({ title: "Could not consolidate", description: msg, variant: "destructive" });
+      toast({ title: "Could not close the window", description: msg, variant: "destructive" });
     } finally {
-      setBusyClient(null);
+      setBusyAccount(null);
+      setConfirming(null);
     }
   }
+
+  const Row = ({ r, action }: { r: any; action?: React.ReactNode }) => (
+    <div style={{ borderBottom: "1px solid #F0EEE9", padding: "14px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {r.account_name}
+        </p>
+        <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>
+          {r.cadence} · {r.window}
+          {r.visit_count > 0 ? ` · ${r.visit_count} visit${r.visit_count !== 1 ? "s" : ""}` : ""}
+        </p>
+        {r.message && (
+          <p style={{ margin: "4px 0 0", fontSize: 11, color: r.status === "held_unpriced" ? "#B45309" : "#9E9B94" }}>{r.message}</p>
+        )}
+      </div>
+      {r.total > 0 && (
+        <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", whiteSpace: "nowrap" }}>${Number(r.total).toFixed(2)}</span>
+      )}
+      {action}
+    </div>
+  );
 
   return (
     <>
@@ -350,164 +393,135 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
         <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Weekly Invoicing</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Combine a client's visits into one invoice</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Billing Windows</h2>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Combine an account's visits into one invoice</p>
             </div>
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
-          </div>
-          {/* cadence + window nav */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
-            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-              {(["weekly", "monthly"] as const).map(c => (
-                <button key={c} onClick={() => setCadence(c)}
-                  style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize", backgroundColor: cadence === c ? "var(--brand)" : "#FFFFFF", color: cadence === c ? "#FFFFFF" : "#6B6860" }}>{c}</button>
-              ))}
-            </div>
-            <div style={{ flex: 1 }} />
-            <button onClick={() => shiftWindow(cadence === "weekly" ? -7 : -31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>‹</button>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", minWidth: 120, textAlign: "center" }}>{fmtRange(data?.period_start, data?.period_end)}</span>
-            <button onClick={() => shiftWindow(cadence === "weekly" ? 7 : 31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>›</button>
           </div>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
           {isLoading ? (
             <div style={{ textAlign: "center", color: "#9E9B94", padding: 40 }}>Loading…</div>
-          ) : clients.length === 0 ? (
+          ) : isError ? (
+            <div style={{ textAlign: "center", padding: 48 }}>
+              <AlertCircle size={36} style={{ color: "#B3261E", marginBottom: 12 }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B6860", margin: "0 0 4px" }}>Couldn't load billing windows</p>
+              <button onClick={() => refetch()} style={{ marginTop: 8, background: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontFamily: FF }}>Retry</button>
+            </div>
+          ) : results.length === 0 ? (
             <div style={{ textAlign: "center", padding: 48 }}>
               <AlertCircle size={36} style={{ color: "#C4C0BB", marginBottom: 12 }} />
-              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B6860", margin: "0 0 4px" }}>No visits to invoice this {cadence === "weekly" ? "week" : "month"}</p>
-              <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Only consolidated-billing clients with pending visits appear here.</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B6860", margin: "0 0 4px" }}>No accounts are on a billing cadence</p>
+              <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.5 }}>
+                Set an account's invoice frequency to Weekly or Monthly and its window will appear here.
+              </p>
             </div>
           ) : (
-            clients.map((c: any) => {
-              const isOpen = expanded.has(c.client_id);
-              const incl = (c.visits || []).filter((v: any) => !excluded.has(v.invoice_id));
-              const inclTotal = incl.reduce((s: number, v: any) => s + (v.total || 0), 0);
-              return (
-                <div key={c.client_id} style={{ borderBottom: "1px solid #F0EEE9", padding: "14px 24px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <button onClick={() => setExpanded(p => { const n = new Set(p); n.has(c.client_id) ? n.delete(c.client_id) : n.add(c.client_id); return n; })}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
-                      {isOpen ? <ChevronUp size={16} color="#9E9B94" /> : <ChevronDown size={16} color="#9E9B94" />}
-                    </button>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.client_name || `Client #${c.client_id}`}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{incl.length} visit{incl.length !== 1 ? "s" : ""}{excluded.size ? ` · ${(c.visits || []).length - incl.length} excluded` : ""}</p>
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${inclTotal.toFixed(2)}</span>
-                    <button onClick={() => incl.length > 0 && setPreviewClient({ ...c, inclVisits: incl, inclTotal })}
-                      disabled={busyClient === c.client_id || incl.length === 0}
-                      style={{ backgroundColor: incl.length === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: incl.length === 0 ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
-                      {busyClient === c.client_id ? "Working…" : "Preview invoice"}
-                    </button>
-                  </div>
-                  {isOpen && (
-                    <div style={{ marginTop: 10, marginLeft: 28, borderLeft: "2px solid #F0EEE9", paddingLeft: 14 }}>
-                      {(c.visits || []).map((v: any) => {
-                        const isExcl = excluded.has(v.invoice_id);
-                        return (
-                          <div key={v.invoice_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", opacity: isExcl ? 0.45 : 1 }}>
-                            <button onClick={() => setExcluded(p => { const n = new Set(p); n.has(v.invoice_id) ? n.delete(v.invoice_id) : n.add(v.invoice_id); return n; })}
-                              title={isExcl ? "Include this visit" : "Exclude this visit"}
-                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: isExcl ? "#C4C0BB" : "var(--brand)", display: "flex" }}>
-                              {isExcl ? <Square size={15} /> : <CheckSquare size={15} />}
-                            </button>
-                            <span style={{ flex: 1, fontSize: 12, color: "#6B6860" }}>{v.service_label || v.service_date}</span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", textDecoration: isExcl ? "line-through" : "none" }}>${(v.total || 0).toFixed(2)}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })
+            <>
+              {billable.length > 0 && (
+                <>
+                  <p style={{ margin: "6px 24px 4px", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ready to bill</p>
+                  {billable.map((r) => (
+                    <Row key={r.account_id} r={r} action={
+                      <button onClick={() => setConfirming(r)} disabled={busyAccount === r.account_id}
+                        style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                        {busyAccount === r.account_id ? "Working…" : "Review"}
+                      </button>
+                    } />
+                  ))}
+                </>
+              )}
+
+              {blocked.length > 0 && (
+                <>
+                  <p style={{ margin: "14px 24px 4px", fontSize: 11, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.05em" }}>Blocked — rate not set</p>
+                  {blocked.map((r) => <Row key={r.account_id} r={r} />)}
+                </>
+              )}
+
+              {settled.length > 0 && (
+                <>
+                  <p style={{ margin: "14px 24px 4px", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Nothing due</p>
+                  {settled.map((r) => <Row key={r.account_id} r={r} />)}
+                </>
+              )}
+
+              {failed.length > 0 && (
+                <>
+                  <p style={{ margin: "14px 24px 4px", fontSize: 11, fontWeight: 700, color: "#B3261E", textTransform: "uppercase", letterSpacing: "0.05em" }}>Errored</p>
+                  {failed.map((r) => <Row key={r.account_id} r={r} />)}
+                </>
+              )}
+            </>
           )}
         </div>
 
         <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#F7F6F3" }}>
-          <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>One invoice per client, one line per visit (service date), due on receipt. Pushes a single document to QuickBooks.</p>
+          <p style={{ margin: 0, fontSize: 11, color: "#9E9B94", lineHeight: 1.5 }}>
+            One invoice per account, one line per visit. Each visit keeps its own invoice number, marked COMBINED and
+            linked to the new one. This runs automatically at 5 AM once a window ends — use this to close one early or
+            to retry one that was blocked. Residential clients invoice per visit; merge those from the list instead.
+          </p>
         </div>
 
-        {/* Preview slide — full-height panel that covers the list when a client is selected */}
-        {previewClient && (() => {
-          const pc = previewClient;
-          const periodLabel = fmtRange(data?.period_start, data?.period_end);
-          return (
-            <div style={{ position: "absolute", inset: 0, backgroundColor: "#FFFFFF", display: "flex", flexDirection: "column", zIndex: 10 }}>
-              {/* Header */}
-              <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
-                <button onClick={() => setPreviewClient(null)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
-                  ‹ Back
-                </button>
-                <div style={{ flex: 1 }}>
-                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Invoice Preview</h2>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>Review before creating</p>
-                </div>
-                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+        {/* Confirm step — the dry run already told us exactly what will happen. */}
+        {confirming && (
+          <div style={{ position: "absolute", inset: 0, backgroundColor: "#FFFFFF", display: "flex", flexDirection: "column", zIndex: 10 }}>
+            <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={() => setConfirming(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
+                ‹ Back
+              </button>
+              <div style={{ flex: 1 }}>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Confirm</h2>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>Review before billing</p>
               </div>
-
-              {/* Invoice mock */}
-              <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
-                {/* Client + period */}
-                <div style={{ marginBottom: 20 }}>
-                  <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{pc.client_name || `Client #${pc.client_id}`}</p>
-                  {periodLabel && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B6860" }}>Period: {periodLabel}</p>}
-                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9E9B94" }}>Due on receipt · {cadence === "weekly" ? "Weekly" : "Monthly"} invoice</p>
-                </div>
-
-                {/* Line items */}
-                <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, backgroundColor: "#F7F6F3", padding: "10px 16px", borderBottom: "1px solid #E5E2DC" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Description</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Amount</span>
-                  </div>
-                  {(pc.inclVisits || []).map((v: any, i: number) => (
-                    <div key={v.invoice_id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, padding: "12px 16px", borderBottom: i < pc.inclVisits.length - 1 ? "1px solid #F0EEE9" : "none" }}>
-                      <div>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{v.service_label || v.service_date}</p>
-                        {v.service_type && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>{(v.service_type || "").replace(/_/g, " ")}</p>}
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", alignSelf: "center" }}>${(v.total || 0).toFixed(2)}</span>
-                    </div>
-                  ))}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", padding: "12px 16px", backgroundColor: "#F7F6F3", borderTop: "2px solid #E5E2DC" }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>Total</span>
-                    <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>${(pc.inclTotal || 0).toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.5 }}>
-                  {/* [batch-invoicing 2026-08-03] The old copy promised the visits
-                      would be "marked superseded" — and they were: zeroed out and
-                      dropped from the list. Combining is non-destructive now, and
-                      the copy has to say so, because the office's real fear is
-                      that merging makes invoices disappear. */}
-                  This creates one combined invoice for the customer. Each visit keeps its own
-                  invoice number and amount and stays in the list, marked COMBINED, linked to
-                  the new invoice — and you can split them back apart at any time.
-                  Send or charge from the combined invoice's detail page.
-                </p>
-              </div>
-
-              {/* Footer actions */}
-              <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-                <button
-                  onClick={async () => { await consolidate(pc.client_id); setPreviewClient(null); }}
-                  disabled={busyClient === pc.client_id}
-                  style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
-                  {busyClient === pc.client_id ? "Creating…" : `Create Invoice · $${(pc.inclTotal || 0).toFixed(2)}`}
-                </button>
-                <button onClick={() => setPreviewClient(null)}
-                  style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0", fontFamily: FF }}>
-                  Go back and adjust
-                </button>
-              </div>
+              <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
             </div>
-          );
-        })()}
+
+            <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+              <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{confirming.account_name}</p>
+              <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B6860" }}>
+                {confirming.cadence} window · {confirming.period_start} to {confirming.period_end}
+              </p>
+
+              <div style={{ marginTop: 20, border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #F0EEE9" }}>
+                  <span style={{ fontSize: 13, color: "#6B6860" }}>Visits</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{confirming.visit_count}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#F7F6F3" }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>Total</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>${Number(confirming.total || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {confirming.unpriced_invoice_ids?.length > 0 && (
+                <p style={{ margin: "14px 0 0", fontSize: 12, color: "#B45309", lineHeight: 1.5 }}>
+                  {confirming.unpriced_invoice_ids.length} visit(s) in this window are still $0 and will be LEFT OUT —
+                  set their rate and close again to bill them.
+                </p>
+              )}
+
+              <p style={{ fontSize: 12, color: "#9E9B94", margin: "14px 0 0", lineHeight: 1.5 }}>
+                Each visit keeps its own invoice number and amount, marked COMBINED and linked to the new invoice.
+                Nothing is deleted and you can split them apart again. Send or charge from the combined invoice.
+              </p>
+            </div>
+
+            <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              <button onClick={() => closeWindow(confirming)} disabled={busyAccount === confirming.account_id}
+                style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
+                {busyAccount === confirming.account_id ? "Billing…" : `Bill this window · $${Number(confirming.total || 0).toFixed(2)}`}
+              </button>
+              <button onClick={() => setConfirming(null)}
+                style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0", fontFamily: FF }}>
+                Go back
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -1350,7 +1364,11 @@ export default function InvoicesPage() {
                     </button>
                     <button onClick={() => setShowWeekly(true)}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "#F7F6F3", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                      <Calendar size={14} strokeWidth={2} /> {isMobile ? "Weekly" : "Weekly Invoicing"}
+                      {/* [billing-windows 2026-08-06] Renamed with the panel.
+                          "Weekly Invoicing" named a cadence the panel didn't
+                          actually control — it now closes an account's billing
+                          window, weekly or monthly, whichever that account is on. */}
+                      <Calendar size={14} strokeWidth={2} /> {isMobile ? "Windows" : "Billing Windows"}
                     </button>
                   </>
                 )}
