@@ -22,7 +22,8 @@
     "test:billing": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/batch-invoicing.test.ts src/tests/billing-single-path.test.ts",
     "test:portal-isolation": "tsx --test src/tests/portal-token-isolation.test.ts",
     "test:zip": "tsx --test src/tests/zip.test.ts",
-    "test:portal-auth": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-auth.test.ts"
+    "test:portal-auth": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-auth.test.ts",
+    "test:portal-google": "tsx --test src/tests/portal-google.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

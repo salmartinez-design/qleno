@@ -14,7 +14,7 @@
 // portal_users row through portal_identities.
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { portalUsersTable } from "@workspace/db/schema";
+import { portalUsersTable, portalIdentitiesTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -27,6 +27,7 @@ import {
   normalizeEmail, findPortalUserByEmail,
 } from "../lib/portal-auth.js";
 import { invitePortalUser } from "../lib/portal-invite.js";
+import { verifyGoogleIdToken, googlePortalClientId, googlePortalEnabled } from "../lib/portal-google.js";
 
 // The portal is routed per company (/portal/:slug/...), so an emailed link must
 // carry the slug. Without it "/portal/set-password" resolves as slug =
@@ -191,6 +192,94 @@ router.post("/forgot", async (req, res) => {
 
 // ── Session probe ───────────────────────────────────────────────────────────
 // GET /api/portal/auth/session — who am I, and what may I do?
+// ── Sign in with Google ─────────────────────────────────────────────────────
+// GET /api/portal/auth/google/config — tells the sign-in page whether to render
+// the button. Public: a client id is public by design, and this endpoint is
+// reached before anyone is authenticated.
+router.get("/google/config", (_req, res) => {
+  return res.json({ enabled: googlePortalEnabled(), client_id: googlePortalClientId() });
+});
+
+// POST /api/portal/auth/google  { credential, company_slug }
+//
+// Google is a way to SIGN IN, never a way to sign up. The customer must already
+// have a portal login created by the office invite — same rule as the password
+// path, and for the same reason: an open door here would let anyone with a
+// Google account mint a customer login and start probing what it can reach.
+// Failing to find a login is reported exactly like a wrong password.
+router.post("/google", async (req, res) => {
+  try {
+    if (!googlePortalEnabled()) {
+      return res.status(503).json({ error: "Unavailable", message: "Google sign-in is not set up" });
+    }
+    const slug = String(req.body?.company_slug ?? "").trim();
+    if (!slug) return res.status(400).json({ error: "Bad Request", message: "Company is required" });
+
+    const identity = await verifyGoogleIdToken(req.body?.credential);
+    if (!identity) return res.status(401).json({ error: "Unauthorized", message: GENERIC_LOGIN_FAIL });
+
+    const co = await db.execute(sql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    const companyId = (co.rows[0] as any)?.id as number | undefined;
+    if (!companyId) return res.status(401).json({ error: "Unauthorized", message: GENERIC_LOGIN_FAIL });
+
+    // 1. A previously linked identity wins outright — the subject is stable
+    //    even if the customer later changes their email at Google.
+    const linked = await db
+      .select({ portal_user_id: portalIdentitiesTable.portal_user_id })
+      .from(portalIdentitiesTable)
+      .where(and(
+        eq(portalIdentitiesTable.company_id, companyId),
+        eq(portalIdentitiesTable.provider, "google"),
+        eq(portalIdentitiesTable.subject, identity.subject),
+      ))
+      .limit(1);
+
+    let user: any = null;
+    if (linked[0]) {
+      const [u] = await db.select().from(portalUsersTable)
+        .where(eq(portalUsersTable.id, linked[0].portal_user_id)).limit(1);
+      user = u ?? null;
+    } else {
+      // 2. First time: match an INVITED login by email and link it. Only on a
+      //    Google-VERIFIED address — an unverified one would let someone claim
+      //    a customer's account by signing up to Google with their address.
+      if (!identity.emailVerified || !identity.email) {
+        return res.status(401).json({ error: "Unauthorized", message: GENERIC_LOGIN_FAIL });
+      }
+      const found = await findPortalUserByEmail(companyId, identity.email);
+      // No invite = no account. Google does not create one.
+      if (!found) return res.status(401).json({ error: "Unauthorized", message: GENERIC_LOGIN_FAIL });
+      user = found;
+      await db.insert(portalIdentitiesTable).values({
+        company_id: companyId,
+        portal_user_id: found.id,
+        provider: "google",
+        subject: identity.subject,
+      });
+    }
+
+    if (!user || !user.is_active) {
+      return res.status(401).json({ error: "Unauthorized", message: GENERIC_LOGIN_FAIL });
+    }
+
+    // Signing in with Google proves the address, so the login counts as
+    // verified even if they never followed the emailed invite link.
+    await db.update(portalUsersTable)
+      .set({ last_login_at: new Date(), email_verified_at: user.email_verified_at ?? new Date() })
+      .where(eq(portalUsersTable.id, user.id));
+
+    const session = sessionFromUser(user);
+    return res.json({
+      token: signPortalToken(session),
+      capabilities: portalCapabilities(session),
+      user: { name: user.name, email: user.email },
+    });
+  } catch (err) {
+    console.error("Portal Google sign-in error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Sign-in failed" });
+  }
+});
+
 router.get("/session", requirePortalAuth, async (req, res) => {
   const session = req.portalSession!;
   return res.json({
