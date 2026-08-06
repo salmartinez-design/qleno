@@ -84,13 +84,27 @@ router.get("/", requireAuth, async (req, res) => {
     if (status === "active") conditions.push(eq(clientsTable.is_active, true));
     if (status === "inactive") conditions.push(eq(clientsTable.is_active, false));
     if (frequency && frequency !== "all") conditions.push(eq(clientsTable.frequency, frequency as string));
-    if (portal === "registered") conditions.push(eq(clientsTable.portal_access, true));
     if (branch_id && branch_id !== "all") conditions.push(eq(clientsTable.branch_id, parseInt(branch_id as string)));
+    // [portal-status-truth 2026-08-06] Same correction as the profile above:
+    // these filtered on clients.portal_access / portal_invite_sent_at, which
+    // nothing has written since portal identity moved to portal_users (#1362).
+    // "Registered" returned nobody and "not invited" returned everybody.
+    //
+    // Registered = a portal login that can actually sign in (has a password).
+    // Invited    = a login exists but setup was never completed.
+    if (portal === "registered") {
+      conditions.push(sql`EXISTS (SELECT 1 FROM portal_users pu
+        WHERE pu.client_id = ${clientsTable.id} AND pu.company_id = ${clientsTable.company_id}
+          AND pu.password_hash IS NOT NULL)`);
+    }
     if (portal === "invited") {
-      conditions.push(sql`${clientsTable.portal_invite_sent_at} IS NOT NULL AND ${clientsTable.portal_access} = false`);
+      conditions.push(sql`EXISTS (SELECT 1 FROM portal_users pu
+        WHERE pu.client_id = ${clientsTable.id} AND pu.company_id = ${clientsTable.company_id}
+          AND pu.password_hash IS NULL)`);
     }
     if (portal === "not_invited") {
-      conditions.push(sql`${clientsTable.portal_invite_sent_at} IS NULL AND ${clientsTable.portal_access} = false`);
+      conditions.push(sql`NOT EXISTS (SELECT 1 FROM portal_users pu
+        WHERE pu.client_id = ${clientsTable.id} AND pu.company_id = ${clientsTable.company_id})`);
     }
 
     const clients = await db
@@ -644,6 +658,42 @@ router.get("/:id", requireAuth, async (req, res) => {
     const [client] = await db.select().from(clientsTable)
       .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).limit(1);
     if (!client) return res.status(404).json({ error: "Not Found" });
+
+    // [portal-status-truth 2026-08-06] Portal identity moved to portal_users
+    // (#1362) and nothing writes clients.portal_access / portal_invite_sent_at
+    // any more — so reading them straight off the row made the profile report
+    // "No Portal Access" forever, even after a customer had signed in.
+    //
+    // The three field NAMES the profile UI reads are kept exactly as they were
+    // and re-sourced from the table that actually knows. Renaming them would
+    // have meant touching several screens for no gain; the bug was never the
+    // names, it was where the answer came from.
+    //   portal_access         → they finished setup and can sign in
+    //   portal_invite_sent_at → when the newest invite went out
+    //   portal_last_login     → last successful sign-in
+    // Best-effort: portal_users / portal_tokens are created by the cold-start
+    // migration. If that has not run on this environment yet, a portal badge is
+    // not worth 500-ing the entire customer profile over — fall back to "never
+    // invited", which is what an environment without the tables means anyway.
+    let portal: any = null;
+    try {
+      const ps = await db.execute(sql`
+        SELECT
+          (pu.password_hash IS NOT NULL) AS portal_access,
+          COALESCE(
+            (SELECT MAX(t.created_at) FROM portal_tokens t
+              WHERE t.portal_user_id = pu.id AND t.kind = 'verify'),
+            pu.created_at
+          ) AS portal_invite_sent_at,
+          pu.last_login_at AS portal_last_login
+        FROM portal_users pu
+        WHERE pu.client_id = ${clientId} AND pu.company_id = ${req.auth!.companyId}
+        LIMIT 1`);
+      portal = (ps.rows[0] as any) ?? null;
+    } catch (e) {
+      console.error("[client-profile] portal status lookup failed (non-fatal):", (e as any)?.message);
+    }
+
     const [recentJobs, statsResult, lastJob] = await Promise.all([
       db.select({ id: jobsTable.id, service_type: jobsTable.service_type, status: jobsTable.status, scheduled_date: jobsTable.scheduled_date, base_fee: jobsTable.base_fee })
         .from(jobsTable).where(and(eq(jobsTable.client_id, clientId), eq(jobsTable.company_id, req.auth!.companyId))).orderBy(desc(jobsTable.scheduled_date)).limit(10),
@@ -654,7 +704,18 @@ router.get("/:id", requireAuth, async (req, res) => {
         .where(and(eq(jobsTable.client_id, clientId), eq(jobsTable.status, "complete")))
         .orderBy(desc(jobsTable.scheduled_date)).limit(1),
     ]);
-    return res.json({ ...client, recent_jobs: recentJobs, total_jobs: statsResult[0].total_jobs, total_revenue: statsResult[0].total_revenue ? parseFloat(statsResult[0].total_revenue) : 0, last_service_date: lastJob[0]?.scheduled_date || null });
+    return res.json({
+      ...client,
+      // Spread AFTER ...client so these override the vestigial columns on the
+      // row. No portal_users row = never invited, which is the honest answer.
+      portal_access: !!portal?.portal_access,
+      portal_invite_sent_at: portal?.portal_invite_sent_at ?? null,
+      portal_last_login: portal?.portal_last_login ?? null,
+      recent_jobs: recentJobs,
+      total_jobs: statsResult[0].total_jobs,
+      total_revenue: statsResult[0].total_revenue ? parseFloat(statsResult[0].total_revenue) : 0,
+      last_service_date: lastJob[0]?.scheduled_date || null,
+    });
   } catch (err) {
     console.error("Get client error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
