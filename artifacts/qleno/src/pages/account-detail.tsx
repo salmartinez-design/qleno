@@ -1628,6 +1628,19 @@ export default function AccountDetailPage() {
                                 <Bell size={10} /> {n.label}
                               </span>
                             ))}
+                            {/* [portal-status-truth 2026-08-06] Says who already
+                                has a login, so the office is not re-inviting
+                                people who signed in weeks ago. */}
+                            {c.portal_status === "registered" && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" }}>
+                                Portal active
+                              </span>
+                            )}
+                            {c.portal_status === "invited" && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8" }}>
+                                Invite sent
+                              </span>
+                            )}
                           </div>
                           {c.notes && <p className="text-xs text-gray-400 mt-1.5 italic">{c.notes}</p>}
                         </div>
@@ -1642,11 +1655,15 @@ export default function AccountDetailPage() {
                           onClick={() => inviteContactToPortal(c)}
                           disabled={!c.email || invitingContactId === c.id}
                           title={c.email
-                            ? `Email ${c.name} a link to set up portal access`
+                            ? c.portal_status === "registered"
+                              ? `${c.name} already has portal access — this sends a new setup link`
+                              : c.portal_status === "invited"
+                                ? `Resend ${c.name} their setup link`
+                                : `Email ${c.name} a link to set up portal access`
                             : "Add an email address to this contact first"}
                           className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-40 disabled:cursor-default"
                           style={{ borderColor: "#E5E2DC", color: "var(--brand)", background: "#FFFFFF" }}>
-                          {invitingContactId === c.id ? "Sending…" : "Invite to portal"}
+                          {invitingContactId === c.id ? "Sending…" : c.portal_status ? "Resend invite" : "Invite to portal"}
                         </button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditContact(c)}>
                           <Pencil size={13} className="text-gray-400" />

@@ -122,7 +122,35 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       getAccountStats(companyId, id),
     ]);
 
-    res.json({ ...account, rate_cards: rateCards, properties, contacts, stats });
+    // [portal-status-truth 2026-08-06] Tell the Contacts tab which contacts
+    // already have a portal login. Without it the office cannot see who has
+    // been invited, and "Invite to portal" is easy to click twice — which mails
+    // the customer a second setup link for no reason.
+    //   portal_status: 'registered' (finished setup) | 'invited' | null
+    // Best-effort: portal_users comes from the cold-start migration, and a
+    // missing badge must never take the whole account page down.
+    let contactsWithPortal: any[] = contacts;
+    try {
+      const ids = contacts.map((c: any) => c.id);
+      if (ids.length) {
+        const pu = await db.execute(sql`
+          SELECT account_contact_id, (password_hash IS NOT NULL) AS registered
+            FROM portal_users
+           WHERE company_id = ${companyId}
+             AND account_contact_id = ANY(${sql.raw(`ARRAY[${ids.join(",")}]::int[]`)})`);
+        const byContact = new Map<number, boolean>(
+          (pu.rows as any[]).map((r) => [Number(r.account_contact_id), !!r.registered]),
+        );
+        contactsWithPortal = contacts.map((c: any) => ({
+          ...c,
+          portal_status: byContact.has(c.id) ? (byContact.get(c.id) ? "registered" : "invited") : null,
+        }));
+      }
+    } catch (e) {
+      console.error("[account] contact portal status lookup failed (non-fatal):", (e as any)?.message);
+    }
+
+    res.json({ ...account, rate_cards: rateCards, properties, contacts: contactsWithPortal, stats });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch account" });
