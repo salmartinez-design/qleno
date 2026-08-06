@@ -44,6 +44,7 @@ const ClockMonitorPage    = lazy(() => import("@/pages/clock-monitor"));
 const PortalLoginPage     = lazy(() => import("@/pages/portal/login"));
 const PortalDashboardPage = lazy(() => import("@/pages/portal/dashboard"));
 const PortalSetPasswordPage = lazy(() => import("@/pages/portal/set-password"));
+const PortalAccountPage = lazy(() => import("@/pages/portal/account"));
 const InsightsPage        = lazy(() => import("@/pages/reports/insights"));
 const ReportsIndexPage    = lazy(() => import("@/pages/reports/index"));
 const RevenueReportPage   = lazy(() => import("@/pages/reports/revenue"));
@@ -319,6 +320,7 @@ function Router() {
         <Route path="/portal/:slug/login" component={PortalLoginPage} />
         <Route path="/portal/:slug/dashboard" component={PortalDashboardPage} />
         <Route path="/portal/:slug/set-password" component={PortalSetPasswordPage} />
+        <Route path="/portal/:slug/account" component={PortalAccountPage} />
         <Route path="/portal/:slug" component={PortalLoginPage} />
 
         <Route path="/company/property-groups" component={PropertyGroupsPage} />

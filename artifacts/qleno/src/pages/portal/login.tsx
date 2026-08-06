@@ -38,7 +38,13 @@ export default function PortalLoginPage() {
       if (!r.ok) { setError(d.message || d.error || 'Sign-in failed'); setSubmitting(false); return; }
       localStorage.setItem(`portal_token_${slug}`, d.token);
       localStorage.setItem(`portal_caps_${slug}`, JSON.stringify(d.capabilities ?? {}));
-      navigate(`/portal/${slug}/dashboard`);
+      // Commercial and residential customers land on different screens: an
+      // account contact wants buildings and a month of invoices, a homeowner
+      // wants their next clean. Routed off the capability set the server just
+      // returned, not off anything the browser decided.
+      navigate(d.capabilities?.kind === "commercial"
+        ? `/portal/${slug}/account`
+        : `/portal/${slug}/dashboard`);
     } catch { setError('Network error'); setSubmitting(false); }
   }
 

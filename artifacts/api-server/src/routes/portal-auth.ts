@@ -113,7 +113,11 @@ router.post("/set-password", async (req, res) => {
     // Any other outstanding reset link in the mailbox stops working now.
     await revokePortalTokens(user.id, "reset");
 
-    return res.json({ ok: true, token: signPortalToken(sessionFromUser(user)) });
+    // Return the capability set alongside the token: the client forks on
+    // kind ('commercial' vs 'residential') to pick a landing screen, and
+    // without this it would silently fall back to the residential one.
+    const session = sessionFromUser(user);
+    return res.json({ ok: true, token: signPortalToken(session), capabilities: portalCapabilities(session) });
   } catch (err) {
     console.error("Portal set-password error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to set your password" });

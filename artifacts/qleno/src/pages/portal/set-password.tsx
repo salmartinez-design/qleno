@@ -56,7 +56,11 @@ export default function PortalSetPasswordPage() {
       // The server signs them in on success, so land them in the portal rather
       // than bouncing back to a login form they just proved they can pass.
       localStorage.setItem(`portal_token_${slug}`, d.token);
-      navigate(`/portal/${slug}/dashboard`);
+      // Same fork as sign-in: a commercial contact must not land on the
+      // residential dashboard right after setting their password.
+      navigate(d.capabilities?.kind === "commercial"
+        ? `/portal/${slug}/account`
+        : `/portal/${slug}/dashboard`);
     } catch {
       setError("Network error — please try again");
       setSubmitting(false);
