@@ -2216,6 +2216,38 @@ async function runBookingSchemaGuard(): Promise<void> {
        WHERE cov.job_id IS NOT NULL
       ON CONFLICT (invoice_id, job_id) DO NOTHING` },
 
+    // [parent-claims 2026-08-06] A combined invoice must claim its members'
+    // visits. The backfill above reads each invoice's OWN job_id and line
+    // job_ids — but the old destructive fold flattened members into the parent
+    // and dropped job_id from the lines it wrote, so a parent typically carries
+    // ONE line id for a bundle of four. The member keeps its link; the parent
+    // has none; and the promote below correctly refuses to make a superseded
+    // member live. Net effect: the visit ends up with NO live link at all,
+    // which every billing surface reads as "never invoiced."
+    //
+    // Verified on production 2026-08-06: Cucci job 8732 ($130) sits on parent
+    // 7039 — status PAID, total $520, exactly four Cucci visits — whose
+    // line_items carry a single job_id (8748). The visit is billed AND
+    // COLLECTED, and it was being offered for invoicing again. 71 members
+    // across 25 parents were in that state. This is the KMA #966 line-carrier
+    // failure surviving in the ledger, and it re-arms the double-bill the
+    // ledger exists to prevent.
+    //
+    // Inserted is_live=FALSE so the promote below stays the ONE place that
+    // picks a winner and the unique index cannot be violated mid-backfill. A
+    // voided parent is excluded — it carries nothing, so the visit is correctly
+    // left uncovered for the office to decide about (D-5).
+    { label: "backfill parent coverage from batched/superseded members", stmt: `
+      INSERT INTO invoice_job_links (company_id, invoice_id, job_id, amount, is_live)
+      SELECT DISTINCT m.company_id, m.parent_invoice_id, ml.job_id, NULL::numeric, FALSE
+        FROM invoices m
+        JOIN invoice_job_links ml ON ml.invoice_id = m.id
+        JOIN invoices p ON p.id = m.parent_invoice_id AND p.company_id = m.company_id
+       WHERE m.parent_invoice_id IS NOT NULL
+         AND m.status::text IN ('superseded', 'batched')
+         AND p.status::text <> 'void'
+      ON CONFLICT (invoice_id, job_id) DO NOTHING` },
+
     // Promote exactly one live link per visit. Idempotent by construction: it
     // only acts on visits that have NO live link yet, so re-running on every
     // cold start is a no-op and it can never override a decision the app made
