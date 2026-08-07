@@ -40,6 +40,12 @@ export const timeclockTable = pgTable("timeclock", {
   // Real punches always win — the /complete handler skips the
   // synthetic write when any row already exists for the job.
   source: text("source").notNull().default("punched"),
+
+  // [clock-out-frame 2026-08-07] Added by payroll-migrate.ts (raw SQL) but never
+  // declared here, so Drizzle could not read it. FALSE means clock_in_at holds a
+  // raw UTC instant; TRUE means Central wall-clock. Clock-out must stamp in the
+  // same frame or it reads as travelling backwards and is refused.
+  tz_normalized: boolean("tz_normalized").notNull().default(false),
 });
 
 export const clockInAttemptResultEnum = pgEnum("clock_in_attempt_result", [

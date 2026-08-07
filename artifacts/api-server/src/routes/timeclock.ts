@@ -825,16 +825,42 @@ router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "off
     const job_id = parseInt(String(req.body?.job_id));
     const user_id = parseInt(String(req.body?.user_id));
     if (!job_id || !user_id) return res.status(400).json({ error: "job_id and user_id are required" });
-    const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : centralWallClock(new Date());
-    if (isNaN(clockOutAt.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
-
     const [open] = await db.select().from(timeclockTable).where(and(
       eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
       eq(timeclockTable.user_id, user_id), sql`${timeclockTable.clock_out_at} IS NULL`
     )).orderBy(desc(timeclockTable.clock_in_at)).limit(1);
     if (!open) return res.status(400).json({ error: "No open clock-in for this employee on this job" });
-    if (clockOutAt.getTime() < new Date(open.clock_in_at).getTime())
-      return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
+
+    // [clock-out-frame 2026-08-07] Stamp the clock-out in the SAME time frame the
+    // stored clock-in is written in. This is why "Clock Out" on the job card had
+    // never worked (Francisco: "clock in yes, out no"; Maribel: "I don't think
+    // it ever worked").
+    //
+    // `tz_normalized` DEFAULTS TO FALSE, and only the two clock-in paths set it
+    // true — so every legacy row, and any row written before that flag existed,
+    // holds a raw UTC instant. Clock-out unconditionally stamped
+    // centralWallClock(now), which is 5-6 hours BEHIND the UTC value for the
+    // very same moment. The guard below then read that as travelling backwards
+    // and refused: "Clock-out cannot be before clock-in". Clock-out was
+    // therefore impossible on those rows, while clock-in — which compares
+    // nothing — always worked.
+    //
+    // Matching the frame fixes both eras without touching stored history: a
+    // normalized row gets a wall-clock stamp, a legacy row gets the raw instant,
+    // and the pair is internally consistent either way. The backfill at
+    // /clock-tz-backfill still converts legacy rows properly when it runs.
+    const nowInRowFrame = open.tz_normalized ? centralWallClock(new Date()) : new Date();
+    const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : nowInRowFrame;
+    if (isNaN(clockOutAt.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
+
+    if (clockOutAt.getTime() < new Date(open.clock_in_at).getTime()) {
+      // Still possible with a hand-typed time. Say what the clock-in actually
+      // was, so the office can correct it rather than guess.
+      const inStr = new Date(open.clock_in_at).toISOString().slice(11, 16);
+      return res.status(400).json({
+        error: `Clock-out cannot be before clock-in (clocked in at ${inStr})`,
+      });
+    }
 
     const [updated] = await db.update(timeclockTable)
       .set({ clock_out_at: clockOutAt })
