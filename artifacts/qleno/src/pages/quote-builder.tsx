@@ -497,10 +497,17 @@ export default function QuoteBuilderPage() {
     try {
       const r = await fetch(`${API}/api/square/config`, { headers: getAuthHeaders() });
       const d = await r.json();
+      // [square-appid-case 2026-08-07] GET /api/square/config returns CAMELCASE
+      // (`applicationId` / `locationId` — see lib/square-config.ts). This read
+      // snake_case, so both ids came back "" while `configured` stayed true, and
+      // the modal handed Square.payments("", "") to the SDK — which is exactly
+      // the "The Payment 'applicationId' option is not in the correct format."
+      // error. Only the PUBLIC /pay link payload uses snake_case, and that's a
+      // different endpoint (routes/payment-links.ts) read by pay.tsx.
       setSqCfg({
         configured: !!d.configured,
-        applicationId: d.application_id || "",
-        locationId: d.location_id || "",
+        applicationId: d.applicationId || "",
+        locationId: d.locationId || "",
         environment: d.environment === "production" ? "production" : "sandbox",
       });
     } catch {
@@ -1699,7 +1706,7 @@ export default function QuoteBuilderPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860", padding: "12px 0" }}>
             <Loader2 size={15} className="animate-spin" /> Loading secure card form…
           </div>
-        ) : sqCfg && sqCfg.configured ? (
+        ) : sqCfg?.configured && sqCfg.applicationId && sqCfg.locationId ? (
           <SquareCardForm
             applicationId={sqCfg.applicationId}
             locationId={sqCfg.locationId}
