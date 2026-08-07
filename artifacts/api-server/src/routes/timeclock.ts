@@ -1620,6 +1620,13 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     if (inAt && outAt && new Date(outAt).getTime() < new Date(inAt).getTime())
       return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
 
+    // [clock-out-frame 2026-08-07] An office-typed time is a WALL-CLOCK time, so
+    // the row must be marked normalized. Without this an edited legacy row keeps
+    // tz_normalized=false while now holding wall-clock digits, and the clock-out
+    // frame check would pick the wrong frame for it next time — reintroducing
+    // the bug fixed in #1372 on exactly the rows the office just corrected.
+    if (set.clock_in_at !== undefined || set.clock_out_at !== undefined) set.tz_normalized = true;
+
     // An office edit is a verified real time — promote a synthetic 'estimated'
     // punch to 'punched' so it counts in payroll (period-lock uses punched
     // only) and matches what the portal shows.
