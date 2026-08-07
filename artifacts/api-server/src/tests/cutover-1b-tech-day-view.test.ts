@@ -123,27 +123,64 @@ describe("Cutover 1B — grouping rules", () => {
   });
 });
 
-describe("Cutover 1B — privacy invariant (no userId override)", () => {
-  it("routes/tech.ts does NOT read req.query.userId / req.query.user_id / req.query.employee_id", () => {
-    // The /api/jobs/my-jobs route allows owner-with-employee_id override,
-    // and that override is explicitly disallowed in 1B. Grep the route
-    // source to make sure no override sneaks in via a refactor.
-    const src = readFileSync(
-      path.resolve(process.cwd(), "src/routes/tech.ts"),
-      "utf8",
-    );
-    assert.ok(
-      !/req\.query\.user_?id/i.test(src),
-      "routes/tech.ts must NOT read req.query.user_id / req.query.userId — privacy invariant violated",
-    );
-    assert.ok(
-      !/req\.query\.employee_id/i.test(src),
-      "routes/tech.ts must NOT read req.query.employee_id — privacy invariant violated",
-    );
-    // Positive assertion: it must source userId from req.auth.
+describe("Cutover 1B — privacy invariant (a tech only ever sees their own day)", () => {
+  // [view-as 2026-08-07] This test used to assert that routes/tech.ts never
+  // reads req.query.employee_id AT ALL. Cutover 1B decided "there is NO userId
+  // override — even the owner cannot view a tech's day here."
+  //
+  // Then [tech-scorecard 2026-07-14] deliberately added an owner/admin/office
+  // "viewing as" override, to match the impersonation banner and the
+  // /api/jobs/my-jobs day view. Nobody updated this test, so it has been red on
+  // main ever since — and a permanently-failing privacy test is worse than no
+  // test, because it trains everyone to ignore the one alarm that matters.
+  //
+  // The invariant that actually protects a tech was never the ABSENCE of the
+  // param — it is that the param is IGNORED for anyone who isn't office staff.
+  // That is what these assertions pin now.
+  const src = readFileSync(path.resolve(process.cwd(), "src/routes/tech.ts"), "utf8");
+
+  it("resolves the viewed user from req.auth, never from the query alone", () => {
     assert.ok(
       /req\.auth!\.userId/.test(src),
       "routes/tech.ts must source userId from req.auth!.userId",
+    );
+  });
+
+  it("gates any employee_id override on an office-level role", () => {
+    // The override and the role check have to live in the same function. A
+    // future refactor that reads employee_id somewhere WITHOUT a role gate is
+    // exactly the regression this file exists to catch.
+    if (!/req\.query\.employee_id/.test(src)) return; // no override at all — also fine
+
+    const fn = src.match(/function resolveViewedUserId[\s\S]*?\n}/)?.[0];
+    assert.ok(fn, "employee_id is read but resolveViewedUserId was not found — the override must stay in that one function");
+    assert.ok(
+      /req\.query\.employee_id/.test(fn!),
+      "the employee_id override must live inside resolveViewedUserId, not scattered across handlers",
+    );
+    assert.match(
+      fn!,
+      /role\s*===\s*["']owner["']/,
+      "the override must be gated on an office-level role — a tech's ?employee_id= must be ignored",
+    );
+    assert.ok(
+      /canViewAsOther\s*&&/.test(fn!),
+      "the override must only apply when the role check passes; otherwise fall back to self",
+    );
+  });
+
+  it("reads employee_id only inside the gated resolver", () => {
+    // Counting occurrences is the wrong test — the resolver's ternary reads the
+    // param twice on one line, legitimately. What matters is that NO handler
+    // reads it outside resolveViewedUserId, where the role gate lives.
+    const fn = src.match(/function resolveViewedUserId[\s\S]*?\n}/)?.[0] ?? "";
+    const total = (src.match(/req\.query\.employee_id/g) || []).length;
+    const inResolver = (fn.match(/req\.query\.employee_id/g) || []).length;
+    assert.equal(
+      total - inResolver,
+      0,
+      `employee_id is read ${total - inResolver} time(s) outside resolveViewedUserId — ` +
+        "every read must go through the role gate, or a tech could view another tech's day.",
     );
   });
 });
