@@ -111,6 +111,26 @@ async function runBookingSchemaGuard(): Promise<void> {
     // override. The send path picks exact-match else the NULL default.
     { label: "notification_templates.service_type", stmt: "ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS service_type TEXT" },
 
+    // ── [payment-links-500 2026-08-07] Card links were failing for EVERY
+    // provider. Reproduced in production with send_email:false + send_sms:false
+    // — still 500 — so it was the INSERT into payment_links, not the delivery,
+    // not the comms gate, and not Square.
+    //
+    // `provider` was added to the Drizzle schema on 2026-07-24 ([square-default])
+    // but NOTHING in this file, or anywhere else, ever added it to the database.
+    // Every payment link created since then has thrown. Same failure mode as
+    // clients.portal_password_hash and timeclock.tz_normalized: a column the
+    // code is certain exists, that the database has never heard of, failing
+    // silently as a 500.
+    //
+    // All four are declared IF NOT EXISTS and idempotent, so this is a no-op
+    // wherever the column is already present — the point is that the schema and
+    // the database stop disagreeing, whichever one of them drifted.
+    { label: "payment_links.provider", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'stripe'" },
+    { label: "payment_links.invoice_id", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS invoice_id INTEGER" },
+    { label: "payment_links.amount", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS amount NUMERIC(10,2)" },
+    { label: "payment_links.stripe_setup_intent_id", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS stripe_setup_intent_id TEXT" },
+
     // ── [customer-portal 2026-08-05] Portal identity ──────────────────────
     // See docs/CUSTOMER_PORTAL_DESIGN.md. Residential and commercial customers
     // share ONE login surface; who they are is here, what they may do is
