@@ -27,7 +27,7 @@ const prettyDate = (ymd: string | null) => {
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
 
-type Tab = "visits" | "buildings" | "invoices";
+type Tab = "visits" | "buildings" | "invoices" | "requests";
 
 export default function PortalAccountPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -42,6 +42,15 @@ export default function PortalAccountPage() {
   const [invoices, setInvoices] = useState<any>({ invoices: [], total: 0, outstanding: 0 });
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  // [portal-request-service 2026-08-07] Ask for work. A request is not a
+  // booking — the office confirms a date, so the copy must never imply the
+  // visit is scheduled.
+  const [requests, setRequests] = useState<any[]>([]);
+  const [reqDesc, setReqDesc] = useState("");
+  const [reqBuilding, setReqBuilding] = useState("");
+  const [reqDate, setReqDate] = useState("");
+  const [reqNotes, setReqNotes] = useState("");
+  const [reqSent, setReqSent] = useState("");
   const [error, setError] = useState("");
 
   const authed = (path: string) =>
@@ -63,6 +72,11 @@ export default function PortalAccountPage() {
     if (!token) return;
     if (tab === "buildings") authed("/buildings").then(guard).then(r => r?.json()).then(d => d && setBuildings(d)).catch(() => {});
     if (tab === "visits") authed("/visits").then(guard).then(r => r?.json()).then(d => d && setVisits(d)).catch(() => {});
+    if (tab === "requests") {
+      authed("/service-requests").then(guard).then(r => r?.json()).then(d => d && setRequests(d)).catch(() => {});
+      // The building picker needs the list even if they never opened that tab.
+      if (!buildings.length) authed("/buildings").then(guard).then(r => r?.json()).then(d => d && setBuildings(d)).catch(() => {});
+    }
   }, [tab, token]);
 
   useEffect(() => {
@@ -107,6 +121,31 @@ export default function PortalAccountPage() {
     finally { setBusy(false); }
   }
 
+  async function submitRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (reqDesc.trim().length < 3) return;
+    setBusy(true); setError(""); setReqSent("");
+    try {
+      const r = await fetch(`${API}/api/portal/account/service-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          service_description: reqDesc.trim(),
+          account_property_id: reqBuilding || null,
+          preferred_date: reqDate || null,
+          notes: reqNotes || null,
+        }),
+      });
+      if (r.status === 401) { navigate(`/portal/${slug}/login`); return; }
+      const d = await r.json();
+      if (!r.ok) { setError(d.message || "Could not send your request."); return; }
+      setReqSent(d.message || "Request sent.");
+      setReqDesc(""); setReqBuilding(""); setReqDate(""); setReqNotes("");
+      authed("/service-requests").then(guard).then(x => x?.json()).then(x => x && setRequests(x)).catch(() => {});
+    } catch { setError("Network error — please try again."); }
+    finally { setBusy(false); }
+  }
+
   const caps = account?.capabilities ?? {};
   const CARD: React.CSSProperties = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12 };
   const TH: React.CSSProperties = {
@@ -118,6 +157,7 @@ export default function PortalAccountPage() {
     { id: "invoices", label: "Invoices", show: caps.viewInvoices !== false },
     { id: "visits", label: "Visits", show: caps.viewVisits !== false },
     { id: "buildings", label: "Buildings", show: !!caps.viewBuildings },
+    { id: "requests", label: "Requests", show: caps.viewVisits !== false },
   ];
 
   return (
@@ -309,6 +349,81 @@ export default function PortalAccountPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── REQUESTS ─────────────────────────────────────────────────── */}
+        {tab === "requests" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {caps.requestService ? (
+              <form onSubmit={submitRequest} style={{ ...CARD, padding: 20 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Request service</p>
+                <p style={{ margin: "0 0 16px", fontSize: 13, color: "#6B6860" }}>
+                  Tell us what you need and we'll confirm a date with you. This doesn't book the visit.
+                </p>
+                {reqSent && (
+                  <div style={{ background: "#E6F6F1", border: "1px solid #C7E7DE", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                    <p style={{ fontSize: 13, color: "#0F7A63", margin: 0 }}>{reqSent}</p>
+                  </div>
+                )}
+                <input value={reqDesc} onChange={e => setReqDesc(e.target.value)} required
+                  placeholder="What do you need? e.g. Turnover clean, Unit 4B"
+                  style={{ width: "100%", height: 40, padding: "0 14px", border: "1px solid #E5E2DC", borderRadius: 9, fontSize: 14, marginBottom: 10, fontFamily: FF, outline: "none" }} />
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  <select value={reqBuilding} onChange={e => setReqBuilding(e.target.value)}
+                    style={{ flex: "1 1 200px", height: 40, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 9, fontSize: 14, background: "#FFFFFF", fontFamily: FF }}>
+                    <option value="">Which building? (optional)</option>
+                    {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                  {/* Native date input is fine HERE — this is the customer
+                      portal, not the office app, where the house rule is to use
+                      the shared picker. A customer on their own phone gets the
+                      control their OS already knows how to drive. */}
+                  <input type="date" value={reqDate} onChange={e => setReqDate(e.target.value)}
+                    style={{ flex: "1 1 160px", height: 40, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 9, fontSize: 14, fontFamily: FF }} />
+                </div>
+                <textarea value={reqNotes} onChange={e => setReqNotes(e.target.value)} rows={3}
+                  placeholder="Anything else we should know? (optional)"
+                  style={{ width: "100%", padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 9, fontSize: 14, fontFamily: FF, resize: "vertical", marginBottom: 12, outline: "none" }} />
+                <button type="submit" disabled={busy || reqDesc.trim().length < 3}
+                  style={{ padding: "10px 20px", borderRadius: 9, border: "none", background: reqDesc.trim().length < 3 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", fontSize: 14, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+                  {busy ? "Sending…" : "Send request"}
+                </button>
+              </form>
+            ) : (
+              <div style={{ ...CARD, padding: 20 }}>
+                <p style={{ margin: 0, fontSize: 14, color: "#6B6860" }}>
+                  This is a read-only support session — the customer needs to send requests themselves.
+                </p>
+              </div>
+            )}
+
+            <div style={{ ...CARD, overflow: "hidden" }}>
+              <p style={{ margin: 0, padding: "12px 16px", borderBottom: "1px solid #EEECE7", fontSize: 12, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Your requests
+              </p>
+              {!requests.length ? (
+                <p style={{ padding: 28, textAlign: "center", color: "#9E9B94", fontSize: 14, margin: 0 }}>Nothing requested yet</p>
+              ) : requests.map(r => (
+                <div key={r.id} style={{ padding: "12px 16px", borderBottom: "1px solid #F0EEE9" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#1A1917" }}>{r.service}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 13, color: "#6B6860" }}>
+                        {[r.building, r.preferred_date ? `Preferred ${prettyDate(r.preferred_date)}` : null].filter(Boolean).join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, height: "fit-content",
+                      ...(r.status === "scheduled" ? { background: "#E6F6F1", color: "#0F7A63" }
+                        : r.status === "declined" ? { background: "#FCEBEA", color: "#B3261E" }
+                        : { background: "#FDF3E4", color: "#B45309" }),
+                    }}>{r.status}</span>
+                  </div>
+                  {r.office_note && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6B6860", fontStyle: "italic" }}>{r.office_note}</p>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

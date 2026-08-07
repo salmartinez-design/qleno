@@ -452,6 +452,33 @@ export default function AccountDetailPage() {
   // portal. Confirms first: this sends mail to a real customer, so it must not
   // be a stray click on a button that sits next to Edit and Delete.
   const [invitingContactId, setInvitingContactId] = useState<number | null>(null);
+  // [portal-view-as 2026-08-07] Open this contact's portal exactly as they see
+  // it, so the office can walk them through a screen. READ-ONLY: the session
+  // cannot pay, request work, or post a review as them — enforced server-side
+  // in portalCapabilities, not here.
+  const [viewingAsId, setViewingAsId] = useState<number | null>(null);
+  async function viewAsContact(c: any) {
+    setViewingAsId(c.id);
+    try {
+      const r = await fetch(`${API}/api/portal/auth/impersonate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() } as HeadersInit,
+        body: JSON.stringify({ account_contact_id: c.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Could not open their view", description: d.message || d.error, variant: "destructive" });
+        return;
+      }
+      // New tab: the office keeps its own session in this one. Opening in place
+      // would leave staff staring at a customer portal with no way back.
+      window.open(d.url, "_blank", "noopener");
+    } catch {
+      toast({ title: "Network error", description: "Could not open their view — please try again.", variant: "destructive" });
+    } finally {
+      setViewingAsId(null);
+    }
+  }
   async function inviteContactToPortal(c: any) {
     if (!c.email) return;
     if (!window.confirm(`Email ${c.name} at ${c.email} a link to set up portal access?`)) return;
@@ -1665,6 +1692,18 @@ export default function AccountDetailPage() {
                           style={{ borderColor: "#E5E2DC", color: "var(--brand)", background: "#FFFFFF" }}>
                           {invitingContactId === c.id ? "Sending…" : c.portal_status ? "Resend invite" : "Invite to portal"}
                         </button>
+                        {/* Only offered once they actually have a login —
+                            there is nothing to view otherwise. */}
+                        {c.portal_status && (
+                          <button
+                            onClick={() => viewAsContact(c)}
+                            disabled={viewingAsId === c.id}
+                            title={`Open ${c.name}'s portal exactly as they see it (read-only)`}
+                            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-40"
+                            style={{ borderColor: "#E5E2DC", color: "#6B6860", background: "#FFFFFF" }}>
+                            {viewingAsId === c.id ? "Opening…" : "View as"}
+                          </button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditContact(c)}>
                           <Pencil size={13} className="text-gray-400" />
                         </Button>
