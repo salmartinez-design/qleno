@@ -1804,6 +1804,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [techList, setTechList] = useState<{ id: number; name: string; role: string; jobs_today: number; has_conflict: boolean }[]>([]);
   const [techLoading, setTechLoading] = useState(false);
   const [selectedTechId, setSelectedTechId] = useState<number | null>(job.assigned_user_id);
+  // [reschedule-notify 2026-08-07] Francisco: "always provide the option to
+  // notify the client when rescheduling a service." This modal moved the job
+  // and told the customer nothing — the notify choice shipped in #968 only
+  // reached the edit modal and the wizard, never this one.
+  //
+  // Defaults to "both" rather than "none" (the edit modal's default) because
+  // the two are different acts: editing a job may be an internal correction,
+  // whereas confirming a reschedule always moves a real appointment the
+  // customer is expecting to be at. Silence is the wrong default here.
+  const [rescheduleNotify, setRescheduleNotify] = useState<"none" | "sms" | "email" | "both">("both");
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [rescheduleSuccess, setRescheduleSuccess] = useState("");
   const [rescheduleCount, setRescheduleCount] = useState<number | null>(null);
@@ -4339,7 +4349,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           const rescheduleTime = `${String(rescheduleHour).padStart(2, "0")}:00:00`;
           try {
             const newStatus = job.status === "cancelled" ? "scheduled" : job.status;
-            const patch: Record<string, unknown> = { scheduled_date: rescheduleDate, scheduled_time: rescheduleTime, status: newStatus };
+            const patch: Record<string, unknown> = {
+              scheduled_date: rescheduleDate, scheduled_time: rescheduleTime, status: newStatus,
+              // Understood by PATCH /api/jobs/:id already; this modal simply
+              // never sent it, so a reschedule went out silently.
+              notify_client_via: rescheduleNotify,
+            };
             if (selectedTechId !== null) patch.assigned_user_id = selectedTechId;
             await patchJob(job.id, patch, token);
             const reasonLabel = rescheduleReason === "other" ? (rescheduleReasonOther || "Other") : (REASONS.find(r => r.value === rescheduleReason)?.label || rescheduleReason);
@@ -4362,7 +4377,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             }
             const techName = techList.find(t => t.id === selectedTechId)?.name || (selectedTechId === job.assigned_user_id ? currentTechName : "");
             const fmtNew = new Date(rescheduleDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-            setRescheduleSuccess(`Job rescheduled to ${fmtNew} at ${fmtHour(rescheduleHour)}${techName ? ` with ${techName}` : ""}`);
+            const notifyLabel = rescheduleNotify === "none" ? "Client not notified"
+              : rescheduleNotify === "sms" ? "Client texted"
+              : rescheduleNotify === "email" ? "Client emailed"
+              : "Client texted and emailed";
+            setRescheduleSuccess(`Job rescheduled to ${fmtNew} at ${fmtHour(rescheduleHour)}${techName ? ` with ${techName}` : ""} — ${notifyLabel}`);
             onUpdate();
           } catch {
             toast({ title: "Error", description: "Could not reschedule", variant: "destructive" });
@@ -4533,6 +4552,28 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </>
                 )}
               </div>
+
+              {/* [reschedule-notify 2026-08-07] Sits directly above Confirm so the
+                  choice is read before the click, not buried further up. Same
+                  control and wording as the edit modal — one pattern for "does
+                  the client hear about this?", wherever the office meets it. */}
+              {!rescheduleSuccess && (
+                <div style={{ padding: "10px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FCFBF9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, flex: "1 1 180px" }}>
+                    Tell the client about the new date and time?
+                  </span>
+                  <div style={{ display: "flex", gap: 0, border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+                    {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
+                      <button key={val} type="button" onClick={() => setRescheduleNotify(val)}
+                        style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700,
+                          background: rescheduleNotify === val ? (val === "none" ? "#1A1917" : "var(--brand)") : "#FFFFFF",
+                          color: rescheduleNotify === val ? "#FFFFFF" : "#6B6860" }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Sticky confirm button */}
               {!rescheduleSuccess && (
