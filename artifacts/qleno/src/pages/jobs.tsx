@@ -2033,6 +2033,66 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   }, [job.id, token, _API3]);
   useEffect(() => { if (canClock) loadClocks(); }, [canClock, loadClocks]);
 
+  // [job-card-clock-edit 2026-08-07] Francisco: "it would be very helpful to
+  // have the ability to manually edit or add Clock In and Clock Out times
+  // directly from the Job Card." Qleno could already edit clock times — the
+  // endpoints existed, but only the day-reconciliation screen used them. This
+  // surfaces the same ones here, rather than adding a second way to edit a punch.
+  //
+  // Times are typed as plain HH:MM on the job's own date and sent as a naive
+  // wall-clock string. That is the convention the clock now stores and reads
+  // (see the frame fix in #1372); the server marks an office edit normalized.
+  const [clockEditUser, setClockEditUser] = useState<number | null>(null);
+  const [editIn, setEditIn] = useState("");
+  const [editOut, setEditOut] = useState("");
+
+  const hhmm = (iso: string | null | undefined) => (iso ? String(iso).slice(11, 16) : "");
+  const stampFor = (t: string) => `${job.scheduled_date}T${t}:00`;
+
+  function openClockEdit(user_id: number, entry?: { clock_in_at: string; clock_out_at: string | null }) {
+    setClockEditUser(user_id);
+    setEditIn(hhmm(entry?.clock_in_at));
+    setEditOut(hhmm(entry?.clock_out_at));
+  }
+
+  async function saveClockEdit(user_id: number, entryId?: number) {
+    if (!editIn) { toast({ title: "A start time is required" }); return; }
+    if (editOut && editOut < editIn) { toast({ title: "Finish time is before the start time" }); return; }
+    setClockBusy(user_id);
+    try {
+      let id = entryId;
+      // No entry yet: create one at the typed start time, then set the finish.
+      if (!id) {
+        const r = await fetch(`${_API3}/api/timeclock/office/clock-in`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: job.id, user_id, clock_in_at: stampFor(editIn) }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "Could not add the times");
+        id = d.id;
+      }
+      const body: Record<string, unknown> = { clock_in_at: stampFor(editIn) };
+      // Blank finish time = still on the clock, which the server accepts as null.
+      body.clock_out_at = editOut ? stampFor(editOut) : null;
+      const r2 = await fetch(`${_API3}/api/timeclock/${id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) throw new Error(d2.error || "Could not save the times");
+      setClockEditUser(null);
+      await loadClocks();
+      onUpdate();
+      toast({ title: "Clock times saved" });
+    } catch (err: any) {
+      toast({ title: err.message || "Could not save the times", variant: "destructive" });
+    } finally {
+      setClockBusy(null);
+    }
+  }
+
   async function handleOfficeClock(user_id: number, dir: "in" | "out") {
     setClockBusy(user_id);
     try {
@@ -3580,7 +3640,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   const done = !!entry && !!entry.clock_out_at;
                   const busy = clockBusy === t.user_id;
                   return (
-                    <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <div key={t.user_id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
                         <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#0F7A63" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
@@ -3604,7 +3665,38 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         <Clock size={12} />
                         {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
                       </button>
+                      {/* Typing the times is the fallback when a punch was
+                          missed or landed wrong — the office should not have to
+                          leave the job to fix it. */}
+                      <button
+                        onClick={() => (clockEditUser === t.user_id ? setClockEditUser(null) : openClockEdit(t.user_id, entry))}
+                        title={entry ? "Edit these clock times" : "Type in clock times"}
+                        style={{ flexShrink: 0, background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, color: "#6B6860", textDecoration: "underline" }}>
+                        {clockEditUser === t.user_id ? "Cancel" : entry ? "Edit" : "Add times"}
+                      </button>
                     </div>
+                    {clockEditUser === t.user_id && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", fontFamily: FF }}>
+                          In
+                          <input type="time" value={editIn} onChange={e => setEditIn(e.target.value)}
+                            style={{ marginLeft: 6, padding: "5px 7px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF }} />
+                        </label>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", fontFamily: FF }}>
+                          Out
+                          <input type="time" value={editOut} onChange={e => setEditOut(e.target.value)}
+                            style={{ marginLeft: 6, padding: "5px 7px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF }} />
+                        </label>
+                        <button onClick={() => saveClockEdit(t.user_id, entry?.id)} disabled={busy || !editIn}
+                          style={{ padding: "6px 14px", border: "none", borderRadius: 7, background: !editIn ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: busy || !editIn ? "default" : "pointer", fontFamily: FF }}>
+                          {busy ? "Saving..." : "Save"}
+                        </button>
+                        <span style={{ fontSize: 10.5, color: "#9E9B94", fontFamily: FF, flexBasis: "100%" }}>
+                          Leave Out blank to put them back on the clock. Times are on {job.scheduled_date}.
+                        </span>
+                      </div>
+                    )}
+                  </div>
                   );
                 })}
                 {/* [declutter-info 2026-07-10] The clock explanation moved into a hover
