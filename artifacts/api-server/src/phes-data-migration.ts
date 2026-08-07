@@ -178,6 +178,41 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "portal_tokens hash idx", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS portal_tokens_hash_key ON portal_tokens (token_hash)" },
     { label: "portal_tokens user idx", stmt: "CREATE INDEX IF NOT EXISTS portal_tokens_user_idx ON portal_tokens (portal_user_id)" },
 
+    // ── [portal-request-service 2026-08-07] Customer-submitted work requests ──
+    // A request is an ASK, not a commitment. It deliberately does NOT write to
+    // `jobs`: a customer writing there would put unpriced, unassigned work on
+    // the dispatch board and into revenue. The office reviews and creates the
+    // job through the normal path.
+    { label: "portal_service_request_status enum", stmt: `DO $$ BEGIN
+        CREATE TYPE portal_service_request_status AS ENUM ('pending', 'scheduled', 'declined');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$` },
+    { label: "portal_service_requests", stmt: `
+      CREATE TABLE IF NOT EXISTS portal_service_requests (
+        id                          SERIAL PRIMARY KEY,
+        company_id                  INTEGER NOT NULL REFERENCES companies(id),
+        account_id                  INTEGER REFERENCES accounts(id),
+        client_id                   INTEGER REFERENCES clients(id),
+        account_property_id         INTEGER REFERENCES account_properties(id),
+        requested_by_portal_user_id INTEGER NOT NULL REFERENCES portal_users(id),
+        service_description         TEXT    NOT NULL,
+        preferred_date              DATE,
+        notes                       TEXT,
+        status                      portal_service_request_status NOT NULL DEFAULT 'pending',
+        resulting_job_id            INTEGER REFERENCES jobs(id),
+        reviewed_by_user_id         INTEGER REFERENCES users(id),
+        reviewed_at                 TIMESTAMP,
+        office_note                 TEXT,
+        created_at                  TIMESTAMP NOT NULL DEFAULT now(),
+        -- Same one-attachment invariant as portal_users: a request inherits the
+        -- requester's scope and can never be filed against someone else.
+        CONSTRAINT portal_service_requests_one_owner CHECK (
+          (account_id IS NOT NULL AND client_id IS NULL) OR
+          (account_id IS NULL AND client_id IS NOT NULL)
+        )
+      )` },
+    { label: "portal_service_requests status idx", stmt: "CREATE INDEX IF NOT EXISTS portal_service_requests_company_status_idx ON portal_service_requests (company_id, status)" },
+    { label: "portal_service_requests account idx", stmt: "CREATE INDEX IF NOT EXISTS portal_service_requests_account_idx ON portal_service_requests (account_id) WHERE account_id IS NOT NULL" },
+
     // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
     // building notes into every future job's per-visit note columns (see
     // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job

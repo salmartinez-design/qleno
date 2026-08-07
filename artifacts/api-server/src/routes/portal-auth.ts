@@ -194,6 +194,98 @@ router.post("/forgot", async (req, res) => {
   }
 });
 
+// ── Office: view as customer ────────────────────────────────────────────────
+// POST /api/portal/auth/impersonate  { client_id } | { account_contact_id }
+//
+// Sal's ask: "we can assimilate their view like we can with employees and walk
+// them through how to do things." Staff-only, audited, and READ-ONLY — the
+// read-only part is enforced by portalCapabilities(), which strips every
+// money-moving and committing action whenever impersonatedBy is set. Support
+// staff can see any screen the customer sees; they cannot pay an invoice,
+// request work, or post a review as them.
+//
+// Returns a one-time URL rather than a raw session token: the token is minted
+// into portal_tokens with issued_by_user_id, so every view-as session leaves an
+// audit row naming the staff member and the customer. The link is good for 15
+// minutes and dies on first use.
+router.post("/impersonate", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = req.body?.client_id ? parseInt(String(req.body.client_id)) : null;
+    const contactId = req.body?.account_contact_id ? parseInt(String(req.body.account_contact_id)) : null;
+    if ((clientId == null) === (contactId == null)) {
+      return res.status(400).json({ error: "Bad Request", message: "Pass exactly one of client_id or account_contact_id" });
+    }
+
+    // Find the customer's EXISTING login. View-as deliberately does not create
+    // one — otherwise staff could conjure a portal identity for a customer who
+    // was never invited, and the audit trail would start with a fiction.
+    const [user] = await db
+      .select()
+      .from(portalUsersTable)
+      .where(and(
+        eq(portalUsersTable.company_id, companyId),
+        clientId != null
+          ? eq(portalUsersTable.client_id, clientId)
+          : eq(portalUsersTable.account_contact_id, contactId!),
+      ))
+      .limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Not Found", message: "This customer has no portal login yet — invite them first" });
+    }
+    if (!user.is_active) {
+      return res.status(400).json({ error: "Bad Request", message: "This portal login is inactive" });
+    }
+
+    const raw = await mintPortalToken({
+      companyId, portalUserId: user.id, kind: "impersonation", issuedByUserId: req.auth!.userId,
+    });
+    const co = await db.execute(sql`SELECT slug FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const slug = (co.rows[0] as any)?.slug;
+    const url = `${appBaseUrl()}/portal/${slug ?? ""}/enter?token=${raw}`;
+
+    logAudit(req, "PORTAL_VIEW_AS", "portal_user", user.id, null, {
+      client_id: clientId, account_contact_id: contactId, customer_email: user.email,
+    });
+
+    return res.json({ ok: true, url, expires_in_minutes: 15, customer: { name: user.name, email: user.email } });
+  } catch (err) {
+    console.error("Portal impersonate error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not open that customer's view" });
+  }
+});
+
+// POST /api/portal/auth/enter  { token }
+// Public: the office opens the one-time link, this redeems it into a read-only
+// portal session. Single-use and short-lived, so a link left in a browser
+// history or pasted into chat is dead by the time anyone finds it.
+router.post("/enter", async (req, res) => {
+  try {
+    const redeemed = await redeemPortalToken(req.body?.token, "impersonation");
+    if (!redeemed) {
+      return res.status(400).json({ error: "Bad Request", message: "That link has expired or was already used" });
+    }
+    const [user] = await db.select().from(portalUsersTable)
+      .where(eq(portalUsersTable.id, redeemed.portalUserId)).limit(1);
+    if (!user || !user.is_active) {
+      return res.status(404).json({ error: "Not Found", message: "That login is no longer active" });
+    }
+    // impersonatedBy carries the STAFF user id into the session. Everything
+    // downstream — the read-only capability set and the portal's banner — keys
+    // off it, so it must come from the token, never from the request.
+    const session = sessionFromUser(user, redeemed.issuedByUserId);
+    return res.json({
+      token: signPortalToken(session),
+      capabilities: portalCapabilities(session),
+      user: { name: user.name, email: user.email },
+      impersonated: true,
+    });
+  } catch (err) {
+    console.error("Portal enter error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not open that session" });
+  }
+});
+
 // ── Session probe ───────────────────────────────────────────────────────────
 // GET /api/portal/auth/session — who am I, and what may I do?
 // ── Sign in with Google ─────────────────────────────────────────────────────

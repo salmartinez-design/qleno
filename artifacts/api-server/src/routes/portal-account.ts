@@ -264,4 +264,81 @@ router.post("/invoices/bulk-pdf", requirePortalAuth, requireAccount, requireCapa
   }
 });
 
+// ── Service requests ────────────────────────────────────────────────────────
+// GET  /api/portal/account/service-requests — what this account has asked for
+// POST /api/portal/account/service-requests — ask for work
+//
+// A request is an ASK, never a job. It does not touch the dispatch board, carry
+// a price, or reserve a cleaner — the office reviews it and creates the job
+// through the normal path. See lib/db schema portal_service_requests.
+router.get("/service-requests", requirePortalAuth, requireAccount, requireCapability("viewVisits"), async (req, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT r.id, r.service_description, r.preferred_date, r.notes, r.status,
+             r.office_note, r.created_at,
+             COALESCE(NULLIF(btrim(p.property_name), ''), p.address) AS building
+        FROM portal_service_requests r
+        LEFT JOIN account_properties p ON p.id = r.account_property_id
+       WHERE r.account_id = ${accountId(req)} AND r.company_id = ${req.portalSession!.companyId}
+       ORDER BY r.created_at DESC
+       LIMIT 50`);
+    return res.json((rows.rows as any[]).map((r) => ({
+      id: r.id,
+      service: r.service_description,
+      building: r.building ?? null,
+      preferred_date: r.preferred_date ? String(r.preferred_date).slice(0, 10) : null,
+      notes: r.notes,
+      status: r.status,
+      office_note: r.office_note,
+      created_at: r.created_at,
+    })));
+  } catch (err) {
+    console.error("Portal service-requests list error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not load your requests" });
+  }
+});
+
+router.post("/service-requests", requirePortalAuth, requireAccount, requireCapability("requestService"), async (req, res) => {
+  try {
+    const description = String(req.body?.service_description ?? "").trim();
+    if (description.length < 3 || description.length > 2000) {
+      return res.status(400).json({ error: "Bad Request", message: "Tell us briefly what you need" });
+    }
+    const notes = req.body?.notes ? String(req.body.notes).slice(0, 4000) : null;
+    const preferred = typeof req.body?.preferred_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.preferred_date)
+      ? req.body.preferred_date : null;
+
+    // The building must belong to THIS account. Taken from the body, so it has
+    // to be re-checked — otherwise a request could be filed against someone
+    // else's property.
+    let propertyId: number | null = null;
+    if (req.body?.account_property_id) {
+      const pid = parseInt(String(req.body.account_property_id));
+      const own = await db.execute(sql`
+        SELECT id FROM account_properties
+         WHERE id = ${pid} AND account_id = ${accountId(req)} AND company_id = ${req.portalSession!.companyId}
+         LIMIT 1`);
+      if (!own.rows[0]) return res.status(400).json({ error: "Bad Request", message: "That building is not on your account" });
+      propertyId = pid;
+    }
+
+    const ins = await db.execute(sql`
+      INSERT INTO portal_service_requests
+        (company_id, account_id, requested_by_portal_user_id, account_property_id,
+         service_description, preferred_date, notes)
+      VALUES (${req.portalSession!.companyId}, ${accountId(req)}, ${req.portalSession!.portalUserId},
+              ${propertyId}, ${description}, ${preferred}, ${notes})
+      RETURNING id`);
+
+    return res.status(201).json({
+      ok: true,
+      id: (ins.rows[0] as any)?.id,
+      message: "Request sent — we'll confirm a date with you shortly",
+    });
+  } catch (err) {
+    console.error("Portal service-request create error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not send your request" });
+  }
+});
+
 export default router;
