@@ -59,10 +59,19 @@ type GroupingHint = "done" | "current" | "next" | "later";
 // UI doesn't re-derive it client-side. Day summary at the top of the
 // payload counts done vs remaining for the header subtitle.
 //
-// Privacy: there is NO userId override param. Even the owner cannot
-// view a tech's day through this endpoint. Admin-side "see anyone's
-// day" is a separate route (later piece). 1B's surface is strictly
-// the tech's own day.
+// Privacy: a tech only ever sees their OWN day. A tech's ?employee_id=
+// is ignored — resolveViewedUserId falls back to req.auth.userId unless
+// the caller is owner/admin/office/super_admin, who may preview a tech's
+// screen (the same "viewing as" the impersonation banner and
+// /api/jobs/my-jobs already offer).
+//
+// [view-as 2026-08-07] This comment used to say "there is NO userId
+// override param. Even the owner cannot view a tech's day." That was
+// Cutover 1B's rule, and [tech-scorecard 2026-07-14] deliberately
+// replaced it — but the comment and the 1B test were never updated, so
+// the test sat red on main and the comment described a system that no
+// longer existed. The rule is now the ROLE GATE, not the absence of the
+// param, and the test pins that.
 
 router.get("/today", requireAuth, async (req, res) => {
   try {
