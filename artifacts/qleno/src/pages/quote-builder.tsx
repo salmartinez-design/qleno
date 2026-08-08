@@ -473,6 +473,12 @@ export default function QuoteBuilderPage() {
   const [sqCfg, setSqCfg] = useState<{ configured: boolean; applicationId: string; locationId: string; environment: "sandbox" | "production" } | null>(null);
   const [sqCfgLoading, setSqCfgLoading] = useState(false);
   const [cardSaved, setCardSaved] = useState(false);
+  // [lead-card-capture 2026-08-08] For a NEW lead there is no client row yet, so
+  // the card can't be saved at entry time. Hold the one-time Square nonce here
+  // and ship it with the convert, which materializes the client and attaches it
+  // server-side. Never a PAN — this is the `cnon:` token the SDK hands back, and
+  // it dies with the page.
+  const [pendingCardToken, setPendingCardToken] = useState<string | null>(null);
   const [linkSending, setLinkSending] = useState<null | "email" | "sms">(null);
   const [linkSent, setLinkSent] = useState<null | "email" | "sms">(null);
   // The customer's phone/email cascade here from the Customer Info step so the
@@ -518,7 +524,16 @@ export default function QuoteBuilderPage() {
   };
 
   const saveSquareCard = async (sourceId: string) => {
-    if (!selectedClientId) throw new Error("No client selected");
+    // [lead-card-capture 2026-08-08] New lead, no client row yet: park the token
+    // and let the convert attach it. The office sees "will be saved when you
+    // book", so the card is taken on the call instead of chasing the customer
+    // afterwards.
+    if (!selectedClientId) {
+      setPendingCardToken(sourceId);
+      setCardSaved(true);
+      setTimeout(() => setCardModalOpen(false), 1400);
+      return;
+    }
     const r = await fetch(`${API}/api/square/clients/${selectedClientId}/save-card`, {
       method: "POST",
       headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -1442,7 +1457,7 @@ export default function QuoteBuilderPage() {
           toast.error("Couldn't convert — the quote didn't save. Try again.");
           return;
         }
-        await apiFetch(`/api/quotes/${savedId}/convert`, {
+        const convertRes: any = await apiFetch(`/api/quotes/${savedId}/convert`, {
           method: "POST",
           body: {
             scheduled_date: selectedDate || undefined,
@@ -1452,6 +1467,11 @@ export default function QuoteBuilderPage() {
             // job_technicians row per cleaner.
             assigned_user_id: selectedTechIds[0] || undefined,
             team_user_ids: selectedTechIds,
+            // [lead-card-capture 2026-08-08] A card taken on the call for a NEW
+            // customer rides along here; the server attaches it once it has
+            // materialized the client. Absent for existing clients — theirs saved
+            // immediately via /api/square/clients/:id/save-card.
+            square_card_token: pendingCardToken || undefined,
             // [custom-recurring] When the office chose a flexible pattern (Recurring
             // "Custom" card OR Hourly "Custom…" cadence — separate, independent
             // states), ship it so the server maps it onto the recurring_schedules
@@ -1462,7 +1482,19 @@ export default function QuoteBuilderPage() {
             })(),
           },
         });
-        toast.success("Quote converted to job.");
+        // [lead-card-capture 2026-08-08] If a card rode along with the convert,
+        // say what happened to it. A silent failure here is the worst case: the
+        // office believes a new customer is on file and only finds out weeks
+        // later when the first invoice can't be charged.
+        const cardResult = convertRes?.card_saved;
+        if (pendingCardToken && cardResult && !cardResult.ok) {
+          toast.error(`Job booked, but the card didn't save: ${cardResult.error || "unknown error"}. Add it from the customer's profile.`);
+        } else if (pendingCardToken && cardResult?.ok) {
+          toast.success(`Quote converted to job. Card ending ${cardResult.last4 ?? "••••"} saved on file.`);
+        } else {
+          toast.success("Quote converted to job.");
+        }
+        setPendingCardToken(null);
         navigate(selectedDate ? `/dispatch?date=${selectedDate}` : "/jobs");
       } else if (status === "sent") {
         // Saving with status "sent" only persists the row — it does NOT deliver
@@ -1696,11 +1728,16 @@ export default function QuoteBuilderPage() {
           <button type="button" onClick={() => setCardModalOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16 }}>
-          {selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : "This client"} — card is stored securely with Square, not on our servers.
+          {/* [lead-card-capture 2026-08-08] A lead has no client row, so fall
+              back to the name typed on the quote rather than "This client". */}
+          {selectedClient
+            ? `${selectedClient.first_name} ${selectedClient.last_name}`
+            : (`${leadFirstName} ${leadLastName}`.trim() || "This customer")} — card is stored securely with Square, not on our servers.
         </div>
         {cardSaved ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600, padding: "12px 0" }}>
-            <CheckCircle2 size={18} /> Card saved on file.
+            <CheckCircle2 size={18} />
+            {selectedClientId ? "Card saved on file." : "Card captured — saves when you book."}
           </div>
         ) : sqCfgLoading ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860", padding: "12px 0" }}>
@@ -3701,19 +3738,36 @@ export default function QuoteBuilderPage() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, fontFamily: FF }}>
                   Payment Method
                 </div>
-                {selectedClientId ? (
-                  cardSaved ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#0F7A63", fontWeight: 600, fontFamily: FF }}>
-                      <CheckCircle2 size={16} /> Card saved on file for {selectedClient?.first_name || "this client"}.
+                {cardSaved ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#0F7A63", fontWeight: 600, fontFamily: FF }}>
+                    <CheckCircle2 size={16} />
+                    {selectedClientId
+                      ? `Card saved on file for ${selectedClient?.first_name || "this client"}.`
+                      : "Card captured — it saves when you book this job."}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {/* [lead-card-capture 2026-08-08] This block used to be
+                        replaced wholesale by "select an existing client above"
+                        for a new lead — so the office could not take a card on
+                        the call, which is the one moment the customer will
+                        happily read one out. Now the entry form shows for
+                        everyone; only the SEND-A-LINK options still need a
+                        client, because a link has to be addressed to a saved
+                        record. */}
+                    <div>
+                      <button type="button" onClick={openCardModal}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                        <CreditCard size={15} /> Save card on file now
+                      </button>
+                      {!selectedClientId && (
+                        <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF, marginTop: 6 }}>
+                          New customer — the card is held securely and saves the moment you book the job.
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      <div>
-                        <button type="button" onClick={openCardModal}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                          <CreditCard size={15} /> Save card on file now
-                        </button>
-                      </div>
+                    {selectedClientId ? (
+                      <>
                       <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>Or send the customer a link to add it themselves:</div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -3737,11 +3791,14 @@ export default function QuoteBuilderPage() {
                           </button>
                         </div>
                       </div>
-                    </div>
-                  )
-                ) : (
-                  <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
-                    Select an existing client above to save a card on file — new leads can add one from their profile after converting.
+                      </>
+                    ) : (
+                      // A link has to be addressed to a saved client record, so
+                      // it stays gated — but typing the card in no longer is.
+                      <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF }}>
+                        Text and email links become available once this quote is booked and the customer record exists.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3749,7 +3806,12 @@ export default function QuoteBuilderPage() {
               {/* [multi-option-send 2026-07-25] Make the no-auto-email rule
                   explicit: booking on the call never emails; only Save & Send does. */}
               <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF, marginTop: 16, marginBottom: 2 }}>
-                Booking on the call (Convert to Job) does not email the client. Only <strong style={{ color: "#6B6860" }}>Save &amp; Send</strong> emails the quote.
+                {/* [convert-copy 2026-08-08] Was "does not email the client",
+                    which reads as total silence — Maribel asked what it meant.
+                    Convert DOES email: sendJobScheduledConfirmation fires the
+                    booking confirmation (email + SMS). What it skips is the
+                    QUOTE. Say which email, not whether. */}
+                Booking on the call (Convert to Job) sends the appointment confirmation, not the quote. <strong style={{ color: "#6B6860" }}>Save &amp; Send</strong> is what emails the quote for approval.
               </div>
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(3)}>Back</Button>
