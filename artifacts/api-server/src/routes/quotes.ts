@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 import { resolveServiceType } from "../lib/serviceType.js";
+import { materializeClientForQuote } from "../lib/materialize-client.js";
 
 const router = Router();
 
@@ -502,6 +503,46 @@ router.post("/:id/accept", requireAuth, requireRole("owner", "admin", "office"),
   }
 });
 
+// [lead-card-link 2026-08-08] POST /api/quotes/:id/ensure-client
+//
+// Give me a client id for this quote, creating one from the lead's details if it
+// doesn't have one yet. Exists because `payment_links.client_id` is NOT NULL, so
+// a save-card link cannot be created for a lead — which meant the office could
+// only text or email a card link to customers who were ALREADY in the system.
+// Sal, 2026-08-08: "for a new quote while on the phone i still need the ability
+// to text or send the email."
+//
+// Uses the same helper convert does, so the client created here is the one
+// convert later finds — no twins. Safe to call repeatedly: it returns the
+// existing client once the quote has one.
+router.post("/:id/ensure-client", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    // String() because this router's `req.params.id` types as string | string[];
+    // the sibling handlers' bare parseInt is a pre-existing tsc error, not a
+    // pattern to copy.
+    const id = parseInt(String(req.params.id));
+    const companyId = req.auth!.companyId;
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid quote id" });
+    if (companyId == null) return res.status(400).json({ error: "No company on session" });
+
+    const q = await getQuoteWithDetails(id, companyId);
+    if (!q) return res.status(404).json({ error: "Quote not found" });
+
+    const clientId = await materializeClientForQuote(companyId, id, q as any);
+    if (!clientId) {
+      // Nothing to build a customer from — name, email, phone and address were
+      // all blank. Say which, rather than failing opaquely at the link step.
+      return res.status(400).json({
+        error: "Add a name, phone, email or address to this quote before sending a card link.",
+      });
+    }
+    return res.json({ client_id: clientId });
+  } catch (err) {
+    console.error("ensure-client error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -627,27 +668,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // name/address/email were never saved as a client. Broaden the gate to any
     // identifying field (name or address too); email/phone still drive dedupe,
     // and a name-only lead falls through to a fresh insert.
-    const _hasIdentity = (q as any).lead_email || (q as any).lead_phone || (q as any).lead_name || (q as any).address;
-    if (!clientId && _hasIdentity) {
-      const emailLc = (q as any).lead_email ? String((q as any).lead_email).toLowerCase().trim() : null;
-      const phone10 = String((q as any).lead_phone || "").replace(/\D/g, "").slice(-10) || null;
-      // Dedupe only when we have an email or phone to match on; a name-only
-      // lead has no reliable key, so it always inserts a fresh client.
-      const match = (emailLc || phone10) ? await db.execute(sql`
-        SELECT id FROM clients WHERE company_id = ${companyId} AND (
-          (${emailLc}::text IS NOT NULL AND lower(email) = ${emailLc}) OR
-          (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${phone10})
-        ) ORDER BY id DESC LIMIT 1`) : { rows: [] as any[] };
-      clientId = (match.rows[0] as any)?.id ?? null;
-      if (!clientId) {
-        const np = String((q as any).lead_name ?? "").trim().split(/\s+/).filter(Boolean);
-        const cIns = await db.execute(sql`
-          INSERT INTO clients (company_id, first_name, last_name, email, phone, address)
-          VALUES (${companyId}, ${np[0] || (q as any).lead_name || "Client"}, ${np.slice(1).join(" ") || ""}, ${(q as any).lead_email ?? null}, ${(q as any).lead_phone ?? null}, ${(q as any).address ?? null})
-          RETURNING id`);
-        clientId = (cIns.rows[0] as any)?.id ?? null;
-      }
-      if (clientId) { try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ } }
+    // [lead-card-link 2026-08-08] Body moved verbatim to
+    // lib/materialize-client.ts so /ensure-client can run the IDENTICAL match.
+    // Both paths must dedupe the same way: if the office texts a card link first
+    // (which creates the client) and then books, convert has to find that same
+    // client instead of inserting a twin.
+    if (!clientId && companyId != null) {
+      clientId = await materializeClientForQuote(companyId, id, q as any);
     }
 
     // [service-address-cascade 2026-07-08] A newly-converted client had their

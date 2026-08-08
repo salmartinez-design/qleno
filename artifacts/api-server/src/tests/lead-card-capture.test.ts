@@ -46,10 +46,14 @@ describe("card capture for a brand-new customer", () => {
   });
 
   it("convert attaches the card AFTER the client is materialized", () => {
-    const clientCreate = convert.indexOf("INSERT INTO clients");
+    // [lead-card-link 2026-08-08] The INSERT moved into
+    // lib/materialize-client.ts (shared with /ensure-client), so the ordering is
+    // now against the helper CALL rather than the raw SQL.
+    const clientCreate = convert.indexOf("materializeClientForQuote");
     const cardSave = convert.indexOf("saveSquareCardOnFile");
-    assert.ok(clientCreate > -1 && cardSave > -1);
-    assert.ok(cardSave > clientCreate, "card save must come after the client insert");
+    assert.ok(clientCreate > -1, "convert must materialize the client");
+    assert.ok(cardSave > -1, "convert must attach the card");
+    assert.ok(cardSave > clientCreate, "card save must come after the client is materialized");
   });
 
   it("a card failure never fails the booking", () => {
@@ -69,6 +73,47 @@ describe("card capture for a brand-new customer", () => {
 
   it("refuses to save against a null tenant", () => {
     assert.match(convert, /squareCardToken && clientId && companyId != null/);
+  });
+});
+
+describe("texting/emailing a card link for a NEW lead", () => {
+  // Sal, 2026-08-08: "for a new quote while on the phone i still need the
+  // ability to text or send the email." `payment_links.client_id` is NOT NULL,
+  // so a link needs a client — the server now makes one from the quote.
+  const materialize = read("../lib/materialize-client.ts");
+
+  it("all three options render for a lead — no client gate left", () => {
+    const block = builder.slice(builder.indexOf("Payment Method"));
+    assert.ok(!/Text and email links become available once/.test(block));
+    assert.ok(builder.includes("ensure-client"));
+  });
+
+  it("ensure-client and convert share ONE dedupe rule", () => {
+    // The duplicate-client trap: if sending a link created a client by a
+    // different rule than convert uses, booking afterwards would insert a twin.
+    // Both must go through the same helper — assert neither re-implements it.
+    assert.ok(quotes.includes("materializeClientForQuote"));
+    assert.ok(
+      !/INSERT INTO clients/.test(quotes),
+      "quotes.ts must not create clients itself — that logic lives in materialize-client.ts",
+    );
+    assert.ok(materialize.includes("INSERT INTO clients"));
+  });
+
+  it("materialize is idempotent — an existing client is returned, not duplicated", () => {
+    assert.match(materialize, /if \(q\.client_id\) return q\.client_id;/);
+  });
+
+  it("refuses when the quote has nothing to build a customer from", () => {
+    // A blank quote must not create an empty "Client" row just because someone
+    // hit Text link early.
+    assert.match(materialize, /if \(!hasIdentity\) return null;/);
+    assert.ok(quotes.includes("Add a name, phone, email or address"));
+  });
+
+  it("the office is told why, not just that it failed", () => {
+    assert.ok(builder.includes("Add a name, phone, email or address"));
+    assert.ok(builder.includes('e?.message || "Could not send card link"'));
   });
 });
 
