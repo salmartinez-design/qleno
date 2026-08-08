@@ -21,6 +21,7 @@ import { reconcileSquarePayment, decimalToCents } from "../lib/square-payment-re
 import { syncSquareCustomerMap } from "../lib/square-customer-map.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
+import { alertCardSaved } from "../lib/card-saved-alert.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -79,6 +80,13 @@ router.post("/clients/:id/save-card", ...officeOnly, async (req, res) => {
       return res.status(status).json({ error: result.message, code: result.code });
     }
     logAudit(req, "SAVE_CARD", "client", clientId, {}, { processor: "square", last4: result.last4 } as any);
+    // [card-saved-email 2026-08-08] Same alert the payment-link rails fire. The
+    // audit row above is a forensic record nobody reads day to day — this is the
+    // one that actually reaches the office.
+    await alertCardSaved({
+      companyId, clientId, brand: result.brand, last4: result.last4,
+      processor: "square", source: "office",
+    });
     res.json({ success: true, brand: result.brand, last4: result.last4 });
   } catch (err: any) {
     console.error("[square/save-card]", err?.message ?? err);

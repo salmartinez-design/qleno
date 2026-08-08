@@ -9,44 +9,13 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { appBaseUrl } from "../lib/app-url.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
-import { notifyOfficeUsers } from "../lib/notify.js";
+// [card-saved-email 2026-08-08] The alert moved to lib/card-saved-alert.ts so the
+// OFFICE save path (routes/square.ts) fires the identical thing — it used to live
+// here and covered the customer-completed links only.
+import { alertCardSaved } from "../lib/card-saved-alert.js";
 import crypto from "crypto";
 
 const router = Router();
-
-// [card-saved-alert 2026-08-07] Tell the office when a customer saves a card
-// through a texted/emailed link. Nothing surfaced this before: the link went
-// out, the customer entered their card, and the only way to find out was to go
-// looking at the client. Fires for BOTH rails (Stripe link + Square link).
-// In-app only — `card_saved` has no TYPE_TO_CATEGORY mapping, so notify.ts
-// delivers the bell alert and never emails. Never throws: notifyOfficeUsers
-// swallows its own failures, and the await is wrapped so a bad alert can't
-// undo a card that already saved.
-async function alertOfficeCardSaved(
-  companyId: number,
-  clientId: number,
-  detail: { brand?: string | null; last4?: string | null; processor: "stripe" | "square" },
-): Promise<void> {
-  try {
-    const [c] = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, clientId));
-    const name = [c?.first_name, c?.last_name].filter(Boolean).join(" ").trim() || "A client";
-    const card = [detail.brand, detail.last4 ? `••••${detail.last4}` : null].filter(Boolean).join(" ");
-    await notifyOfficeUsers(companyId, {
-      type: "card_saved",
-      title: `${name} saved a card on file`,
-      body: card
-        ? `${card} — added by the customer from a payment link. Nothing was charged.`
-        : "Added by the customer from a payment link. Nothing was charged.",
-      link: `/customers/${clientId}`,
-      meta: { client_id: clientId, processor: detail.processor, last4: detail.last4 ?? null },
-    });
-  } catch (e) {
-    console.error("[card-saved-alert]", e);
-  }
-}
 
 // ─── Helper: get app base URL ─────────────────────────────────────────────────
 // Delegates to the single source of truth (APP_BASE_URL → https://app.qleno.com).
@@ -472,10 +441,13 @@ router.post("/public/:token/save-card", async (req, res) => {
       .set({ used_at: new Date() })
       .where(eq(paymentLinksTable.id, link.id));
 
-    await alertOfficeCardSaved(link.company_id, link.client_id, {
+    await alertCardSaved({
+      companyId: link.company_id,
+      clientId: link.client_id,
       brand: card?.brand ?? null,
       last4: card?.last4 ?? null,
       processor: "stripe",
+      source: "link",
     });
 
     res.json({ success: true });
@@ -520,10 +492,13 @@ router.post("/public/:token/save-card-square", async (req, res) => {
       .set({ used_at: new Date() })
       .where(eq(paymentLinksTable.id, link.id));
 
-    await alertOfficeCardSaved(link.company_id, link.client_id, {
+    await alertCardSaved({
+      companyId: link.company_id,
+      clientId: link.client_id,
       brand: result.brand,
       last4: result.last4,
       processor: "square",
+      source: "link",
     });
 
     res.json({ success: true, brand: result.brand, last4: result.last4 });
