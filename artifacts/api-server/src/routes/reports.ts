@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import {
-  usersTable, jobsTable, scorecardsTable, timeclockTable,
+  usersTable, jobsTable, timeclockTable,
   clientsTable, clientRatingsTable, invoicesTable, additionalPayTable,
   contactTicketsTable,
 } from "@workspace/db/schema";
@@ -716,7 +716,9 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
         coalesce(sum(j.allowed_hours), 0) AS job_hours,
         coalesce(sum(EXTRACT(EPOCH FROM (t.clock_out_at - t.clock_in_at))/3600) FILTER (WHERE t.clock_out_at IS NOT NULL), 0) AS clock_hours,
         coalesce(sum(j.base_fee), 0) AS revenue_generated,
-        coalesce(avg(sc.score) FILTER (WHERE sc.excluded=false), 0) AS scorecard_avg,
+        -- [scorecard-dead-table 2026-08-08] rescaled: scorecard_entries stores a
+        -- ratio against max_value, the legacy table stored a bare 0-4.
+        coalesce(avg(sc.score_value / NULLIF(sc.max_value, 0) * 4) FILTER (WHERE sc.excluded=false), 0) AS scorecard_avg,
         coalesce(sum(ap.amount) FILTER (WHERE ap.type='tips'), 0) AS tips_earned,
         count(tc.id) FILTER (WHERE tc.flagged=true) AS flagged_clocks
       FROM users u
@@ -724,7 +726,10 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
         ${branchFilter(req, "j.branch_id")}
       LEFT JOIN timeclock t ON t.job_id=j.id AND t.user_id=u.id
-      LEFT JOIN scorecards sc ON sc.user_id=u.id AND sc.created_at::date BETWEEN ${fromStr} AND ${toStr}
+      -- [scorecard-dead-table 2026-08-08] was scorecards (legacy, never written)
+      LEFT JOIN scorecard_entries sc ON sc.employee_id=u.id AND sc.company_id=${companyId}
+        AND sc.excluded=false AND sc.dismissed_at IS NULL
+        AND sc.entry_date BETWEEN ${fromStr} AND ${toStr}
       LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ap.created_at::date BETWEEN ${fromStr} AND ${toStr}
       LEFT JOIN timeclock tc ON tc.user_id=u.id AND tc.clock_in_at::date BETWEEN ${fromStr} AND ${toStr}
       WHERE u.company_id=${companyId} AND u.is_active=true ${empFilter}
@@ -978,18 +983,29 @@ router.get("/scorecards", requireAuth, ROLE, async (req, res) => {
     const toStr   = (req.query.to   as string) || dateStr(now);
 
     const rows = await db.execute(sql`
-      SELECT sc.id, sc.score, sc.comments, sc.excluded, sc.created_at,
+      -- Column map, legacy → live: score → score_value/max_value rescaled to a
+      -- 0-4 INTEGER (the distribution buckets below compare with ===, so a
+      -- numeric string or a 0-1 ratio would put every row in "none"),
+      -- comments → notes.
+      SELECT sc.id,
+        ROUND(sc.score_value / NULLIF(sc.max_value, 0) * 4)::int AS score,
+        sc.notes AS comments, sc.excluded, sc.created_at,
         c.first_name AS client_first, c.last_name AS client_last,
         u.first_name AS emp_first, u.last_name AS emp_last,
         j.service_type, j.scheduled_date
-      FROM scorecards sc
-      JOIN clients c ON c.id=sc.client_id
-      JOIN users u ON u.id=sc.user_id
+      -- [scorecard-dead-table 2026-08-08] Was scorecards, which nothing writes
+      -- to — this report returned 0 records while 28 real responses sat in
+      -- scorecard_entries. There is no client_id on entries; the client comes
+      -- through the job. Score is rescaled onto 0-4 (entries store a ratio).
+      FROM scorecard_entries sc
       JOIN jobs j ON j.id=sc.job_id
+      JOIN clients c ON c.id=j.client_id
+      JOIN users u ON u.id=sc.employee_id
       WHERE sc.company_id=${companyId}
+        AND sc.dismissed_at IS NULL
         ${branchFilter(req, "j.branch_id")}
-        AND sc.created_at::date BETWEEN ${fromStr} AND ${toStr}
-      ORDER BY sc.created_at DESC LIMIT 200
+        AND sc.entry_date BETWEEN ${fromStr} AND ${toStr}
+      ORDER BY sc.entry_date DESC, sc.id DESC LIMIT 200
     `);
 
     const data = (rows.rows as any[]).map(r => ({
@@ -1025,7 +1041,18 @@ router.get("/cancellations", requireAuth, ROLE, async (req, res) => {
         sc.score AS last_score
       FROM jobs j
       JOIN clients c ON c.id=j.client_id
-      LEFT JOIN scorecards sc ON sc.client_id=c.id AND sc.id=(SELECT id FROM scorecards WHERE client_id=c.id ORDER BY created_at DESC LIMIT 1)
+      -- [scorecard-dead-table 2026-08-08] scorecard_entries has no client_id —
+      -- the client is reached through the job. One row per TECH per job, so take
+      -- the newest single entry rather than joining (which would duplicate the
+      -- cancelled-job row once per tech).
+      LEFT JOIN LATERAL (
+        SELECT ROUND(se.score_value / NULLIF(se.max_value, 0) * 4)::int AS score
+          FROM scorecard_entries se
+          JOIN jobs sj ON sj.id = se.job_id
+         WHERE sj.client_id = c.id AND se.company_id = ${companyId}
+           AND se.excluded = false AND se.dismissed_at IS NULL
+         ORDER BY se.entry_date DESC, se.id DESC LIMIT 1
+      ) sc ON true
       WHERE j.company_id=${companyId} AND j.status='cancelled'
         ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
@@ -1219,7 +1246,13 @@ router.get("/hot-sheet", requireAuth, ROLE, async (req, res) => {
       JOIN clients c ON c.id=j.client_id
       LEFT JOIN users u ON u.id=j.assigned_user_id
       LEFT JOIN LATERAL (
-        SELECT score FROM scorecards WHERE client_id=c.id ORDER BY created_at DESC LIMIT 1
+        -- [scorecard-dead-table 2026-08-08] same swap; client reached via the job.
+        SELECT ROUND(se.score_value / NULLIF(se.max_value, 0) * 4)::int AS score
+          FROM scorecard_entries se
+          JOIN jobs sj ON sj.id = se.job_id
+         WHERE sj.client_id = c.id AND se.company_id = ${companyId}
+           AND se.excluded = false AND se.dismissed_at IS NULL
+         ORDER BY se.entry_date DESC, se.id DESC LIMIT 1
       ) sc_last ON true
       WHERE j.company_id=${companyId} AND j.scheduled_date=${targetDate}
         ${branchFilter(req, "j.branch_id")}
