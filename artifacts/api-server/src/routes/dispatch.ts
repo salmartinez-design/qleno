@@ -114,15 +114,33 @@ async function buildDispatchPayload(
         // stays 4411 N Damen). We keep the field name `client_zip` to
         // preserve the frontend contract, but its semantic is now
         // "resolved job zip" — job-level preferred, client-level fallback.
-        client_zip: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip})`,
-        address: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address})`,
-        city:    sql<string | null>`COALESCE(NULLIF(${jobsTable.address_city}, ''),   ${clientsTable.city})`,
-        // [AI.7.6] State + zip pulled through so the canonical address
-        // formatter can render "<street>, <city>, <state> <zip>" everywhere.
-        // Job-level preferred, client-level fallback (mirrors the
-        // address/city resolution above).
-        state:   sql<string | null>`COALESCE(NULLIF(${jobsTable.address_state}, ''),  ${clientsTable.state})`,
-        zip:     sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''),    ${clientsTable.zip})`,
+        // [addr-city-state 2026-08-08] Resolve the address as a UNIT, not field
+        // by field.
+        //
+        // Each component used to COALESCE job→client independently, so a job
+        // holding SOME of its own fields showed a hybrid of two addresses —
+        // one that exists nowhere. Jess Wilhite (CL-1520, 8/8): the job carried
+        // street/city/state "333 North Jefferson Street, Brownsburg, IN" with no
+        // job-level zip, and the client had been corrected to Chicago IL 60661.
+        // The card rendered "333 North Jefferson Street, Brownsburg, IN 60661":
+        // stale city and state from the job, corrected zip from the client.
+        // Maribel: "the zip code was updated but not the state and city."
+        //
+        // The switch is whether the job carries its OWN street — the same signal
+        // PATCH /jobs/:id/address uses to decide a per-job override exists. When
+        // it does, every component comes from the job (a NULL city stays NULL and
+        // is visibly missing, rather than being quietly filled from elsewhere).
+        // Otherwise every component comes from the client.
+        client_zip: sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+                                            THEN ${jobsTable.address_zip} ELSE ${clientsTable.zip} END`,
+        address: sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+                                         THEN ${jobsTable.address_street} ELSE ${clientsTable.address} END`,
+        city:    sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+                                         THEN ${jobsTable.address_city} ELSE ${clientsTable.city} END`,
+        state:   sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+                                         THEN ${jobsTable.address_state} ELSE ${clientsTable.state} END`,
+        zip:     sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+                                         THEN ${jobsTable.address_zip} ELSE ${clientsTable.zip} END`,
         // [inline-edit] Raw fields needed by the popover address editor to
         // detect mode (job-level override vs client-level default) before
         // showing the form. Frontend compares jobs.address_* against
