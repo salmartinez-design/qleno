@@ -13,14 +13,6 @@ export interface NotifyArgs {
   body?: string | null;
   link?: string | null;           // in-app route, e.g. '/messages' or '/dispatch?job=123'
   meta?: Record<string, any> | null;
-  /** [card-saved-email 2026-08-08] Email this one regardless of the recipient's
-   *  category prefs. Every category defaults email OFF (opt-in), and adding a
-   *  new category means new `notification_prefs` COLUMNS — the exact
-   *  code-says-yes/database-says-no drift that broke three things on 8/7. So an
-   *  alert that must reach an inbox says so here instead. Use sparingly: this
-   *  deliberately ignores a user's preferences, so reserve it for money-adjacent
-   *  events the office has to see. In-app delivery is unaffected. */
-  forceEmail?: boolean;
 }
 
 export async function notifyUser(a: NotifyArgs): Promise<void> {
@@ -37,7 +29,6 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
       emailOk = !!cat && prefs[`${cat}_email`] === true;
       pushOk = !!cat && prefs[`${cat}_push`] === true;
     }
-    if (a.forceEmail && a.userId != null) emailOk = true;
     if (inappOk) {
       await db.execute(sql`
         INSERT INTO notifications (company_id, user_id, type, title, body, link, meta, read, created_at)
@@ -61,12 +52,47 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
 // customer-facing) and is sent to the staff user's OWN email. From the tenant's
 // verified send-from address.
 async function sendStaffAlertEmail(companyId: number, userId: number, a: NotifyArgs): Promise<void> {
+  const ur = await db.execute(sql`SELECT email FROM users WHERE id = ${userId} LIMIT 1`);
+  const to = (ur.rows[0] as any)?.email;
+  if (!to) return;
+  await sendAlertEmailTo(companyId, to, a);
+}
+
+// [shared-inbox-alert 2026-08-08] Same alert email, addressed to an arbitrary
+// inbox instead of a staff user's personal one. Sal, 2026-08-08: card alerts
+// "should go to general inbox info@phes.io" — that's where the office already
+// watches Square's mail, so a per-person copy is both noise and easy to miss on
+// a day someone is out.
+export async function sendCompanyInboxAlert(
+  companyId: number,
+  a: Omit<NotifyArgs, "companyId" | "userId">,
+): Promise<void> {
+  try {
+    // `companies.email` is the tenant's public/shared inbox; `lead_notify_email`
+    // is the existing alerts-routing override. Prefer the explicit override,
+    // fall back to the public inbox. No new column — see the 8/7 schema-drift
+    // lesson (three outages from columns that existed in code but not the DB).
+    const cr = await db.execute(sql`
+      SELECT email, lead_notify_email FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const c: any = cr.rows[0] ?? {};
+    const to = c.lead_notify_email || c.email;
+    if (!to) {
+      console.warn(`[notify] company ${companyId} has no shared inbox (companies.email / lead_notify_email) — "${a.title}" not emailed`);
+      return;
+    }
+    await sendAlertEmailTo(companyId, to, { ...a, companyId, userId: null } as NotifyArgs);
+  } catch (e) {
+    console.error("[notify] company inbox alert failed:", e);
+  }
+}
+
+async function sendAlertEmailTo(companyId: number, to: string, a: NotifyArgs): Promise<void> {
   try {
     const key = process.env.RESEND_API_KEY;
-    if (!key) return;
-    const ur = await db.execute(sql`SELECT email, first_name FROM users WHERE id = ${userId} LIMIT 1`);
-    const to = (ur.rows[0] as any)?.email;
-    if (!to) return;
+    if (!key) {
+      console.warn(`[notify] RESEND_API_KEY not set — "${a.title}" was NOT emailed to ${to}`);
+      return;
+    }
     const cr = await db.execute(sql`SELECT name, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
     const c: any = cr.rows[0] ?? {};
     const fromName = c.name || "Qleno";

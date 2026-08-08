@@ -15,7 +15,7 @@
 // no money, so Square sends nothing here — Qleno has to.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { notifyOfficeUsers } from "./notify.js";
+import { notifyOfficeUsers, sendCompanyInboxAlert } from "./notify.js";
 
 export type CardSavedSource = "office" | "link";
 
@@ -56,9 +56,17 @@ export async function alertCardSaved(a: CardSavedAlertArgs): Promise<void> {
         source: a.source,
         last4: a.last4 ?? null,
       },
-      // Bypasses the per-user email prefs on purpose — see NotifyArgs.forceEmail.
-      // A card landing on file is money-adjacent; the office asked to be emailed.
-      forceEmail: true,
+    });
+
+    // [shared-inbox-alert 2026-08-08] ONE email to the shared office inbox
+    // (info@phes.io), not a copy to each person. That's where the office already
+    // watches Square's mail, and a per-person copy is both noise and easy to miss
+    // on a day someone is out. The bell above still reaches everyone individually.
+    await sendCompanyInboxAlert(a.companyId, {
+      type: "card_saved",
+      title: `${name} — card saved on file`,
+      body: `${card ? card + ". " : ""}${how} Nothing was charged; the card is stored for future invoices.`,
+      link: `/customers/${a.clientId}`,
     });
   } catch (e) {
     console.error("[card-saved-alert]", e);
