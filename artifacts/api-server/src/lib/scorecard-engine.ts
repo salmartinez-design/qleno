@@ -108,6 +108,38 @@ export async function captureJobScore(args: {
     `);
   }
   for (const uid of techIds) await recomputeEmployeeScorecard(companyId, uid);
+
+  // [feedback-in-comm-log 2026-08-08] Write the customer's ANSWER into the
+  // client's communication log.
+  //
+  // The log only ever carried the OUTBOUND ask — "How did we do?" text, the
+  // survey email — so the office could see that feedback was requested but never
+  // what came back. Maribel, 2026-08-08: "we have to make sure ALL communications
+  // with the clients is logged in the chat. Those messages are not showing there."
+  // The score lived only in scorecard_entries and the Scorecard report, nowhere
+  // near the customer's conversation history.
+  //
+  // Inbound, because it IS a message from the customer. Non-fatal: the rating is
+  // already recorded and recomputed above; a log-write failure must not lose it.
+  try {
+    const cRow = await db.execute(sql`
+      SELECT client_id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    const clientId = (cRow.rows[0] as any)?.client_id ?? null;
+    if (clientId) {
+      const stars = `${score} of ${maxValue}`;
+      const summary = notes && String(notes).trim()
+        ? `Customer rated this visit ${stars} — "${String(notes).trim()}"`
+        : `Customer rated this visit ${stars}`;
+      await db.execute(sql`
+        INSERT INTO communication_log
+          (company_id, customer_id, job_id, direction, channel, summary, subject,
+           recipient, delivery_status, source, logged_by)
+        VALUES (${companyId}, ${clientId}, ${jobId}, 'inbound', 'survey',
+                ${summary}, ${"Survey response"}, ${"customer"}, ${"received"}, 'system', ${null})`);
+    }
+  } catch (e: any) {
+    console.error("[scorecard] comm-log trace non-fatal:", e?.message ?? e);
+  }
   // [90d-composite] Keep the rolling composite fresh on every new customer
   // rating. Non-fatal — the satisfaction recompute above is the load-bearing
   // write; the composite is a derived display value.
