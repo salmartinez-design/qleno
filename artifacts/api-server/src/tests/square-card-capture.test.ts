@@ -87,21 +87,33 @@ describe("office alert whenever a card lands on file", () => {
     assert.ok(alertLib.includes("customer added it themselves"));
   });
 
-  it("emails as well as belling — Square never emails on a card save", () => {
-    // Saving a card moves no money, so Square sends nothing; Qleno has to.
-    // `card_saved` has no TYPE_TO_CATEGORY mapping (adding one would mean new
-    // notification_prefs COLUMNS — schema-drift risk), so email is forced.
-    assert.ok(!prefs.includes("card_saved"), "must stay unmapped — no new pref columns");
-    assert.ok(alertLib.includes("forceEmail: true"));
-    assert.match(notify, /if \(a\.forceEmail && a\.userId != null\) emailOk = true;/);
+  it("emails the SHARED inbox, not a copy to each person", () => {
+    // Sal, 2026-08-08: alerts "should go to general inbox info@phes.io" — that's
+    // where the office already watches Square's mail. A per-person copy is noise
+    // and easy to miss on a day someone is out. The bell still fans out to
+    // individuals; only the email is consolidated.
+    assert.ok(alertLib.includes("sendCompanyInboxAlert("));
+    assert.ok(alertLib.includes("notifyOfficeUsers("), "the in-app bell still reaches everyone");
+    assert.ok(!alertLib.includes("forceEmail"), "per-person email is no longer used here");
   });
 
-  it("forceEmail cannot silently turn on push or in-app suppression", () => {
-    // It must affect email ONLY — a flag that quietly widened to push would be
-    // a surprise on someone's phone.
-    const line = notify.split("\n").find((l) => l.includes("a.forceEmail")) ?? "";
-    assert.ok(line.includes("emailOk"));
-    assert.ok(!line.includes("pushOk") && !line.includes("inappOk"));
+  it("the shared inbox comes from existing columns — no new schema", () => {
+    // Adding a column would repeat the 8/7 drift that broke three things.
+    assert.match(notify, /SELECT email, lead_notify_email FROM companies/);
+    assert.match(notify, /c\.lead_notify_email \|\| c\.email/);
+  });
+
+  it("`card_saved` stays out of TYPE_TO_CATEGORY", () => {
+    // A mapping would require new notification_prefs COLUMNS. The shared-inbox
+    // send deliberately sidesteps the per-user pref system entirely.
+    assert.ok(!prefs.includes("card_saved"));
+  });
+
+  it("a missing inbox or API key is logged, never silent", () => {
+    // The failure mode that cost an afternoon: the bell fires, no email arrives,
+    // and nothing anywhere says why.
+    assert.ok(notify.includes("has no shared inbox"));
+    assert.ok(notify.includes("RESEND_API_KEY not set"));
   });
 
   it("never blocks the save it is reporting on", () => {
