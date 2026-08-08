@@ -6089,7 +6089,13 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
         FROM (
           SELECT
             (j.address_street IS NOT NULL AND btrim(j.address_street) <> '') AS has_override,
+            -- [addr-city-state 2026-08-08] City and state belong in this test
+            -- too. Without them a job differing only by city/state counted as
+            -- "same as the client address", so the cascade silently skipped it
+            -- and it kept the wrong city forever.
             (lower(btrim(coalesce(j.address_street, ''))) = lower(btrim(coalesce(${r.c_addr ?? ""}, '')))
+             AND lower(btrim(coalesce(j.address_city, '')))  = lower(btrim(coalesce(${r.c_city ?? ""}, '')))
+             AND lower(btrim(coalesce(j.address_state, ''))) = lower(btrim(coalesce(${r.c_state ?? ""}, '')))
              AND coalesce(j.address_zip, '') = coalesce(${r.c_zip ?? ""}, '')) AS is_same
           FROM jobs j
           WHERE j.company_id = ${companyId}
@@ -6119,9 +6125,25 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
     const jobZipTrim = String(r.j_zip ?? "").trim();
     const cAddrTrim = String(r.c_addr ?? "").trim();
     const cZipTrim = String(r.c_zip ?? "").trim();
+    // [addr-city-state 2026-08-08] Compare the WHOLE address, not just street +
+    // zip. City and state were excluded, so a job that differed ONLY in city or
+    // state read as "no override" and the edit was written at CLIENT level —
+    // leaving the job's own stale address_city / address_state in place.
+    //
+    // Jess Wilhite (CL-1520, online booking, 8/8): job carried
+    // "333 North Jefferson Street, Brownsburg, IN"; the office corrected the
+    // client to "…, Chicago, IL 60661". Street matched, zip matched, so this
+    // test said "not an override" and the job kept Brownsburg / IN forever.
+    // Maribel: "the zip code was updated but not the state and city."
+    const normAddrPart = (s: unknown) => String(s ?? "").trim().toLowerCase();
     const autoPickedJobOverride = clientHasAddress
       && !!jobAddrTrim
-      && (jobAddrTrim !== cAddrTrim || jobZipTrim !== cZipTrim);
+      && (
+        normAddrPart(r.j_addr)  !== normAddrPart(r.c_addr)
+        || normAddrPart(r.j_city)  !== normAddrPart(r.c_city)
+        || normAddrPart(r.j_state) !== normAddrPart(r.c_state)
+        || normAddrPart(r.j_zip)   !== normAddrPart(r.c_zip)
+      );
 
     let mode: "client" | "job";
     if (requestedMode === "client" || requestedMode === "job") {
@@ -6215,7 +6237,12 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
         // one-off sites (different from the old client address) alone.
         if (scope === "all" || scope === "matching") {
           const sameOnly = scope === "matching"
+            // [addr-city-state 2026-08-08] Must match the preview's is_same test
+            // exactly, city and state included — otherwise the count the office
+            // was shown in the prompt wouldn't be the set actually rewritten.
             ? sql`AND lower(btrim(coalesce(address_street, ''))) = lower(btrim(coalesce(${r.c_addr ?? ""}, '')))
+                  AND lower(btrim(coalesce(address_city, '')))  = lower(btrim(coalesce(${r.c_city ?? ""}, '')))
+                  AND lower(btrim(coalesce(address_state, ''))) = lower(btrim(coalesce(${r.c_state ?? ""}, '')))
                   AND coalesce(address_zip, '') = coalesce(${r.c_zip ?? ""}, '')`
             : sql``;
           const cascaded = await tx.execute(sql`
