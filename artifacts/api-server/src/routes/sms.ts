@@ -192,6 +192,65 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
       }
     } catch (e) { console.warn("[sms/thread] drip-merge skipped:", (e as any)?.message ?? e); }
 
+    // [auto-sms-in-thread 2026-08-08] Fold SYSTEM-SENT texts (booking
+    // confirmation, reminders, on-my-way/started/finished, review request,
+    // payment link…) into the thread. Maribel: the booking confirmation is
+    // absent from Messages even though it demonstrably went out — both true.
+    // Every automated send records a notification_log row; only a narrow
+    // allowlist (job_started/job_completed/review_request, see
+    // recordClientAutoSms) is ALSO mirrored into sms_messages, and the two live
+    // reminder paths (runScheduledJobMessages, runReminderCron) POST Twilio
+    // directly and never touch sms_messages at all. So merging on READ is the
+    // only fix that covers every send path — past and future — without adding
+    // writes that would double-post in the hub.
+    //
+    // Deduped IN SQL against sms_messages + message_log on same body within 90
+    // SECONDS, so the mirrored triggers appear exactly ONCE. The window is
+    // seconds, not a minute bucket: the mirror and the log row are two separate
+    // statements moments apart, and one of the 63 live pairs straddles :59/:00
+    // — a minute key would have double-posted it. Comparing inside Postgres
+    // also keeps both sides the same timestamp type, so the dedupe can't drift
+    // with the server's timezone the way a JS Date comparison would.
+    // Requires metadata->>'body' — a row without the copy has nothing to render.
+    try {
+      if (cp) {
+        const auto = await db.execute(sql`
+          SELECT nl.id, nl.metadata->>'body' AS body, nl.trigger,
+                 to_char(nl.sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS sent_at
+            FROM notification_log nl
+           WHERE nl.company_id = ${companyId}
+             AND nl.channel = 'sms' AND nl.status = 'sent'
+             AND nl.metadata->>'body' IS NOT NULL AND btrim(nl.metadata->>'body') <> ''
+             AND right(regexp_replace(coalesce(nl.recipient,''),'\\D','','g'),10) = ${cp}
+             AND NOT EXISTS (
+               SELECT 1 FROM sms_messages sm
+                WHERE sm.company_id = nl.company_id AND sm.direction = 'outbound'
+                  AND sm.contact_phone = ${cp}
+                  AND btrim(sm.body) = btrim(nl.metadata->>'body')
+                  AND abs(extract(epoch FROM (sm.created_at - nl.sent_at))) <= 90)
+             AND NOT EXISTS (
+               SELECT 1 FROM message_log ml
+                WHERE ml.company_id = nl.company_id
+                  AND right(regexp_replace(coalesce(ml.recipient_phone,''),'\\D','','g'),10) = ${cp}
+                  AND btrim(ml.body) = btrim(nl.metadata->>'body')
+                  -- message_log.sent_at is timestamptz, notification_log.sent_at
+                  -- is a bare UTC timestamp; normalize before subtracting so the
+                  -- comparison can't shift with the session TimeZone.
+                  AND abs(extract(epoch FROM ((ml.sent_at AT TIME ZONE 'UTC') - nl.sent_at))) <= 90)
+           ORDER BY nl.sent_at ASC`);
+        const autoMsgs = (auto.rows as any[]).map(a => ({
+          id: `auto-${a.id}`, source: "auto", direction: "outbound",
+          body: a.body, from_number: null, to_number: cp,
+          status: "sent", read_at: null, created_at: a.sent_at,
+          media_urls: null, sent_by_name: null, auto_trigger: a.trigger,
+        }));
+        if (autoMsgs.length) {
+          messages = [...messages, ...autoMsgs].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }
+      }
+    } catch (e) { console.warn("[sms/thread] auto-merge skipped:", (e as any)?.message ?? e); }
+
     // [sms-thread-notes 2026-07-22] Fold internal notes into the thread, read-only,
     // exactly like the drip merge above. Notes live in the contact's own log
     // (communication_log for a client, lead_activity_log for a lead) — see

@@ -1065,7 +1065,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           address_street, address_city, address_state, address_zip,
           address_lat, address_lng, address_verified,
           branch, reminder_72h_sent, reminder_24h_sent, job_type,
-          notes, created_at
+          -- [job-created-audit 2026-08-08] Booked by the public widget — no
+          -- staff user, so created_by_user_id stays NULL and the activity feed
+          -- reads "Booked online" instead of naming whoever last touched it.
+          notes, created_at, created_source
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
           ${preferred_date || new Date().toISOString().split("T")[0]}, ${schedTimeVal}, ${normalizedFreq},
@@ -1081,7 +1084,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
           ${addrLat}, ${addrLng}, ${addrVerified},
           ${branchConfig.branch}, false, false, 'residential',
-          ${jobNotes}, NOW()
+          ${jobNotes}, NOW(), 'website'
         ) RETURNING id
       `
     );
@@ -1324,7 +1327,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 booking_location,
                 address_street, address_city, address_state, address_zip,
                 address_lat, address_lng, address_verified,
-                job_type, notes, created_at
+                -- [job-created-audit 2026-08-08] Widget upsell booking — no
+                -- staff user; the feed reads "Booked online".
+                job_type, notes, created_at, created_source
               ) VALUES (
                 ${company_id}, ${clientId}, ${"recurring"}, ${"scheduled"},
                 ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
@@ -1334,7 +1339,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 ${bookLocVal},
                 ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
                 ${addrLat}, ${addrLng}, ${addrVerified},
-                'residential', ${recurJobNotes}, NOW()
+                'residential', ${recurJobNotes}, NOW(), 'website'
               ) RETURNING id
             `
           );
@@ -1730,7 +1735,8 @@ router.post("/book", rateLimit, async (req, res) => {
           address_line2,
           booking_location, address_street, address_city, address_state, address_zip,
           address_lat, address_lng, address_verified,
-          job_type, notes, created_at
+          -- [job-created-audit 2026-08-08] Legacy widget path — booked online.
+          job_type, notes, created_at, created_source
         ) VALUES (
           ${company_id}, ${clientId}, ${scopeName}, 'scheduled',
           ${preferred_date || new Date().toISOString().split("T")[0]}, ${legNormFreq}, ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
@@ -1738,7 +1744,7 @@ router.post("/book", rateLimit, async (req, res) => {
           ${address_line2 || null},
           ${legBookLoc}, ${legAddrStreet}, ${legAddrCity}, ${legAddrState}, ${legAddrZip},
           ${legAddrLat}, ${legAddrLng}, ${legAddrVerified},
-          'residential', ${jobNotes}, NOW()
+          'residential', ${jobNotes}, NOW(), 'website'
         ) RETURNING id
       `
     );
@@ -1947,11 +1953,12 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
         INSERT INTO jobs (
           company_id, client_id, service_type, status, scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
           booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
-          job_type, notes, created_at
+          -- [job-created-audit 2026-08-08] Commercial widget booking — online.
+          job_type, notes, created_at, created_source
         ) VALUES (
           ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 180, 3, 60,
           ${cBookLoc}, ${cAddrStreet}, ${cAddrCity}, ${cAddrState}, ${cAddrZip}, ${cAddrLat}, ${cAddrLng}, ${cAddrVerified},
-          'commercial', ${jobNotes}, NOW()
+          'commercial', ${jobNotes}, NOW(), 'website'
         ) RETURNING id
       `
     );

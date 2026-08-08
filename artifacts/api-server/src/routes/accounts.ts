@@ -653,7 +653,16 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
       FROM cancellation_log cl JOIN jobs jb ON cl.job_id = jb.id LEFT JOIN users u ON cl.cancelled_by = u.id
       WHERE jb.account_id = ${accountId} AND cl.company_id = ${companyId}
       ORDER BY cl.cancelled_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: (x.cancel_action === "move" || x.cancel_action === "bump") ? "job_rescheduled" : "job_cancelled", occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
+    // [skip-lockout-activity 2026-08-08] Skip / lockout / cancel_service each get
+    // their own event — they all rendered as "Cancelled" before, which hid the
+    // difference between a skipped visit and an ended cadence.
+    const cancelEvent = (a: string | null) =>
+      (a === "move" || a === "bump") ? "job_rescheduled"
+      : a === "cancel_service" ? "service_ended"
+      : a === "skip" ? "job_skipped"
+      : a === "lockout" ? "job_lockout"
+      : "job_cancelled";
+    for (const x of r.rows as any[]) events.push({ event_type: cancelEvent(x.cancel_action ?? null), occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
   } catch (e) { console.error("[account-activity] cancellation_log:", (e as any)?.message); }
 
   // 3. Communications — account-keyed rows (invoice emails) + rows tied to
@@ -670,18 +679,28 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
     for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject, delivery_status: x.delivery_status }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.direction });
   } catch (e) { console.error("[account-activity] communication_log:", (e as any)?.message); }
 
-  // 4. Job creations on the account's jobs
+  // 4. [job-created-audit 2026-08-08] The booking itself, derived from
+  // jobs.created_at rather than from an app_audit_log CREATE row — only three
+  // office routes ever wrote one, so quote-converted, widget-booked and
+  // engine-generated visits had no "booked" event at all. See the matching
+  // block in routes/clients.ts for the full reasoning. WHO/HOW come from
+  // created_by_user_id / created_source, both NULL on historical rows.
+  // Suppressed when the recurring engine already logged 'auto_scheduled'
+  // (source 1 renders that as "Qleno scheduled this visit").
   try {
     const r = await db.execute(sql`
-      SELECT aal.performed_at, aal.action, aal.target_id, aal.new_value, jj.scheduled_date,
-             NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
-      FROM app_audit_log aal
-      LEFT JOIN users au ON aal.performed_by = au.id
-      JOIN jobs jj ON aal.target_type = 'job' AND aal.target_id ~ '^[0-9]+$' AND aal.target_id::int = jj.id
-      WHERE aal.company_id = ${companyId} AND aal.action = 'CREATE' AND jj.account_id = ${accountId}
-      ORDER BY aal.performed_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: "job_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: Number(x.target_id), related_job_date: jobDate(x.scheduled_date), action: x.action });
-  } catch (e) { console.error("[account-activity] app_audit_log:", (e as any)?.message); }
+      SELECT j.id, j.created_at, j.scheduled_date, j.created_source, j.frequency, j.service_type,
+             NULLIF(TRIM(COALESCE(cu.first_name,'') || ' ' || COALESCE(cu.last_name,'')), '') AS user_name
+      FROM jobs j
+      LEFT JOIN users cu ON j.created_by_user_id = cu.id
+      WHERE j.company_id = ${companyId} AND j.account_id = ${accountId}
+        AND j.created_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM job_audit_log jal
+           WHERE jal.job_id = j.id AND jal.field_name = 'auto_scheduled')
+      ORDER BY j.created_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "job_created", occurred_at: x.created_at, user_name: x.user_name, field_name: x.created_source ?? null, old_value: null, new_value: { source: x.created_source ?? null, scheduled_date: jobDate(x.scheduled_date), service_type: x.service_type, frequency: x.frequency }, related_job_id: Number(x.id), related_job_date: jobDate(x.scheduled_date), action: "CREATE" });
+  } catch (e) { console.error("[account-activity] job_created:", (e as any)?.message); }
 
   // 5. Invoice trail — created + sent, for account invoices AND per-job
   // invoices on the account's jobs. This is the "are the invoices going

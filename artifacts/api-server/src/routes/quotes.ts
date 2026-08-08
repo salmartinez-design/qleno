@@ -973,7 +973,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, address_street, created_at
+        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, address_street, created_at,
+        -- [job-created-audit 2026-08-08] Who booked it, from where. Convert
+        -- never wrote a CREATE audit row, so the activity feed could show
+        -- every later edit to this visit but not the booking itself.
+        created_by_user_id, created_source
       ) VALUES (
         ${companyId},
         ${clientId},
@@ -990,7 +994,9 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${q.hourly_rate_override != null ? String(q.hourly_rate_override) : null},
         ${(q as any).address || null},
-        NOW()
+        NOW(),
+        ${req.auth!.userId ?? null},
+        'quote'
       ) RETURNING id
     `);
     const jobId = (jobResult.rows[0] as any)?.id;

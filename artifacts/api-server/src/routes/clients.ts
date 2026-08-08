@@ -786,12 +786,28 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                status::text AS status, NULL::text AS subject, body::text AS body,
                NULL::text AS email_html, 'two_way'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id, NULL::int AS job_id
-          FROM sms_messages
+          FROM sms_messages sm
          WHERE company_id = ${companyId} AND (
                client_id = ${clientId}
             OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(contact_phone, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits})
             OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(to_number, ''),    '[^0-9]', '', 'g'), 10) = ${phoneDigits})
             OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(from_number, ''),   '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
+           -- [comm-log-dedupe 2026-08-08] Drop the double-post.
+           -- recordClientAutoSms (2026-07-28) mirrors an allowlist of
+           -- automated texts (job_started, job_completed, review_request) into
+           -- sms_messages so they reach the Messages inbox and the comms hub —
+           -- but every one of those sends ALSO wrote its notification_log row,
+           -- and this UNION reads both stores. The office has been seeing each
+           -- of those texts TWICE on the profile (63 of them at the time of
+           -- this fix). The automated row wins: it carries the trigger name and
+           -- the resolved job_id. Matched on body within 90 SECONDS, not a
+           -- same-minute key — one of the 63 live pairs straddles :59/:00.
+           -- Inbound and manually-sent texts are never touched.
+           AND NOT (sm.direction = 'outbound' AND EXISTS (
+                 SELECT 1 FROM notification_log nl2
+                  WHERE nl2.company_id = sm.company_id AND nl2.channel = 'sms' AND nl2.status = 'sent'
+                    AND btrim(nl2.metadata->>'body') = btrim(sm.body)
+                    AND abs(extract(epoch FROM (nl2.sent_at - sm.created_at))) <= 90))
         UNION ALL
         SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
                COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
@@ -1596,10 +1612,17 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
     // office had no distinct record that the SERVICE was ended (Sal: "she
     // cancelled her cadence for good... under activity there is no mention").
     // Emit a distinct 'service_ended' event so it reads as what it is.
+    // [skip-lockout-activity 2026-08-08] A skipped visit is not a cancelled one.
+    // Both landed in the same else-branch and rendered "Cancelled", so the
+    // office had no record that a visit was SKIPPED (215 skips and 3 lockouts
+    // in prod were all mislabelled). Give each its own event type.
     for (const x of r.rows as any[]) {
       const et = (x.cancel_action === "move" || x.cancel_action === "bump")
         ? "job_rescheduled"
-        : (x.cancel_action === "cancel_service" ? "service_ended" : "job_cancelled");
+        : x.cancel_action === "cancel_service" ? "service_ended"
+        : x.cancel_action === "skip" ? "job_skipped"
+        : x.cancel_action === "lockout" ? "job_lockout"
+        : "job_cancelled";
       events.push({ event_type: et, occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
     }
   } catch (e) { console.error("[client-activity] cancellation_log:", (e as any)?.message); }
@@ -1615,20 +1638,52 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
     for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.direction });
   } catch (e) { console.error("[client-activity] communication_log:", (e as any)?.message); }
 
-  // 5. Creations (job + client) from the global audit log
+  // 5. Client creation, from the global audit log.
+  // (Job creation moved to source 6 — see the note there. The target_id::int
+  // cast MUST stay guarded by the ~ '^[0-9]+$' test; a bare cast 500s the whole
+  // feed on the first non-numeric target_id — the #1146 regression.)
   try {
     const r = await db.execute(sql`
-      SELECT aal.performed_at, aal.action, aal.target_type, aal.target_id, aal.new_value, jj.scheduled_date,
+      SELECT aal.performed_at, aal.action, aal.new_value,
              NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
       FROM app_audit_log aal
       LEFT JOIN users au ON aal.performed_by = au.id
-      LEFT JOIN jobs jj ON aal.target_type = 'job' AND aal.target_id ~ '^[0-9]+$' AND aal.target_id::int = jj.id
       WHERE aal.company_id = ${companyId} AND aal.action = 'CREATE'
-        AND ((aal.target_type = 'client' AND aal.target_id = ${String(clientId)})
-          OR (aal.target_type = 'job' AND jj.client_id = ${clientId}))
+        AND aal.target_type = 'client' AND aal.target_id = ${String(clientId)}
       ORDER BY aal.performed_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: x.target_type === "job" ? "job_created" : "client_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: x.target_type === "job" ? Number(x.target_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.action });
+    for (const x of r.rows as any[]) events.push({ event_type: "client_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: null, related_job_date: null, action: x.action });
   } catch (e) { console.error("[client-activity] app_audit_log:", (e as any)?.message); }
+
+  // 6. [job-created-audit 2026-08-08] The booking itself.
+  // The feed used to read job creation out of app_audit_log, but only THREE
+  // office routes ever called logAudit(…, 'CREATE', 'job', …) — the quote
+  // convert, all four public booking-widget inserts and the recurring engine
+  // wrote nothing. In prod that left ~5-15% of jobs with a CREATE row, so the
+  // feed could show every later EDIT to a visit but almost never the moment it
+  // was booked (Maribel: "when was this scheduled and by who"). Derive it from
+  // jobs.created_at instead — every job has one, so this works retroactively —
+  // and read the WHO/HOW off the new created_by_user_id / created_source
+  // columns, which are NULL on historical rows and render as an honest blank
+  // rather than a guess.
+  //
+  // Suppressed when the recurring engine already wrote its own
+  // 'auto_scheduled' job_audit_log row (381 of them), which source 1 renders as
+  // "Qleno scheduled this visit and assigned X" — otherwise every generated
+  // occurrence would report its booking twice.
+  try {
+    const r = await db.execute(sql`
+      SELECT j.id, j.created_at, j.scheduled_date, j.created_source, j.frequency, j.service_type,
+             NULLIF(TRIM(COALESCE(cu.first_name,'') || ' ' || COALESCE(cu.last_name,'')), '') AS user_name
+      FROM jobs j
+      LEFT JOIN users cu ON j.created_by_user_id = cu.id
+      WHERE j.company_id = ${companyId} AND j.client_id = ${clientId}
+        AND j.created_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM job_audit_log jal
+           WHERE jal.job_id = j.id AND jal.field_name = 'auto_scheduled')
+      ORDER BY j.created_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "job_created", occurred_at: x.created_at, user_name: x.user_name, field_name: x.created_source ?? null, old_value: null, new_value: { source: x.created_source ?? null, scheduled_date: jobDate(x.scheduled_date), service_type: x.service_type, frequency: x.frequency }, related_job_id: Number(x.id), related_job_date: jobDate(x.scheduled_date), action: "CREATE" });
+  } catch (e) { console.error("[client-activity] job_created:", (e as any)?.message); }
 
   for (const e of events) e.occurred_at = utcIso(e.occurred_at);
   events.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
