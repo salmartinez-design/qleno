@@ -5,7 +5,7 @@ import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { getBranchByZip } from "../lib/branchRouter";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 import { resolveServiceType } from "../lib/serviceType.js";
@@ -671,6 +671,58 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       } catch (e) { console.error("[convert] seed client_home non-fatal:", (e as any)?.message); }
     }
 
+    // [lead-card-capture 2026-08-08] Attach a card the office took DURING the
+    // call, before this client existed.
+    //
+    // A card on file has to hang off a client record, so the quote builder could
+    // only offer card capture once an existing client was selected — for a brand
+    // new customer the whole Payment Method block was replaced with "select an
+    // existing client above". That's backwards: the call is exactly when someone
+    // is willing to read out a card, and Maribel was having to convert, go find
+    // the customer, and ask a second time. (Sal, 2026-08-08: "all of this being
+    // enabled should take priority with a new client.")
+    //
+    // The browser tokenizes the card with the Web Payments SDK and posts the
+    // one-time `cnon:` nonce here. We're past the block above, so `clientId` is
+    // now materialized either way — existing match or freshly inserted. Nothing
+    // is charged; this is card-on-file only.
+    //
+    // Deliberately non-fatal: the job is already booked by this point. A card
+    // that fails to save must not fail the booking — the office gets told, and
+    // can retry from the customer profile or send a link.
+    const squareCardToken = req.body?.square_card_token;
+    let cardSaved: { ok: boolean; brand?: string | null; last4?: string | null; error?: string } | null = null;
+    // `companyId` is `number | null` on this handler, and both calls below
+    // require a real tenant — narrow rather than assert, so a tokenless session
+    // can never write a card against a null company.
+    if (squareCardToken && clientId && companyId != null) {
+      try {
+        const { saveSquareCardOnFile } = await import("../lib/square-card-onfile.js");
+        const r = await saveSquareCardOnFile({
+          companyId, clientId, sourceId: squareCardToken,
+          idempotencyKey: randomUUID(),
+        });
+        if (r.ok) {
+          cardSaved = { ok: true, brand: r.brand, last4: r.last4 };
+          const { alertCardSaved } = await import("../lib/card-saved-alert.js");
+          await alertCardSaved({
+            companyId, clientId, brand: r.brand, last4: r.last4,
+            processor: "square", source: "office",
+          });
+        } else {
+          cardSaved = { ok: false, error: r.message };
+          console.error("[convert] card save failed:", r.code, r.message);
+        }
+      } catch (e: any) {
+        cardSaved = { ok: false, error: e?.message || "Could not save the card" };
+        console.error("[convert] card save threw:", e?.message ?? e);
+      }
+    } else if (squareCardToken && !clientId) {
+      // No identifying detail at all on the quote, so no client was created and
+      // there is nothing to attach to. Tell the office rather than dropping it.
+      cardSaved = { ok: false, error: "No client record was created for this quote, so the card could not be saved." };
+    }
+
     const isRecurring = jobFreq !== "on_demand";
     if (isRecurring && clientId) {
       // [rebook-preserve 2026-06-20] Re-booking an existing recurring client must
@@ -1030,7 +1082,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, clientId: clientId ?? undefined, userId: req.auth!.userId });
     }).catch(() => {});
 
-    return res.json({ success: true, quote: q, job_id: jobId, message: "Quote converted and job created." });
+    // `card_saved` rides along so the builder can tell the office the card
+    // landed — or that it didn't, which must never be silent when someone just
+    // read their card number down the phone.
+    return res.json({
+      success: true, quote: q, job_id: jobId, client_id: clientId,
+      card_saved: cardSaved, message: "Quote converted and job created.",
+    });
   } catch (err) {
     console.error("Convert quote error:", err);
     return res.status(500).json({ error: "Internal Server Error" });

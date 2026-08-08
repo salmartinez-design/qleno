@@ -90,6 +90,31 @@ export async function saveSquareCardOnFile(opts: {
       return { ok: false, code: "declined", message: "Square could not save this card" };
     }
 
+    // [card-replace 2026-08-08] Retire every OTHER card on this Square customer.
+    //
+    // Saving a second card used to leave the first one enabled, and the charge
+    // path picks `cards.list(sortOrder DESC).find(c => c.enabled)` — so which
+    // card actually got charged depended on Square's ordering, not on which one
+    // the office had just entered. A customer who called to update an expired or
+    // cancelled card could still be billed on the dead one. Nothing in the UI
+    // would show it, because the *_last4 columns below always mirror the NEWEST
+    // card. Disabling the others makes the newest card the only chargeable one,
+    // so the display and the charge can no longer disagree.
+    //
+    // Best-effort: the card IS saved by this point. A disable failure is logged
+    // and the save still succeeds — a customer with two live cards is recoverable,
+    // a lost card entry is not.
+    try {
+      const existing = await square.cards.list({ customerId: squareCustomerId, sortOrder: "DESC" });
+      for (const old of (existing?.data ?? []) as any[]) {
+        if (!old?.id || old.id === card.id || old.enabled === false) continue;
+        await square.cards.disable({ cardId: old.id });
+        console.log(`[square-card-onfile] retired old card ${old.id} for customer ${squareCustomerId}`);
+      }
+    } catch (e: any) {
+      console.error("[square-card-onfile] could not retire old cards:", e?.message ?? e);
+    }
+
     const brand: string | null = card.cardBrand ?? card.card_brand ?? null;
     const last4: string | null = card.last4 ?? null;
     const expMonth: number | null = card.expMonth != null ? Number(card.expMonth) : (card.exp_month != null ? Number(card.exp_month) : null);
