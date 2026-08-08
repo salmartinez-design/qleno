@@ -479,6 +479,17 @@ export default function QuoteBuilderPage() {
   // server-side. Never a PAN — this is the `cnon:` token the SDK hands back, and
   // it dies with the page.
   const [pendingCardToken, setPendingCardToken] = useState<string | null>(null);
+  // [lead-card-link 2026-08-08] Whether the selected client ALREADY has a card,
+  // so the button reads "Replace card on file" instead of silently overwriting
+  // one the office didn't know was there. GET /api/clients/:id returns the row,
+  // so both the Stripe display column and the Square mirror are available.
+  const existingCardLast4: string | null =
+    (clientLoaded as any)?.card_last_four
+    ?? (clientLoaded as any)?.square_card_last4
+    ?? (clientLoaded as any)?.default_card_last_4
+    ?? null;
+  const existingCardBrand: string | null =
+    (clientLoaded as any)?.card_brand ?? (clientLoaded as any)?.square_card_brand ?? null;
   const [linkSending, setLinkSending] = useState<null | "email" | "sms">(null);
   const [linkSent, setLinkSent] = useState<null | "email" | "sms">(null);
   // The customer's phone/email cascade here from the Customer Info step so the
@@ -548,16 +559,40 @@ export default function QuoteBuilderPage() {
   };
 
   const sendCardLink = async (channel: "email" | "sms") => {
-    if (!selectedClientId) return;
     if (channel === "sms" && !cardLinkPhone.trim()) { toast.error("Enter a mobile number to text the card link."); return; }
     if (channel === "email" && !cardLinkEmail.trim()) { toast.error("Enter an email to send the card link."); return; }
     setLinkSending(channel);
     try {
+      // [lead-card-link 2026-08-08] A payment link needs a client row
+      // (payment_links.client_id is NOT NULL), so a new lead used to be barred
+      // from texting or emailing one — the office could only offer it to
+      // customers already in the system, which is backwards on a first call.
+      // Save the quote, let the server materialize the client from the lead's
+      // details (the same dedupe convert uses, so no twin gets created), then
+      // send. Failures surface as a toast rather than a dead button.
+      let linkClientId = selectedClientId;
+      if (!linkClientId) {
+        const saved = await apiFetch(
+          autoSavedIdRef.current || (isEdit ? id : null)
+            ? `/api/quotes/${autoSavedIdRef.current || id}`
+            : "/api/quotes",
+          {
+            method: autoSavedIdRef.current || (isEdit ? id : null) ? "PATCH" : "POST",
+            body: buildPayload("draft"),
+          },
+        );
+        const qid = saved?.id ?? autoSavedIdRef.current ?? id;
+        if (!qid) throw new Error("Could not save this quote, so the link can't be sent yet.");
+        autoSavedIdRef.current = qid;
+        const ensured = await apiFetch(`/api/quotes/${qid}/ensure-client`, { method: "POST" });
+        linkClientId = ensured?.client_id ?? null;
+        if (!linkClientId) throw new Error("Add a name, phone, email or address before sending a card link.");
+      }
       const r = await fetch(`${API}/api/payment-links`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_id: selectedClientId,
+          client_id: linkClientId,
           purpose: "save_card",
           provider: "square",
           send_email: channel === "email",
@@ -574,8 +609,10 @@ export default function QuoteBuilderPage() {
       }
       setLinkSent(channel);
       toast.success(channel === "email" ? "Card link emailed to the customer." : "Card link texted to the customer.");
-    } catch {
-      toast.error("Could not send card link");
+    } catch (e: any) {
+      // Surface the real reason — "Add a name, phone, email or address" is
+      // actionable, "Could not send card link" is not.
+      toast.error(e?.message || "Could not send card link");
     } finally {
       setLinkSending(null);
     }
@@ -3755,10 +3792,22 @@ export default function QuoteBuilderPage() {
                         everyone; only the SEND-A-LINK options still need a
                         client, because a link has to be addressed to a saved
                         record. */}
+                    {/* [lead-card-link 2026-08-08] All three options, always:
+                        type it in, text a link, email a link. The link buttons
+                        used to be hidden for a new lead because a payment link
+                        needs a client row — the server now materializes one from
+                        the quote, so the office gets the same choices on a first
+                        call as on a repeat one. */}
+                    {existingCardLast4 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12.5, color: "#6B6860", fontFamily: FF }}>
+                        <CreditCard size={14} />
+                        <span>Card on file: {existingCardBrand ? `${existingCardBrand} ` : ""}•••• {existingCardLast4}. Saving a new one replaces it.</span>
+                      </div>
+                    )}
                     <div>
                       <button type="button" onClick={openCardModal}
                         style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                        <CreditCard size={15} /> Save card on file now
+                        <CreditCard size={15} /> {existingCardLast4 ? "Replace card on file" : "Save card on file now"}
                       </button>
                       {!selectedClientId && (
                         <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF, marginTop: 6 }}>
@@ -3766,9 +3815,10 @@ export default function QuoteBuilderPage() {
                         </div>
                       )}
                     </div>
-                    {selectedClientId ? (
-                      <>
-                      <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>Or send the customer a link to add it themselves:</div>
+                    <>
+                      <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                        Or send the customer a link to {existingCardLast4 ? "update it" : "add it"} themselves:
+                      </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <input value={cardLinkPhone} onChange={e => { cardLinkPhoneEdited.current = true; setCardLinkPhone(e.target.value); if (linkSent === "sms") setLinkSent(null); }}
@@ -3791,14 +3841,7 @@ export default function QuoteBuilderPage() {
                           </button>
                         </div>
                       </div>
-                      </>
-                    ) : (
-                      // A link has to be addressed to a saved client record, so
-                      // it stays gated — but typing the card in no longer is.
-                      <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF }}>
-                        Text and email links become available once this quote is booked and the customer record exists.
-                      </div>
-                    )}
+                    </>
                   </div>
                 )}
               </div>
