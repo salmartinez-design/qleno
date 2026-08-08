@@ -13,6 +13,14 @@ export interface NotifyArgs {
   body?: string | null;
   link?: string | null;           // in-app route, e.g. '/messages' or '/dispatch?job=123'
   meta?: Record<string, any> | null;
+  /** [card-saved-email 2026-08-08] Email this one regardless of the recipient's
+   *  category prefs. Every category defaults email OFF (opt-in), and adding a
+   *  new category means new `notification_prefs` COLUMNS — the exact
+   *  code-says-yes/database-says-no drift that broke three things on 8/7. So an
+   *  alert that must reach an inbox says so here instead. Use sparingly: this
+   *  deliberately ignores a user's preferences, so reserve it for money-adjacent
+   *  events the office has to see. In-app delivery is unaffected. */
+  forceEmail?: boolean;
 }
 
 export async function notifyUser(a: NotifyArgs): Promise<void> {
@@ -29,6 +37,7 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
       emailOk = !!cat && prefs[`${cat}_email`] === true;
       pushOk = !!cat && prefs[`${cat}_push`] === true;
     }
+    if (a.forceEmail && a.userId != null) emailOk = true;
     if (inappOk) {
       await db.execute(sql`
         INSERT INTO notifications (company_id, user_id, type, title, body, link, meta, read, created_at)

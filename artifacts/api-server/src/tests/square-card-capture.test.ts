@@ -21,7 +21,10 @@ const read = (p: string) => readFileSync(path.join(__dirname, p), "utf8");
 
 const config = read("../lib/square-config.ts");
 const paymentLinks = read("../routes/payment-links.ts");
+const square = read("../routes/square.ts");
 const prefs = read("../lib/notify-prefs.ts");
+const notify = read("../lib/notify.ts");
+const alertLib = read("../lib/card-saved-alert.ts");
 const quoteBuilder = read("../../../qleno/src/pages/quote-builder.tsx");
 const customerProfile = read("../../../qleno/src/pages/customer-profile.tsx");
 
@@ -66,29 +69,44 @@ describe("square public config — key casing contract", () => {
   });
 });
 
-describe("office alert when a customer saves a card via a link", () => {
-  it("both public save-card rails alert the office", () => {
-    const calls = paymentLinks.match(/alertOfficeCardSaved\(/g) ?? [];
-    // One at the Stripe endpoint, one at the Square endpoint, plus the definition.
-    assert.equal(calls.length, 3);
-    assert.ok(paymentLinks.includes('processor: "stripe"'));
-    assert.ok(paymentLinks.includes('processor: "square"'));
+describe("office alert whenever a card lands on file", () => {
+  // [card-saved-email 2026-08-08] Sal: notify on EVERY save, office-entered
+  // included. The first build covered only customer-completed links, which left
+  // the owner blind to cards taken over the phone — most of them.
+  it("fires from all THREE save paths", () => {
+    const linkCalls = paymentLinks.match(/alertCardSaved\(/g) ?? [];
+    assert.equal(linkCalls.length, 2, "Stripe link + Square link");
+    assert.ok(square.includes("alertCardSaved("), "office save-card must alert too");
   });
 
-  it("goes to the office via notifyOfficeUsers", () => {
-    assert.ok(paymentLinks.includes("notifyOfficeUsers("));
+  it("distinguishes who entered the card", () => {
+    // The body text differs, so the office can tell a customer-completed link
+    // from a card someone took over the phone.
+    assert.ok(paymentLinks.includes('source: "link"'));
+    assert.ok(square.includes('source: "office"'));
+    assert.ok(alertLib.includes("customer added it themselves"));
   });
 
-  it("is IN-APP-ONLY (not mapped to an email category)", () => {
-    // An unmapped type delivers to the bell and never emails — see notify.ts.
-    assert.ok(!prefs.includes("card_saved"));
+  it("emails as well as belling — Square never emails on a card save", () => {
+    // Saving a card moves no money, so Square sends nothing; Qleno has to.
+    // `card_saved` has no TYPE_TO_CATEGORY mapping (adding one would mean new
+    // notification_prefs COLUMNS — schema-drift risk), so email is forced.
+    assert.ok(!prefs.includes("card_saved"), "must stay unmapped — no new pref columns");
+    assert.ok(alertLib.includes("forceEmail: true"));
+    assert.match(notify, /if \(a\.forceEmail && a\.userId != null\) emailOk = true;/);
+  });
+
+  it("forceEmail cannot silently turn on push or in-app suppression", () => {
+    // It must affect email ONLY — a flag that quietly widened to push would be
+    // a surprise on someone's phone.
+    const line = notify.split("\n").find((l) => l.includes("a.forceEmail")) ?? "";
+    assert.ok(line.includes("emailOk"));
+    assert.ok(!line.includes("pushOk") && !line.includes("inappOk"));
   });
 
   it("never blocks the save it is reporting on", () => {
-    // The card is already saved by the time we alert; a failed alert must not
-    // turn a successful save into a 500.
-    const body = paymentLinks.slice(paymentLinks.indexOf("async function alertOfficeCardSaved"));
-    assert.ok(/try\s*\{/.test(body.slice(0, 800)));
-    assert.ok(/catch\s*\(e\)/.test(body.slice(0, 1600)));
+    // The card is already saved by the time this runs; a failed alert must not
+    // turn a successful save into a 500 for whoever just took a customer's card.
+    assert.match(alertLib, /export async function alertCardSaved[\s\S]*try\s*\{[\s\S]*catch \(e\)/);
   });
 });
