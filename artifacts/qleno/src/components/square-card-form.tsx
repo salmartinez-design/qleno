@@ -91,6 +91,11 @@ export function SquareCardForm({
   useEffect(() => {
     let cancelled = false;
     let cardInstance: any = null;
+    // A re-init (config arrived late, or the parent swapped identities) starts
+    // clean — otherwise an error from the previous attempt stays on screen above
+    // a card field that mounted fine the second time.
+    setErrorMsg("");
+    setStatus("loading");
     (async () => {
       try {
         const Square = await loadSquareSdk(environment);
