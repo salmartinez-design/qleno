@@ -57,24 +57,58 @@ router.get("/insights", requireAuth, ROLE, async (req, res) => {
     const branchCondJob   = branchCond(req, jobsTable.branch_id);
     const branchCondClock = branchCond(req, timeclockTable.branch_id);
 
-    const topPerformers = await db.select({
+    // [scorecard-dead-table 2026-08-08] `scorecards` is a LEGACY table that
+    // nothing writes to any more. Customer ratings land in `scorecard_entries`
+    // (captureJobScore → one row per tech per job). Averaging the old table
+    // returned zero rows, so this page reported "0 concern flags / all employees
+    // performing well" and Week in Review showed Quality 0.00/4 — while the
+    // Scorecard report, which reads the right table, showed 87% off 24 real
+    // responses. Sal, 2026-08-08: "all of this needs to be connected."
+    //
+    // Mapping: score → score_value/max_value (normalised back onto 0–4),
+    // user_id → employee_id, created_at → entry_date, plus the dismissed_at
+    // guard the entries table has and the old one didn't.
+    const topScores = await db.execute(sql`
+      SELECT employee_id, AVG(score_value / NULLIF(max_value, 0) * 4) AS avg_score
+        FROM scorecard_entries
+       WHERE company_id = ${companyId} AND excluded = false AND dismissed_at IS NULL
+         AND entry_date >= ${dateStr7}
+       GROUP BY employee_id`);
+    const topScoreBy = new Map<number, number>(
+      (topScores.rows as any[]).map(r => [Number(r.employee_id), Number(r.avg_score)]),
+    );
+
+    const topPerformersRaw = await db.select({
       id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name,
-      avatar_url: usersTable.avatar_url, jobs_completed: count(jobsTable.id), avg_score: avg(scorecardsTable.score),
+      avatar_url: usersTable.avatar_url, jobs_completed: count(jobsTable.id),
     }).from(usersTable)
       .leftJoin(jobsTable, and(eq(jobsTable.assigned_user_id, usersTable.id), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr7), branchCondJob))
-      .leftJoin(scorecardsTable, and(eq(scorecardsTable.user_id, usersTable.id), gte(scorecardsTable.created_at, sevenDaysAgo), eq(scorecardsTable.excluded, false)))
       .where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true)))
       .groupBy(usersTable.id).orderBy(desc(count(jobsTable.id))).limit(5);
+    const topPerformers = topPerformersRaw.map(u => ({
+      ...u,
+      avg_score: topScoreBy.has(Number(u.id)) ? topScoreBy.get(Number(u.id))! : null,
+    }));
 
     const lateClockins = await db.select({ user_id: timeclockTable.user_id, late_count: count(timeclockTable.id) })
       .from(timeclockTable)
       .where(and(eq(timeclockTable.company_id, companyId), eq(timeclockTable.flagged, true), gte(timeclockTable.clock_in_at, thirtyDaysAgo), branchCondClock))
       .groupBy(timeclockTable.user_id);
 
-    const lowScorecards = await db.select({ user_id: scorecardsTable.user_id, avg_score: avg(scorecardsTable.score) })
-      .from(scorecardsTable)
-      .where(and(eq(scorecardsTable.company_id, companyId), gte(scorecardsTable.created_at, thirtyDaysAgo), eq(scorecardsTable.excluded, false)))
-      .groupBy(scorecardsTable.user_id).having(sql`avg(${scorecardsTable.score}) < 3.0`);
+    // [scorecard-dead-table 2026-08-08] Same swap. Against the legacy table this
+    // matched nothing, so nobody was ever flagged — Juan Salazar sits at 63%
+    // satisfaction (2.5 of 4) and the page still said "all employees are
+    // performing well". The < 3.0 threshold is unchanged.
+    const lowRows = await db.execute(sql`
+      SELECT employee_id AS user_id, AVG(score_value / NULLIF(max_value, 0) * 4) AS avg_score
+        FROM scorecard_entries
+       WHERE company_id = ${companyId} AND excluded = false AND dismissed_at IS NULL
+         AND entry_date >= ${thirtyDaysAgo.toISOString().slice(0, 10)}
+       GROUP BY employee_id
+      HAVING AVG(score_value / NULLIF(max_value, 0) * 4) < 3.0`);
+    const lowScorecards = (lowRows.rows as any[]).map(r => ({
+      user_id: Number(r.user_id), avg_score: Number(r.avg_score),
+    }));
 
     const concernUserIds = new Set([...lateClockins.map(l => l.user_id), ...lowScorecards.map(l => l.user_id)]);
     const concernUserIdList = [...concernUserIds];
@@ -879,7 +913,15 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
 
     async function weekMetrics(start: string, end: string) {
       const rev = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, count(*) AS jobs, coalesce(avg(base_fee),0) AS avg_bill FROM jobs WHERE company_id=${companyId} AND status='complete' ${branchFilter(req)} AND scheduled_date BETWEEN ${start} AND ${end}`);
-      const qual = await db.execute(sql`SELECT coalesce(avg(score),0) AS avg FROM scorecards WHERE company_id=${companyId} AND excluded=false AND created_at::date BETWEEN ${start} AND ${end}`);
+      // [scorecard-dead-table 2026-08-08] Was FROM scorecards — a legacy table
+      // nothing writes to, so this averaged zero rows and Week in Review showed
+      // "Quality Score 0.00/4" every week while the Scorecard report showed
+      // 3.75/4 off real responses. Live ratings live in scorecard_entries.
+      const qual = await db.execute(sql`
+        SELECT coalesce(avg(score_value / NULLIF(max_value, 0) * 4), 0) AS avg
+          FROM scorecard_entries
+         WHERE company_id = ${companyId} AND excluded = false AND dismissed_at IS NULL
+           AND entry_date BETWEEN ${start} AND ${end}`);
       const newC = await db.execute(sql`SELECT count(*) AS cnt FROM clients WHERE company_id=${companyId} AND created_at::date BETWEEN ${start} AND ${end}`);
       const staff = await db.execute(sql`SELECT count(*) AS cnt FROM users WHERE company_id=${companyId} AND is_active=true`);
       const r = rev.rows[0] as any;
@@ -898,7 +940,20 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
     for (let i = 7; i >= 0; i--) {
       const wStart = dateStr(new Date(new Date(thisStart).getTime() - i * 7 * 86400000));
       const wEnd   = dateStr(new Date(new Date(wStart).getTime() + 6 * 86400000));
-      const r = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, coalesce(avg(sc.score),0) AS quality FROM jobs j LEFT JOIN scorecards sc ON sc.job_id=j.id AND sc.excluded=false WHERE j.company_id=${companyId} AND j.status='complete' ${branchFilter(req, "j.branch_id")} AND j.scheduled_date BETWEEN ${wStart} AND ${wEnd}`);
+      // [scorecard-dead-table 2026-08-08] Same legacy table — the 8-week quality
+      // trend was flat zero. DISTINCT-safe: scorecard_entries holds one row per
+      // TECH per job, so a two-tech job would otherwise double-count its revenue.
+      const r = await db.execute(sql`
+        SELECT coalesce(sum(j.base_fee), 0) AS revenue,
+               (SELECT coalesce(avg(se.score_value / NULLIF(se.max_value, 0) * 4), 0)
+                  FROM scorecard_entries se
+                  JOIN jobs j2 ON j2.id = se.job_id
+                 WHERE se.company_id = ${companyId} AND se.excluded = false AND se.dismissed_at IS NULL
+                   AND j2.scheduled_date BETWEEN ${wStart} AND ${wEnd}) AS quality
+          FROM jobs j
+         WHERE j.company_id = ${companyId} AND j.status = 'complete'
+           ${branchFilter(req, "j.branch_id")}
+           AND j.scheduled_date BETWEEN ${wStart} AND ${wEnd}`);
       trend.push({ week: wStart, revenue: parseF((r.rows[0] as any)?.revenue), quality: parseF((r.rows[0] as any)?.quality) });
     }
 
