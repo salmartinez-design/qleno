@@ -29,7 +29,32 @@ const reports = read("../routes/reports.ts");
 const engine = read("../lib/scorecard-engine.ts");
 
 // Strip comments — the bug is documented in prose that names the old table.
-const code = reports.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+// Strips JS block/line comments AND SQL `--` comments. The SQL ones matter: the
+// swap is documented inside the queries themselves, and those comments mention
+// both table names — without stripping them the sweep counts prose as a query.
+const code = reports
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/(^|[^:])\/\/.*$/gm, "$1")
+  .replace(/--.*$/gm, "");
+
+describe("no report reads the legacy table at all", () => {
+  // [scorecard-dead-table 2026-08-08] The first pass asserted only week-review
+  // and insights, so /reports/scorecards stayed broken and the suite still went
+  // green — it returned 0 records in production after the "fix" deployed. A
+  // whole-file sweep is the only assertion that can't be out-scoped like that.
+  it("reports.ts contains no query against `scorecards`", () => {
+    // FROM/JOIN only — `router.get("/scorecards")` is a URL, not a table.
+    const hits = code.match(/\b(?:FROM|JOIN)\s+scorecards\b/gi) ?? [];
+    assert.deepEqual(
+      hits, [],
+      "every read must target scorecard_entries — a per-endpoint assertion missed one last time",
+    );
+  });
+
+  it("the legacy drizzle table object is no longer imported", () => {
+    assert.ok(!/\bscorecardsTable\b/.test(code));
+  });
+});
 
 describe("reporting reads the live scorecard table", () => {
   it("week-review quality no longer averages the legacy table", () => {
@@ -53,14 +78,22 @@ describe("reporting reads the live scorecard table", () => {
     assert.ok(uses.length >= 3, `expected the 0-4 rescale in every swapped query, saw ${uses.length}`);
   });
 
-  it("dismissed and excluded ratings stay out", () => {
-    // The entries table has a dismissed_at guard the legacy table never had —
-    // an office-dismissed complaint must not drag a report down.
+  it("every read honours the dismissed_at guard", () => {
+    // The entries table has an office-dismissal flag the legacy table never had.
+    // A dismissed complaint must never drag a report down.
     const swapped = code.split("scorecard_entries").slice(1);
+    assert.ok(swapped.length >= 6, `expected every swapped query, saw ${swapped.length}`);
     for (const seg of swapped) {
-      const head = seg.slice(0, 400);
-      assert.ok(/excluded = false/.test(head) && /dismissed_at IS NULL/.test(head),
-        "every scorecard_entries read must filter excluded + dismissed");
+      assert.match(seg.slice(0, 500), /dismissed_at IS NULL/);
+    }
+  });
+
+  it("every AVERAGE also excludes excluded rows", () => {
+    // The detail LIST deliberately keeps excluded rows (it renders the flag);
+    // an AVERAGE must not include them.
+    for (const m of code.matchAll(/avg\(\s*(?:se|sc)\.score_value[\s\S]{0,400}?\)/gi)) {
+      const around = code.slice(m.index ?? 0, (m.index ?? 0) + 700);
+      assert.ok(/excluded\s*=\s*false/.test(around), `average without an excluded filter: ${m[0].slice(0, 60)}`);
     }
   });
 });
