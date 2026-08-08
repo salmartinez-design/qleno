@@ -67,7 +67,35 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
           (array_agg(direction ORDER BY created_at DESC))[1] AS last_dir,
           max(client_id) AS client_id, max(lead_id) AS lead_id,
           count(*) FILTER (WHERE direction = 'inbound' AND read_at IS NULL) AS unread
-        FROM sms_messages WHERE company_id = ${companyId}
+        FROM (
+          SELECT contact_phone, created_at, body, direction, client_id, lead_id, read_at
+            FROM sms_messages WHERE company_id = ${companyId}
+          UNION ALL
+          -- [auto-sms-in-inbox 2026-08-08] An automated send opens the thread too.
+          -- Booking confirmations land in notification_log, so a customer whose only
+          -- traffic is "your visit is booked" had NO inbox row at all -- the office
+          -- could not see the conversation existed until the customer replied.
+          -- Outbound only, so the unread FILTER above never counts these: an
+          -- automated send surfaces the thread without marking it as needing a reply.
+          -- Same 90-second body dedupe as GET /thread, so the three triggers that
+          -- recordClientAutoSms already mirrors are not counted twice.
+          SELECT right(regexp_replace(coalesce(nl.recipient,''),'\\D','','g'),10) AS contact_phone,
+                 nl.sent_at AS created_at, nl.metadata->>'body' AS body,
+                 'outbound' AS direction, NULL::int AS client_id, NULL::int AS lead_id,
+                 nl.sent_at AS read_at
+            FROM notification_log nl
+           WHERE nl.company_id = ${companyId}
+             AND nl.channel = 'sms' AND nl.status = 'sent'
+             AND coalesce(btrim(nl.metadata->>'body'),'') <> ''
+             AND length(regexp_replace(coalesce(nl.recipient,''),'\\D','','g')) >= 10
+             AND NOT EXISTS (
+               SELECT 1 FROM sms_messages sm
+                WHERE sm.company_id = nl.company_id
+                  AND sm.contact_phone = right(regexp_replace(coalesce(nl.recipient,''),'\\D','','g'),10)
+                  AND sm.direction = 'outbound'
+                  AND btrim(sm.body) = btrim(nl.metadata->>'body')
+                  AND abs(extract(epoch FROM (sm.created_at - nl.sent_at))) <= 90)
+        ) u
         GROUP BY contact_phone
       ) s
       ORDER BY s.last_at DESC
