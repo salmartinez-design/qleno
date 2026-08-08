@@ -37,7 +37,7 @@ const adminOnly = [requireAuth, requireRole("owner", "admin")] as const;
 // is false until SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID (+ SQUARE_ACCESS_TOKEN)
 // are set in the environment, so the UI can show a clean "not set up yet" state
 // instead of a broken card form.
-router.get("/config", ...officeOnly, async (_req: any, res) => {
+router.get("/config", ...officeOnly, async (_req, res) => {
   res.json(getSquarePublicConfig());
 });
 
@@ -50,9 +50,19 @@ router.get("/config", ...officeOnly, async (_req: any, res) => {
 // we turn it into a durable Square card-on-file and write the chargeable handle
 // onto the client. Office-role gated to match the charge button. Nothing is
 // charged — card-on-file only.
-router.post("/clients/:id/save-card", ...officeOnly, async (req: any, res) => {
+//
+// [req-auth 2026-08-08] Every handler in this file used to read `req.user` —
+// a property NOTHING in the codebase ever assigns. `requireAuth` sets
+// `req.auth` (AuthPayload: userId / companyId, camelCase — see lib/auth.ts).
+// So `req.user.company_id` threw "Cannot read properties of undefined (reading
+// 'company_id')" and EVERY Square office endpoint here was dead on arrival —
+// save-card, customer sync, the payment review queue, all of it. GET /config
+// was the sole survivor because it's the only handler that doesn't touch the
+// request user. The handlers were typed `(req: any, res)`, which switched off
+// the one check that would have caught it — hence the untyped `req` now.
+router.post("/clients/:id/save-card", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const clientId = Number(req.params.id);
     const sourceId = req.body?.source_id;
     if (!Number.isFinite(clientId)) return res.status(400).json({ error: "Invalid client id" });
@@ -92,9 +102,9 @@ router.post("/clients/:id/save-card", ...officeOnly, async (req: any, res) => {
 // returns the plan without writing a thing, so the office can see who WOULD link
 // before applying. This is the durable answer to "cards saved in Square don't
 // show up in Qleno."
-router.post("/sync-customers", ...adminOnly, async (req: any, res) => {
+router.post("/sync-customers", ...adminOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true" || req.body?.dry_run === true;
     const { summary } = await syncSquareCustomerMap({ companyId, dryRun });
     logAudit(req, dryRun ? "DRY_RUN" : "SYNC", "square_customer_map", 0, {}, summary as any);
@@ -110,9 +120,9 @@ router.post("/sync-customers", ...adminOnly, async (req: any, res) => {
 // ── Customer map ────────────────────────────────────────────────────────────
 
 /** GET /api/square/customers?status=needs_review|linked|unmatched|ignored&email_mismatch=1&q= */
-router.get("/customers", ...officeOnly, async (req: any, res) => {
+router.get("/customers", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const status = typeof req.query.status === "string" ? req.query.status : null;
     const mismatchOnly = req.query.email_mismatch === "1" || req.query.email_mismatch === "true";
     const q = typeof req.query.q === "string" && req.query.q.trim() ? `%${req.query.q.trim()}%` : null;
@@ -155,9 +165,9 @@ router.get("/customers", ...officeOnly, async (req: any, res) => {
  * Setting status='linked' is what makes the row usable by the reconciler, so it
  * is deliberately a human action.
  */
-router.patch("/customers/:id", ...officeOnly, async (req: any, res) => {
+router.patch("/customers/:id", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
 
@@ -191,9 +201,9 @@ router.patch("/customers/:id", ...officeOnly, async (req: any, res) => {
         status = ${status ?? before.status},
         match_method = CASE WHEN ${status}::text = 'linked' THEN 'manual' ELSE match_method END,
         review_reason = CASE WHEN ${status}::text = 'linked' THEN NULL ELSE review_reason END,
-        reviewed_at = now(), reviewed_by_user_id = ${req.user.id},
+        reviewed_at = now(), reviewed_by_user_id = ${req.auth!.userId},
         linked_at = CASE WHEN ${status}::text = 'linked' THEN now() ELSE linked_at END,
-        linked_by_user_id = CASE WHEN ${status}::text = 'linked' THEN ${req.user.id} ELSE linked_by_user_id END
+        linked_by_user_id = CASE WHEN ${status}::text = 'linked' THEN ${req.auth!.userId} ELSE linked_by_user_id END
       WHERE id = ${id} AND company_id = ${companyId}`);
 
     logAudit(req, "UPDATE", "square_customer_map", id,
@@ -210,9 +220,9 @@ router.patch("/customers/:id", ...officeOnly, async (req: any, res) => {
 // ── Payment reconciliation queue ────────────────────────────────────────────
 
 /** GET /api/square/payments?resolution=needs_review|applied|skipped|ignored */
-router.get("/payments", ...officeOnly, async (req: any, res) => {
+router.get("/payments", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const resolution = typeof req.query.resolution === "string" ? req.query.resolution : null;
 
     const rows = (await db.execute(sql`
@@ -263,9 +273,9 @@ router.get("/payments", ...officeOnly, async (req: any, res) => {
  * The normal use: a payment landed as needs_review because the customer wasn't
  * mapped yet or the invoice hadn't been issued. Fix that, hit retry.
  */
-router.post("/payments/:id/retry", ...officeOnly, async (req: any, res) => {
+router.post("/payments/:id/retry", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const id = Number(req.params.id);
     const ev = (await db.execute(sql`
       SELECT * FROM square_payment_events WHERE id = ${id} AND company_id = ${companyId}`) as any).rows[0];
@@ -287,7 +297,7 @@ router.post("/payments/:id/retry", ...officeOnly, async (req: any, res) => {
         matched_invoice_id = ${result.matched_invoice_id},
         applied_payment_id = ${result.applied_payment_id},
         candidate_invoice_ids = ${JSON.stringify(result.candidate_invoice_ids)}::jsonb,
-        processed_at = now(), reviewed_at = now(), reviewed_by_user_id = ${req.user.id}
+        processed_at = now(), reviewed_at = now(), reviewed_by_user_id = ${req.auth!.userId}
       WHERE id = ${id} AND company_id = ${companyId}`);
 
     logAudit(req, "UPDATE", "square_payment_event", id, { resolution: ev.resolution }, { resolution: result.resolution });
@@ -303,9 +313,9 @@ router.post("/payments/:id/retry", ...officeOnly, async (req: any, res) => {
  * by hand: { invoice_id }. This is the deliberate human answer to "which of the
  * five identical $420 visits was this?" — the reconciler will never guess it.
  */
-router.post("/payments/:id/apply", ...officeOnly, async (req: any, res) => {
+router.post("/payments/:id/apply", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const id = Number(req.params.id);
     const invoiceId = Number(req.body?.invoice_id);
     if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: "invoice_id is required" });
@@ -328,7 +338,7 @@ router.post("/payments/:id/apply", ...officeOnly, async (req: any, res) => {
         const ins = (await tx.execute(sql`
           INSERT INTO payments (company_id, client_id, invoice_id, amount, method, status, square_payment_id, processed_by)
           VALUES (${companyId}, ${inv.client_id}, ${invoiceId}, ${ev.amount}, 'square', 'completed',
-                  ${ev.square_payment_id}, ${req.user.id})
+                  ${ev.square_payment_id}, ${req.auth!.userId})
           RETURNING id`) as any).rows[0];
         paymentId = ins?.id ?? null;
 
@@ -345,7 +355,7 @@ router.post("/payments/:id/apply", ...officeOnly, async (req: any, res) => {
       UPDATE square_payment_events SET
         resolution = 'applied', review_reason = NULL, matched_invoice_id = ${invoiceId},
         applied_payment_id = ${paymentId}, processed_at = now(),
-        reviewed_at = now(), reviewed_by_user_id = ${req.user.id}
+        reviewed_at = now(), reviewed_by_user_id = ${req.auth!.userId}
       WHERE id = ${id} AND company_id = ${companyId}`);
 
     logAudit(req, "UPDATE", "square_payment_event", id,
@@ -359,9 +369,9 @@ router.post("/payments/:id/apply", ...officeOnly, async (req: any, res) => {
 });
 
 /** POST /api/square/payments/:id/ignore — not Qleno AR (a tip, a retail sale, a test). */
-router.post("/payments/:id/ignore", ...officeOnly, async (req: any, res) => {
+router.post("/payments/:id/ignore", ...officeOnly, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.auth!.companyId!;
     const id = Number(req.params.id);
     const ev = (await db.execute(sql`
       SELECT resolution FROM square_payment_events WHERE id = ${id} AND company_id = ${companyId}`) as any).rows[0];
@@ -374,7 +384,7 @@ router.post("/payments/:id/ignore", ...officeOnly, async (req: any, res) => {
     await db.execute(sql`
       UPDATE square_payment_events SET resolution = 'ignored',
         review_reason = ${typeof req.body?.reason === "string" ? req.body.reason : null},
-        reviewed_at = now(), reviewed_by_user_id = ${req.user.id}
+        reviewed_at = now(), reviewed_by_user_id = ${req.auth!.userId}
       WHERE id = ${id} AND company_id = ${companyId}`);
     logAudit(req, "UPDATE", "square_payment_event", id, { resolution: ev.resolution }, { resolution: "ignored" });
     res.json({ ok: true });
