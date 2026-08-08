@@ -192,6 +192,18 @@ export const jobsTable = pgTable("jobs", {
   // "not yet invoiced" queue until the hold is lifted. Clearing the hold and
   // re-running completion invoices it normally.
   invoice_hold: boolean("invoice_hold").notNull().default(false),
+  // [job-created-audit 2026-08-08] WHO booked this visit and from WHERE. The
+  // activity feed could show every EDIT to a job but never the moment it was
+  // created, because "job created" was only ever recorded by logAudit() on the
+  // three office HTTP routes — the quote-convert path, the four public booking
+  // widget inserts, and the recurring engine all wrote nothing (≈5-15% of jobs
+  // had a CREATE row). The feed now derives WHEN from created_at, which every
+  // job has; these two columns carry the WHO and the HOW for jobs created from
+  // here on. Null on historical rows — unknowable, and shown as such rather
+  // than guessed. created_source is one of: office, quote, website, recurring,
+  // redo, duplicate, import.
+  created_by_user_id: integer("created_by_user_id"),
+  created_source: text("created_source"),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });

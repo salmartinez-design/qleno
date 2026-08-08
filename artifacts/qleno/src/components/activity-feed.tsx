@@ -34,10 +34,18 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
   const events: any[] = data?.events || [];
   const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
   const META: Record<string, { label: string; color: string; bg: string }> = {
-    job_created:     { label: "Job created",    color: "#0A6E5A", bg: "#E6F8F2" },
+    // [job-created-audit 2026-08-08] "Booked", not "Job created" — this is the
+    // moment the visit was put on the calendar, which is what the office is
+    // looking for when they ask when it was scheduled and by whom.
+    job_created:     { label: "Booked",         color: "#0A6E5A", bg: "#E6F8F2" },
     job_edit:        { label: "Job edited",     color: "#2F3646", bg: "#EAF0FE" },
     job_rescheduled: { label: "Rescheduled",    color: "#B45309", bg: "#FDF3E4" },
     job_cancelled:   { label: "Cancelled",      color: "#B3261E", bg: "#FEECEC" },
+    // [skip-lockout-activity 2026-08-08] A skipped visit and a lockout both used
+    // to render as "Cancelled". They are different events with different money
+    // and different fault, so they get their own chips.
+    job_skipped:     { label: "Skipped",        color: "#8A5A00", bg: "#FBF0DA" },
+    job_lockout:     { label: "Lockout",        color: "#9A3412", bg: "#FCEAE0" },
     service_ended:   { label: "Service ended",  color: "#7F1D1D", bg: "#FBD9D9" },
     job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
     client_edit:     { label: "Client edited",  color: "#9C4E2B", bg: "#F1ECFD" },
@@ -127,7 +135,27 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
       case "invoice":         return `${nv.summary || "Invoice event"}${nv.amount != null ? ` · ${money(nv.amount)}` : ""}`;
       case "client_edit":     { const nt = valText(nv?.value ?? nv); return nt ? `${label(e.field_name)} changed to ${nt}` : `${label(e.field_name)} updated`; }
       case "account_edit":    { const nt = valText(nv?.value ?? nv); return nt ? `${label(e.field_name)} changed to ${nt}` : `${label(e.field_name)} updated`; }
-      case "job_created":     return "Job created";
+      case "job_skipped":     return `Visit skipped${nv.reason ? ` — ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}${nv.notes ? ` · ${nv.notes}` : ""}`;
+      case "job_lockout":     return `Lockout — crew could not get in${nv.reason ? ` · ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}`;
+      // [job-created-audit 2026-08-08] Says WHAT was booked and FOR WHEN. The
+      // actor renders separately as "· <user>"; SOURCE_PHRASE covers the how,
+      // and a job with neither (every job booked before this shipped) just
+      // reads "Visit booked" — honestly blank rather than a guessed author.
+      case "job_created": {
+        const SOURCE_PHRASE: Record<string, string> = {
+          office: "booked in the office",
+          quote: "booked from a quote",
+          website: "booked online",
+          recurring: "scheduled by Qleno",
+          redo: "booked as a redo",
+          duplicate: "duplicated from another visit",
+          import: "imported",
+        };
+        const how = nv.source ? SOURCE_PHRASE[String(nv.source)] || label(String(nv.source)) : null;
+        const what = nv.service_type ? label(String(nv.service_type)) : "Visit";
+        const when = nv.scheduled_date ? ` for ${nv.scheduled_date}` : "";
+        return `${what} booked${when}${how ? ` — ${how}` : ""}`;
+      }
       case "client_created":  return "Client created";
       default:                return label(e.field_name) || "Updated";
     }

@@ -670,6 +670,21 @@ async function runStartupMigrations() {
     console.error("[startup] ensureAutoIssueOverrideSchema — non-fatal:", err?.message ?? err);
   }
   try {
+    // [job-created-audit 2026-08-08] Who booked a visit, and from where. Both
+    // nullable with NO backfill — historical jobs genuinely don't know their
+    // creator, and inventing one would be worse than an honest blank. The
+    // activity feed reads created_at (always present) for the WHEN and these
+    // for the WHO/HOW.
+    await withBootTimeout("ensureJobCreatorSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS created_by_user_id integer`);
+      await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS created_source text`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureJobCreatorSchema — non-fatal:", err?.message ?? err);
+  }
+  try {
     // [manual-charging-policy 2026-07-22] Auto-charge is OFF by default.
     // Charging is a manual act (Square, then mark paid by hand), so a newly
     // created account must never auto-charge until someone enables it.

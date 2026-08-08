@@ -62,6 +62,10 @@ interface Msg {
   // never sent to the customer. direction is "internal", so the inbound/outbound
   // left/right rule doesn't apply; notes render full-width in amber.
   author?: string | null; author_id?: number | null;
+  // [auto-sms-in-thread 2026-08-08] source==="auto" is a SYSTEM-sent text folded
+  // in from notification_log (booking confirmation, reminders, on-my-way…).
+  // auto_trigger is the template key that produced it.
+  auto_trigger?: string | null;
 }
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
@@ -84,6 +88,31 @@ function prettyCampaign(name: string): string {
   return /[_-]/.test(n) && !/\s/.test(n)
     ? n.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase())
     : n;
+}
+// [auto-sms-in-thread 2026-08-08] Human label for an automated send's trigger
+// key, so a folded-in system text reads "Booking confirmation" rather than the
+// raw `job_scheduled`. Unknown keys prettify generically — a new trigger never
+// renders as a slug-shaped mystery.
+const AUTO_TRIGGER_LABELS: Record<string, string> = {
+  job_scheduled: "Booking confirmation",
+  job_time_updated: "Time changed",
+  job_rescheduled: "Rescheduled",
+  job_cancelled: "Cancellation",
+  reminder_3day: "3-day reminder",
+  reminder_1day: "Reminder",
+  reminder_2day: "2-day reminder",
+  on_my_way: "On my way",
+  job_started: "Cleaning started",
+  job_completed: "Cleaning finished",
+  review_request: "Review request",
+  payment_link_sms: "Payment link",
+  payment_received: "Payment received",
+  invoice_sent: "Invoice sent",
+};
+function prettyTrigger(key?: string | null): string {
+  const k = String(key || "").trim();
+  if (!k) return "";
+  return AUTO_TRIGGER_LABELS[k] || k.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 // [tz-normalize 2026-07-11] Single source of truth for reading a server
 // timestamp. Server timestamps are UTC but may arrive WITHOUT a timezone marker
@@ -1176,6 +1205,11 @@ export default function MessagesPage() {
                       }
                       const inbound = m.direction === "inbound";
                       const isDrip = !inbound && m.source === "drip";
+                      // [auto-sms-in-thread 2026-08-08] A system-sent text
+                      // (booking confirmation, reminder, on-my-way…) folded in
+                      // from the notification log. Labeled + tinted so nobody
+                      // reads it as something the office typed.
+                      const isAuto = !inbound && m.source === "auto";
                       const mediaKeys = Array.isArray(m.media_urls) ? m.media_urls : [];
                       return (
                         <div key={`${m.source || "s"}-${m.id}`} style={{ display: "flex", flexDirection: "column", alignItems: inbound ? "flex-start" : "flex-end" }}>
@@ -1188,13 +1222,20 @@ export default function MessagesPage() {
                                 Drip{m.drip_campaign ? ` · ${prettyCampaign(m.drip_campaign)}` : ""}{m.drip_step ? ` · touch ${m.drip_step}` : ""}
                               </span>
                             </div>
+                          ) : isAuto ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, paddingRight: 4 }}>
+                              <Zap size={10} color="#0A6E5A" />
+                              <span style={{ fontSize: 10, color: "#0A6E5A", fontWeight: 700 }}>
+                                Automatic{m.auto_trigger ? ` · ${prettyTrigger(m.auto_trigger)}` : ""}
+                              </span>
+                            </div>
                           ) : (!inbound && m.sent_by_name && (
                             <div style={{ fontSize: 10, color: MUTE, fontWeight: 600, marginBottom: 2, paddingRight: 4 }}>{m.sent_by_name}</div>
                           ))}
                           <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12,
-                            background: inbound ? "#F1F0EC" : isDrip ? "#F3F0FD" : BRAND,
-                            color: inbound ? INK : isDrip ? "#2E1065" : "#04241d",
-                            border: isDrip ? "1px solid #E4DBFB" : "none",
+                            background: inbound ? "#F1F0EC" : isDrip ? "#F3F0FD" : isAuto ? "#E6F8F2" : BRAND,
+                            color: inbound ? INK : isDrip ? "#2E1065" : isAuto ? "#04352B" : "#04241d",
+                            border: isDrip ? "1px solid #E4DBFB" : isAuto ? "1px solid #C6EBE0" : "none",
                             borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
                             {m.body && (
                               <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkify(m.body)}</div>

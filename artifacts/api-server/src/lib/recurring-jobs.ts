@@ -352,7 +352,11 @@ export async function insertJobFromSchedule(
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
       address_zip: (_isAcct ? ((schedule as any).service_address_zip ?? clientZip ?? null) : (clientZip ?? null)) as any,
-    })
+      // [job-created-audit 2026-08-08] The engine generated this occurrence —
+      // no person booked it, so created_by_user_id stays NULL and the activity
+      // feed says "Qleno scheduled this visit" rather than naming someone.
+      created_source: "recurring",
+    } as any)
     // [recurring-insert-resilience 2026-07-03] ON CONFLICT DO NOTHING so a
     // single occurrence that the compute-time dedup missed (e.g. a legacy job
     // whose occurrence_date was NULL and whose stored scheduled_date the
