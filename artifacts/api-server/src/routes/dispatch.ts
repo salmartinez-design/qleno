@@ -1538,6 +1538,51 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
   }
 });
 
+// [modal-roster 2026-08-09] GET /api/dispatch/technicians — just the field-tech
+// roster, no jobs. The edit-job modal needs it to render its Team checkboxes,
+// but off the dispatch board (customer profile → job card → Edit) nobody had a
+// roster to hand it, so the modal showed "No technicians available" and its
+// Save button — which requires at least one tech — could never enable. Maribel:
+// "we should be able to edit the recurrence from here without having to delete
+// the whole thing and schedule it again." Same WHERE clause as the board's
+// employee query above, so the two rosters can't drift.
+router.get("/technicians", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const rows = await db
+      .select({
+        id: usersTable.id,
+        first_name: usersTable.first_name,
+        last_name: usersTable.last_name,
+        role: usersTable.role,
+        avatar_url: usersTable.avatar_url,
+      })
+      .from(usersTable)
+      .where(and(
+        eq(usersTable.company_id, companyId),
+        eq(usersTable.is_active, true),
+        sql`${usersTable.show_on_dispatch} IS NOT FALSE`,
+        sql`(
+          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
+          OR (COALESCE(${usersTable.tags}, '{}') && ARRAY['field','technician']::text[])
+        )`
+      ))
+      .orderBy(usersTable.first_name);
+    return res.json({
+      technicians: rows.map(e => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`,
+        role: e.role,
+        is_trainee: (e.role as string) === "trainee",
+        avatar_url: e.avatar_url ?? null,
+      })),
+    });
+  } catch (err) {
+    console.error("GET /dispatch/technicians error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load technicians" });
+  }
+});
+
 // [job-card-redesign 2026-06-25] GET /api/dispatch/jobs/:id — one job in the
 // FULL dispatch shape (technicians, commission_basis, zone_color, allowed_hours,
 // add-ons, …) so the same editable JobPanel the dispatch board uses can be
