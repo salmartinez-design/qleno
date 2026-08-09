@@ -1283,7 +1283,11 @@ async function sendOneInvoice(
     const [client] = invoice.client_id ? await db
       .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
                 email: clientsTable.email, phone: clientsTable.phone,
-                address: clientsTable.address, city: clientsTable.city })
+                address: clientsTable.address, city: clientsTable.city,
+                // [invoice-email-address 2026-08-09] state + zip so {{service_address}}
+                // renders the canonical "street, city, ST zip" — the old two-field
+                // concat dropped both, and the designed template now SHOWS this field.
+                state: clientsTable.state, zip: clientsTable.zip })
       .from(clientsTable)
       .where(eq(clientsTable.id, invoice.client_id))
       .limit(1) : [];
@@ -1325,13 +1329,41 @@ async function sendOneInvoice(
     // an attachment. Rendered here and injected as {{invoice_lines_html}};
     // templates that don't reference the tag are unaffected.
     const linesHtml = await renderInvoiceLinesHtml(companyId, invoiceId);
+
+    // [invoice-email-address 2026-08-09] The template's Address row was fed by
+    // `[client.address, client.city].join(", ")`, which dropped state and zip
+    // (CLAUDE.md: if an address is shown, zip MUST be shown) and resolved to ""
+    // for an ACCOUNT invoice, where client_id is null — a third of all invoices.
+    // That stayed invisible only because the legacy plaintext template never
+    // rendered {{service_address}}; the designed template does. Canonical format
+    // here, with a fallback to the account's property when it is unambiguous.
+    // A multi-property account keeps it blank on purpose: one address line would
+    // misrepresent an invoice spanning several buildings, and the line-item table
+    // already names the site for every visit.
+    const fmtAddr = (street?: string | null, city?: string | null, state?: string | null, zip?: string | null): string => {
+      const head = [street, city].map((p) => (p || "").trim()).filter(Boolean).join(", ");
+      const tail = [state, zip].map((p) => (p || "").trim()).filter(Boolean).join(" ");
+      return [head, tail].filter(Boolean).join(", ");
+    };
+    let serviceAddress = fmtAddr(client?.address, client?.city, client?.state, client?.zip);
+    if (!serviceAddress && invoice.account_id) {
+      const props = await db.execute(sql`
+        SELECT address, city, state, zip FROM account_properties
+         WHERE account_id = ${invoice.account_id} AND company_id = ${companyId} AND is_active = true
+         LIMIT 2`);
+      if (props.rows.length === 1) {
+        const p = props.rows[0] as any;
+        serviceAddress = fmtAddr(p.address, p.city, p.state, p.zip);
+      }
+    }
+
     const mergeVars = {
       first_name:       recipientName || "",
       invoice_number:   invNum,
       invoice_amount:   parseFloat(invoice.total || "0").toFixed(2),
       invoice_due_date: invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "upon receipt",
       invoice_link:     invLink,
-      service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
+      service_address:  serviceAddress,
       invoice_lines_html: linesHtml,
     };
     // [invoice-pdf-attach 2026-07-14] Attach the invoice PDF to the email so the
