@@ -401,6 +401,13 @@ async function runStartupMigrations() {
            AND COALESCE(j.manual_rate_override, false) = false
            AND NOT EXISTS (SELECT 1 FROM job_add_ons ja WHERE ja.job_id = j.id)
            AND NOT EXISTS (SELECT 1 FROM job_rate_mods jm WHERE jm.job_id = j.id AND jm.affects_commission = true)
+           -- [dead-heal 2026-08-09] NOTE: this statement has never actually run.
+           -- client_type is an enum, so COALESCE(..., '') throws "invalid input
+           -- value for enum client_type" and the enclosing schema guard swallows
+           -- it as non-fatal on every boot. Fixing the cast (::text) would let it
+           -- rewrite commission_base on 52 residential jobs ($4,113 of base
+           -- delta) — a payroll change that needs Sal's sign-off, not a silent
+           -- side effect of an unrelated PR. Left broken deliberately; flagged.
            AND COALESCE((SELECT c.client_type FROM clients c WHERE c.id = j.client_id), '') <> 'commercial'`);
       // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
       // invoice's line items / tip via PUT. While set, the invoice is DETACHED
