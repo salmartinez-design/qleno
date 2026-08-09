@@ -189,7 +189,11 @@ function photoFilename(p: Awaited<ReturnType<typeof loadPhotos>>[number], ext: s
   // "Sat Aug 01 2026 …" and slicing it gives "Sat Aug 0". Sort-friendly ISO only.
   const raw = p.timestamp ?? p.job_date ?? null;
   const date = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? "").slice(0, 10);
-  return [client || `Job ${p.job_id}`, date, `job-${p.job_id}`, p.photo_type, seq]
+  // Commercial visits often have no client row, and the fallback used to repeat
+  // the job number twice ("Job 20448 2026-08-01 job-20448 before 3.jpg").
+  const lead = client || `job-${p.job_id}`;
+  const tail = client ? `job-${p.job_id}` : "";
+  return [lead, date, tail, p.photo_type, seq]
     .filter(Boolean).join(" ") + `.${ext}`;
 }
 
