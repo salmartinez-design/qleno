@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { getStartupFailures } from "../lib/startup-failures.js";
 
 const router: IRouter = Router();
 
@@ -47,10 +48,21 @@ router.get("/health", async (_req, res) => {
   const dbStatus = dbPing.ok ? "ok" : `error: ${dbPing.error}`;
   const status = dbPing.ok ? "ok" : "degraded";
 
+  // [startup-failures-loud 2026-08-09] Cold-start steps that threw or timed out.
+  // Each one is non-fatal by design (boot must never be blocked), which is
+  // exactly why they need a surface that isn't a log line — a step can be
+  // failing on every single boot for months without anyone noticing. Empty
+  // array = clean boot. Does NOT change the 200/503 status; a stale migration
+  // is a correctness problem to go read, not a reason to fail Railway's
+  // healthcheck and roll the deploy back.
+  const startupFailures = getStartupFailures();
+
   return res.status(status === "ok" ? 200 : 503).json({
     ok: dbPing.ok,
     status,
     timestamp,
+    startup_failures: startupFailures,
+    startup_failure_count: startupFailures.length,
     version: VERSION,
     deployed_at: DEPLOYED_AT,
     db: dbStatus,
