@@ -1493,13 +1493,31 @@ function PayrollOptionsTab() {
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// Plain-English names for the "Recent Sends" log below. Anything missing here
+// falls through to the raw trigger slug, which is what the office was actually
+// reading: three of the six original entries (job_reminder_24h, job_complete,
+// employee_clock_in) are triggers nothing fires, while the ones that make up
+// almost the entire log — reminder_3day alone is 11,297 rows — had no label at
+// all. Keyed to the triggers that really appear in notification_log.
 const TRIGGER_LABELS: Record<string, string> = {
-  job_scheduled: "Job Scheduled",
-  job_reminder_24h: "Job Reminder (24h before)",
-  job_complete: "Job Completed",
-  invoice_sent: "Invoice Sent",
-  employee_clock_in: "Employee Clock In",
-  payment_received: "Payment Received",
+  reminder_3day:         "Visit Reminder (3 days before)",
+  reminder_1day:         "Visit Reminder (1 day before)",
+  job_scheduled:         "Visit Scheduled",
+  job_completed:         "Visit Completed",
+  job_time_updated:      "Visit Time Changed",
+  invoice_created:       "Invoice Created",
+  invoice_sent:          "Invoice Sent",
+  invoice_reminder:      "Invoice Reminder",
+  invoice_charge_failed: "Card Charge Failed",
+  payment_collected:     "Payment Collected",
+  payment_received:      "Payment Received",
+  payment_link_email:    "Payment Link (Email)",
+  payment_link_sms:      "Payment Link (Text)",
+  quote_sent:            "Quote Sent",
+  review_request:        "Review Request",
+  password_reset:        "Password Reset",
+  qb_sync_failed:        "QuickBooks Sync Failed",
+  qb_token_expired:      "QuickBooks Login Expired",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
