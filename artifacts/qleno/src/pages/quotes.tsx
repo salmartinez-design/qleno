@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { openQuoteBuilder } from "@/lib/open-quote";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
@@ -211,7 +212,7 @@ export default function QuotesPage() {
           <div style={{ padding: "16px 16px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: 0 }}>Quotes</h1>
             <button
-              onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first — choose Oak Lawn or Schaumburg to create a quote."); return; } navigate("/quotes/new"); }}
+              onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first — choose Oak Lawn or Schaumburg to create a quote."); return; } openQuoteBuilder("/quotes/new", navigate); }}
               title={activeBranchId === "all" ? "Select a location to create quotes" : undefined}
               style={{ display: "flex", alignItems: "center", gap: 6, background: activeBranchId === "all" ? "#9E9B94" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: activeBranchId === "all" ? "not-allowed" : "pointer", fontFamily: FF, minHeight: 44, opacity: activeBranchId === "all" ? 0.75 : 1 }}
             >
@@ -283,7 +284,7 @@ export default function QuotesPage() {
                 <FileText size={36} style={{ color: "#9E9B94", margin: "0 auto 12px" }} />
                 <p style={{ fontSize: 14, color: "#6B6860", margin: "0 0 16px", fontFamily: FF }}>No quotes found.</p>
                 <button
-                  onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first."); return; } navigate("/quotes/new"); }}
+                  onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first."); return; } openQuoteBuilder("/quotes/new", navigate); }}
                   style={{ background: activeBranchId === "all" ? "#9E9B94" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: activeBranchId === "all" ? "not-allowed" : "pointer", fontFamily: FF }}
                 >
                   <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} /> Create your first quote
@@ -350,7 +351,7 @@ export default function QuotesPage() {
           <Button
             className={`gap-2 text-white ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
             title={activeBranchId === "all" ? "Select a location to create quotes" : undefined}
-            onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first — choose Oak Lawn or Schaumburg."); return; } navigate("/quotes/new"); }}
+            onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first — choose Oak Lawn or Schaumburg."); return; } openQuoteBuilder("/quotes/new", navigate); }}
           >
             <Plus className="w-4 h-4" />
             New Quote
@@ -395,7 +396,7 @@ export default function QuotesPage() {
               <Button
                 size="sm"
                 className={`text-white gap-1.5 ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
-                onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first."); return; } navigate("/quotes/new"); }}
+                onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first."); return; } openQuoteBuilder("/quotes/new", navigate); }}
               >
                 <Plus className="w-3.5 h-3.5" /> Create your first quote
               </Button>

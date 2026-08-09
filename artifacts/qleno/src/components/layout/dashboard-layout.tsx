@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppSidebar } from "./app-sidebar";
 import { useAuthStore } from "@/lib/auth";
+import { openQuoteBuilder } from "@/lib/open-quote";
 import { useLocation, Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
@@ -785,7 +786,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
-                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new', newTab: true },
+                    // [quote-new-tab 2026-08-09] Francisco: the quote should open
+                    // beside what you were looking at, not on top of it. Only the
+                    // Quote row opens away — the others are quick jumps you come
+                    // straight back from.
                     // [quick-create-estimate 2026-07-21] Sal: "when I hit + New we
                     // need an estimate option." Estimates are their own flow
                     // (/estimates/new — separate from the price Quote above).
@@ -796,7 +801,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                   ] as const).map((item) => (
                     <button
                       key={item.label}
-                      onClick={() => { setLocation(item.href); setQuickCreateOpen(false); }}
+                      onClick={() => {
+                        if ((item as { newTab?: boolean }).newTab) openQuoteBuilder(item.href, setLocation);
+                        else setLocation(item.href);
+                        setQuickCreateOpen(false);
+                      }}
                       style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                         padding: '9px 10px', border: 'none', borderRadius: 10,
@@ -970,7 +979,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
-                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new', newTab: true },
+                    // [quote-new-tab 2026-08-09] Francisco: the quote should open
+                    // beside what you were looking at, not on top of it. Only the
+                    // Quote row opens away — the others are quick jumps you come
+                    // straight back from.
                     // [quick-create-estimate 2026-07-21] Sal: "when I hit + New we
                     // need an estimate option." Estimates are their own flow
                     // (/estimates/new — separate from the price Quote above).
@@ -981,7 +994,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                   ] as const).map((item) => (
                     <button
                       key={item.label}
-                      onClick={() => { setLocation(item.href); setQuickCreateOpen(false); }}
+                      onClick={() => {
+                        if ((item as { newTab?: boolean }).newTab) openQuoteBuilder(item.href, setLocation);
+                        else setLocation(item.href);
+                        setQuickCreateOpen(false);
+                      }}
                       style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                         padding: '9px 10px', border: 'none', borderRadius: 10,
