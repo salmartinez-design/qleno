@@ -329,6 +329,34 @@ export default function EditJobModal({
     job.assigned_user_id != null ? [job.assigned_user_id] : []
   );
 
+  // [modal-roster 2026-08-09] The `employees` prop is the dispatch board's
+  // roster. Every OTHER mount point (customer profile → job card → Edit) has no
+  // roster to pass and sends `[]`, so the Team section rendered "No technicians
+  // available" and Save — which requires at least one tech — stayed dead
+  // forever. The recurrence editing Maribel asked for was all here already; the
+  // button just could never enable. Self-fetch the same field-tech roster the
+  // board uses whenever the prop comes in empty.
+  const [fetchedEmployees, setFetchedEmployees] = useState<TeamCandidate[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  useEffect(() => {
+    if (employees.length > 0) return;
+    let cancelled = false;
+    setRosterLoading(true);
+    fetch(`${API}/api/dispatch/technicians`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : { technicians: [] }))
+      .then(d => { if (!cancelled) setFetchedEmployees(Array.isArray(d?.technicians) ? d.technicians : []); })
+      .catch(() => { if (!cancelled) setFetchedEmployees([]); })
+      .finally(() => { if (!cancelled) setRosterLoading(false); });
+    return () => { cancelled = true; };
+  }, [employees.length, API, token]);
+  const roster = employees.length > 0 ? employees : fetchedEmployees;
+
+  // A job that opens with nobody assigned may be saved with nobody assigned —
+  // otherwise an unassigned visit can never have its recurrence or price fixed.
+  // Deselecting an EXISTING tech still blocks save (the server rejects an empty
+  // team, and silently unassigning on save is not what the office means).
+  const startedUnassigned = job.assigned_user_id == null;
+
   const [availableAddons, setAvailableAddons] = useState<PricingAddon[]>([]);
   const [addonsLoading, setAddonsLoading] = useState(false);
   const [selectedAddons, setSelectedAddons] = useState<Map<number, number>>(new Map());
@@ -1083,7 +1111,7 @@ export default function EditJobModal({
   const canSave = dirty
     && !saving
     && allowedHours > 0
-    && selectedTechIds.length > 0
+    && (selectedTechIds.length > 0 || startedUnassigned)
     && /^\d{2}:\d{2}$/.test(scheduledTime)
     // [AH] Commercial requires a positive hourly rate — UNLESS a manual flat
     // price is set, which ignores the hourly math entirely.
@@ -1302,7 +1330,9 @@ export default function EditJobModal({
         base_fee: baseFee,
         manual_rate_override: manualRate,
         add_ons: addOnsPayload,
-        team_user_ids: selectedTechIds,
+        // Empty = "leave the assignment alone". The server rejects an empty
+        // array outright, so an unassigned job could not be saved at all.
+        team_user_ids: selectedTechIds.length > 0 ? selectedTechIds : undefined,
         instructions,
         cascade_scope: cascade,
         // [monthly-weekday 2026-07-21] Nth/last-weekday anchor — only meaningful
@@ -1872,10 +1902,12 @@ export default function EditJobModal({
           <div style={SECTION}>
             <span style={LABEL}>Team {selectedTechIds.length > 1 ? `(${selectedTechIds.length})` : ""}</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {employees.length === 0 && (
-                <span style={{ fontSize: 12, color: "#9E9B94" }}>No technicians available</span>
+              {roster.length === 0 && (
+                <span style={{ fontSize: 12, color: "#9E9B94" }}>
+                  {rosterLoading ? "Loading technicians…" : "No technicians available"}
+                </span>
               )}
-              {employees.map(e => {
+              {roster.map(e => {
                 const idx = selectedTechIds.indexOf(e.id);
                 const selected = idx >= 0;
                 return (
