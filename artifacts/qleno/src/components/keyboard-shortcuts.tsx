@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
+import { openQuoteBuilder } from "@/lib/open-quote";
 
 interface Props {
   onOpenSearch: () => void;
@@ -14,7 +15,10 @@ interface Props {
 }
 
 const SHORTCUTS = [
-  { key: 'Q', label: 'New Quote',      path: '/quotes/new' },
+  // [quote-new-tab 2026-08-09] newTab keeps this shortcut matching the button
+  // it advertises — the Quotes page prints "⇧Q" right on New Quote, so the two
+  // landing in different places would be its own small bug.
+  { key: 'Q', label: 'New Quote',      path: '/quotes/new', newTab: true },
   { key: 'D', label: 'Dispatch Board', path: '/jobs' },
   { key: 'E', label: 'Employees',      path: '/employees' },
   { key: 'C', label: 'New Customer',   path: '/customers/new' },
@@ -81,7 +85,14 @@ export function useKeyboardShortcuts({ onOpenSearch, onNewJob, enabled = true }:
       if (e.key === 'J') { e.preventDefault(); onNewJob?.(); return; }
 
       for (const s of SHORTCUTS) {
-        if (e.key === s.key) { e.preventDefault(); navigate(s.path); return; }
+        if (e.key === s.key) {
+          e.preventDefault();
+          // A keypress is a user gesture, so the popup blocker lets this
+          // through the same as a click.
+          if ((s as { newTab?: boolean }).newTab) openQuoteBuilder(s.path, navigate);
+          else navigate(s.path);
+          return;
+        }
       }
     };
     window.addEventListener('keydown', handler);

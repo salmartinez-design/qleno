@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
+import { openQuoteBuilder } from "@/lib/open-quote";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -1166,7 +1167,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {btn(openingWebQuote ? "Opening…" : "Open / edit quote", () => { if (!openingWebQuote) openWebQuote(); }, true)}
-                    {btn("Start a blank quote", () => navigate(`/quotes/new?lead_id=${lead.id}`))}
+                    {btn("Start a blank quote", () => openQuoteBuilder(`/quotes/new?lead_id=${lead.id}`, navigate))}
                   </div>
                   <p style={{ fontSize: 11, color: "#9E9B94", margin: "12px 0 0", fontFamily: FF }}>
                     This is the price they saw on the website. Opening it makes an editable office quote with their details filled in — adjust it, then send or book it.
@@ -1175,7 +1176,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
               ) : (
                 <div style={{ textAlign: "center", padding: "30px 16px", color: "#9E9B94" }}>
                   <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No office quote for this lead yet.</p>
-                  {btn("Build a quote", () => navigate(`/quotes/new?lead_id=${lead.id}`), true)}
+                  {btn("Build a quote", () => openQuoteBuilder(`/quotes/new?lead_id=${lead.id}`, navigate), true)}
                 </div>
               )}
             </div>

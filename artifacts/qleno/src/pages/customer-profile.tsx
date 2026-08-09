@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { openQuoteBuilder } from "@/lib/open-quote";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -6376,7 +6377,7 @@ export default function CustomerProfilePage() {
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flexShrink: 0 }}>
           <button onClick={() => setShowJobWizard(true)} style={{ padding: "7px 13px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Schedule Job</button>
-          <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Quote</button>
+          <button onClick={() => openQuoteBuilder(`/quotes/new?client_id=${clientId}`, navigate)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Quote</button>
           <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 13, fontWeight: 500, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF }}>Message</button>
           <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Edit</button>
         </div>
@@ -6881,7 +6882,7 @@ export default function CustomerProfilePage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 12 }}>
               <button onClick={() => setShowJobWizard(true)} style={{ padding: "9px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Schedule Job</button>
-              <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Quote</button>
+              <button onClick={() => openQuoteBuilder(`/quotes/new?client_id=${clientId}`, navigate)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Quote</button>
               <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 12, fontWeight: 600, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF, minHeight: 40 }}>Message</button>
               <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Edit</button>
             </div>
