@@ -10,6 +10,7 @@ import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 import { resolveServiceType } from "../lib/serviceType.js";
 import { materializeClientForQuote } from "../lib/materialize-client.js";
+import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 
 const router = Router();
 
@@ -964,7 +965,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
                AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE`);
           for (const row of (futureRows.rows as any[])) {
             if (newAddons.length) { try { await persistJobAddOns(db, Number(row.id), companyId, newAddons); } catch { /* idempotent */ } }
-            await db.execute(sql`UPDATE jobs SET base_fee = ${String(allInBase)} WHERE id = ${Number(row.id)} AND company_id = ${companyId}`);
+            // [commission-base-drift 2026-08-09] Re-booking at a new agreed
+            // rate re-prices every upcoming visit; commission_base has to
+            // follow or the cleaner keeps getting paid on the old rate.
+            // Same statement — the expression reads the pre-update base_fee.
+            await db.execute(sql`UPDATE jobs SET base_fee = ${String(allInBase)}, commission_base = ${commissionBaseFollowsBaseFee(String(allInBase))} WHERE id = ${Number(row.id)} AND company_id = ${companyId}`);
           }
         } catch (e) { console.warn("[quote convert] reuse base/add-on stamp failed:", e); }
       } else {
@@ -986,7 +991,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         if (firstVisitFee != null && firstVisitFee !== recurringFee) {
           try {
             await db.execute(sql`
-              UPDATE jobs SET base_fee = ${String(firstVisitFee)}
+              UPDATE jobs SET base_fee = ${String(firstVisitFee)},
+                              commission_base = ${commissionBaseFollowsBaseFee(String(firstVisitFee))}
               WHERE id = (SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
                           ORDER BY scheduled_date ASC, id ASC LIMIT 1)`);
           } catch (e) { console.warn("[quote convert] first-visit price stamp failed:", e); }
