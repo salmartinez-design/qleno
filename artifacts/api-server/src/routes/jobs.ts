@@ -26,6 +26,7 @@ import multer from "multer";
 import crypto from "node:crypto";
 import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
 import { tombstoneJobOccurrence, findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
+import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 
 // [photos-r2 2026-06-24] In-memory upload buffer for job photos → streamed to
 // R2. 15 MB cap (phone photos run a few MB). Accept only images.
@@ -3271,6 +3272,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
             for (let i = 0; i < futureJobsSet.length; i++) {
               updJobsSet[futureJobsSet[i]] = futureJobsVals[i];
             }
+            // [commission-base-drift 2026-08-09] Move the pay base with the
+            // price. This cascade wrote base_fee on every future visit and
+            // left commission_base frozen, so one "$215 -> $195, this and
+            // future" save silently overpaid the cleaner on all 27 remaining
+            // visits. Same expression, same statement — see lib/commission-base-sync.ts.
+            if (base_fee !== undefined) {
+              updJobsSet.commission_base = commissionBaseFollowsBaseFee(String(base_fee));
+            }
             const updRes = await tx
               .update(jobsTable)
               .set(updJobsSet as any)
@@ -3818,6 +3827,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // OVERpaying. Instead move commission_base by exactly the base-price delta
         // — the add-on/mod portions are preserved, only the stale base tracks the
         // edit. NULL commission_base is left for the next real recompute to set.
+        //
+        // [commission-base-drift 2026-08-09] This was the ONLY path that did
+        // this, which is why the drift kept rebuilding: the this_and_future
+        // cascade below, the customer-profile schedule cascade, and quote
+        // re-book all wrote base_fee without it. They now share the same rule
+        // via lib/commission-base-sync.ts. This one stays hand-rolled because it
+        // already knows both the old and new price in JS; the shared expression
+        // is for statements that write base_fee and commission_base at once.
         try {
           const delta = Number(base_fee) - Number(before.base_fee ?? 0);
           if (Number.isFinite(delta) && delta !== 0) {

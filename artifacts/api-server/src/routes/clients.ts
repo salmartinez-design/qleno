@@ -18,6 +18,7 @@ import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
 import { isR2Key, r2SignedGetUrl } from "../lib/r2.js";
+import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -2173,6 +2174,13 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       if (base_fee !== undefined) {
         const v = base_fee === "" ? null : String(base_fee);
         setFragments.push(sql`base_fee = ${v}`);
+        // [commission-base-drift 2026-08-09] The pay base has to move with the
+        // price. Without this the cascade rewrote what the customer pays on
+        // every future visit and left commission_base pinned to the old rate,
+        // so a rate change quietly over- or under-paid the cleaner from the
+        // next visit onward. Must stay in THIS statement — the expression
+        // reads the pre-update base_fee. See lib/commission-base-sync.ts.
+        setFragments.push(sql`commission_base = ${commissionBaseFollowsBaseFee(v)}`);
       }
       if (duration_minutes !== undefined) {
         const mins = duration_minutes === "" ? null : parseInt(String(duration_minutes)) || null;
