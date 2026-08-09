@@ -4826,15 +4826,19 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
         `);
       }
       await db.execute(sql`UPDATE jobs SET charge_succeeded_at = NOW(), charge_failed_at = NULL WHERE id = ${jobId}`);
+      // [charge-receipt 2026-08-09] This used to call sendNotification with FOUR
+      // arguments against a SIX-argument signature: client_id landed in the
+      // `channel` slot, so the template lookup ran `channel = '45'::notification_
+      // channel` and threw. The throw was swallowed by the catch below, so the
+      // charge succeeded and the customer silently got no receipt. Delegate to
+      // the one assembled sender in routes/payments.ts instead of re-inlining
+      // merge vars here. Dynamic import: payments.ts and jobs.ts are both route
+      // modules, so a top-level import would close a cycle.
       try {
-        await sendNotification("payment_received", job.client_id, companyId, {
-          client_name: `${job.first_name} ${job.last_name}`,
-          client_email: job.email,
-          client_phone: job.phone,
-          amount: chargeAmount.toFixed(2),
-          card_brand: job.square_card_brand || "Card",
-          card_last_four: job.square_card_last4 || "****",
-        });
+        const { firePaymentReceivedNotification } = await import("./payments.js");
+        if (companyId && job.client_id) {
+          firePaymentReceivedNotification(companyId, job.client_id, chargeAmount, job.invoice_id || null);
+        }
       } catch (notifErr) {
         console.error("[charge] notification error:", notifErr);
       }
@@ -4909,15 +4913,14 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
       `);
 
       // Fire payment_received notification
+      // [charge-receipt 2026-08-09] Same wrong-arity bug as the Square branch
+      // above — see the note there. Both branches now go through the single
+      // assembled sender in routes/payments.ts.
       try {
-        await sendNotification("payment_received", job.client_id, companyId, {
-          client_name: `${job.first_name} ${job.last_name}`,
-          client_email: job.email,
-          client_phone: job.phone,
-          amount: chargeAmount.toFixed(2),
-          card_brand: job.card_brand || "Card",
-          card_last_four: job.card_last_four || "****",
-        });
+        const { firePaymentReceivedNotification } = await import("./payments.js");
+        if (companyId && job.client_id) {
+          firePaymentReceivedNotification(companyId, job.client_id, chargeAmount, job.invoice_id || null);
+        }
       } catch (notifErr) {
         console.error("[charge] notification error:", notifErr);
       }

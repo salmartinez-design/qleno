@@ -10,7 +10,13 @@ const router = Router();
 // [real-card-charge 2026-07-22] Fire the payment_received email/SMS. Extracted
 // from POST / so the real-charge endpoint below can reuse it verbatim instead
 // of duplicating the lookup + merge-var block.
-function firePaymentReceivedNotification(
+// [charge-receipt 2026-08-09] Exported so the dispatch "Charge Client" button
+// (routes/jobs.ts, both the Square and Stripe branches) can reuse it instead of
+// hand-rolling its own sendNotification call — which it did, with the wrong
+// arity, so no receipt ever went out from that button. Keep this the ONLY place
+// a payment_received send is assembled; the account-comms pause check and the
+// invoice-number lookup live here and are easy to forget at a new call site.
+export function firePaymentReceivedNotification(
   companyId: number,
   clientId: number,
   amount: number,
