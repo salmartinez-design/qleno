@@ -38,8 +38,11 @@ export function extractPolicyCopy(mergedBody: string): string {
 // tables (single-cell <table> for email-client compatibility). All no-ops when a
 // heading/section isn't present, so an unformatted body is passed through
 // unchanged. Headings must be <h3> to be styled — plain-text lines are left as-is.
-const BRAND_ACCENT = "#5B9BD5";
-const HEAD_RULE = "#D6E3F2";
+// [email-brand-unify 2026-08-09] Was #5B9BD5 with a matching blue hairline —
+// the retired brand color. Phes has been on Electric Mint since 2026-07-23, so
+// these section headings were the last blue left inside an otherwise mint email.
+const BRAND_ACCENT = "#00C9A0";
+const HEAD_RULE = "#CDEFE6";
 
 // Style every <h3>/<h2> that doesn't already carry an inline style (callout
 // headings, styled below, are skipped by the negative lookahead).

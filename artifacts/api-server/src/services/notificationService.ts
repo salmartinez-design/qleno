@@ -11,14 +11,21 @@ import { emailLogoUrl } from "../lib/app-url.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
+// [email-brand-unify 2026-08-09] These now match the booking-confirmation
+// renderer (lib/confirmation-email.ts), which was the only email actually
+// following the brand: Plus Jakarta Sans and Electric Mint. Every other email
+// rendered in Arial with a #5B9BD5 accent, so the confirmation looked like it
+// came from a different company than the invoice. `accent` is only the FALLBACK
+// now — the real accent is the tenant's own companies.brand_color, resolved per
+// send (both Phes companies are on #00C9A0 since 2026-07-23).
 const BRAND = {
   bg:        "#F7F6F3",
   card:      "#FFFFFF",
-  accent:    "#5B9BD5",
+  accent:    "#00C9A0",
   textMain:  "#1A1917",
   textSub:   "#6B6860",
   border:    "#E5E2DC",
-  font:      "Arial, Helvetica, sans-serif",
+  font:      "'Plus Jakarta Sans', Arial, Helvetica, sans-serif",
 };
 
 // ── Merge tag substitution ────────────────────────────────────────────────────
@@ -34,17 +41,45 @@ export function applyMerge(template: string, vars: Record<string, string>): stri
 // image (absolute URL — relative paths don't load in email clients) with a text
 // fallback. Omitting it keeps the legacy "Phes" text header for any caller that
 // hasn't been updated.
-export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
+export function wrapEmailHtml(
+  contentHtml: string,
+  brand?: {
+    logoUrl?: string | null;
+    companyName?: string | null;
+    accent?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  },
+): string {
   const name = brand?.companyName || "Phes";
+  // [email-brand-unify 2026-08-09] Accent comes from companies.brand_color so a
+  // tenant that changes its brand color changes its email too. BRAND.accent is
+  // only the fallback. Do NOT hardcode a hex here again — that is exactly how
+  // every template ended up stuck on the retired #5B9BD5.
+  const accent = brand?.accent || BRAND.accent;
   const header = brand?.logoUrl
     ? `<img src="${brand.logoUrl}" alt="${name}" height="72" style="height:72px;width:auto;max-width:320px;display:block;border:0;background:#ffffff;border-radius:6px;" />`
-    : `<span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">${name}</span>`;
+    : `<span style="color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.01em;font-family:${BRAND.font};">${name}</span>`;
   // A logo image needs a light backdrop to read on any artwork; keep the text
   // fallback on the accent color.
-  const headerBg = brand?.logoUrl ? "#ffffff" : BRAND.accent;
+  const headerBg = brand?.logoUrl ? "#ffffff" : accent;
+  // [email-footer-tags 2026-08-09] The footer used to carry {{company_phone}} /
+  // {{company_email}} merge tags. sendNotification merges AFTER wrapping so they
+  // resolved there — but the reminder engine and the scheduled-message engine
+  // merge the BODY and then wrap, so nothing ever merged the wrapper: 299 sent
+  // reminder emails carry a literal "{{company_phone}} | {{company_email}}" in
+  // the footer. The wrapper now takes real values and renders no tags at all, so
+  // it cannot depend on what a caller does afterward. Missing parts drop out
+  // rather than printing an empty separator.
+  const footer = [name, brand?.phone, brand?.email, "phes.io"]
+    .map((p) => (p || "").trim())
+    .filter(Boolean)
+    .join(" &nbsp;|&nbsp; ");
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notification</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notification</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
 <body style="margin:0;padding:0;background:${BRAND.bg};font-family:${BRAND.font};">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
 <tr><td align="center">
@@ -56,7 +91,7 @@ export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | 
 ${contentHtml}
 </td></tr>
 <tr><td style="background:${BRAND.bg};padding:16px 32px;border-top:1px solid ${BRAND.border};text-align:center;color:${BRAND.textSub};font-size:12px;font-family:${BRAND.font};">
-  Phes &nbsp;|&nbsp; {{company_phone}} &nbsp;|&nbsp; {{company_email}} &nbsp;|&nbsp; phes.io
+  ${footer}
 </td></tr>
 </table>
 </td></tr>
@@ -166,10 +201,23 @@ export async function sendNotification(
 
     // Per-tenant comms gate + per-tenant send-from address. Raw SQL to avoid
     // coupling to the regenerated drizzle column types.
-    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address, logo_url, name FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address, logo_url, name, brand_color FROM companies WHERE id = ${companyId} LIMIT 1`);
     const fromAddr = (commsRow.rows[0] as any)?.email_from_address || "info@phes.io";
     // [email-logo] Tenant logo for the wrapper header (absolutized for email).
-    const emailBrand = { logoUrl: emailLogoUrl((commsRow.rows[0] as any)?.logo_url), companyName: (commsRow.rows[0] as any)?.name };
+    // [email-brand-unify 2026-08-09] brand_color drives the wrapper header AND
+    // the {{brand_color}} tag every template's CTA button now uses.
+    const brandColor = String((commsRow.rows[0] as any)?.brand_color || "").trim() || BRAND.accent;
+    const emailBrand: {
+      logoUrl: string | null;
+      companyName: string | null;
+      accent: string;
+      phone?: string | null;
+      email?: string | null;
+    } = {
+      logoUrl: emailLogoUrl((commsRow.rows[0] as any)?.logo_url),
+      companyName: (commsRow.rows[0] as any)?.name,
+      accent: brandColor,
+    };
     // Marketing/notification sends require the tenant's comms gate. Transactional
     // sends (reset/invite) skip it — they must always reach the user.
     if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
@@ -203,8 +251,16 @@ export async function sendNotification(
       company_name:  company?.name  || "Phes",
       company_phone: company?.phone || "(773) 706-6000",
       company_email: company?.email || "info@phes.io",
+      // [email-brand-unify 2026-08-09] Every template CTA renders
+      // background:{{brand_color}} instead of a literal hex, so buttons follow
+      // companies.brand_color and can never drift from the app again.
+      brand_color:   brandColor,
       ...mergeVars,
     };
+    // The wrapper renders the footer itself now (no merge tags), so hand it the
+    // same company values the body sees.
+    emailBrand.phone = fullVars.company_phone;
+    emailBrand.email = fullVars.company_email;
 
     // [legacy-merge-tags 2026-08-09] The original templates were written against
     // an older sender and reference {{client_name}} / {{amount}}, but every
@@ -219,6 +275,21 @@ export async function sendNotification(
     if (!fullVars.client_name && fullVars.first_name) fullVars.client_name = fullVars.first_name;
     if (!fullVars.first_name && fullVars.client_name) fullVars.first_name = fullVars.client_name;
     if (!fullVars.amount) fullVars.amount = fullVars.invoice_amount || fullVars.payment_amount || "";
+
+    // [invoice-cta 2026-08-09] The "View and Pay Invoice" button is supplied as a
+    // block, not hardcoded in the template, because it CANNOT exist for account
+    // invoices: the pay page resolves a payment_links row and that table's
+    // client_id is NOT NULL, while all 385 Phes account invoices have a null
+    // client_id. Hardcoding the button there would email a billing contact a
+    // button that 404s ("INVALID_LINK") — worse than no button, since account
+    // invoices are billed on terms and the PDF is attached anyway. A sender that
+    // has a real link just passes invoice_link and gets the button built here;
+    // emailAccountInvoice passes an empty invoice_cta_html and gets no button.
+    if (fullVars.invoice_cta_html === undefined) {
+      fullVars.invoice_cta_html = fullVars.invoice_link
+        ? `<div style="text-align:center;margin:0 0 24px"><a href="${fullVars.invoice_link}" style="display:inline-block;background:${brandColor};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View and Pay Invoice</a></div>`
+        : "";
+    }
 
     if (channel === "email") {
       if (!recipientEmail) {
@@ -247,7 +318,7 @@ export async function sendNotification(
       // The GAP1 fallback button only applies when there's no dedicated renderer
       // (the Pass-2 confirmation renderer supplies its own CTA).
       if (!renderEmail && apptLink && !rawHtml.includes(apptLink) && !bodyHtml.includes("appointment_link")) {
-        rawHtml += `<div style="text-align:center;margin:24px 0 8px"><a href="${apptLink}" style="display:inline-block;background:${BRAND.accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your appointment</a></div>`;
+        rawHtml += `<div style="text-align:center;margin:24px 0 8px"><a href="${apptLink}" style="display:inline-block;background:${brandColor};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your appointment</a></div>`;
       }
       // Opt-in dedicated renderer (confirmation email) replaces the shared chrome
       // for this send only; all other emails keep wrapEmailHtml unchanged.
@@ -418,7 +489,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.phone AS company_phone, co.email AS company_email, co.brand_color AS company_brand_color, co.arrival_window_minutes,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -435,7 +506,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.phone AS company_phone, co.email AS company_email, co.brand_color AS company_brand_color, co.arrival_window_minutes,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -506,7 +577,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
             if (emailTpl) {
               subject = emailTpl.subject || `Reminder: your cleaning on ${scheduledDate}`;
               const htmlBody = /<[a-z][\s\S]*>/i.test(emailTpl.body) ? emailTpl.body : emailTpl.body.replace(/\n/g, "<br>");
-              html = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
+              html = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name, accent: job.company_brand_color, phone: job.company_phone, email: job.company_email });
             } else {
               ({ subject, html } = buildReminderEmail({
                 firstName: job.first_name || "",
@@ -683,7 +754,7 @@ export async function runScheduledJobMessages(): Promise<void> {
       const rows = await db.execute(
         isBefore
           ? drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.phone AS company_phone, co.email AS company_email, co.brand_color AS company_brand_color, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.address AS client_address, c.city AS client_city, c.state AS client_state,
@@ -699,7 +770,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND j.status NOT IN ('cancelled', 'complete')
                  AND (a.id IS NULL OR a.comms_enabled = true)`
           : drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.phone AS company_phone, co.email AS company_email, co.brand_color AS company_brand_color, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.address AS client_address, c.city AS client_city, c.state AS client_state,
@@ -811,7 +882,7 @@ export async function runScheduledJobMessages(): Promise<void> {
             if (emailClaimId == null) { _ledgerSkipped++; continue; }
             try {
               const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
-              let emailHtml = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
+              let emailHtml = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name, accent: job.company_brand_color, phone: job.company_phone, email: job.company_email });
               const headers: Record<string, string> = {};
               if (job.email_unsub_token) {
                 const u = buildUnsubDataFromToken(job.email_unsub_token);

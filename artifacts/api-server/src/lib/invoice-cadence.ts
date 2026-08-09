@@ -310,6 +310,46 @@ async function emailAccountInvoice(
     if (!toEmail) return { sent: false, reason: "no_billing_email_on_file" };
 
     const invNum = inv.invoice_number || `INV-${invoiceId}`;
+
+    // [account-invoice-email 2026-08-09] invoice_link and service_address used to
+    // be hardcoded "" here. That was invisible while the tenant sat on the legacy
+    // plaintext template, which referenced neither tag — but the designed invoice
+    // email SHOWS an Address row and a pay button, so an empty pair would have
+    // shipped a blank address and a dead button the moment the template landed.
+    //  - Address: the account's own property, canonical "street, city, ST zip"
+    //    (CLAUDE.md: if an address is shown, zip MUST be shown). Left blank on a
+    //    multi-property account on purpose — one line would misrepresent an
+    //    invoice spanning several buildings, and the line-item table already
+    //    names the site per visit. Same rule as sendOneInvoice.
+    //  - Pay button: deliberately suppressed. payment_links.client_id is NOT
+    //    NULL and every account invoice has a null client_id, so no valid pay
+    //    token can exist; a button would 404. Account invoices bill on terms and
+    //    carry the PDF.
+    const fmtAddr = (street?: string | null, city?: string | null, state?: string | null, zip?: string | null): string => {
+      const head = [street, city].map((p) => (p || "").trim()).filter(Boolean).join(", ");
+      const tail = [state, zip].map((p) => (p || "").trim()).filter(Boolean).join(" ");
+      return [head, tail].filter(Boolean).join(", ");
+    };
+    let serviceAddress = "";
+    try {
+      const props = await db.execute(sql`
+        SELECT address, city, state, zip FROM account_properties
+         WHERE account_id = ${accountId} AND company_id = ${companyId} AND is_active = true
+         LIMIT 2`);
+      if ((props as any).rows.length === 1) {
+        const p = (props as any).rows[0];
+        serviceAddress = fmtAddr(p.address, p.city, p.state, p.zip);
+      }
+    } catch { /* address is decoration — never block a billing email */ }
+
+    // Per-visit work table, same renderer the manual send uses, so a bundled
+    // account invoice reads identically to a hand-sent one.
+    let linesHtml = "";
+    try {
+      const { renderInvoiceLinesHtml } = await import("../routes/invoices.js");
+      linesHtml = await renderInvoiceLinesHtml(companyId, invoiceId);
+    } catch { linesHtml = ""; }
+
     const mergeVars = {
       first_name: toName || "",
       invoice_number: invNum,
@@ -318,7 +358,9 @@ async function emailAccountInvoice(
         ? utc(String(inv.due_date)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
         : "upon receipt",
       invoice_link: "",
-      service_address: "",
+      invoice_cta_html: "",
+      service_address: serviceAddress,
+      invoice_lines_html: linesHtml,
     };
 
     // PDF attach reuses the exact renderer the manual send uses, so a bundled
