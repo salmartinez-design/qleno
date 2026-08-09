@@ -70,6 +70,39 @@ async function mintInvoicePayLink(
   }
 }
 
+// [invoice-recipient 2026-08-09] ONE recipient chain for every invoice email.
+// An invoice is addressed to whoever is on it: the invoice-level override first,
+// then the client, then the account's billing contact. That last hop is not an
+// edge case — 386 of Phes's 1,211 invoices (every ACCOUNT invoice) have a null
+// client_id, so a chain that stops at clients.email cannot address a third of
+// the book. POST /:id/send grew this chain in #964; POST /:id/remind never did,
+// and kept looking up clients.email alone — which is why Maribel's "Send
+// Reminder" on invoice #7329 (account 44, "Maribel Test") answered "No recipient
+// email" even though account_contacts had maribel@phes.io sitting right there,
+// and why the plain Send on that same invoice worked.
+//
+// Shared so the two can't drift again. The ORDER BY is the priority the office
+// set: an explicitly flagged invoice recipient, then the billing role, then the
+// primary contact, then oldest.
+async function resolveInvoiceRecipient(
+  companyId: number,
+  invoice: { billing_contact_email?: string | null; billing_contact_name?: string | null; account_id?: number | null },
+  client?: { email?: string | null; first_name?: string | null } | null,
+): Promise<{ email: string | null; name: string | null }> {
+  let email: string | null = invoice.billing_contact_email || client?.email || null;
+  let name: string | null = invoice.billing_contact_name || client?.first_name || null;
+  if (!email && invoice.account_id) {
+    const ac = await db.execute(sql`
+      SELECT name, email FROM account_contacts
+      WHERE account_id = ${invoice.account_id} AND company_id = ${companyId} AND email IS NOT NULL AND email <> ''
+      ORDER BY receives_invoices DESC, (role = 'billing') DESC, is_primary DESC, id ASC
+      LIMIT 1`);
+    const row = ac.rows[0] as any;
+    if (row?.email) { email = row.email; name = name || row.name || null; }
+  }
+  return { email, name };
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { status, client_id, date_from, date_to, page = "1", limit = "50", branch_id, search } = req.query;
@@ -1293,17 +1326,9 @@ async function sendOneInvoice(
       .limit(1) : [];
 
     // Recipient chain: invoice-level override → client → account contact.
-    let recipientEmail: string | null = invoice.billing_contact_email || client?.email || null;
-    let recipientName: string | null = invoice.billing_contact_name || client?.first_name || null;
-    if (!recipientEmail && invoice.account_id) {
-      const ac = await db.execute(sql`
-        SELECT name, email FROM account_contacts
-        WHERE account_id = ${invoice.account_id} AND company_id = ${companyId} AND email IS NOT NULL AND email <> ''
-        ORDER BY receives_invoices DESC, (role = 'billing') DESC, is_primary DESC, id ASC
-        LIMIT 1`);
-      const row = ac.rows[0] as any;
-      if (row?.email) { recipientEmail = row.email; recipientName = recipientName || row.name || null; }
-    }
+    // Shared with POST /:id/remind — see resolveInvoiceRecipient.
+    const { email: recipientEmail, name: recipientName } =
+      await resolveInvoiceRecipient(companyId, invoice, client);
 
     const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
@@ -1475,91 +1500,155 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
   }
 });
 
+// [invoice-reminder 2026-08-09] Maribel: "Sending the reminder doesn't work" —
+// invoice #7329 answered "Reminder was NOT sent: No recipient email." Three
+// separate defects, all in this one handler:
+//
+//  1. It resolved the recipient from clients.email alone, so every ACCOUNT
+//     invoice (386 of 1,211 — client_id is null on all of them) was
+//     unreachable. Now shares resolveInvoiceRecipient with POST /:id/send.
+//  2. It hand-rolled the email: raw Resend, `from: "notifications@phes.io"`
+//     hardcoded, and a literal "Thank you, Phes" signature — so it ignored the
+//     tenant's send-from address and signed every Schaumburg (co4) reminder as
+//     Oak Lawn, with none of the branded shell, logo or accent every other
+//     customer email now carries. It goes through sendNotification and an
+//     invoice_reminder template like everything else, which also means the
+//     office can edit the copy in Settings instead of asking for a deploy.
+//  3. It minted a pay link unconditionally. mintInvoicePayLink falls back to
+//     /pay/<invoice_id> when there's no client, and that URL is resolved as a
+//     payment_links TOKEN — so an account invoice's "Pay Now" was a guaranteed
+//     404 (INVALID_LINK). Same reason the account invoice email omits the
+//     button: payment_links.client_id is NOT NULL. No link, no button.
+//
+// The old body also dunned settled invoices — nothing stopped a reminder going
+// out on a paid or voided one. #7329 is void today.
 router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
 
     const [invoice] = await db
       .select({
         id: invoicesTable.id,
         client_id: invoicesTable.client_id,
+        account_id: invoicesTable.account_id,
+        job_id: invoicesTable.job_id,
         invoice_number: invoicesTable.invoice_number,
         total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
         status: invoicesTable.status,
+        billing_contact_name: invoicesTable.billing_contact_name,
+        billing_contact_email: invoicesTable.billing_contact_email,
       })
       .from(invoicesTable)
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
 
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    const [client] = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, invoice.client_id))
-      .limit(1);
-
-    const clientEmail = client?.email;
     const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
-    // [invoice-send-truth 2026-07-07] Track whether the email actually went
-    // out — the log row below used to claim status='sent' even when the
-    // comms gate suppressed the send.
-    let reminderSent = false;
-    let reminderSkipReason: string | null = clientEmail ? (process.env.RESEND_API_KEY ? null : "RESEND_API_KEY not configured") : "No recipient email";
-
-    if (clientEmail && process.env.RESEND_API_KEY) {
-      const { isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
-      if (process.env.COMMS_ENABLED !== "true") {
-        reminderSkipReason = "COMMS_ENABLED=false";
-        console.log("[COMMS BLOCKED] Invoice reminder email suppressed:", { to: clientEmail, invoiceId });
-      } else if (await isEmailOptedOut(req.auth!.companyId!, clientEmail)) {
-        reminderSkipReason = "email_opt_out";
-        console.log("[comms-opt-out] Invoice reminder email suppressed (opt-out):", { to: clientEmail, invoiceId });
-      } else {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const payLink = await mintInvoicePayLink(req.auth!.companyId!, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
-      const unsub = await buildEmailUnsubData(req.auth!.companyId!, clientEmail);
-      await resend.emails.send({
-        from: "notifications@phes.io",
-        to: clientEmail,
-        subject: `Friendly reminder — Invoice ${invNum} is due`,
-        html: `<p>Hi ${client?.first_name || "there"},</p>
-               <p>This is a friendly reminder that invoice <strong>${invNum}</strong> for <strong>$${parseFloat(invoice.total || "0").toFixed(2)}</strong> is due.</p>
-               <p><a href="${payLink}">Pay Now</a></p>
-               <p>Thank you,<br>Phes</p>${unsub?.footerHtml ?? ""}`,
-        ...(unsub?.headers ? { headers: unsub.headers } : {}),
+    // Never chase money on a settled invoice. A reminder is a dunning notice;
+    // sending one for an invoice that is paid, voided or refunded is a real
+    // customer-facing error, not a harmless no-op.
+    const settled: Record<string, string> = { paid: "already paid", void: "voided", refunded: "refunded" };
+    const settledLabel = settled[String(invoice.status || "")];
+    if (settledLabel) {
+      return res.status(422).json({
+        error: "Not Sent",
+        message: `Invoice ${invNum} is ${settledLabel} — no reminder was sent.`,
+        reason: `invoice_${invoice.status}`,
       });
-      reminderSent = true;
-      }
     }
 
-    if (reminderSent) {
-      await db.update(invoicesTable)
-        .set({ last_reminder_sent_at: new Date() })
-        .where(eq(invoicesTable.id, invoiceId));
+    const [client] = invoice.client_id ? await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
+                email: clientsTable.email, phone: clientsTable.phone })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, invoice.client_id))
+      .limit(1) : [];
+
+    const { email: recipientEmail, name: recipientName } =
+      await resolveInvoiceRecipient(companyId, invoice, client);
+
+    if (!recipientEmail) {
+      return res.status(400).json({
+        error: "No Recipient",
+        message: invoice.account_id
+          ? "No billing email on file — add an account contact with an email (mark it 'receives invoices') and try again."
+          : "This client has no email on file — add one and try again.",
+        reason: "no_recipient_email",
+      });
     }
 
-    await db.insert(notificationLogTable).values({
-      company_id: req.auth!.companyId,
-      recipient: clientEmail || "system",
-      channel: "email",
-      trigger: "invoice_reminder",
-      status: reminderSent ? "sent" : "suppressed",
-      error_message: reminderSent ? null : reminderSkipReason,
-      metadata: { invoice_id: invoiceId, amount: parseFloat(invoice.total || "0") } as any,
-    });
+    // Only a client invoice can carry a working pay button (see the note above).
+    const payLink = invoice.client_id
+      ? await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, req.auth!.userId)
+      : null;
+
+    const overdueDays = daysOverdue(invoice.due_date as any);
+    const mergeVars: Record<string, string> = {
+      first_name:       recipientName || "",
+      invoice_number:   invNum,
+      invoice_amount:   parseFloat(invoice.total || "0").toFixed(2),
+      invoice_due_date: invoice.due_date
+        ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : "upon receipt",
+      // "past due by 3 days" vs "due soon" — the template picks the wording, but
+      // the number has to come from the same daysOverdue() the invoice list uses
+      // so the email can't disagree with the OVERDUE badge on screen.
+      days_overdue:     String(overdueDays),
+      invoice_link:     payLink || "",
+      // Explicit empty string, not undefined: sendNotification builds the button
+      // from invoice_link only when the caller hasn't supplied the block itself.
+      ...(payLink ? {} : { invoice_cta_html: "" }),
+    };
+
+    const reminderSent = await sendNotification(
+      "invoice_reminder", "email", companyId, recipientEmail, null, mergeVars,
+    ).catch(() => false);
+
+    // sendNotification already wrote the notification_log row (including the
+    // suppression reason). Read the freshest one back so the office sees
+    // "company_comms_disabled" rather than a silent failure.
+    let failReason: string | null = null;
+    if (!reminderSent) {
+      try {
+        const nl = await db.execute(sql`
+          SELECT status, error_message FROM notification_log
+          WHERE company_id = ${companyId} AND trigger = 'invoice_reminder'
+          ORDER BY id DESC LIMIT 1`);
+        const row = nl.rows[0] as any;
+        if (row) failReason = row.error_message || row.status || null;
+      } catch { /* reason stays null */ }
+    }
+
+    // Trace row for the client/account communication log — written for
+    // suppressed attempts too, same as the invoice send, so "did we chase this
+    // one?" has a visible answer either way.
+    try {
+      await db.execute(sql`
+        INSERT INTO communication_log (company_id, customer_id, account_id, job_id, direction, channel, summary, subject, recipient, delivery_status, source, logged_by)
+        VALUES (${companyId}, ${invoice.client_id ?? null}, ${invoice.account_id ?? null}, ${invoice.job_id ?? null}, 'outbound', 'email',
+                ${reminderSent ? `Payment reminder sent for invoice ${invNum}` : `Payment reminder NOT sent for invoice ${invNum}${failReason ? ` — ${failReason}` : ""}`},
+                ${`Reminder: Invoice ${invNum}`}, ${recipientEmail},
+                ${reminderSent ? "sent" : "suppressed"}, 'system', ${req.auth!.userId ?? null})`);
+    } catch (e) { console.error("[invoice-remind] comm-log trace non-fatal:", (e as any)?.message); }
 
     if (!reminderSent) {
       const human =
-        reminderSkipReason === "COMMS_ENABLED=false" ? "communications are globally disabled" :
-        reminderSkipReason === "email_opt_out" ? "this recipient unsubscribed from emails" :
-        reminderSkipReason || "the message could not be delivered";
-      return res.status(422).json({ error: "Not Sent", message: `Reminder was NOT sent: ${human}.`, reason: reminderSkipReason });
+        failReason === "company_comms_disabled" ? "communications are turned OFF for this company — the email was suppressed, not sent" :
+        failReason === "email_opt_out" ? "this recipient unsubscribed from emails" :
+        failReason === "Template not found or inactive" ? "no invoice reminder template is set up for this company" :
+        failReason ? failReason.replace(/_/g, " ") : "the message could not be delivered";
+      return res.status(422).json({ error: "Not Sent", message: `Reminder was NOT sent: ${human}.`, reason: failReason });
     }
 
-    return res.json({ ok: true, sent_to: clientEmail || null });
+    await db.update(invoicesTable)
+      .set({ last_reminder_sent_at: new Date() })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)));
+
+    return res.json({ ok: true, sent_to: recipientEmail });
   } catch (err) {
     console.error("Remind invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to send reminder" });

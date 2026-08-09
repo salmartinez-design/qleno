@@ -7463,6 +7463,51 @@ async function runNotificationTemplateSeed() {
       seeded++;
     }
 
+    // [invoice-reminder-template 2026-08-09] The "Send Reminder" button on an
+    // invoice used to build its own email inline — raw Resend, a hardcoded
+    // from-address and a hardcoded "Phes" signature. It now goes through
+    // sendNotification like every other customer email, so it needs a template.
+    //
+    // Seeded for EVERY company, not just PHES: the loop above is company-1 only,
+    // but company 4 (Schaumburg) invoices too, and sendNotification skips the
+    // send outright when no row matches ("Template not found or inactive").
+    // A brand-new trigger has nothing to stomp, and NOT EXISTS keeps it
+    // idempotent, so this stays safe on every cold start.
+    try {
+      const REMINDER_SUBJECT = "Friendly reminder: Invoice #{{invoice_number}} from {{company_name}}";
+      const REMINDER_HTML = `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">A quick reminder that the invoice below is still open. If you have already sent payment, thank you — please disregard this note.</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:6px;background:#FFFFFF;margin:0 0 24px">
+<tr><td style="padding:20px">
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Invoice</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">#{{invoice_number}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Amount Due</p>
+  <p style="margin:0 0 16px;font-size:18px;color:#1A1917;font-weight:700">\${{invoice_amount}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Due Date</p>
+  <p style="margin:0;font-size:15px;color:#1A1917">{{invoice_due_date}}</p>
+</td></tr>
+</table>
+{{invoice_cta_html}}
+<p style="margin:0;color:#1A1917">Questions, or need to arrange payment? Call or text <strong>{{company_phone}}</strong>, or email <strong>{{company_email}}</strong>.</p>`;
+      const REMINDER_TEXT = "Hi {{first_name}}, a reminder that invoice #{{invoice_number}} for \${{invoice_amount}} is still open (due {{invoice_due_date}}). Questions? {{company_phone}} — {{company_name}}.";
+      const r = await db.execute(sql`
+        INSERT INTO notification_templates
+          (company_id, trigger, channel, subject, body, body_html, body_text, is_active)
+        SELECT c.id, 'invoice_reminder', 'email'::notification_channel,
+               ${REMINDER_SUBJECT}, '', ${REMINDER_HTML}, ${REMINDER_TEXT}, true
+          FROM companies c
+         WHERE NOT EXISTS (
+           SELECT 1 FROM notification_templates t
+            WHERE t.company_id = c.id
+              AND t.trigger = 'invoice_reminder'
+              AND t.channel = 'email'::notification_channel
+         )`);
+      const n = (r as any).rowCount ?? 0;
+      if (n) console.log(`[notification-templates] seeded invoice_reminder for ${n} compan${n === 1 ? "y" : "ies"}`);
+    } catch (e) {
+      console.error("[notification-templates] invoice_reminder seed (non-fatal):", (e as any)?.message);
+    }
+
     // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that
     // predates the designed copy keeps its ORIGINAL plaintext body forever. On
     // Phes that meant invoice_sent and payment_received (email) still carried the
