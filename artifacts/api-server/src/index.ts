@@ -1,4 +1,5 @@
 import app from "./app";
+import { recordStartupFailure, reportStartupFailures } from "./lib/startup-failures.js";
 import { seedIfNeeded } from "./seed";
 import { startRecurringJobCron } from "./lib/recurring-jobs";
 import { runPhesDataMigration } from "./phes-data-migration";
@@ -298,18 +299,32 @@ function withBootTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      console.error(
-        `[startup] ${label} — exceeded ${ms}ms, continuing to listen (DDL is idempotent, retries next cold start)`,
+      // A step that timed out did not finish either — same visibility rules as
+      // a thrown error, so it lands in the end-of-chain banner and /api/health.
+      recordStartupFailure(
+        label,
+        `exceeded ${ms}ms, continuing to listen (DDL is idempotent, retries next cold start)`,
       );
       resolve();
     }, ms);
   });
 
   return Promise.race([
-    promise.then((v) => {
-      if (timer) clearTimeout(timer);
-      return v;
-    }),
+    promise.then(
+      (v) => {
+        if (timer) clearTimeout(timer);
+        return v;
+      },
+      (err) => {
+        // [startup-failures-loud 2026-08-09] Clear the timer on REJECTION too.
+        // Previously only the success path cleared it, so a step that threw at
+        // 1s still logged a "exceeded 15000ms" line 14s later — a phantom
+        // timeout for a step that had already failed fast. Harmless when that
+        // line was noise; now it would double-count in the failure banner.
+        if (timer) clearTimeout(timer);
+        throw err;
+      },
+    ),
     timeout,
   ]);
 }
@@ -403,11 +418,20 @@ async function runStartupMigrations() {
            AND NOT EXISTS (SELECT 1 FROM job_rate_mods jm WHERE jm.job_id = j.id AND jm.affects_commission = true)
            -- [dead-heal 2026-08-09] NOTE: this statement has never actually run.
            -- client_type is an enum, so COALESCE(..., '') throws "invalid input
-           -- value for enum client_type" and the enclosing schema guard swallows
-           -- it as non-fatal on every boot. Fixing the cast (::text) would let it
-           -- rewrite commission_base on 52 residential jobs ($4,113 of base
-           -- delta) — a payroll change that needs Sal's sign-off, not a silent
-           -- side effect of an unrelated PR. Left broken deliberately; flagged.
+           -- value for enum client_type" at PLAN time and the enclosing schema
+           -- guard swallows it as non-fatal on every boot. It also aborts the
+           -- REST of addInvoiceColumns — everything below this line in the step
+           -- is skipped too (audited 2026-08-09: no live damage, the columns
+           -- exist via other paths and both property-link heals match 0 rows).
+           --
+           -- Repairing the cast (::text) would rewrite commission_base on 52
+           -- residential jobs — all 52 in the same direction, pay base ABOVE
+           -- price, $4,113 total, ~$1,440 of tech commission. 21 of them are
+           -- completed June jobs that were already paid at the old number, and
+           -- 2 have base_fee = $0, which would zero the tech's pay entirely.
+           -- That is a payroll decision for Sal, not a silent side effect of an
+           -- unrelated PR. Left broken deliberately; now flagged loudly at boot
+           -- via recordStartupFailure + GET /api/health -> startup_failures.
            AND COALESCE((SELECT c.client_type FROM clients c WHERE c.id = j.client_id), '') <> 'commercial'`);
       // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
       // invoice's line items / tip via PUT. While set, the invoice is DETACHED
@@ -514,7 +538,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'stripe'`);
     });
   } catch (err: any) {
-    console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("addInvoiceColumns", err);
   }
   // [dispatch-events 2026-07-14] Non-job board entries (tech blocks, company-day
   // markers, non-job client visits) created from + New → Event. Additive table,
@@ -547,7 +571,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE dispatch_events ADD COLUMN IF NOT EXISTS address text`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureDispatchEventsSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureDispatchEventsSchema", err);
   }
   // [one-on-ones 2026-07-14] Owner-only quarterly 1-on-1 records. Additive table
   // (depends on dispatch_events above for the optional block link). Idempotent.
@@ -579,7 +603,7 @@ async function runStartupMigrations() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_one_on_ones_company_period ON one_on_ones(company_id, period_label)`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureOneOnOnesSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureOneOnOnesSchema", err);
   }
   // [event-clock 2026-07-15] A tech's clock-in/out on a dispatch event (paid
   // hourly, separate from the job timeclock). Additive; depends on
@@ -606,7 +630,7 @@ async function runStartupMigrations() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS event_timeclock_company_user_idx ON event_timeclock(company_id, user_id)`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureEventTimeclockSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureEventTimeclockSchema", err);
   }
   // [square-map 2026-07-22] Square ↔ Qleno customer map. Resolves an incoming
   // Square customer_id to the Qleno client / account / property that owns it,
@@ -661,7 +685,7 @@ async function runStartupMigrations() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_map_status ON square_customer_map(company_id, status)`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureSquareCustomerMapSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureSquareCustomerMapSchema", err);
   }
   try {
     // [auto-issue-toggle 2026-07-22] The two manual overrides on auto-invoicing.
@@ -674,7 +698,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_hold boolean NOT NULL DEFAULT false`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureAutoIssueOverrideSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureAutoIssueOverrideSchema", err);
   }
   try {
     // [job-created-audit 2026-08-08] Who booked a visit, and from where. Both
@@ -689,7 +713,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS created_source text`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureJobCreatorSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureJobCreatorSchema", err);
   }
   try {
     // [manual-charging-policy 2026-07-22] Auto-charge is OFF by default.
@@ -708,7 +732,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE accounts ALTER COLUMN auto_charge_on_completion SET DEFAULT false`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureAutoChargeDefaultOff — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureAutoChargeDefaultOff", err);
   }
   try {
     // [sms-contact-label 2026-07-24] Let the office name a bare-number SMS thread
@@ -730,7 +754,7 @@ async function runStartupMigrations() {
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sms_contact_labels_company_phone_idx ON sms_contact_labels(company_id, contact_phone)`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureSmsContactLabelsSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureSmsContactLabelsSchema", err);
   }
   try {
     // [unpaid-purple 2026-07-24] Recolor the Unpaid Leave bucket from the old
@@ -750,7 +774,7 @@ async function runStartupMigrations() {
            AND COALESCE(display_config->>'accent', '#BA7517') = '#BA7517'`);
     });
   } catch (err: any) {
-    console.error("[startup] recolorUnpaidBucket — non-fatal:", err?.message ?? err);
+    recordStartupFailure("recolorUnpaidBucket", err);
   }
   try {
     // [square-webhook 2026-07-22] Square payment reconciliation ledger. The
@@ -796,7 +820,7 @@ async function runStartupMigrations() {
       await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id text`);
     });
   } catch (err: any) {
-    console.error("[startup] ensureSquarePaymentEventsSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureSquarePaymentEventsSchema", err);
   }
   if (!RUN_DATA_MIGRATIONS) {
     console.log(
@@ -808,24 +832,24 @@ async function runStartupMigrations() {
     try {
       await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
     } catch (err: any) {
-      console.error("[startup] seedIfNeeded — non-fatal:", err?.message ?? err);
+      recordStartupFailure("seedIfNeeded", err);
     }
     try {
       await withBootTimeout("runPhesDataMigration", MIGRATION_TIMEOUT_MS, () => runPhesDataMigration());
     } catch (err: any) {
-      console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+      recordStartupFailure("runPhesDataMigration", err);
     }
   }
   try {
     await withBootTimeout("runUserCompaniesMigration", SCHEMA_TIMEOUT_MS, () => runUserCompaniesMigration());
   } catch (err: any) {
-    console.error("[startup] runUserCompaniesMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runUserCompaniesMigration", err);
   }
   if (RUN_DATA_MIGRATIONS) {
     try {
       await withBootTimeout("runCutoverDataMigration", MIGRATION_TIMEOUT_MS, () => runCutoverDataMigration());
     } catch (err: any) {
-      console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
+      recordStartupFailure("runCutoverDataMigration", err);
     }
   }
   // [auto-promos 2026-06-21] auto_promos table + seed 15% offers for co1/co4.
@@ -835,7 +859,7 @@ async function runStartupMigrations() {
       await runAutoPromosMigration([1, 4]);
     });
   } catch (err: any) {
-    console.error("[startup] runAutoPromosMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runAutoPromosMigration", err);
   }
   // [help-guides 2026-06-21] guides table + placeholder tech guide seed.
   try {
@@ -844,7 +868,7 @@ async function runStartupMigrations() {
       await runGuidesMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runGuidesMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runGuidesMigration", err);
   }
   // [attendance-attachments 2026-07-11] attendance_attachments table (files on
   // an unexcused-absence / tardy record — injury photos, doctor's notes).
@@ -854,7 +878,7 @@ async function runStartupMigrations() {
       await runAttendanceAttachmentsMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runAttendanceAttachmentsMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runAttendanceAttachmentsMigration", err);
   }
   // [comms-opt-out 2026-06-21] clients.sms_opt_out_at / email_opt_out_at /
   // email_unsub_token columns + token backfill + unique index.
@@ -864,7 +888,7 @@ async function runStartupMigrations() {
       await runCommsOptOutMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runCommsOptOutMigration", err);
   }
   // [service-suspension 2026-07-11] clients.suspend_* columns + recurring_
   // schedules.paused_by_suspension marker.
@@ -874,7 +898,7 @@ async function runStartupMigrations() {
       await runSuspensionMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runSuspensionMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runSuspensionMigration", err);
   }
   // [lead-referral-source 2026-07-22] leads.referral_source column + backfill of
   // the answers the booking widget already collected into details.
@@ -884,7 +908,7 @@ async function runStartupMigrations() {
       await runLeadReferralSourceMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runLeadReferralSourceMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runLeadReferralSourceMigration", err);
   }
   // [system-schedule-log 2026-07-21] Relax job_audit_log.user_id NOT NULL so the
   // recurrence engine can log "Qleno scheduled this" as a system actor.
@@ -894,7 +918,7 @@ async function runStartupMigrations() {
       await runAutoScheduleAuditMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runAutoScheduleAuditMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runAutoScheduleAuditMigration", err);
   }
   // [monthly-weekday 2026-07-21] Add 'monthly_weekday' to the jobs frequency enum
   // so last-Friday-of-month recurrences can be created/generated.
@@ -904,7 +928,7 @@ async function runStartupMigrations() {
       await runMonthlyWeekdayEnumMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runMonthlyWeekdayEnumMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runMonthlyWeekdayEnumMigration", err);
   }
   // [tech-pref-accounts 2026-07-21] technician_preferences.account_id + relax
   // client_id NOT NULL so tech preferences can be scoped to a commercial account.
@@ -914,7 +938,7 @@ async function runStartupMigrations() {
       await ensureTechPrefAccountColumns();
     });
   } catch (err: any) {
-    console.error("[startup] ensureTechPrefAccountColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureTechPrefAccountColumns", err);
   }
   // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
   // quality_complaints.reason_category / areas / redo_job_id.
@@ -924,7 +948,7 @@ async function runStartupMigrations() {
       await runRedoServiceMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runRedoServiceMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runRedoServiceMigration", err);
   }
   // [team-photo-notes] team_photo_notes table (pictures + notes attached to a
   // job or made sticky to a customer/property).
@@ -934,7 +958,7 @@ async function runStartupMigrations() {
       await runTeamPhotoNotesMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runTeamPhotoNotesMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runTeamPhotoNotesMigration", err);
   }
   // [customer-messages 2026-06-26] customer_message_schedules + job_message_sends
   // tables + ledger backfill from the legacy reminder_*_sent flags (so the new
@@ -945,7 +969,7 @@ async function runStartupMigrations() {
       await runCustomerMessagesMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runCustomerMessagesMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runCustomerMessagesMigration", err);
   }
   // [reschedule-label-backfill 2026-06-29] correct historical reschedules that the
   // legacy cancellation-log path stored with a NULL action, so the Activity feed
@@ -957,7 +981,7 @@ async function runStartupMigrations() {
       await runRescheduleLabelBackfill();
     });
   } catch (err: any) {
-    console.error("[startup] runRescheduleLabelBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runRescheduleLabelBackfill", err);
   }
   // [notif-prefs] customer_notification_preferences — per-client/per-account
   // sparse override table controlling WHICH customer messages fire on WHICH
@@ -968,7 +992,7 @@ async function runStartupMigrations() {
       await runNotificationPreferencesMigration();
     });
   } catch (err: any) {
-    console.error("[startup] runNotificationPreferencesMigration — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runNotificationPreferencesMigration", err);
   }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
@@ -977,7 +1001,7 @@ async function runStartupMigrations() {
       await ensureBookingConfirmationSetup();
     });
   } catch (err: any) {
-    console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureBookingConfirmationSetup", err);
   }
   // [referral-program] referrals table + program columns (widget Give $25 /
   // Get $25 flow: referrer capture, lead link, credited stamp).
@@ -987,7 +1011,7 @@ async function runStartupMigrations() {
       await ensureReferralSetup();
     });
   } catch (err: any) {
-    console.error("[startup] ensureReferralSetup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureReferralSetup", err);
   }
   // [time-change-notice 2026-06-30] jobs.time_change_pending / time_change_from
   // columns + job_time_updated SMS+email templates (all tenants).
@@ -997,7 +1021,7 @@ async function runStartupMigrations() {
       await ensureTimeChangeNoticeSetup();
     });
   } catch (err: any) {
-    console.error("[startup] ensureTimeChangeNoticeSetup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureTimeChangeNoticeSetup", err);
   }
   // [agreement-multi-view] last_viewed_at + view_count on form_submissions
   try {
@@ -1008,7 +1032,7 @@ async function runStartupMigrations() {
       await ensureAgreementClauseColumns();
     });
   } catch (err: any) {
-    console.error("[startup] ensureAgreementViewColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureAgreementViewColumns", err);
   }
   // [card-link-chargeable] recover clients.stripe_payment_method_id from Stripe for
   // cards saved via the card-on-file link before 2026-07-22 (display fields were
@@ -1020,7 +1044,7 @@ async function runStartupMigrations() {
       await ensureStripePaymentMethodBackfill();
     });
   } catch (err: any) {
-    console.error("[startup] ensureStripePaymentMethodBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureStripePaymentMethodBackfill", err);
   }
   // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
   try {
@@ -1029,7 +1053,7 @@ async function runStartupMigrations() {
       await ensurePaymentSourceBackfill();
     });
   } catch (err: any) {
-    console.error("[startup] ensurePaymentSourceBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensurePaymentSourceBackfill", err);
   }
   // [GAP3] office-reply columns on scorecard_entries
   try {
@@ -1038,7 +1062,7 @@ async function runStartupMigrations() {
       await ensureScorecardReplyColumns();
     });
   } catch (err: any) {
-    console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureScorecardReplyColumns", err);
   }
   // [90d-composite] users.score_*_90d / scorecard_composite_90d + companies
   // .score_weight_* columns for the rolling composite scorecard.
@@ -1048,7 +1072,7 @@ async function runStartupMigrations() {
       await ensureCompositeScoreColumns();
     });
   } catch (err: any) {
-    console.error("[startup] ensureCompositeScoreColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureCompositeScoreColumns", err);
   }
   // [sms Pass3] short-link table + customer-facing SMS copy upgrade
   try {
@@ -1060,7 +1084,7 @@ async function runStartupMigrations() {
       await ensurePerPackageBookingSms();
     });
   } catch (err: any) {
-    console.error("[startup] sms Pass3 setup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("sms Pass3 setup", err);
   }
   // [multi-frequency] quotes.frequency_options snapshot column
   try {
@@ -1069,7 +1093,7 @@ async function runStartupMigrations() {
       await ensureQuotePricingSetup();
     });
   } catch (err: any) {
-    console.error("[startup] ensureQuotePricingSetup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureQuotePricingSetup", err);
   }
   try {
     await withBootTimeout("ensurePayrollP0Setup", SCHEMA_TIMEOUT_MS, async () => {
@@ -1077,7 +1101,7 @@ async function runStartupMigrations() {
       await ensurePayrollP0Setup();
     });
   } catch (err: any) {
-    console.error("[startup] ensurePayrollP0Setup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensurePayrollP0Setup", err);
   }
   try {
     await withBootTimeout("ensurePayrollSnapshotSetup", SCHEMA_TIMEOUT_MS, async () => {
@@ -1085,7 +1109,7 @@ async function runStartupMigrations() {
       await ensurePayrollSnapshotSetup();
     });
   } catch (err: any) {
-    console.error("[startup] ensurePayrollSnapshotSetup — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensurePayrollSnapshotSetup", err);
   }
   // [sms-mms-scheduling] media_urls column + scheduled_sms table
   try {
@@ -1094,7 +1118,7 @@ async function runStartupMigrations() {
       await ensureSmsMmsSchema();
     });
   } catch (err: any) {
-    console.error("[startup] ensureSmsMmsSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureSmsMmsSchema", err);
   }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
@@ -1108,7 +1132,7 @@ async function runStartupMigrations() {
       ensureJobHistoryLiveBridgeSchema(),
     );
   } catch (err: any) {
-    console.error("[startup] ensureJobHistoryLiveBridgeSchema — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureJobHistoryLiveBridgeSchema", err);
   }
   // [refunds 2026-06-27] invoices.refunded_amount / refund_reason / refunded_at columns.
   try {
@@ -1117,7 +1141,7 @@ async function runStartupMigrations() {
       await ensureInvoiceRefundColumns();
     });
   } catch (err: any) {
-    console.error("[startup] ensureInvoiceRefundColumns — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureInvoiceRefundColumns", err);
   }
   // [commission-override 2026-06-27] jobs.commission_override_pct — per-job pool rate override.
   try {
@@ -1126,7 +1150,7 @@ async function runStartupMigrations() {
       await ensureCommissionOverrideColumn();
     });
   } catch (err: any) {
-    console.error("[startup] ensureCommissionOverrideColumn — non-fatal:", err?.message ?? err);
+    recordStartupFailure("ensureCommissionOverrideColumn", err);
   }
   // [recurring-uniqueness 2026-08-04] Unique indexes that make it PHYSICALLY
   // impossible for the recurring engine to stack two visits on one house on one
@@ -1144,9 +1168,9 @@ async function runStartupMigrations() {
       await ensureRecurringUniqueness();
     });
   } catch (err: any) {
-    console.error(
-      "[startup] !!! ensureRecurringUniqueness FAILED — DUPLICATE-VISIT PROTECTION IS NOT ACTIVE:",
-      err?.message ?? err,
+    recordStartupFailure(
+      "ensureRecurringUniqueness (DUPLICATE-VISIT PROTECTION IS NOT ACTIVE)",
+      err,
     );
   }
 }
@@ -1178,6 +1202,10 @@ async function startup() {
     // this resolves, the app.ts readiness gate returns 503 for every non-health
     // /api route. withBootTimeout bounds each step, so the gate always opens.
     await runStartupMigrations();
+    // [startup-failures-loud 2026-08-09] Summarize anything that failed BEFORE
+    // announcing "migrations complete" — otherwise that line reads as an
+    // all-clear over a chain that quietly skipped half its work.
+    reportStartupFailures();
     setAppReady(true);
     console.log("[startup] migrations complete — API readiness gate opened");
 
@@ -1313,7 +1341,7 @@ async function runPostListenDataTasks() {
       console.log(`[job-history-bridge] startup sync: +${r.inserted} ~${r.updated} -${r.removed}`);
     }
   } catch (err: any) {
-    console.error("[startup] job-history bridge — non-fatal:", err?.message ?? err);
+    recordStartupFailure("job-history bridge", err);
   }
   // [onboarding-password 2026-06-16] Narrow login bootstrap for a stuck new
   // hire during the comms-off cutover (temp-password email can't send while
@@ -1326,7 +1354,7 @@ async function runPostListenDataTasks() {
       console.log(`[onboarding-password] bootstrapped ${n} stuck onboarding login(s)`);
     }
   } catch (err: any) {
-    console.error("[startup] onboarding-password bootstrap — non-fatal:", err?.message ?? err);
+    recordStartupFailure("onboarding-password bootstrap", err);
   }
   // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
   // is live AND enforced in production. Non-fatal: pay computation
@@ -1335,7 +1363,7 @@ async function runPostListenDataTasks() {
   try {
     await verifyClockIntegrityConstraint();
   } catch (err: any) {
-    console.error("[startup] clock-integrity self-check — non-fatal:", err?.message ?? err);
+    recordStartupFailure("clock-integrity self-check", err);
   }
   try {
     const r = await runLmsCompletionBackfill();
@@ -1345,7 +1373,7 @@ async function runPostListenDataTasks() {
       );
     }
   } catch (err: any) {
-    console.error("[startup] runLmsCompletionBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runLmsCompletionBackfill", err);
   }
   try {
     const r = await runLmsCertificateBackfill();
@@ -1359,7 +1387,7 @@ async function runPostListenDataTasks() {
       );
     }
   } catch (err: any) {
-    console.error("[startup] runLmsCertificateBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runLmsCertificateBackfill", err);
   }
   // [complaint-satisfaction 2026-07-24] Backfill the 1-of-4 satisfaction hit for
   // cleaners who already had valid complaints / redos before the feature shipped
@@ -1373,7 +1401,7 @@ async function runPostListenDataTasks() {
       );
     }
   } catch (err: any) {
-    console.error("[startup] runComplaintScoreBackfill — non-fatal:", err?.message ?? err);
+    recordStartupFailure("runComplaintScoreBackfill", err);
   }
   // [ghost-completion-heal 2026-07-28] One-time, idempotent, bounded, logged
   // correction for jobs left "Complete but 0 punched" because a clock-out
@@ -1387,7 +1415,7 @@ async function runPostListenDataTasks() {
       console.log(`[ghost-completion-heal] reverted ${r.healed} ghost completion(s) to scheduled — job ids: ${r.jobIds.join(", ")}`);
     }
   } catch (err: any) {
-    console.error("[startup] healGhostCompletions — non-fatal:", err?.message ?? err);
+    recordStartupFailure("healGhostCompletions", err);
   }
 }
 
