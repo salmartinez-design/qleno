@@ -7119,7 +7119,7 @@ async function runNotificationTemplateSeed() {
   <li>Entry method confirmed</li>
   <li>Special instructions on file \u2014 if anything changed, call us tonight at {{company_phone}}</li>
 </ul>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-left:4px solid #5B9BD5;background:#F0F6FC;border-radius:0 6px 6px 0;margin:0 0 24px">
+<table width="100%" cellpadding="0" cellspacing="0" style="border-left:4px solid {{brand_color}};background:#F2FBF8;border-radius:0 6px 6px 0;margin:0 0 24px">
 <tr><td style="padding:16px;color:#1A1917;font-size:14px;line-height:1.6">
   Cancellations made less than 48 business hours before your appointment result in a full service charge. Call us as soon as possible if you need to cancel: <strong>{{company_phone}}</strong>.
 </td></tr>
@@ -7196,7 +7196,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 24px">We hope your home is feeling great. We would love to hear about your experience.</p>
 <div style="text-align:center;margin:0 0 24px">
-  <a href="{{review_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Leave Us a Review</a>
+  <a href="{{review_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Leave Us a Review</a>
 </div>
 <p style="margin:0 0 20px;color:#1A1917">Your feedback helps our team improve and helps other families in the Chicagoland area find a service they can trust. It takes less than two minutes.</p>
 <p style="margin:0">If anything fell short of your expectations, please reach out before posting \u2014 we want the chance to make it right. Call or text <strong>{{company_phone}}</strong>.</p>`,
@@ -7228,9 +7228,7 @@ async function runNotificationTemplateSeed() {
 </td></tr>
 </table>
 {{invoice_lines_html}}
-<div style="text-align:center;margin:0 0 24px">
-  <a href="{{invoice_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View and Pay Invoice</a>
-</div>
+{{invoice_cta_html}}
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">If your card on file is set to auto-charge, no action is needed. Payment will process automatically on or before the due date.</p>
 <p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
         body_text: "Hi {{first_name}}, invoice #{{invoice_number}} for ${{invoice_amount}} from {{company_name}} is ready. Due {{invoice_due_date}}. Pay: {{invoice_link}} or call {{company_phone}}.",
@@ -7320,7 +7318,7 @@ async function runNotificationTemplateSeed() {
 </td></tr>
 </table>
 <div style="text-align:center;margin:0 0 24px">
-  <a href="{{quote_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review Your Quote</a>
+  <a href="{{quote_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review Your Quote</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This estimate is based on the information provided. If your home\u2019s condition differs significantly, we may revise it before or at the start of service. Additional time is billed at $70 per hour per cleaner.</p>
 <p style="margin:0">To book, approve the quote online or call us at <strong>{{company_phone}}</strong>.</p>`,
@@ -7340,7 +7338,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 20px">We received a request to reset the password for your Qleno account. Use the button below to set a new password.</p>
 <div style="text-align:center;margin:0 0 24px">
-  <a href="{{reset_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset My Password</a>
+  <a href="{{reset_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset My Password</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link expires in {{reset_expiry}}. If you did not request this, ignore this email \u2014 your password will not change.</p>
 <p style="margin:0;color:#6B6860;font-size:14px">Trouble accessing your account? Contact your administrator or email <strong>{{company_email}}</strong>.</p>`,
@@ -7372,7 +7370,7 @@ async function runNotificationTemplateSeed() {
 </td></tr>
 </table>
 <div style="text-align:center;margin:0 0 8px">
-  <a href="{{review_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review &amp; Approve or Deny</a>
+  <a href="{{review_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review &amp; Approve or Deny</a>
 </div>`,
         body_text: null,
       },
@@ -7382,7 +7380,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) is pending office approval. You'll get a message when it's decided.</p>
 <div style="text-align:center;margin:0 0 8px">
-  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
 </div>`,
         body_text: null,
       },
@@ -7392,7 +7390,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 20px">We received your <strong>emergency</strong> time-off request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h). The office will follow up shortly.</p>
 <div style="text-align:center;margin:0 0 8px">
-  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
 </div>`,
         body_text: null,
       },
@@ -7402,7 +7400,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) has been <strong>approved</strong>. Enjoy your time off.</p>
 <div style="text-align:center;margin:0 0 8px">
-  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
 </div>`,
         body_text: null,
       },
@@ -7428,7 +7426,7 @@ async function runNotificationTemplateSeed() {
 <p style="margin:0 0 20px">We've set up an online account for you with {{company_name}}. You can see your upcoming visits, view and download your invoices, and pay online.</p>
 <p style="margin:0 0 24px">Choose a password to finish setting it up:</p>
 <div style="text-align:center;margin:0 0 24px">
-  <a href="{{portal_link}}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Set your password</a>
+  <a href="{{portal_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Set your password</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 3 days. If it expires, use "Forgot password" on the sign-in page and we'll send a new one.</p>
 <p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
@@ -7440,7 +7438,7 @@ async function runNotificationTemplateSeed() {
         body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
 <p style="margin:0 0 24px">Someone asked to reset the password for your {{company_name}} account. If that was you, choose a new one here:</p>
 <div style="text-align:center;margin:0 0 24px">
-  <a href="{{portal_link}}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset your password</a>
+  <a href="{{portal_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset your password</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 1 hour and can only be used once.</p>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email — your password hasn't changed.</p>
@@ -7463,6 +7461,61 @@ async function runNotificationTemplateSeed() {
         )
       `);
       seeded++;
+    }
+
+    // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that
+    // predates the designed copy keeps its ORIGINAL plaintext body forever. On
+    // Phes that meant invoice_sent and payment_received (email) still carried the
+    // first-generation defaults, which reference {{client_name}} and {{amount}} —
+    // tags no current sender supplies. applyMerge renders an unknown tag as ""
+    // with no error, so Maribel received "Hi , Please find your invoice for $
+    // attached." for a real $50 invoice with a named contact, and the send logged
+    // as a success.
+    //
+    // body_html IS NULL is a reliable "never edited" signal: the template editor
+    // (PUT /api/notifications/templates/:id) always writes body_html beside body
+    // for an email row, body_text for an sms row. So filling ONLY the null column
+    // upgrades untouched legacy rows and cannot overwrite a tenant's own copy.
+    // COALESCE keeps that true even if the WHERE clause is ever widened.
+    // Dry-run 2026-08-09 against production matched exactly 4 rows: invoice_sent
+    // and payment_received (email) on company 1 and company 4.
+    let backfilled = 0;
+    for (const t of templates) {
+      try {
+        const r = await db.execute(sql`
+          UPDATE notification_templates
+             SET body_html = COALESCE(body_html, ${t.body_html}),
+                 body_text = COALESCE(body_text, ${t.body_text}),
+                 subject   = CASE WHEN coalesce(btrim(subject), '') = ''
+                                  THEN ${t.subject} ELSE subject END
+           WHERE trigger = ${t.trigger}
+             AND channel = ${t.channel}::notification_channel
+             AND (
+               (${t.body_html}::text IS NOT NULL AND body_html IS NULL)
+               OR (${t.body_text}::text IS NOT NULL AND body_text IS NULL)
+             )`);
+        backfilled += (r as any).rowCount ?? 0;
+      } catch (e) {
+        console.error(`[notification-templates] backfill ${t.trigger}/${t.channel} (non-fatal):`, (e as any)?.message);
+      }
+    }
+    if (backfilled) console.log(`[notification-templates] backfilled ${backfilled} legacy row(s)`);
+
+    // [email-brand-unify 2026-08-09] Templates that were already installed carry
+    // the RETIRED #5B9BD5 button hex baked into their HTML. Phes moved to
+    // Electric Mint (#00C9A0) on 2026-07-23, so those buttons render the old
+    // brand while the app, the booking confirmation and the header render the
+    // new one. Swap the literal for the {{brand_color}} tag rather than for
+    // another hex: the tag resolves from companies.brand_color at send time, so
+    // this is the LAST time a color change needs a code deploy. Idempotent — a
+    // row already on the tag matches nothing.
+    try {
+      await db.execute(sql`
+        UPDATE notification_templates
+           SET body_html = replace(body_html, '#5B9BD5', '{{brand_color}}')
+         WHERE body_html LIKE '%#5B9BD5%'`);
+    } catch (e) {
+      console.error("[notification-templates] brand-color patch (non-fatal):", (e as any)?.message);
     }
 
     // [invoice-email-lines 2026-08-05] The seed above only INSERTs when a

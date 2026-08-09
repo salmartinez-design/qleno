@@ -1062,7 +1062,7 @@ export async function buildInvoicePdfBuffer(companyId: number, invoiceId: number
 const escHtml = (s: any) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-async function renderInvoiceLinesHtml(companyId: number, invoiceId: number): Promise<string> {
+export async function renderInvoiceLinesHtml(companyId: number, invoiceId: number): Promise<string> {
   try {
     const [inv] = await db
       .select({ line_items: invoicesTable.line_items, subtotal: invoicesTable.subtotal,

@@ -64,6 +64,7 @@ type LeaveCtx = {
   company_phone: string;
   company_email: string;
   company_logo_url: string | null;
+  company_brand_color: string | null;
   email_from: string;
 };
 
@@ -74,7 +75,7 @@ async function loadCtx(requestId: number): Promise<LeaveCtx | null> {
            lt.display_name AS bucket_name, lt.exempt_from_blackout,
            u.first_name, u.last_name, u.email, u.phone,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email,
-           c.logo_url AS company_logo_url, c.email_from_address
+           c.logo_url AS company_logo_url, c.brand_color AS company_brand_color, c.email_from_address
       FROM leave_requests lr
       JOIN leave_types lt ON lt.id = lr.leave_type_id
       JOIN users u ON u.id = lr.user_id
@@ -111,6 +112,7 @@ async function loadCtx(requestId: number): Promise<LeaveCtx | null> {
           ? String(row.company_logo_url)
           : `${appBaseUrl()}${row.company_logo_url}`)
       : null,
+    company_brand_color: row.company_brand_color || null,
     email_from: row.email_from_address || "noreply@phes.io",
   };
 }
@@ -156,6 +158,10 @@ function mergeVars(c: LeaveCtx): Record<string, string> {
     company_name: c.company_name,
     company_phone: c.company_phone,
     company_email: c.company_email,
+    // [email-brand-unify 2026-08-09] Template CTA buttons render
+    // background:{{brand_color}}. An unresolved tag becomes "" and the button
+    // loses its fill entirely, so every renderer must supply this.
+    brand_color: c.company_brand_color || "#00C9A0",
   };
 }
 
@@ -186,10 +192,18 @@ async function renderEmail(
   const tpl = await loadTemplate(c.company_id, trigger);
   const subject = applyMerge(tpl?.subject || fallbackSubject, vars);
   const inner = applyMerge(tpl?.body_html || fallbackBodyHtml, vars);
-  // Same branded wrapper the customer templates use (logo header + footer);
-  // the wrapper's own {{company_*}} footer tags resolve from the same vars.
+  // Same branded wrapper the customer templates use (logo header + footer).
+  // [email-brand-unify 2026-08-09] The wrapper builds its own footer from real
+  // values now, so pass the tenant's phone/email/brand color rather than relying
+  // on a later applyMerge pass to fill footer tags.
   const html = applyMerge(
-    wrapEmailHtml(inner, { logoUrl: c.company_logo_url, companyName: c.company_name }),
+    wrapEmailHtml(inner, {
+      logoUrl: c.company_logo_url,
+      companyName: c.company_name,
+      accent: c.company_brand_color,
+      phone: c.company_phone,
+      email: c.company_email,
+    }),
     vars,
   );
   return { subject, html };

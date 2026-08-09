@@ -217,12 +217,16 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   // sendNotification does. The wrapEmailHtml footer also references
   // {{company_phone}} / {{company_email}}, so these must be present.
   const cRows = await db.execute(sql`
-    SELECT name, phone, email, email_from_address, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    SELECT name, phone, email, email_from_address, logo_url, brand_color FROM companies WHERE id = ${companyId} LIMIT 1`);
   const c: any = cRows.rows[0] ?? {};
   const fullVars: Record<string, string> = {
     company_name: c.name || "Phes",
     company_phone: c.phone || "(773) 706-6000",
     company_email: c.email || "info@phes.io",
+    // [email-brand-unify 2026-08-09] Template CTA buttons render
+    // background:{{brand_color}} — without this the preview button renders with
+    // no fill, which would look like a broken template rather than a missing var.
+    brand_color: c.brand_color || "#00C9A0",
     ...SAMPLE_CUSTOMER_VARS,
   };
   // [leave-templates 2026-07-07] Employee-flavored sample data for the
@@ -354,7 +358,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             logoUrl: emailLogoUrl(c.logo_url),
             companyName: c.name || "Phes",
             companyPhone: c.phone || "(773) 706-6000",
-            companyPhoneTel: c.phone ? String(c.phone).replace(/[^\d+]/g, "") : "+17089745517",
+            companyPhoneTel: c.phone ? String(c.phone).replace(/[^\d+]/g, "") : "+17737066000",
             companyEmail: c.email || "info@phes.io",
             website: "phes.io",
             firstName: SAMPLE_CUSTOMER_VARS.first_name,
@@ -372,7 +376,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
           })
         : bodyIsFullHtml
         ? rendered.body
-        : applyMergeTags(wrapEmailHtml(stylePolicyCopy(rendered.body, "Arial, Helvetica, sans-serif"), { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name }), fullVars);
+        : applyMergeTags(wrapEmailHtml(stylePolicyCopy(rendered.body, "'Plus Jakarta Sans', Arial, Helvetica, sans-serif"), { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name, accent: c.brand_color, phone: c.phone, email: c.email }), fullVars);
       previewBody = html;
       if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
       const fromAddr = c.email_from_address || "info@phes.io";
