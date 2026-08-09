@@ -17,8 +17,9 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User, Users,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
-  Languages, Pencil, Paperclip, Image,
+  Languages, Pencil, Paperclip, Image, Download,
 } from "lucide-react";
+import { PhotoLightbox, downloadPhotosZip } from "@/components/photo-gallery";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS, mutedFill } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
@@ -5299,43 +5300,46 @@ function PBadge({ count, label, color, bg, border }: { count: number; label: str
 // badges weren't clickable, so techs' photos couldn't be viewed. This modal
 // fetches the job's photos (endpoint returns signed R2 URLs) and shows them in
 // before/after grids with click-to-enlarge.
+// [photo-management 2026-08-09] The zoom overlay used to be hand-rolled here.
+// It now delegates to the shared PhotoLightbox so the dispatch drawer gets the
+// same download + delete the customer profile does, and the two can't drift.
 function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void }) {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const [photos, setPhotos] = useState<Array<{ url: string; photo_type: string }>>([]);
+  const [photos, setPhotos] = useState<Array<{ id: number; url: string; photo_type: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [zoomIdx, setZoomIdx] = useState<number | null>(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const r = await fetch(`${API}/api/jobs/${jobId}/photos`, { headers: getAuthHeaders() as any });
-        const d = r.ok ? await r.json() : { data: [] };
-        if (alive) setPhotos(d.data || []);
-      } catch { if (alive) setPhotos([]); }
-      if (alive) setLoading(false);
-    })();
-    return () => { alive = false; };
+  const [zipping, setZipping] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/api/jobs/${jobId}/photos`, { headers: getAuthHeaders() as any });
+      const d = r.ok ? await r.json() : { data: [] };
+      setPhotos(d.data || []);
+    } catch { setPhotos([]); }
+    setLoading(false);
   }, [jobId, API]);
+  useEffect(() => { load(); }, [load]);
   const before = photos.filter((p) => p.photo_type === "before");
   const after = photos.filter((p) => p.photo_type !== "before");
   const ordered = [...before, ...after];
-  // Keyboard nav for the lightbox: ← / → step through all photos, Esc closes.
-  useEffect(() => {
-    if (zoomIdx === null) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") setZoomIdx((i) => (i! > 0 ? i! - 1 : ordered.length - 1));
-      else if (e.key === "ArrowRight") setZoomIdx((i) => (i! < ordered.length - 1 ? i! + 1 : 0));
-      else if (e.key === "Escape") setZoomIdx(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [zoomIdx, ordered.length]);
+  const downloadAll = async () => {
+    setZipping(true);
+    try { await downloadPhotosZip(ordered.map((p) => p.id), `job ${jobId} photos.zip`); }
+    catch { /* the lightbox is where errors get a toast; here the button just settles */ }
+    setZipping(false);
+  };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 900, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 20, fontFamily: FF }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 10 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Job #{jobId} photos</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#6B6860", lineHeight: 1 }}>×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {ordered.length > 0 && (
+              <button onClick={downloadAll} disabled={zipping} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 11px", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#1A1917", cursor: "pointer", fontFamily: FF, opacity: zipping ? 0.6 : 1 }}>
+                <Download size={12} /> Download all ({ordered.length})
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#6B6860", lineHeight: 1 }}>×</button>
+          </div>
         </div>
         {loading ? (
           <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading photos…</div>
@@ -5355,23 +5359,13 @@ function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void
         )}
       </div>
       {zoomIdx !== null && ordered[zoomIdx] && (
-        <div onClick={() => setZoomIdx(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <button onClick={onClose} style={{ position: "absolute", top: 16, right: 20, background: "none", border: "none", cursor: "pointer", fontSize: 30, color: "#fff", lineHeight: 1 }}>×</button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setZoomIdx((i) => (i! > 0 ? i! - 1 : ordered.length - 1)); }}
-            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 30, lineHeight: 1, cursor: "pointer", display: ordered.length > 1 ? "flex" : "none", alignItems: "center", justifyContent: "center" }}
-            aria-label="Previous"
-          >‹</button>
-          <img src={ordered[zoomIdx].url} alt="enlarged" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88%", maxHeight: "88%", objectFit: "contain", borderRadius: 4 }} />
-          <button
-            onClick={(e) => { e.stopPropagation(); setZoomIdx((i) => (i! < ordered.length - 1 ? i! + 1 : 0)); }}
-            style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 30, lineHeight: 1, cursor: "pointer", display: ordered.length > 1 ? "flex" : "none", alignItems: "center", justifyContent: "center" }}
-            aria-label="Next"
-          >›</button>
-          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "#fff", fontSize: 13, fontWeight: 600, background: "rgba(0,0,0,.5)", padding: "4px 12px", borderRadius: 12, fontFamily: FF }}>
-            {zoomIdx < before.length ? "Before" : "After"} · {zoomIdx + 1} / {ordered.length}
-          </div>
-        </div>
+        <PhotoLightbox
+          photos={ordered.map((p) => ({ id: p.id, url: p.url, photo_type: p.photo_type }))}
+          index={Math.min(zoomIdx, ordered.length - 1)}
+          onIndexChange={setZoomIdx}
+          onClose={() => setZoomIdx(null)}
+          onDeleted={load}
+        />
       )}
     </div>
   );

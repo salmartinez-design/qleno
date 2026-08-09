@@ -88,6 +88,21 @@ export async function r2Delete(key: string): Promise<void> {
   await client().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 
+// [photo-management 2026-08-09] Pull the actual bytes back out of R2. Signing a
+// GET URL is enough for <img src>, but not for a download: the signed URL is a
+// different origin, so a browser ignores the `download` attribute on it and
+// navigates to the image instead of saving it. Serving the bytes ourselves lets
+// us set Content-Disposition, and it's the same read the ZIP builder needs.
+export async function r2GetBytes(
+  key: string
+): Promise<{ body: Buffer; contentType: string }> {
+  const out = await client().send(
+    new GetObjectCommand({ Bucket: BUCKET, Key: key })
+  );
+  const body = Buffer.from(await out.Body!.transformToByteArray());
+  return { body, contentType: out.ContentType || "application/octet-stream" };
+}
+
 /** A stored job_photos.url is a legacy inline image when it's a data: URL.
  *  Anything starting with http(s):// or / is already a servable URL. Otherwise
  *  it's an R2 object key that must be signed before serving. */

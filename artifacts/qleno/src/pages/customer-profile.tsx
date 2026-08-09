@@ -16,6 +16,7 @@ import {
   Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
   MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench, GitMerge,
+  Download,
 } from "lucide-react";
 import { MergeClientModal } from "@/components/merge-client-modal";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
@@ -23,6 +24,7 @@ import { JobWizard } from "@/components/job-wizard";
 import { SquareCardForm } from "@/components/square-card-form";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { ActivityFeed } from "@/components/activity-feed";
+import { PhotoLightbox, downloadPhotosZip, deletePhoto, canManagePhotos, type GalleryPhoto } from "@/components/photo-gallery";
 // [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
 // client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
 // so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
@@ -5166,12 +5168,65 @@ function AttachmentsSection({ clientId }: { clientId: number }) {
 }
 
 // ─── Home Images Section ──────────────────────────────────────────────────────
-function HomeImagesSection({ clientId }: { clientId: number }) {
+// [photo-management 2026-08-09] Francisco: "from the Client Profile, we can see
+// that photos have been uploaded, but we cannot open them, download them, or
+// manage them in any way." The tiles were plain <img> with no click handler, so
+// this was the whole feature: view full size, download one, download a batch,
+// delete a mistake. Selection is opt-in — the default click opens the photo,
+// because looking at it is what the office does ninety-nine times out of a
+// hundred; the checkbox in the corner is what turns a visit into a batch.
+function HomeImagesSection({ clientId, showToast }: { clientId: number; showToast: (msg: string, type?: "success" | "error") => void }) {
+  const queryClient = useQueryClient();
   const { data: photos = [], isLoading } = useQuery<any[]>({
     queryKey: ["client-job-photos", clientId],
     queryFn: () => apiFetch(`/api/clients/${clientId}/job-photos`),
     staleTime: 60000,
   });
+
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["client-job-photos", clientId] });
+
+  const toggle = (id: number) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const runZip = async (ids: number[], name: string, label: string) => {
+    if (ids.length === 0) return;
+    setBusy(label);
+    try {
+      const { included, skipped } = await downloadPhotosZip(ids, name);
+      showToast(skipped > 0
+        ? `Downloaded ${included} photo${included === 1 ? "" : "s"} — ${skipped} could not be read.`
+        : `Downloaded ${included} photo${included === 1 ? "" : "s"}.`,
+        skipped > 0 ? "error" : "success");
+    } catch (e: any) {
+      showToast(e?.message || "Download failed.", "error");
+    }
+    setBusy(null);
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    setBusy("bulk-delete");
+    let failed = 0;
+    for (const id of ids) {
+      try { await deletePhoto(id); } catch { failed++; }
+    }
+    setSelected(new Set());
+    setConfirmBulkDelete(false);
+    setBusy(null);
+    refresh();
+    showToast(failed
+      ? `Deleted ${ids.length - failed} of ${ids.length}; ${failed} failed.`
+      : `Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`,
+      failed ? "error" : "success");
+  };
 
   const byJob = photos.reduce((acc: Record<number, any[]>, p: any) => {
     if (!acc[p.job_id]) acc[p.job_id] = [];
@@ -5194,13 +5249,57 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
     photos: rows,
   })).sort((a, b) => (b.takenDate || "").localeCompare(a.takenDate || ""));
 
+  // Flattened in render order so the lightbox arrows walk the whole history the
+  // way the eye reads it, not just the visit that was clicked.
+  const flat: GalleryPhoto[] = jobGroups.flatMap(g => g.photos.map((p: any) => ({
+    id: p.photo_id,
+    url: p.url,
+    photo_type: p.photo_type,
+    caption: `${fmtDate(g.takenDate)}${g.serviceType ? ` · ${g.serviceType}` : ""} · Job #${g.jobId}`,
+  })));
+  const indexOfPhoto = (photoId: number) => flat.findIndex(f => f.id === photoId);
+  const allIds = flat.map(f => f.id);
+  const canManage = canManagePhotos();
+
+  const btn = {
+    display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff",
+    border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12,
+    fontWeight: 600, cursor: "pointer", fontFamily: FF,
+  } as const;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
+        {allIds.length > 0 && (
+          <button onClick={() => runZip(allIds, "job photos.zip", "all")} disabled={busy !== null} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>
+            {busy === "all" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Download all ({allIds.length})
+          </button>
+        )}
         <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, opacity: 0.5 }} title="Photo uploads are taken by technicians during jobs">
           <Upload size={13} /> Upload Photo
         </button>
       </div>
+
+      {selected.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, flexWrap: "wrap" as const }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{selected.size} selected</span>
+          <button onClick={() => runZip(Array.from(selected), `job photos (${selected.size}).zip`, "selection")} disabled={busy !== null} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>
+            {busy === "selection" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Download selected
+          </button>
+          {canManage && (confirmBulkDelete ? (
+            <>
+              <button onClick={deleteSelected} disabled={busy !== null} style={{ ...btn, background: "#DC2626", borderColor: "#DC2626", color: "#fff", opacity: busy ? 0.6 : 1 }}>
+                {busy === "bulk-delete" ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />} Delete {selected.size} for good
+              </button>
+              <button onClick={() => setConfirmBulkDelete(false)} style={btn}>Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setConfirmBulkDelete(true)} disabled={busy !== null} style={btn}><Trash2 size={13} /> Delete selected</button>
+          ))}
+          <button onClick={() => { setSelected(new Set()); setConfirmBulkDelete(false); }} style={{ ...btn, marginLeft: "auto" }}>Clear</button>
+        </div>
+      )}
+
       {isLoading ? (
         <div style={{ textAlign: "center" as const, color: "#9E9B94", fontSize: 13, padding: 24 }}>Loading...</div>
       ) : jobGroups.length === 0 ? (
@@ -5213,20 +5312,58 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.takenDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}{group.jobDate && group.takenDate && String(group.jobDate).slice(0, 10) !== group.takenDate ? ` · visit now on ${fmtDate(group.jobDate)}` : ""}</div>
                 {group.techName && <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{group.techName}</div>}
               </div>
-              <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                <button
+                  onClick={() => runZip(group.photos.map((p: any) => p.photo_id), `job ${group.jobId} photos.zip`, `job-${group.jobId}`)}
+                  disabled={busy !== null}
+                  style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, fontSize: 11, fontWeight: 600, color: "#6B6860", cursor: "pointer", fontFamily: FF, opacity: busy ? 0.6 : 1 }}
+                  title="Download every photo from this visit as a zip"
+                >
+                  {busy === `job-${group.jobId}` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Download all ({group.photos.length})
+                </button>
+                <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
+              </div>
             </div>
             <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-              {group.photos.map((p: any) => (
-                <div key={p.photo_id} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden", position: "relative" }}>
-                  <img src={p.url} alt={`Job ${group.jobId} photo`} style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block" }} />
-                  {p.photo_type && (
-                    <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FDF3E4" : "#E6F6F1", color: p.photo_type === "before" ? "#B45309" : "#0F7A63", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
-                  )}
-                </div>
-              ))}
+              {group.photos.map((p: any) => {
+                const isSelected = selected.has(p.photo_id);
+                return (
+                  <div key={p.photo_id} style={{ border: `1px solid ${isSelected ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 7, overflow: "hidden", position: "relative", boxShadow: isSelected ? "0 0 0 2px rgba(0,201,160,.25)" : "none" }}>
+                    <img
+                      src={p.url}
+                      alt={`Job ${group.jobId} photo`}
+                      onClick={() => setLightboxIdx(indexOfPhoto(p.photo_id))}
+                      style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block", cursor: "zoom-in" }}
+                    />
+                    {p.photo_type && (
+                      <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FDF3E4" : "#E6F6F1", color: p.photo_type === "before" ? "#B45309" : "#0F7A63", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
+                    )}
+                    {/* Checkbox rides on top of the image so batching never costs a mode switch. */}
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: 5, background: isSelected ? "var(--brand)" : "rgba(255,255,255,.9)", border: "1px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                      title={isSelected ? "Remove from selection" : "Select for batch download"}
+                    >
+                      <input type="checkbox" checked={isSelected} onChange={() => toggle(p.photo_id)} style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", margin: 0, cursor: "pointer" }} />
+                      {isSelected && <Check size={13} color="#fff" />}
+                    </label>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))
+      )}
+
+      {lightboxIdx !== null && (
+        <PhotoLightbox
+          photos={flat}
+          index={Math.min(lightboxIdx, Math.max(flat.length - 1, 0))}
+          onIndexChange={setLightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+          onDeleted={(photoId) => { setSelected(prev => { const n = new Set(prev); n.delete(photoId); return n; }); refresh(); }}
+          showToast={showToast}
+        />
       )}
     </div>
   );
@@ -6662,7 +6799,7 @@ export default function CustomerProfilePage() {
             {/* Home Images */}
             <div style={CS}>
               <SectionHead title="Home Images" />
-              <HomeImagesSection clientId={clientId} />
+              <HomeImagesSection clientId={clientId} showToast={showToast} />
             </div>
           </div>
         </div>
@@ -6957,6 +7094,12 @@ export default function CustomerProfilePage() {
               <div style={CS}>
                 <div style={CTitle}>Client Notes</div>
                 <textarea defaultValue={profile.notes || ""} onBlur={async (e) => { if (e.target.value !== (profile.notes || "")) { try { await updateMut.mutateAsync({ notes: e.target.value }); showToast("Notes saved"); } catch { showToast("Failed to save notes", "error"); } } }} placeholder="Internal notes..." rows={4} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, background: "#F7F6F3" }} />
+              </div>
+              {/* [photo-management 2026-08-09] The mobile Property tab omitted Home
+                  Images entirely, so on a phone the job photos simply didn't exist. */}
+              <div style={CS}>
+                <div style={CTitle}>Home Images</div>
+                <HomeImagesSection clientId={clientId} showToast={showToast} />
               </div>
             </>)}
             {activeTab === "jobs" && (<>
