@@ -206,6 +206,20 @@ export async function sendNotification(
       ...mergeVars,
     };
 
+    // [legacy-merge-tags 2026-08-09] The original templates were written against
+    // an older sender and reference {{client_name}} / {{amount}}, but every
+    // current caller supplies first_name plus invoice_amount / payment_amount.
+    // applyMerge resolves an unknown tag to "" — silently — so those emails went
+    // out reading "Hi , Please find your invoice for $ attached." (invoice #7329,
+    // a real $50 invoice with a named billing contact: the data was fine, the tag
+    // names were not). Alias the legacy names onto the modern values here, once,
+    // so EVERY template resolves — including copy a tenant wrote by hand in
+    // Settings. Fill-only: a caller that genuinely passes client_name or amount
+    // keeps its own value, so no existing send changes.
+    if (!fullVars.client_name && fullVars.first_name) fullVars.client_name = fullVars.first_name;
+    if (!fullVars.first_name && fullVars.client_name) fullVars.first_name = fullVars.client_name;
+    if (!fullVars.amount) fullVars.amount = fullVars.invoice_amount || fullVars.payment_amount || "";
+
     if (channel === "email") {
       if (!recipientEmail) {
         await logNotification(companyId, "no-email", channel, templateKey, "skipped", "No recipient email", fullVars);
