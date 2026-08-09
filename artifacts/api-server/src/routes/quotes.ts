@@ -13,6 +13,54 @@ import { materializeClientForQuote } from "../lib/materialize-client.js";
 
 const router = Router();
 
+// [quote-discount-adjustment 2026-08-09] Francisco: "Quote discounts should
+// appear as adjustments on the Job Card and should not affect cleaner
+// commissions. When a discount is applied through the Quoting Tool, it should
+// be carried over to the Job Card as a separate discount adjustment rather than
+// reducing the base service rate."
+//
+// Before this the discount was invisible on the job: convert booked the job at
+// whatever price it had and the Job Card's ADJUSTMENTS panel read "No
+// adjustments". Worse, the two price sources disagreed about whether the
+// discount was already applied — the frequency snapshot
+// (quotes.frequency_options) is priced PRE-discount by the pricing engine,
+// while quotes.total_price is the POST-discount final total. So a discounted
+// quote with a snapshot silently booked at full price (the customer never got
+// their discount), and one without a snapshot booked at the discounted price
+// with the discount buried inside base_fee.
+//
+// Now base_fee is ALWAYS the full pre-discount service rate and the discount is
+// its own negative flat row in job_rate_mods — the exact carrier the
+// ADJUSTMENTS panel renders. affects_commission=false, so
+// recomputeJobBilledAmount lands billed_amount = base − discount (what the
+// client pays) and commission_base = base (the full price the cleaner is paid
+// on). No commission_base pin needed: the engine derives it.
+async function applyQuoteDiscountAdjustment(
+  companyId: number,
+  jobId: number | null | undefined,
+  discount: number,
+  code: string | null,
+  userId: number | null,
+): Promise<void> {
+  if (!jobId || !(discount > 0)) return;
+  try {
+    const reason = `Quote discount${code ? ` (${code})` : ""}`;
+    // Idempotent — a re-convert must not stack a second discount row.
+    const dupe = await db.execute(sql`
+      SELECT 1 FROM job_rate_mods
+       WHERE job_id = ${jobId} AND company_id = ${companyId} AND reason LIKE 'Quote discount%'
+       LIMIT 1`);
+    if (dupe.rows.length > 0) return;
+    await db.execute(sql`
+      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by, affects_commission)
+      VALUES (${companyId}, ${jobId}, 'flat', NULL, ${(-discount).toFixed(2)}, ${reason}, ${userId}, false)`);
+    const { recomputeJobBilledAmount } = await import("./jobs.js");
+    await recomputeJobBilledAmount(jobId, companyId);
+  } catch (e) {
+    console.warn("[convert] quote discount adjustment non-fatal:", e);
+  }
+}
+
 // [quote-convert-stickiness 2026-06-10] Map the quote's `addons` jsonb
 // (addon_breakdown rows: { id: pricing_addons.id, name, amount, price_type })
 // into the shape persistJobAddOns expects. The convert previously dropped
@@ -643,7 +691,15 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // Booked price: recurring tiers bill the recurring per-visit rate on the
     // schedule; the first job gets the one-time first-visit price. One-time bills
     // the one-time price. Falls back to the quote's stored total when no snapshot.
-    const fallbackFee = q.total_price != null ? Number(q.total_price) : (q.base_price != null ? Number(q.base_price) : null);
+    // [quote-discount-adjustment 2026-08-09] Every fee below is the PRE-discount
+    // service rate. The snapshot options already are (the pricing engine never
+    // applies discount_amount); the stored total_price fallback is POST-discount,
+    // so add the discount back. The discount then lands as its own adjustment row
+    // on the booked job — see applyQuoteDiscountAdjustment.
+    const convertDiscount = Math.max(0, Number((q as any).discount_amount ?? 0) || 0);
+    const fallbackFee = q.total_price != null
+      ? Math.round((Number(q.total_price) + convertDiscount) * 100) / 100
+      : (q.base_price != null ? Number(q.base_price) : null);
     const recurringFee = chosenOpt ? (snapKey === "onetime" ? chosenOpt.first_visit_price : chosenOpt.recurring_price) : fallbackFee;
     const firstVisitFee = chosenOpt ? chosenOpt.first_visit_price : fallbackFee;
     const chosenHours = chosenOpt ? Number(chosenOpt.hours) : (q.estimated_hours != null ? Number(q.estimated_hours) : null);
@@ -936,6 +992,21 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
           } catch (e) { console.warn("[quote convert] first-visit price stamp failed:", e); }
         }
       }
+
+      // [quote-discount-adjustment 2026-08-09] A quote-level discount is a
+      // one-off, so it rides the FIRST visit of the series as its own
+      // adjustment row. Every visit keeps the full agreed rate as its base fee.
+      if (convertDiscount > 0) {
+        try {
+          const firstRow = await db.execute(sql`
+            SELECT id FROM jobs
+             WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+             ORDER BY scheduled_date ASC, id ASC LIMIT 1`);
+          const firstId = (firstRow.rows[0] as any)?.id ?? null;
+          await applyQuoteDiscountAdjustment(companyId, firstId, convertDiscount, (q as any).discount_code ?? null, req.auth!.userId ?? null);
+        } catch (e) { console.warn("[quote convert] recurring discount adjustment non-fatal:", e); }
+      }
+
       logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", recurring_schedule_id: sched.id, jobs_generated: generated.created });
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
         stopEnrollmentsForQuote(id, "booked").catch(() => {});
@@ -1001,24 +1072,15 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     `);
     const jobId = (jobResult.rows[0] as any)?.id;
 
-    // [discount-commission-fix 2026-07-11] A promo/discount reduced the booked
-    // base_fee above. For residential jobs base_fee ALSO serves as the
-    // commission base, so a baked-in discount would dock the cleaner's pay
-    // (Francisco: discounts must not touch payroll). Pin commission_base to the
-    // PRE-discount amount (booked base_fee + the discount that was applied) so
-    // commission is computed on the FULL service price, while the client still
-    // pays the discounted base_fee. Only when a discount was actually applied;
-    // otherwise commission_base stays NULL and the engine's existing fallback
-    // (max(base_fee, billed_amount)) is unchanged.
-    const convertDiscount = q.discount_amount != null ? Number(q.discount_amount) : 0;
-    if (jobId && convertDiscount > 0) {
-      try {
-        await db.execute(sql`
-          UPDATE jobs
-             SET commission_base = ROUND(COALESCE(base_fee, 0) + ${convertDiscount}, 2)
-           WHERE id = ${jobId} AND company_id = ${companyId}`);
-      } catch (e) { console.warn("[convert] commission_base pin non-fatal:", e); }
-    }
+    // [discount-commission-fix 2026-07-11] Discounts must never dock the
+    // cleaner's pay (Francisco). That used to be done by pinning commission_base
+    // to base_fee + discount, because the discount was baked INTO base_fee.
+    // [quote-discount-adjustment 2026-08-09] base_fee is now the full
+    // pre-discount rate and the discount is a separate non-commissionable
+    // adjustment row, so the pin is gone — recomputeJobBilledAmount derives
+    // commission_base = base_fee (full price) and billed_amount = base − discount
+    // (what the client pays) from the row itself.
+    await applyQuoteDiscountAdjustment(companyId, jobId, convertDiscount, (q as any).discount_code ?? null, req.auth!.userId ?? null);
 
     // Link job back to quote (safe — column may not exist yet)
     if (jobId) {
