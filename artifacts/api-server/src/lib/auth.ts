@@ -106,6 +106,18 @@ export function isTechnicianRole(role: string | null | undefined): boolean {
   return role === "technician" || role === "trainee";
 }
 
+// [client-office-notes 2026-08-09] True for the desk roles that may read and
+// write office-only content. The inverse of isTechnicianRole is NOT good enough
+// here — 'accountant' (the external CPA) is neither a tech nor office staff who
+// should be editing client notes, so this is an explicit allow-list.
+//
+// Use this for field-level gating INSIDE a handler that is already authenticated
+// but shared with non-office callers. A whole route that is office-only should
+// still use requireRole("owner", "admin", "office") at the router.
+export function isOfficeRole(role: string | null | undefined): boolean {
+  return role === "owner" || role === "admin" || role === "office" || role === "super_admin";
+}
+
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) {

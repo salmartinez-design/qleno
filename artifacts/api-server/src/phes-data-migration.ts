@@ -377,6 +377,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
     { label: "jobs.office_notes_updated_by", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_by INTEGER" },
     { label: "jobs.office_notes_updated_at", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_at TIMESTAMP" },
+    // [client-office-notes 2026-08-09] Standing office note on the CLIENT, so
+    // it applies to every visit instead of being retyped per job.
+    { label: "clients.office_notes",            stmt: "ALTER TABLE clients ADD COLUMN IF NOT EXISTS office_notes TEXT" },
+    { label: "clients.office_notes_updated_by", stmt: "ALTER TABLE clients ADD COLUMN IF NOT EXISTS office_notes_updated_by INTEGER" },
+    { label: "clients.office_notes_updated_at", stmt: "ALTER TABLE clients ADD COLUMN IF NOT EXISTS office_notes_updated_at TIMESTAMP" },
     { label: "companies.flag_missing_gps", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS flag_missing_gps BOOLEAN NOT NULL DEFAULT true" },
     { label: "companies.require_after_photo_for_clockout", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_after_photo_for_clockout BOOLEAN NOT NULL DEFAULT false" },
     // [fee-rule-tech-comp 2026-07-15] pricing_fee_rules gained office-editable

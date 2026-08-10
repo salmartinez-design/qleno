@@ -755,6 +755,58 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       } catch (e) { console.error("[convert] seed client_home non-fatal:", (e as any)?.message); }
     }
 
+    // [quote-notes-durable 2026-08-09] Two fields the quote builder captured and
+    // then effectively threw away. Both land on the CLIENT here, before either
+    // convert branch, so recurring and one-time behave identically.
+    //
+    // call_notes — already copied onto the generated job(s) below
+    // ([quote-notes-convert 2026-07-01]), but only there. Maribel: "the 'call
+    // notes' during the quote should be saved there too. Because right now they
+    // go nowhere" / "After the job is booked." A note taken on the phone is
+    // about the CLIENT, not about one visit, so it also appends to the standing
+    // office-only note and stays findable after that first job is done.
+    //
+    // unit_suite — written by the builder, stored on the quote, and read by
+    // NOTHING. Maribel: "Same with the unit number, doesn't save anywhere." It
+    // goes to home_access_notes ("Entry Instructions"), which is the field the
+    // tech actually sees in my-jobs — a unit number the cleaner can't see is
+    // the same as no unit number.
+    //
+    // Both appends are guarded by a containment check so re-converting the same
+    // quote (or converting a re-booked quote) doesn't stack duplicates.
+    if (clientId) {
+      const callNotes = String((q as any).call_notes ?? "").trim();
+      if (callNotes) {
+        try {
+          await db.execute(sql`
+            UPDATE clients
+               SET office_notes = CASE
+                     WHEN COALESCE(NULLIF(btrim(office_notes), ''), '') = '' THEN ${callNotes}
+                     ELSE office_notes || E'\n\n' || ${callNotes}
+                   END,
+                   office_notes_updated_by = ${req.auth!.userId ?? null},
+                   office_notes_updated_at = NOW()
+             WHERE id = ${clientId} AND company_id = ${companyId}
+               AND POSITION(${callNotes} IN COALESCE(office_notes, '')) = 0`);
+        } catch (e) { console.error("[convert] call_notes -> client office_notes non-fatal:", (e as any)?.message); }
+      }
+
+      const unit = String((q as any).unit_suite ?? "").trim();
+      if (unit) {
+        const unitLine = `Unit / Suite: ${unit}`;
+        try {
+          await db.execute(sql`
+            UPDATE clients
+               SET home_access_notes = CASE
+                     WHEN COALESCE(NULLIF(btrim(home_access_notes), ''), '') = '' THEN ${unitLine}
+                     ELSE ${unitLine} || E'\n' || home_access_notes
+                   END
+             WHERE id = ${clientId} AND company_id = ${companyId}
+               AND POSITION(${unitLine} IN COALESCE(home_access_notes, '')) = 0`);
+        } catch (e) { console.error("[convert] unit_suite -> client home_access_notes non-fatal:", (e as any)?.message); }
+      }
+    }
+
     // [lead-card-capture 2026-08-08] Attach a card the office took DURING the
     // call, before this client existed.
     //

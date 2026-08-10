@@ -9,7 +9,7 @@ import {
   accountPropertiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
-import { requireAuth, requireRole } from "../lib/auth.js";
+import { requireAuth, requireRole, isOfficeRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import {
   getClientMergeImpact, mergeClients, getClientDeleteGuard, deleteEmptyClient,
@@ -522,8 +522,30 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       }
     }
 
+    // [client-office-notes 2026-08-09] This handler is `select *` behind a bare
+    // requireAuth, so a new column ships to every caller by default. The standing
+    // office note is office-only — strip it for anyone else rather than trusting
+    // the frontend not to render it. When the caller IS office, resolve the
+    // editor's name so the profile can say who last touched it.
+    const officeOnly = isOfficeRole(req.auth!.role);
+    const visibleClient: any = { ...client };
+    let officeNotesEditor: string | null = null;
+    if (officeOnly) {
+      if ((client as any).office_notes_updated_by) {
+        const [editor] = await db
+          .select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+          .from(usersTable).where(eq(usersTable.id, (client as any).office_notes_updated_by)).limit(1);
+        if (editor) officeNotesEditor = `${editor.first_name ?? ""} ${editor.last_name ?? ""}`.trim() || null;
+      }
+    } else {
+      delete visibleClient.office_notes;
+      delete visibleClient.office_notes_updated_by;
+      delete visibleClient.office_notes_updated_at;
+    }
+
     return res.json({
-      ...client,
+      ...visibleClient,
+      office_notes_updated_by_name: officeNotesEditor,
       ...(zoneData || {}),
       qb_status,
       homes: homesWithZone,
@@ -705,8 +727,20 @@ router.get("/:id", requireAuth, async (req, res) => {
         .where(and(eq(jobsTable.client_id, clientId), eq(jobsTable.status, "complete")))
         .orderBy(desc(jobsTable.scheduled_date)).limit(1),
     ]);
+    // [client-office-notes 2026-08-09] This handler is `select *` behind a bare
+    // requireAuth, so a new column is exposed to every caller by default. The
+    // standing office note is office-only — strip it (and its stamp) for anyone
+    // else rather than relying on the frontend not to render it.
+    const officeOnly = isOfficeRole(req.auth!.role);
+    const visibleClient: any = { ...client };
+    if (!officeOnly) {
+      delete visibleClient.office_notes;
+      delete visibleClient.office_notes_updated_by;
+      delete visibleClient.office_notes_updated_at;
+    }
+
     return res.json({
-      ...client,
+      ...visibleClient,
       // Spread AFTER ...client so these override the vestigial columns on the
       // row. No portal_users row = never invited, which is the honest answer.
       portal_access: !!portal?.portal_access,
@@ -848,7 +882,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     const {
       first_name, last_name, email, phone, address, city, state, zip, notes, company_name,
       frequency, service_type, base_fee, allowed_hours, is_active, home_access_notes,
-      alarm_code, pets, client_since, referral_source,
+      alarm_code, pets, client_since, referral_source, office_notes,
       client_type, commercial_category, billing_contact_name, billing_contact_email, billing_contact_phone,
       po_number_required, default_po_number, payment_terms, auto_charge,
       card_last_four, card_brand, card_expiry, card_saved_at,
@@ -890,6 +924,15 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(home_access_notes !== undefined && { home_access_notes }),
       ...(alarm_code !== undefined && { alarm_code }),
       ...(pets !== undefined && { pets }),
+      // [client-office-notes 2026-08-09] Standing office note for this client.
+      // Office-only: only owner/admin/office may write it, and no tech- or
+      // portal-facing payload selects it. Stamp who + when, same as the
+      // per-job office note, so "who wrote this and when" is answerable.
+      ...(office_notes !== undefined && isOfficeRole(req.auth!.role) && {
+        office_notes: office_notes === "" ? null : office_notes,
+        office_notes_updated_by: req.auth!.userId ?? null,
+        office_notes_updated_at: new Date(),
+      }),
       // [leadsource-unify 2026-07-28] Persist "How did you hear about us?" from
       // the customer profile. This field was previously destructured nowhere and
       // silently dropped on save — the acquisition-source dropdown never stuck.

@@ -6765,6 +6765,7 @@ export default function CustomerProfilePage() {
                 For the office and techs — never shown to the client.
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 4 }}>Standing note</div>
+              <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 4 }}>Techs see this on every visit.</div>
               <textarea
                 defaultValue={profile.notes || ""}
                 onBlur={async (e) => {
@@ -6777,6 +6778,36 @@ export default function CustomerProfilePage() {
                 rows={4}
                 style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#F7F6F3" }}
               />
+
+              {/* [client-office-notes 2026-08-09] Office-only standing note. The
+                  "Standing note" above is clients.notes, which my-jobs shows to
+                  the TECH — so it was never a place to write something only the
+                  office should read. This one appears on the dispatch job card
+                  for every visit and nowhere in the tech app or the portal.
+                  Francisco: "We need internal notes for the office in the
+                  client's profile" / "making this ones steady for all the jobs
+                  of the client." */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", margin: "16px 0 4px" }}>Office-only note</div>
+              <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 4 }}>Shows on every job card in dispatch. Techs never see it.</div>
+              <textarea
+                defaultValue={profile.office_notes || ""}
+                onBlur={async (e) => {
+                  if (e.target.value !== (profile.office_notes || "")) {
+                    try { await updateMut.mutateAsync({ office_notes: e.target.value }); showToast("Office note saved"); }
+                    catch { showToast("Failed to save office note", "error"); }
+                  }
+                }}
+                placeholder="Billing quirks, gate codes for the office, do-not-send reminders (auto-saves on blur)..."
+                rows={4}
+                style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#FDF9F0" }}
+              />
+              {profile.office_notes_updated_at && (
+                <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 5 }}>
+                  Last edited {new Date(profile.office_notes_updated_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                  {profile.office_notes_updated_by_name ? ` by ${profile.office_notes_updated_by_name}` : ""}
+                </div>
+              )}
+
               <div style={{ borderTop: "1px solid #F0EEE9", margin: "16px 0 12px" }} />
               <TeamPhotoNotes clientId={clientId} title="Notes & photos" />
             </div>
@@ -7093,7 +7124,14 @@ export default function CustomerProfilePage() {
               </div>
               <div style={CS}>
                 <div style={CTitle}>Client Notes</div>
+                <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 4 }}>Techs see this on every visit.</div>
                 <textarea defaultValue={profile.notes || ""} onBlur={async (e) => { if (e.target.value !== (profile.notes || "")) { try { await updateMut.mutateAsync({ notes: e.target.value }); showToast("Notes saved"); } catch { showToast("Failed to save notes", "error"); } } }} placeholder="Internal notes..." rows={4} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, background: "#F7F6F3" }} />
+                {/* [client-office-notes 2026-08-09] Same office-only note as desktop.
+                    Mobile is the surface Maribel and Francisco actually use in the
+                    field, so leaving it desktop-only would have missed the ask. */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", margin: "14px 0 4px" }}>Office-only note</div>
+                <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 4 }}>Shows on every job card in dispatch. Techs never see it.</div>
+                <textarea defaultValue={profile.office_notes || ""} onBlur={async (e) => { if (e.target.value !== (profile.office_notes || "")) { try { await updateMut.mutateAsync({ office_notes: e.target.value }); showToast("Office note saved"); } catch { showToast("Failed to save office note", "error"); } } }} placeholder="Office-only notes..." rows={4} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, background: "#FDF9F0" }} />
               </div>
               {/* [photo-management 2026-08-09] The mobile Property tab omitted Home
                   Images entirely, so on a phone the job photos simply didn't exist. */}

@@ -41,6 +41,20 @@ export const clientsTable = pgTable("clients", {
   allowed_hours: numeric("allowed_hours", { precision: 6, scale: 2 }),
   home_access_notes: text("home_access_notes"),
   alarm_code: text("alarm_code"),
+  // [client-office-notes 2026-08-09] Standing internal note for the OFFICE,
+  // attached to the client rather than to one visit. Francisco: "We need
+  // internal notes for the office in the client's profile. PLEASE" — and,
+  // about the per-job office note, "Or making this ones steady for all the
+  // jobs of the client."
+  //
+  // Distinct from the three notes that already exist, on purpose:
+  //   clients.notes             — general profile note
+  //   clients.home_access_notes — "Entry Instructions", shown to the TECH
+  //   jobs.office_notes         — this ONE visit only
+  // This field is office-only and never reaches a tech or the portal.
+  office_notes: text("office_notes"),
+  office_notes_updated_by: integer("office_notes_updated_by"),
+  office_notes_updated_at: timestamp("office_notes_updated_at"),
   pets: text("pets"),
   loyalty_tier: text("loyalty_tier").notNull().default("standard"),
   client_since: date("client_since"),
