@@ -83,6 +83,7 @@ import {
   checkRequestable,
   checkWaitingPeriod,
   checkAdvanceNotice,
+  ADVANCE_NOTICE_DAYS,
   checkBalance,
   detectBlackoutOverlap,
   type BucketForValidation,
@@ -2639,7 +2640,12 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
   if (body.log_date > todayCT)
     return bad(
       res,
-      `Can't record attendance for ${body.log_date} — that date hasn't happened yet. Attendance records a day already worked (or missed); to plan time off, file a leave request instead.`,
+      // [notice 2026-08-10] Deliberately does NOT say "file a leave request
+      // instead". That only applies with 7+ days' notice — PTO / Unpaid
+      // Personal are rejected inside ADVANCE_NOTICE_DAYS (leave-request-rules),
+      // so a same-week call-off stays unexcused and just has to be recorded on
+      // or after the day. Maribel corrected the earlier wording on 8/10.
+      `Can't record attendance for ${body.log_date} — that date hasn't happened yet. Attendance records a day already worked (or missed), so record it on or after the day. Planning time off ahead is a leave request, which needs ${ADVANCE_NOTICE_DAYS} days' notice.`,
       "future_log_date",
     );
   const hours = Number(body.hours);

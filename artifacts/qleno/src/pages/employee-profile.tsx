@@ -848,14 +848,21 @@ export default function EmployeeProfilePage() {
     // [future-guard 2026-08-10] The API refuses a future date (an attendance
     // record documents a day that already happened — the guard that stopped a
     // Termination being dated Oct 17 back in July). Catch it here so the office
-    // gets the reason and the alternative instead of a failed round-trip.
+    // gets the reason and the next step instead of a failed round-trip.
     // Maribel hit this recording Vanessa's doctor's appointment for a Wednesday
     // that hadn't happened yet.
+    //
+    // Do NOT tell the office to "file a leave request instead" — that is only
+    // the right move with 7+ days' notice. PTO / Unpaid Personal are REJECTED
+    // inside that window (ADVANCE_NOTICE_DAYS in
+    // api-server/src/lib/leave-request-rules.ts, per the handbook), so a
+    // same-week call-off stays unexcused and simply has to be recorded on or
+    // after the day. Maribel corrected this exact wording on 8/10.
     if (recDate > ctToday()) {
       setRecErr(
         recordModal?.type === 'tardy'
           ? "That date hasn't happened yet — a tardy records a day already worked."
-          : "That date hasn't happened yet. Attendance records a day already missed; for a known-in-advance absence like an appointment, file a leave request instead.",
+          : "That date hasn't happened yet — record it on or after the day. Leave requests need 7 days' notice, so a call-off inside that window stays unexcused.",
       );
       return;
     }
