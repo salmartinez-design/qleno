@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -29,8 +29,32 @@ async function apiFetch(path: string, opts?: RequestInit) {
     ...opts,
     headers: { ...getAuthHeaders(), "Content-Type": "application/json", ...(opts?.headers || {}) },
   });
-  if (!r.ok) throw new Error(`${r.status}`);
+  // [error-text 2026-08-10] This threw the bare status code, so every failed
+  // call on this page surfaced as "400" with the server's explanation thrown
+  // away. Maribel hit it recording an absence for a future date: the API
+  // answered with the reason AND the fix ("file a leave request instead") and
+  // the office saw "400" — reported as "nothing happens". Prefer the server's
+  // message; fall back to the status only when there genuinely isn't one.
+  if (!r.ok) {
+    const raw = await r.text().catch(() => '');
+    let message = '';
+    try {
+      const parsed = JSON.parse(raw);
+      message = String(parsed?.message || parsed?.error || '');
+    } catch {
+      message = raw.slice(0, 300);
+    }
+    throw new Error(message || `Request failed (${r.status})`);
+  }
   return r.json();
+}
+
+// [ct-day 2026-08-10] Today in America/Chicago. `new Date().toISOString()`
+// rolls over at 7 PM Central, so a UTC "today" is tomorrow's date all evening
+// — which the server's future-attendance guard then rejects. The API measures
+// the same way (lib/ct-day.ts ctDateStr); these two must agree.
+function ctToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 }
 
 // Avatar upload now goes through AvatarCropModal (drag-to-reposition + zoom),
@@ -241,10 +265,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Input({ value, onChange, type='text', readOnly }: { value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean }) {
+// [autofill 2026-08-10] `autoComplete` / `name` / `maxLength` are forwarded so
+// callers can defeat Chrome's password manager. SSN Last 4 is a masked input
+// sitting right after a text input, and with no autocomplete hints at all
+// Chrome read the pair as username+password and filled Sal's own login into
+// Emergency Relationship + SSN Last 4 on the new-hire profile. See the two
+// fields in the Employee Info grid.
+// `placeholder` was already being passed by four call sites (bank details, W-9)
+// and silently dropped — it was never in the prop type, so those fields have
+// never shown their hint text. Forwarded here rather than left broken.
+function Input({ value, onChange, type='text', readOnly, autoComplete, name, maxLength, inputMode, placeholder }: {
+  value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean;
+  autoComplete?: string; name?: string; maxLength?: number; inputMode?: 'text' | 'numeric';
+  placeholder?: string;
+}) {
   return (
     <input
       type={type}
+      name={name}
+      autoComplete={autoComplete}
+      maxLength={maxLength}
+      inputMode={inputMode}
+      placeholder={placeholder}
       value={value || ''}
       readOnly={readOnly}
       onChange={e => onChange?.(e.target.value)}
@@ -793,7 +835,9 @@ export default function EmployeeProfilePage() {
   const [recBusy, setRecBusy] = useState(false);
   const [recErr, setRecErr] = useState<string | null>(null);
   const openRecord = (type: 'absent' | 'tardy', accent: string) => {
-    setRecDate(new Date().toISOString().slice(0, 10));
+    // Central day, not UTC — a UTC default is tomorrow's date after 7 PM CT,
+    // which the server's future-attendance guard would reject outright.
+    setRecDate(ctToday());
     setRecHours(''); setRecReason(''); setRecStart(''); setRecEnd(''); setRecFiles([]); setRecErr(null);
     setRecordModal({ type, accent, title: type === 'tardy' ? 'Record tardy' : 'Record unexcused absence' });
   };
@@ -801,6 +845,27 @@ export default function EmployeeProfilePage() {
     setRecErr(null);
     const hrs = Number(recHours);
     if (!recDate) { setRecErr('Pick a date'); return; }
+    // [future-guard 2026-08-10] The API refuses a future date (an attendance
+    // record documents a day that already happened — the guard that stopped a
+    // Termination being dated Oct 17 back in July). Catch it here so the office
+    // gets the reason and the next step instead of a failed round-trip.
+    // Maribel hit this recording Vanessa's doctor's appointment for a Wednesday
+    // that hadn't happened yet.
+    //
+    // Do NOT tell the office to "file a leave request instead" — that is only
+    // the right move with 7+ days' notice. PTO / Unpaid Personal are REJECTED
+    // inside that window (ADVANCE_NOTICE_DAYS in
+    // api-server/src/lib/leave-request-rules.ts, per the handbook), so a
+    // same-week call-off stays unexcused and simply has to be recorded on or
+    // after the day. Maribel corrected this exact wording on 8/10.
+    if (recDate > ctToday()) {
+      setRecErr(
+        recordModal?.type === 'tardy'
+          ? "That date hasn't happened yet — a tardy records a day already worked."
+          : "That date hasn't happened yet — record it on or after the day. Leave requests need 7 days' notice, so a call-off inside that window stays unexcused.",
+      );
+      return;
+    }
     if (!Number.isFinite(hrs) || hrs <= 0) { setRecErr('Hours must be a positive number'); return; }
     if ((recStart && !recEnd) || (!recStart && recEnd)) { setRecErr('Set both times for the block, or leave both blank for the whole day'); return; }
     if (recStart && recEnd && recStart >= recEnd) { setRecErr('The block start must be before its end'); return; }
@@ -1246,7 +1311,23 @@ export default function EmployeeProfilePage() {
   });
 
   const [form, setForm] = useState<Record<string, any>>({});
-  useEffect(() => { if (user) setForm(user); }, [user]);
+  // [hydrate-once 2026-08-10] Hydrate the form from the server ONCE per
+  // employee. This used to depend on the `user` object, so every refetch handed
+  // back a new object identity and reset the whole form — type an emergency
+  // contact and a note, let a background refetch land (window focus, or the
+  // refetchUser() any other save on this page fires), and every field silently
+  // snapped back to the stored value. saveProfile() then PUT the WHOLE form, so
+  // the blanks were written over real data. That is how Danielle Chilldres'
+  // emergency contact, phone and notes were lost on 8/10 (Sal). Same bug and
+  // same fix as company.tsx → Branding (#1206, 7/22).
+  // Keyed by userId so navigating to a different employee still re-hydrates.
+  const hydratedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    if (hydratedFor.current === String(userId)) return;
+    hydratedFor.current = String(userId);
+    setForm(user);
+  }, [user, userId]);
 
   const setField = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }));
 
@@ -1951,10 +2032,20 @@ export default function EmployeeProfilePage() {
                   </Field>
                   <Field label="Personal Email"><Input value={form.personal_email || ''} onChange={v => setField('personal_email',v)}/></Field>
                   <Field label="Personal Phone"><Input value={form.phone || ''} onChange={v => setField('phone',v)}/></Field>
-                  <Field label="Emergency Contact Name"><Input value={form.emergency_contact_name || ''} onChange={v => setField('emergency_contact_name',v)}/></Field>
-                  <Field label="Emergency Contact Phone"><Input value={form.emergency_contact_phone || ''} onChange={v => setField('emergency_contact_phone',v)}/></Field>
-                  <Field label="Emergency Relationship"><Input value={form.emergency_contact_relation || ''} onChange={v => setField('emergency_contact_relation',v)}/></Field>
-                  <Field label="SSN Last 4"><Input value={form.ssn_last4 || ''} onChange={v => setField('ssn_last4',v)} type="password"/></Field>
+                  {/* [autofill 2026-08-10] SSN Last 4 is masked and sits right
+                      after a text input. With no autocomplete hints Chrome read
+                      the pair as a login form and filled the signed-in user's
+                      email into Emergency Relationship and their PASSWORD into
+                      SSN Last 4 (Sal, 8/10 — the tell was the browser's autofill
+                      tint on exactly those two boxes). `new-password` is what
+                      actually stops Chrome offering saved credentials; plain
+                      "off" is ignored on login-shaped pairs. maxLength caps the
+                      field at what it claims to hold, so a long paste can never
+                      land here again. */}
+                  <Field label="Emergency Contact Name"><Input value={form.emergency_contact_name || ''} onChange={v => setField('emergency_contact_name',v)} name="emergency_contact_name" autoComplete="off"/></Field>
+                  <Field label="Emergency Contact Phone"><Input value={form.emergency_contact_phone || ''} onChange={v => setField('emergency_contact_phone',v)} name="emergency_contact_phone" autoComplete="off"/></Field>
+                  <Field label="Emergency Relationship"><Input value={form.emergency_contact_relation || ''} onChange={v => setField('emergency_contact_relation',v)} name="emergency_contact_relation" autoComplete="off"/></Field>
+                  <Field label="SSN Last 4"><Input value={form.ssn_last4 || ''} onChange={v => setField('ssn_last4',v)} type="password" name="employee_ssn_last4" autoComplete="new-password" maxLength={4} inputMode="numeric"/></Field>
                   <Field label="Hire Date"><CalendarPopover value={form.hire_date || ''} ariaLabel="Hire Date" onChange={v => setField('hire_date',v)} block /></Field>
                   {/* [terminate 2026-07-01] Read-only — termination is set via the
                       Terminate button (reason + dates + roster removal), not a bare
@@ -2464,7 +2555,13 @@ export default function EmployeeProfilePage() {
                         <button onClick={() => !recBusy && setRecordModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
                       </div>
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date</label>
-                      <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      {/* [no-native-date 2026-08-10] Was <input type="date">, the
+                          OS picker Sal removed everywhere on 7/28 — missed in that
+                          sweep even though this file already imports the shared
+                          popover for DOB and Hire Date. */}
+                      <div style={{ marginBottom:12 }}>
+                        <CalendarPopover value={recDate} onChange={setRecDate} ariaLabel={recordModal.type === 'tardy' ? 'Tardy date' : 'Absence date'} block />
+                      </div>
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{recordModal.type === 'tardy' ? 'Hours late' : 'Hours missed'}</label>
                       <input type="number" min="0" step="0.25" value={recHours} onChange={e => setRecHours(e.target.value)} placeholder="e.g. 8" style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
                       {/* [time-block] Optional window — a partial call-off
