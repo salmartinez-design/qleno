@@ -1678,6 +1678,19 @@ router.put("/:id", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes } = req.body;
 
+    // [reschedule-notify-put 2026-08-09] Same 'none'|'sms'|'email'|'both'
+    // contract PATCH has honored since [notify-choice 2026-07-08]. PUT is the
+    // endpoint the dispatch RESCHEDULE modal actually calls (patchJob() sends
+    // PUT, not PATCH), so the modal's notify picker was posting a field this
+    // route dropped on the floor — the office picked "text and email", the
+    // success line said "Client texted and emailed", and nothing was sent.
+    // Francisco: "Always provide the option to notify the client when
+    // rescheduling." The option existed; it just wasn't wired.
+    const _notifyViaRaw = (req.body as any).notify_client_via;
+    const notifyVia = ["none", "sms", "email", "both"].includes(String(_notifyViaRaw))
+      ? (String(_notifyViaRaw) as "none" | "sms" | "email" | "both")
+      : null;
+
     // [time-change-notice] Capture the prior date/time BEFORE the update so we
     // can tell a same-day time bump (→ raise the manual client-notify note) from
     // a cross-day reschedule (a different flow). Cheap single-row read.
@@ -1820,20 +1833,48 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
 
     // [time-change-notice] Same-day time bump → flag the job so the detail card
-    // shows the "Time updated … Send notification" note. A cross-day reschedule
-    // clears any stale flag (it's the email-reschedule flow, not this note).
+    // shows the "Time updated … Send notification" note.
+    //
+    // [reschedule-notify-put 2026-08-09] Two changes here:
+    //  1. An explicit notify_client_via wins. The office already answered the
+    //     "does the client hear about this?" question in the reschedule modal,
+    //     so send now (or deliberately send nothing) and raise no note.
+    //  2. When no choice came with the request — drag-and-drop on the board,
+    //     the account calendar's Move — a CROSS-DAY move now raises the same
+    //     pending note a same-day move does, instead of clearing the flag and
+    //     leaving no trace. Moving a visit to another day is exactly when the
+    //     client most needs telling; before this, that path offered the office
+    //     nothing at all. from-time is passed as null on a cross-day move so
+    //     the card renders the generic "Schedule updated" wording rather than
+    //     "Time updated from 9:00 to 9:00".
+    let notifyResult: { ok: boolean; sent: boolean; reason?: string } | null = null;
     if (priorSched) {
       const nextDate = scheduled_date !== undefined ? scheduled_date : priorSched.scheduled_date;
       const nextTime = scheduled_time !== undefined ? scheduled_time : priorSched.scheduled_time;
-      if (isSameDayTimeChange(priorSched.scheduled_date, priorSched.scheduled_time, nextDate, nextTime)) {
-        await markTimeChangePending(jobId, req.auth!.companyId!, priorSched.scheduled_time ? String(priorSched.scheduled_time).slice(0, 5) : null);
-      } else if (scheduled_date !== undefined && String(priorSched.scheduled_date ?? "").slice(0, 10) !== String(nextDate ?? "").slice(0, 10)) {
+      const timeMoved = isSameDayTimeChange(priorSched.scheduled_date, priorSched.scheduled_time, nextDate, nextTime);
+      const dayMoved = scheduled_date !== undefined
+        && String(priorSched.scheduled_date ?? "").slice(0, 10) !== String(nextDate ?? "").slice(0, 10);
+
+      if ((timeMoved || dayMoved) && notifyVia) {
         await clearTimeChangePending(jobId, req.auth!.companyId!);
+        if (notifyVia !== "none") {
+          // Awaited (PATCH fires and forgets) so the reschedule modal can say
+          // "Client texted" vs "Comms are paused — client not notified" instead
+          // of asserting a send that the comms gate may have swallowed.
+          notifyResult = await sendTimeChangeNotification(jobId, req.auth!.companyId!, notifyVia);
+        } else {
+          notifyResult = { ok: true, sent: false, reason: "office_chose_not_to_notify" };
+        }
+      } else if (timeMoved) {
+        await markTimeChangePending(jobId, req.auth!.companyId!, priorSched.scheduled_time ? String(priorSched.scheduled_time).slice(0, 5) : null);
+      } else if (dayMoved) {
+        await markTimeChangePending(jobId, req.auth!.companyId!, null);
       }
     }
 
     return res.json({
       ...updated[0],
+      notify: notifyResult,
       client_name: "",
       assigned_user_name: null,
       before_photo_count: 0,

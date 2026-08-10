@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Plus, ExternalLink, CalendarClock, X } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -258,7 +259,30 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
         const d = await res.json().catch(() => ({}));
         throw new Error(d.message || d.error || "Failed to move job");
       }
-      toast({ title: `Moved to ${targetDate}` });
+      // [reschedule-notify-put 2026-08-09] Moving a visit here (Move button or
+      // chip drag) is a cross-DAY reschedule, and it used to end in silence —
+      // no note, no send, no offer. Francisco: "Always provide the option to
+      // notify the client when rescheduling." The offer rides the confirmation
+      // toast so the drag stays a drag; the server also leaves the standing
+      // "Send notification" note on the job card, so skipping the toast
+      // doesn't lose the option.
+      toast({
+        title: `Moved to ${targetDate}`,
+        description: "The client hasn't been told yet.",
+        action: (
+          <ToastAction altText="Notify the client of the new date" onClick={() => {
+            fetch(`${API}/api/jobs/${j.id}/notify-time-change`, { method: "POST", headers: getAuthHeaders() as Record<string, string> })
+              .then(r => r.json().catch(() => ({})))
+              .then((d: any) => toast({
+                title: d?.sent ? "Client notified" : "Not sent",
+                description: d?.sent ? "New date and time texted and emailed."
+                  : d?.message || (d?.reason === "no_client_contact" ? "No phone or email on file for this client." : "Messaging is paused."),
+                variant: d?.sent ? undefined : "destructive",
+              }))
+              .catch(() => toast({ title: "Could not notify the client", variant: "destructive" }));
+          }}>Notify client</ToastAction>
+        ),
+      });
       setMoveJobId(null);
       setOpenDay(null);
       setReloadTick(t => t + 1);

@@ -5,6 +5,7 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import { getAuthHeaders, useAuthStore, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { mapsDirectionsUrl } from "@/lib/format-address";
 import { JobWizard } from "@/components/job-wizard";
 import { EventModal } from "@/components/event-modal";
@@ -395,10 +396,15 @@ function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <
 // we show the real count and let colour carry the busy signal.
 function slotLbl(count: number) { if (count === 0) return "Open"; return `${count} job${count === 1 ? "" : "s"}`; }
 
-async function patchJob(id: number, patch: object, token: string) {
+// [reschedule-notify-put 2026-08-09] Returns the parsed body now. The server
+// answers a reschedule with `notify: {ok, sent, reason}` when the caller asked
+// for a client notification, so the modal can report what actually happened
+// instead of asserting a send the comms gate may have swallowed.
+async function patchJob(id: number, patch: object, token: string): Promise<any> {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const r = await fetch(`${API}/api/jobs/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(patch) });
   if (!r.ok) throw new Error("Failed");
+  return r.json().catch(() => ({}));
 }
 
 // [clock-edit-from-card 2026-06-10] Office can correct a tech's clock in/out
@@ -2866,8 +2872,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               this — that's the separate email flow. */}
           {job.time_change_pending && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "10px 12px", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 10 }}>
+              {/* [reschedule-notify-put 2026-08-09] A cross-day move now raises
+                  this note too, and it stores no from-time (there's no honest
+                  "from 9:00 to 9:00" to show when the DAY is what moved), so
+                  the copy branches: with a from-time it's the same-day arrival
+                  bump it always was; without one it's a full reschedule. */}
               <span style={{ fontSize: 12.5, color: "#B45309", flex: 1, minWidth: 150 }}>
-                Time updated{job.time_change_from ? ` from ${fmtMins(timeToMins(job.time_change_from))}` : ""}{job.scheduled_time ? ` to ${fmtMins(timeToMins(job.scheduled_time))}` : ""} — notify the client of the new arrival time?
+                {job.time_change_from
+                  ? <>Time updated from {fmtMins(timeToMins(job.time_change_from))}{job.scheduled_time ? ` to ${fmtMins(timeToMins(job.scheduled_time))}` : ""} — notify the client of the new arrival time?</>
+                  : <>Schedule updated — notify the client of the new date and time?</>}
               </span>
               <button onClick={sendTimeChangeNotice} disabled={timeNoticeBusy}
                 style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 6, border: "none", cursor: timeNoticeBusy ? "default" : "pointer", color: "#fff", background: "#B45309", opacity: timeNoticeBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
@@ -4458,12 +4471,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             const newStatus = job.status === "cancelled" ? "scheduled" : job.status;
             const patch: Record<string, unknown> = {
               scheduled_date: rescheduleDate, scheduled_time: rescheduleTime, status: newStatus,
-              // Understood by PATCH /api/jobs/:id already; this modal simply
-              // never sent it, so a reschedule went out silently.
+              // [reschedule-notify-put 2026-08-09] patchJob() is a PUT, and PUT
+              // ignored this field until today — only PATCH read it. So this
+              // modal has been posting the office's notify choice into a void
+              // and then reporting a send that never left the building.
               notify_client_via: rescheduleNotify,
             };
             if (selectedTechId !== null) patch.assigned_user_id = selectedTechId;
-            await patchJob(job.id, patch, token);
+            const saved = await patchJob(job.id, patch, token);
             const reasonLabel = rescheduleReason === "other" ? (rescheduleReasonOther || "Other") : (REASONS.find(r => r.value === rescheduleReason)?.label || rescheduleReason);
             const notesText = `Rescheduled to ${rescheduleDate} at ${fmtHour(rescheduleHour)} — ${reasonLabel}`;
             await fetch(`${_API2}/api/cancellations`, {
@@ -4484,7 +4499,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             }
             const techName = techList.find(t => t.id === selectedTechId)?.name || (selectedTechId === job.assigned_user_id ? currentTechName : "");
             const fmtNew = new Date(rescheduleDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+            // Report what the server actually did, not what was asked for. A
+            // paused comms gate or a client with no phone/email means nothing
+            // went out, and the office needs to know that now — not when the
+            // customer shows up at the old time.
+            const notifyRes = (saved as any)?.notify ?? null;
             const notifyLabel = rescheduleNotify === "none" ? "Client not notified"
+              : notifyRes && notifyRes.sent === false
+                ? (notifyRes.reason === "no_client_contact" ? "Client not notified — no phone or email on file"
+                  : notifyRes.reason === "account_comms_paused" ? "Client not notified — messaging is paused for this account"
+                  : "Client not notified — messaging is paused")
               : rescheduleNotify === "sms" ? "Client texted"
               : rescheduleNotify === "email" ? "Client emailed"
               : "Client texted and emailed";
@@ -8536,6 +8560,34 @@ export default function JobsPage() {
         if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Reassign failed"); }
       }
       await patchJob(job.id, patch, token);
+      // [reschedule-notify-put 2026-08-09] Dragging a chip IS a reschedule, and
+      // it was the one reschedule surface that offered the office nothing —
+      // the job silently moved and the client found out when nobody showed up
+      // at the old time. Blocking the drag with a modal would ruin the fast
+      // path, so the offer rides the confirmation toast instead: one tap sends
+      // the updated-arrival-time text and email. Declining is just ignoring it
+      // — the amber "Send notification" note stays on the card either way, so
+      // the choice survives the toast timing out.
+      if (minsToStr(newMins) !== (job.scheduled_time ? String(job.scheduled_time).slice(0, 5) + ":00" : null)) {
+        toast({
+          title: `Moved to ${fmtMins(newMins)}`,
+          description: "The client hasn't been told yet.",
+          action: (
+            <ToastAction altText="Notify the client of the new time" onClick={() => {
+              const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+              fetch(`${API}/api/jobs/${job.id}/notify-time-change`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })
+                .then(r => r.json().catch(() => ({})))
+                .then((d: any) => toast({
+                  title: d?.sent ? "Client notified" : "Not sent",
+                  description: d?.sent ? "New arrival time texted and emailed."
+                    : d?.message || (d?.reason === "no_client_contact" ? "No phone or email on file for this client." : "Messaging is paused."),
+                  variant: d?.sent ? undefined : "destructive",
+                }))
+                .catch(() => toast({ title: "Could not notify the client", variant: "destructive" }));
+            }}>Notify client</ToastAction>
+          ),
+        });
+      }
       // [multitech-drag-fix 2026-07-21] Re-fan the board so the helper cards the
       // optimistic collapse hid come back (with the correct post-move assignment).
       // [drag-panel-name 2026-07-30] Also refetch on ANY tech change so the open
