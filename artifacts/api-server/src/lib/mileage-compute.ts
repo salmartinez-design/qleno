@@ -68,7 +68,9 @@ export type LegOutcome =
         | "skip_no_from_coords"
         | "skip_no_to_coords"
         | "skip_no_rate"
-        | "skip_provider_null";
+        | "skip_provider_null"
+        /** Measured farther than MAX_PLAUSIBLE_LEG_MILES — bad geocode. */
+        | "skip_implausible_distance";
       leg_id: number;
       user_id: number;
     };
@@ -89,6 +91,26 @@ export type MileageLegSpec = {
   measurement_source: LegMeasurement["source"];
   measurement_is_estimated: boolean;
 };
+
+/**
+ * [mileage-implausible-leg 2026-08-09] Hard ceiling on a single drive leg.
+ *
+ * A bad geocode used to walk straight through to a dollar figure with nothing
+ * in the way. On 2026-08-09 production held leg 56057: 9,668.57 miles,
+ * $7,009.71 — 85% of every mileage dollar in the system — because job 8784's
+ * stored geocode was in Melbourne, Australia (-37.91, 145.13) while the client
+ * actually lives in Chicago. No road route exists between those points, so the
+ * provider fell back to a straight-line haversine, which cheerfully measured a
+ * quarter of the way around the planet and priced it.
+ *
+ * A leg past this ceiling is not a long drive, it is bad data. Skipping it
+ * makes the failure visible in the skip counters instead of paying it out.
+ *
+ * 150 miles is deliberately far above any real route: the longest genuine leg
+ * on the books is 35.26 miles, so this cannot clip legitimate work even for an
+ * unusually spread-out day.
+ */
+export const MAX_PLAUSIBLE_LEG_MILES = 150;
 
 /** Round to 2 decimal places without float drift. */
 export function roundMiles(miles: number): number {
@@ -226,6 +248,15 @@ export async function computeMileageForLegs(
       continue;
     }
     const miles = roundMiles(measurement.meters / METERS_PER_MILE);
+    if (miles > MAX_PLAUSIBLE_LEG_MILES) {
+      // Bad geocode, not a long drive. Drop it rather than price it.
+      outcomes.push({
+        kind: "skip_implausible_distance",
+        leg_id: leg.id,
+        user_id: leg.user_id,
+      });
+      continue;
+    }
     const amountCents = computeAmountCents(miles, ratePerMile);
     outcomes.push({
       kind: "eligible",
