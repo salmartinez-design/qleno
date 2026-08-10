@@ -402,7 +402,21 @@ export default function QuoteBuilderPage() {
 
   // ── Google Maps Places ───────────────────────────────────────────────────
   const [mapsReady, setMapsReady] = useState(false);
-  const [inputMounted, setInputMounted] = useState(false);
+  // [autocomplete-remount 2026-08-10] Track the address input ELEMENT, not a
+  // one-way "has it mounted yet" boolean. The old flag latched true on first
+  // mount and never reset, so stepping forward past the address step and back
+  // remounted the input but left the flag unchanged — the wiring effect's deps
+  // never changed, so Google Autocomplete stayed bound to the discarded DOM
+  // node and the live input had nothing attached. Editing the address after
+  // clicking Next then silently stopped verifying, which is why the zip never
+  // refreshed (Francisco, 8/8). Holding the node in state re-runs the effect on
+  // every remount. The setter identity must be stable (useCallback) or React
+  // would invoke the ref on every render and loop.
+  const [addressEl, setAddressEl] = useState<HTMLInputElement | null>(null);
+  const setAddressInputRef = useCallback((el: HTMLInputElement | null) => {
+    (addressInputRef as any).current = el;
+    setAddressEl(el);
+  }, []);
   const [addressVerified, setAddressVerified] = useState<boolean | null>(null);
   const [addressFormatted, setAddressFormatted] = useState("");
   // [rentcast 2026-07-27] Auto-look up the property's sq ft the moment the
@@ -944,10 +958,10 @@ export default function QuoteBuilderPage() {
 
   // ── Wire autocomplete after Maps ready + input mounted ──────────────────
   useEffect(() => {
-    if (!mapsReady || !inputMounted || !addressInputRef.current) return;
+    if (!mapsReady || !addressEl) return;
     const g = (window as any).google;
     if (!g?.maps?.places?.Autocomplete) return;
-    const ac = new g.maps.places.Autocomplete(addressInputRef.current, {
+    const ac = new g.maps.places.Autocomplete(addressEl, {
       componentRestrictions: { country: "us" },
       fields: ["address_components", "formatted_address", "geometry"],
       types: ["address"],
@@ -967,8 +981,13 @@ export default function QuoteBuilderPage() {
       setAddressVerified(true);
       setAddressFormatted(formatted);
     });
-    return () => { g.maps.event.removeListener(listener); };
-  }, [mapsReady, inputMounted]);
+    // Also drop Google's injected .pac-container for THIS instance, otherwise
+    // each remount leaves an orphaned dropdown behind.
+    return () => {
+      g.maps.event.removeListener(listener);
+      g.maps.event.clearInstanceListeners(ac);
+    };
+  }, [mapsReady, addressEl]);
 
   // ── Geocode helper for client-loaded addresses ───────────────────────────
   async function geocodeVerify(addressStr: string) {
@@ -2514,7 +2533,7 @@ export default function QuoteBuilderPage() {
                   <div className="flex-1">
                     <Label className="text-xs">Service Address</Label>
                     <input
-                      ref={el => { (addressInputRef as any).current = el; if (el && !inputMounted) setInputMounted(true); }}
+                      ref={setAddressInputRef}
                       value={address}
                       onChange={e => { setAddress(e.target.value); setAddressVerified(null); setAddressFormatted(""); }}
                       placeholder="123 Main St, City, State"
