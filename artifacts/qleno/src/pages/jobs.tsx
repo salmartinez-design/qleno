@@ -3289,6 +3289,20 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
+          {/* [client-office-notes 2026-08-09] Standing office note on the CLIENT —
+              the residential twin of the building note above. Francisco asked for
+              the per-visit office note to be "steady for all the jobs of the
+              client"; this shows on every visit without copying text into each
+              job row. Office-only: the API strips it for non-office callers, and
+              this panel is never rendered in the tech app. Edited on the
+              customer profile. */}
+          {(job as any).client_office_notes && (
+            <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#6B6963", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>Client Notes — every visit</p>
+              <p style={{ margin: 0, fontSize: 12, color: "#1A1917", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{(job as any).client_office_notes}</p>
+            </div>
+          )}
+
           {job.billing_method === "hourly" && job.billed_hours != null && job.estimated_hours != null && job.billed_hours > job.estimated_hours + 0.5 && (
             <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
               <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />

@@ -292,6 +292,12 @@ async function buildDispatchPayload(
         // on every job at this property. Replaces the removed copy-into-
         // jobs.office_notes propagation (the cross-visit note bleed).
         property_notes: accountPropertiesTable.notes,
+        // [client-office-notes 2026-08-09] The residential half of the same
+        // idea: a standing office note on the CLIENT, shown on every one of
+        // their jobs. Francisco asked for the per-job office note to be
+        // "steady for all the jobs of the client" — this is that, without
+        // copying text into each row (the cross-visit note bleed above).
+        client_office_notes: clientsTable.office_notes,
         office_notes: jobsTable.office_notes,
         office_notes_updated_by: jobsTable.office_notes_updated_by,
         office_notes_updated_at: jobsTable.office_notes_updated_at,
@@ -1244,6 +1250,7 @@ async function buildDispatchPayload(
         property_address: displayAddress,
         property_access_notes: j.property_access_notes ?? null,
         property_notes: (j as any).property_notes ?? null,
+        client_office_notes: (j as any).client_office_notes ?? null,
         office_notes: j.office_notes ?? null,
         office_notes_updated_at: (j as any).office_notes_updated_at ?? null,
         office_notes_updated_by_name: (j as any).office_notes_updated_by != null ? (userNameById.get((j as any).office_notes_updated_by) || null) : null,
