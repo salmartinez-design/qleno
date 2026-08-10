@@ -68,11 +68,17 @@ import {
   computeMileageForLegs,
   roundMiles,
   computeAmountCents,
+  MAX_PLAUSIBLE_LEG_MILES,
   type JobCoords,
   type MileageLegInput,
   type DateToCalendarDay,
 } from "../lib/mileage-compute.js";
 import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
+import {
+  JOB_COORD_LAT,
+  JOB_COORD_LNG,
+  jobCoordDrizzle,
+} from "../lib/job-coords.js";
 import { getDistanceProvider } from "../lib/distance-provider-factory.js";
 import type { DistanceProvider } from "../lib/distance-provider.js";
 import { runMileageAutoCompute } from "../lib/mileage-auto-cron.js";
@@ -214,11 +220,10 @@ async function recomputeMileageForPeriod(
     .select({
       job_id: jobsTable.id,
       // [mileage-account-coords 2026-07-08] Commercial/account jobs carry no
-      // client_id — their address lives on account_properties. Resolve coords
-      // from the job's own geocode, else the client, else the account property,
-      // so account legs (e.g. PPM turnovers) stop skipping for "no coords".
-      lat: sql<string | null>`COALESCE(${jobsTable.job_lat}, ${clientsTable.lat}, ${accountPropertiesTable.lat})`,
-      lng: sql<string | null>`COALESCE(${jobsTable.job_lng}, ${clientsTable.lng}, ${accountPropertiesTable.lng})`,
+      // client_id — their address lives on account_properties.
+      // [mileage-stale-address 2026-08-09] ...and the live address now wins
+      // over the job's frozen geocode snapshot. See lib/job-coords.ts.
+      ...jobCoordDrizzle(jobsTable, clientsTable, accountPropertiesTable),
     })
     .from(jobsTable)
     .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -403,9 +408,9 @@ async function recomputeClockSequenceLegsForPeriod(
   const coordRows = await db
     .select({
       job_id: jobsTable.id,
-      // Account-property coords fall-through for commercial jobs (no client_id).
-      lat: sql<string | null>`COALESCE(${jobsTable.job_lat}, ${clientsTable.lat}, ${accountPropertiesTable.lat})`,
-      lng: sql<string | null>`COALESCE(${jobsTable.job_lng}, ${clientsTable.lng}, ${accountPropertiesTable.lng})`,
+      // Account-property coords for commercial jobs (no client_id); live
+      // address beats the job's frozen snapshot. See lib/job-coords.ts.
+      ...jobCoordDrizzle(jobsTable, clientsTable, accountPropertiesTable),
     })
     .from(jobsTable)
     .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -450,6 +455,11 @@ async function recomputeClockSequenceLegsForPeriod(
       if (!measurement) { skipped.provider_null = (skipped.provider_null ?? 0) + 1; continue; }
 
       const miles = roundMiles(measurement.meters / METERS_PER_MILE_PAY);
+      if (miles > MAX_PLAUSIBLE_LEG_MILES) {
+        // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
+        skipped.implausible_distance = (skipped.implausible_distance ?? 0) + 1;
+        continue;
+      }
       const amountCents = computeAmountCents(miles, rate);
 
       const result = await db
@@ -855,14 +865,14 @@ async function deriveClockSequenceLegs(
   const rateForDate = (date: string) => pickMileageRateForDate(rateInputs, date);
 
   // All clock-ins in the period, per tech in time order, with the job's
-  // coordinates: prefer the geocoded job location, else the client, else the
-  // account property (commercial/account jobs have no client_id — their address
-  // lives on account_properties).
+  // coordinates. [mileage-stale-address 2026-08-09] The job's own job_lat is a
+  // snapshot frozen at creation, so the CURRENT address on the property/client
+  // wins over it. See lib/job-coords.ts for the full rule and why.
   const rows = (await db.execute(sql`
     SELECT t.user_id, t.job_id,
            (t.clock_in_at AT TIME ZONE 'America/Chicago')::date::text AS leg_day,
-           COALESCE(j.job_lat, c.lat, ap.lat) AS lat,
-           COALESCE(j.job_lng, c.lng, ap.lng) AS lng
+           ${JOB_COORD_LAT} AS lat,
+           ${JOB_COORD_LNG} AS lng
       FROM timeclock t
       JOIN jobs j ON j.id = t.job_id
       LEFT JOIN clients c ON c.id = j.client_id
@@ -897,6 +907,8 @@ async function deriveClockSequenceLegs(
     if (m == null) { skipped.skip_no_measurement = (skipped.skip_no_measurement ?? 0) + 1; continue; }
     const miles = m.meters / 1609.344;
     if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
+    // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
+    if (miles > MAX_PLAUSIBLE_LEG_MILES) { skipped.skip_implausible_distance = (skipped.skip_implausible_distance ?? 0) + 1; continue; }
     const rateNum = parseFloat(String(rate));
     const amount = Math.round(miles * rateNum * 100) / 100;
     const ins = await db.execute(sql`
@@ -947,13 +959,14 @@ async function deriveScheduledLegsForPeriod(
 
   // Completed jobs in the window on PAST days, for techs who left NO clock and
   // NO On My Way trace that day. Ordered by (tech, day, scheduled start) so
-  // consecutive rows form the drive A→B. Coords prefer the geocoded job point,
-  // else the client's.
+  // consecutive rows form the drive A→B. [mileage-stale-address 2026-08-09]
+  // Coords come from the CURRENT property/client address, not the job's frozen
+  // geocode snapshot. See lib/job-coords.ts.
   const rows = (await db.execute(sql`
     SELECT j.assigned_user_id AS user_id, j.id AS job_id,
            j.scheduled_date::text AS leg_day,
-           COALESCE(j.job_lat, c.lat, ap.lat) AS lat,
-           COALESCE(j.job_lng, c.lng, ap.lng) AS lng
+           ${JOB_COORD_LAT} AS lat,
+           ${JOB_COORD_LNG} AS lng
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN account_properties ap ON ap.id = j.account_property_id
@@ -1009,6 +1022,8 @@ async function deriveScheduledLegsForPeriod(
     if (m == null) { skipped.skip_no_measurement = (skipped.skip_no_measurement ?? 0) + 1; continue; }
     const miles = m.meters / 1609.344;
     if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
+    // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
+    if (miles > MAX_PLAUSIBLE_LEG_MILES) { skipped.skip_implausible_distance = (skipped.skip_implausible_distance ?? 0) + 1; continue; }
     const rateNum = parseFloat(String(rate));
     const amount = Math.round(miles * rateNum * 100) / 100;
     const ins = await db.execute(sql`

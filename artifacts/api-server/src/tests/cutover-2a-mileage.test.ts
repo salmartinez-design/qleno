@@ -39,6 +39,7 @@ import {
   computeAmountCents,
   roundMiles,
   utcCalendarDay,
+  MAX_PLAUSIBLE_LEG_MILES,
   type MileageLegInput,
   type JobCoords,
   type LegOutcome,
@@ -276,6 +277,64 @@ describe("Cutover 2A — leg eligibility filter", () => {
       utcCalendarDay,
     );
     assert.equal(out[1]!.kind, "skip_provider_null");
+  });
+
+  // [mileage-implausible-leg 2026-08-09] Regression: leg 56057 in production
+  // measured 9,668.57 mi / $7,009.71 — 85% of all mileage on the books —
+  // because one job's stored geocode was in Australia. Nothing in the path
+  // questioned it. A leg past the ceiling is bad data, not a long drive.
+  it("skip_implausible_distance: a bad geocode never becomes a pay line", async () => {
+    const legs: MileageLegInput[] = [
+      { id: 80, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 81, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20_LATER },
+    ];
+    // Chicago → Melbourne as the fallback haversine actually measured it.
+    const acrossThePlanet: LegMeasurement = {
+      meters: 9668.57 * 1609.344,
+      minutes: 0,
+      source: "haversine_fallback",
+      is_estimated: true,
+    };
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.7046686, -87.7746138], 2: [-37.9105055, 145.1269746] }),
+      FLAT_RATE,
+      fakeProvider(acrossThePlanet),
+      utcCalendarDay,
+    );
+    assert.equal(out[1]!.kind, "skip_implausible_distance");
+    assert.equal(
+      out.some((o) => o.kind === "eligible"),
+      false,
+      "an implausible leg must not price at all",
+    );
+  });
+
+  it("the ceiling clears the longest genuine leg on the books by a wide margin", () => {
+    // Longest real leg measured in production: 35.26 mi. The ceiling exists to
+    // catch geocode errors, so it must never be tight enough to clip real work.
+    assert.ok(MAX_PLAUSIBLE_LEG_MILES > 35.26 * 2);
+  });
+
+  it("a leg exactly at the ceiling still pays — the guard is strictly greater", async () => {
+    const legs: MileageLegInput[] = [
+      { id: 90, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 91, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const atCeiling: LegMeasurement = {
+      meters: MAX_PLAUSIBLE_LEG_MILES * 1609.344,
+      minutes: 180,
+      source: "google_distance_matrix",
+      is_estimated: false,
+    };
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.88, -87.63], 2: [41.92, -87.65] }),
+      FLAT_RATE,
+      fakeProvider(atCeiling),
+      utcCalendarDay,
+    );
+    assert.equal(out[1]!.kind, "eligible");
   });
 });
 
