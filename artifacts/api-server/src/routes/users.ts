@@ -679,6 +679,13 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       personal_email, address, city, state, zip, dob, gender,
       employment_type, bank_name, emergency_contact_name,
       emergency_contact_phone, notes,
+      // [2026-08-10] The 06-06 pass missed these two. The profile form has
+      // always sent them and this route has always dropped them, so Emergency
+      // Relationship and SSN Last 4 could never be saved from the Employee Info
+      // tab — Save reported success and the values were gone on reload.
+      // PATCH /employee-extended/:id already accepted both; the two routes
+      // disagreed about what was writable.
+      emergency_contact_relation, ssn_last4,
       // [dispatch-visibility 2026-07-09] Toggle for hiding placeholder / QA-test
       // accounts from the dispatch board (User Account tab).
       show_on_dispatch,
@@ -698,6 +705,21 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         return res.status(403).json({
           error: "Forbidden",
           message: "Only the owner can change a user's role.",
+        });
+      }
+    }
+
+    // [ssn-guard 2026-08-10] This column holds FOUR DIGITS. Reject anything
+    // else rather than storing it. Chrome was autofilling the signed-in user's
+    // password into this field (masked input, no autocomplete hint — fixed on
+    // the form side too); it only escaped the database because the route
+    // happened to drop the field entirely. Now that it saves, refuse junk
+    // loudly instead of persisting a credential.
+    if (ssn_last4 !== undefined && ssn_last4 !== null && String(ssn_last4) !== "") {
+      if (!/^\d{4}$/.test(String(ssn_last4))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "SSN Last 4 must be exactly 4 digits.",
         });
       }
     }
@@ -746,6 +768,8 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(bank_name !== undefined && { bank_name }),
         ...(emergency_contact_name !== undefined && { emergency_contact_name }),
         ...(emergency_contact_phone !== undefined && { emergency_contact_phone }),
+        ...(emergency_contact_relation !== undefined && { emergency_contact_relation }),
+        ...(ssn_last4 !== undefined && { ssn_last4: ssn_last4 === "" ? null : ssn_last4 }),
         ...(notes !== undefined && { notes }),
         ...(show_on_dispatch !== undefined && { show_on_dispatch: !!show_on_dispatch }),
       })
