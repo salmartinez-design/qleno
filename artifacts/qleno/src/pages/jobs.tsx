@@ -5747,7 +5747,7 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   // NOW divider — a full-width row placed before the first slot at/after now.
   const NowMarker = () => (
-    <div ref={nowRef} style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+    <div ref={nowRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
       <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
       <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
       <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
@@ -5756,38 +5756,51 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   // [grid-open-at-now 2026-08-11] Opening Grid at 3pm landed on the 7:00a row —
   // the operator had to thumb past the whole finished morning to reach what's
-  // live (Sal). On today, scroll the NOW divider into view once, on open. Guard
-  // rails: fires ONCE per mount (dispatch data re-renders must never yank the
-  // scroll back), only when isToday, and only after layout settles — tiles size
-  // themselves from wrapped client names/addresses, so the marker's offset isn't
-  // final on the first paint. The mobile shell scrolls the DOCUMENT (mobile
-  // <main> has no overflow — only the desktop one does), so drive window scroll
-  // and fall back to the nearest scrollable ancestor if that ever changes.
+  // live (Sal). On today, bring the NOW divider into view once, on open.
+  //
+  // Mechanism: scrollIntoView + scroll-margin-top, NOT hand-computed offsets
+  // against a guessed scroll container. The mobile shell scrolls the document
+  // and the desktop one scrolls <main> — scrollIntoView resolves whichever
+  // ancestor actually scrolls (and nested ones) instead of us picking wrong,
+  // and scroll-margin-top keeps the divider clear of the sticky chrome.
+  //
+  // Guard rails: fires ONCE per mount, so dispatch refreshes never yank the
+  // operator's scroll back; only when isToday (leaving a day resets the guard);
+  // and a second pass ~350 ms later because tile heights settle late — client
+  // names and addresses wrap to 2-3 lines and the web font swaps in — which
+  // otherwise leaves the first landing short. Any touch or wheel cancels the
+  // second pass so we never fight someone who has started scrolling.
   useEffect(() => {
     if (!isToday) { didScrollToNow.current = false; return; }
     if (didScrollToNow.current) return;
-    const el = nowRef.current;
-    if (!el) return;
+    if (!nowRef.current) return;
     didScrollToNow.current = true;
-    const raf = requestAnimationFrame(() => {
+
+    let cancelled = false;
+    const abort = () => { cancelled = true; };
+    window.addEventListener("touchstart", abort, { passive: true });
+    window.addEventListener("wheel", abort, { passive: true });
+
+    const run = () => {
       const target = nowRef.current;
-      if (!target) return;
-      // Both the app header and the week-summary card stick at top:0, so they
+      if (!target || cancelled) return;
+      // The app header and the week-summary card both stick at top:0, so they
       // occlude the SAME band — take the max, not the sum, then a little air.
       const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
       const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
-      const pad = Math.max(headerH, weekH) + 10;
-      const scroller = target.closest("main");
-      const scrollable = scroller && scroller.scrollHeight > scroller.clientHeight ? (scroller as HTMLElement) : null;
-      if (scrollable) {
-        const top = target.getBoundingClientRect().top - scrollable.getBoundingClientRect().top + scrollable.scrollTop - pad;
-        scrollable.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-      } else {
-        const top = target.getBoundingClientRect().top + window.scrollY - pad;
-        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-      }
-    });
-    return () => cancelAnimationFrame(raf);
+      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+
+    const raf = requestAnimationFrame(run);
+    const settle = setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      window.removeEventListener("touchstart", abort);
+      window.removeEventListener("wheel", abort);
+    };
   }, [isToday, jobs]);
 
   // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
