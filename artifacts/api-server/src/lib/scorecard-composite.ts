@@ -303,7 +303,12 @@ export async function recomputeAllComposites(
     SELECT id FROM users
      WHERE company_id = ${companyId}
        -- [trainee-role] trainees get composite scorecards like technicians
-       AND role IN ('technician', 'trainee', 'team_lead')`);
+       AND role IN ('technician', 'trainee', 'team_lead')
+       -- [roster 2026-08-11] Don't burn a recompute per terminated employee on
+       -- every run. Their stored 90d columns freeze at their last active value,
+       -- which is correct: the report no longer lists them, and a rehire is
+       -- picked up again on the next pass.
+       AND is_active = true`);
   let updated = 0;
   for (const row of ids.rows as any[]) {
     try {

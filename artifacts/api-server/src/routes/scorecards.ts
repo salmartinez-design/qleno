@@ -128,12 +128,33 @@ router.get("/company-report", requireAuth, requireRole("owner", "admin", "office
     };
 
     // ── Per-tech persisted composite columns (trailing-90d standing) ──
+    // [roster 2026-08-11] This listed EVERY technician row the company has ever
+    // had — no is_active check at all — so terminated staff kept appearing on a
+    // live performance report (Sal: Norma Puga, Juan Salazar, Anissa Bello). It
+    // also had no show_on_dispatch check, which is why the "Trainee Placeholder"
+    // QA account sat near the top of the rankings. Both predicates now match the
+    // dispatch board's canonical roster filter (routes/dispatch.ts) so the two
+    // surfaces agree on who counts as staff. IS NOT FALSE keeps legacy rows
+    // (pre-migration NULL) visible.
+    //
+    // 'trainee' added to the role list to match recomputeAllComposites
+    // (lib/scorecard-composite.ts), which has always COMPUTED a composite for
+    // trainees — this report just never displayed them. Trainee is a real role
+    // with technician-equivalent work, so it belongs here.
+    //
+    // Deliberately NOT branch-filtered: the dispatch rail doesn't filter techs by
+    // home_branch_id either, and a tech who covered the other branch this period
+    // would silently vanish. The branch toggle still scopes the survey and
+    // efficiency numbers via the job join.
     const techRows = await db.execute(sql`
       SELECT id AS user_id, TRIM(first_name || ' ' || COALESCE(last_name, '')) AS name,
              scorecard_composite_90d AS composite, score_satisfaction_90d AS sat,
              score_attendance_90d AS att, score_complaint_free_90d AS cf
         FROM users
-       WHERE company_id = ${companyId} AND role IN ('technician', 'team_lead')`);
+       WHERE company_id = ${companyId}
+         AND role IN ('technician', 'trainee', 'team_lead')
+         AND is_active = true
+         AND show_on_dispatch IS NOT FALSE`);
 
     // ── Per-tech window survey counts (attributed to the job's primary tech) ──
     const techSurvey = await db.execute(sql`
