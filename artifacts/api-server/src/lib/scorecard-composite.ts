@@ -308,7 +308,12 @@ export async function recomputeAllComposites(
        -- every run. Their stored 90d columns freeze at their last active value,
        -- which is correct: the report no longer lists them, and a rehire is
        -- picked up again on the next pass.
-       AND is_active = true`);
+       -- [active-definition 2026-08-11] Same three signals the roster page uses
+       -- (is_active / termination_date / archived_at) — is_active alone misses
+       -- anyone terminated without the flag being flipped.
+       AND is_active = true
+       AND termination_date IS NULL
+       AND archived_at IS NULL`);
   let updated = 0;
   for (const row of ids.rows as any[]) {
     try {
