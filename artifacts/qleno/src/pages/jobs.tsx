@@ -5652,6 +5652,10 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   const now = isToday ? new Date() : null;
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
+  // Anchor for the open-at-now scroll below; the guard keeps it to one shot.
+  const nowRef = useRef<HTMLDivElement | null>(null);
+  const didScrollToNow = useRef(false);
+
   // [mobile-grid-vertical 2026-07-24] Vertical tiles, two per row (grid
   // container below). Time folds into the top of each card (start here, "ends …"
   // at the bottom) so the old left time-rail can go away and buy width —
@@ -5743,12 +5747,48 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   // NOW divider — a full-width row placed before the first slot at/after now.
   const NowMarker = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+    <div ref={nowRef} style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
       <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
       <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
       <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
     </div>
   );
+
+  // [grid-open-at-now 2026-08-11] Opening Grid at 3pm landed on the 7:00a row —
+  // the operator had to thumb past the whole finished morning to reach what's
+  // live (Sal). On today, scroll the NOW divider into view once, on open. Guard
+  // rails: fires ONCE per mount (dispatch data re-renders must never yank the
+  // scroll back), only when isToday, and only after layout settles — tiles size
+  // themselves from wrapped client names/addresses, so the marker's offset isn't
+  // final on the first paint. The mobile shell scrolls the DOCUMENT (mobile
+  // <main> has no overflow — only the desktop one does), so drive window scroll
+  // and fall back to the nearest scrollable ancestor if that ever changes.
+  useEffect(() => {
+    if (!isToday) { didScrollToNow.current = false; return; }
+    if (didScrollToNow.current) return;
+    const el = nowRef.current;
+    if (!el) return;
+    didScrollToNow.current = true;
+    const raf = requestAnimationFrame(() => {
+      const target = nowRef.current;
+      if (!target) return;
+      // Both the app header and the week-summary card stick at top:0, so they
+      // occlude the SAME band — take the max, not the sum, then a little air.
+      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
+      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
+      const pad = Math.max(headerH, weekH) + 10;
+      const scroller = target.closest("main");
+      const scrollable = scroller && scroller.scrollHeight > scroller.clientHeight ? (scroller as HTMLElement) : null;
+      if (scrollable) {
+        const top = target.getBoundingClientRect().top - scrollable.getBoundingClientRect().top + scrollable.scrollTop - pad;
+        scrollable.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      } else {
+        const top = target.getBoundingClientRect().top + window.scrollY - pad;
+        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isToday, jobs]);
 
   // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
   // time axis, so a 9:00 job sits in the 9:00 row BELOW a lone 7:00 job rather
@@ -8785,7 +8825,7 @@ export default function JobsPage() {
               7-day bar chart with day labels and dollar subtotals. Tap any
               bar to jump the focal day. */}
           {weekSummary && (
-            <div style={{
+            <div data-mobile-week-summary style={{
               position: "sticky", top: 0, zIndex: 10,
               backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7",
               padding: "12px 16px 14px",
