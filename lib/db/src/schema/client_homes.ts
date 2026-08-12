@@ -18,6 +18,11 @@ export const clientHomesTable = pgTable("client_homes", {
   sq_footage: integer("sq_footage"),
   bedrooms: integer("bedrooms"),
   bathrooms: integer("bathrooms"),
+  // [half-baths 2026-08-12] Full and half baths are priced and cleaned
+  // differently, so they are counted separately here rather than folded into a
+  // decimal `bathrooms`. The quote has carried half_baths all along; this is
+  // the column that lets it survive the convert onto the client's property.
+  half_baths: integer("half_baths"),
   access_notes: text("access_notes"),
   alarm_code: text("alarm_code"),
   has_pets: boolean("has_pets").default(false),

@@ -622,7 +622,7 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
       `),
       // Primary home property details
       db.execute(sql`
-        SELECT sq_footage, bedrooms, bathrooms, has_pets, access_notes, alarm_code, parking_notes
+        SELECT sq_footage, bedrooms, bathrooms, half_baths, has_pets, access_notes, alarm_code, parking_notes
         FROM client_homes
         WHERE client_id = ${clientId} AND company_id = ${companyId}
         ORDER BY is_primary DESC NULLS LAST, id ASC
@@ -662,6 +662,7 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
         sq_footage: parseInt(homeRow.sq_footage) || 0,
         bedrooms: parseInt(homeRow.bedrooms) || 0,
         bathrooms: parseInt(homeRow.bathrooms) || 0,
+        half_baths: parseInt(homeRow.half_baths) || 0,
         has_pets: homeRow.has_pets ?? false,
         access_notes: homeRow.access_notes || null,
         alarm_code: homeRow.alarm_code || null,
@@ -1142,7 +1143,7 @@ router.get("/:id/homes", requireAuth, async (req, res) => {
 router.post("/:id/homes", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);
-    const { name, address, city, state, zip, sq_footage, bedrooms, bathrooms, access_notes, alarm_code, has_pets, pet_notes, parking_notes, is_primary, base_fee, allowed_hours, frequency, service_type } = req.body;
+    const { name, address, city, state, zip, sq_footage, bedrooms, bathrooms, half_baths, access_notes, alarm_code, has_pets, pet_notes, parking_notes, is_primary, base_fee, allowed_hours, frequency, service_type } = req.body;
     const geo = address ? await geocodeAddress(address, city, state, zip) : null;
     if (is_primary) {
       await db.update(clientHomesTable).set({ is_primary: false })
@@ -1150,7 +1151,7 @@ router.post("/:id/homes", requireAuth, async (req, res) => {
     }
     const [home] = await db.insert(clientHomesTable).values({
       company_id: req.auth!.companyId, client_id: clientId,
-      name, address, city, state, zip, sq_footage, bedrooms, bathrooms,
+      name, address, city, state, zip, sq_footage, bedrooms, bathrooms, half_baths,
       access_notes, alarm_code, has_pets, pet_notes, parking_notes, is_primary: is_primary ?? true,
       frequency, service_type,
       ...(base_fee && { base_fee: String(base_fee) }),
@@ -1167,7 +1168,7 @@ router.post("/:id/homes", requireAuth, async (req, res) => {
 router.patch("/:id/homes/:homeId", requireAuth, async (req, res) => {
   try {
     const homeId = parseInt(req.params.homeId);
-    const { name, address, city, state, zip, sq_footage, bedrooms, bathrooms, access_notes, alarm_code, has_pets, pet_notes, parking_notes, is_primary, base_fee, allowed_hours, frequency, service_type } = req.body;
+    const { name, address, city, state, zip, sq_footage, bedrooms, bathrooms, half_baths, access_notes, alarm_code, has_pets, pet_notes, parking_notes, is_primary, base_fee, allowed_hours, frequency, service_type } = req.body;
     const geo = address ? await geocodeAddress(address, city, state, zip) : null;
     const [home] = await db.update(clientHomesTable).set({
       ...(name !== undefined && { name }),
@@ -1178,6 +1179,7 @@ router.patch("/:id/homes/:homeId", requireAuth, async (req, res) => {
       ...(sq_footage !== undefined && { sq_footage }),
       ...(bedrooms !== undefined && { bedrooms }),
       ...(bathrooms !== undefined && { bathrooms }),
+      ...(half_baths !== undefined && { half_baths }),
       ...(access_notes !== undefined && { access_notes }),
       ...(alarm_code !== undefined && { alarm_code }),
       ...(has_pets !== undefined && { has_pets }),

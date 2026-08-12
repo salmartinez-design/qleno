@@ -6989,6 +6989,10 @@ async function runNotificationTemplateSeed() {
       // Google review" — the survey thank-you page only shows the ask to clients
       // who have never tapped it before.
       ["clients.google_review_clicked_at",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_review_clicked_at TIMESTAMP`],
+      // [half-baths 2026-08-12] The quote has always captured half_baths, but
+      // the client's property had nowhere to put it, so the count died at the
+      // convert and the office could never see it on the job (Francisco).
+      ["client_homes.half_baths",                   sql`ALTER TABLE client_homes ADD COLUMN IF NOT EXISTS half_baths INTEGER`],
       // [tenant-billing 2026-08-05] Billing cutover becomes per-tenant data
       // instead of the INVOICE_CUTOVER_DATE constant.
       //

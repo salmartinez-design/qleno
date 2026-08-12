@@ -1396,7 +1396,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [showAlarm, setShowAlarm] = useState<number | null>(null);
-  const blank = { name: "", address: "", city: "", state: "", zip: "", bedrooms: "", bathrooms: "", sq_footage: "", access_notes: "", alarm_code: "", has_pets: false, pet_notes: "", parking_notes: "", is_primary: false, base_fee: "", allowed_hours: "", frequency: "", service_type: "" };
+  const blank = { name: "", address: "", city: "", state: "", zip: "", bedrooms: "", bathrooms: "", half_baths: "", sq_footage: "", access_notes: "", alarm_code: "", has_pets: false, pet_notes: "", parking_notes: "", is_primary: false, base_fee: "", allowed_hours: "", frequency: "", service_type: "" };
   const [form, setForm] = useState(blank);
   // [scheduling-engine 2026-04-29] Google Places autocomplete state.
   // Loads the Maps Places script once for the page; the actual
@@ -1558,6 +1558,10 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
             {home.sq_footage && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.sq_footage.toLocaleString()} sq ft</span>}
             {home.bedrooms && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.bedrooms} bed</span>}
             {home.bathrooms && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.bathrooms} bath</span>}
+            {/* [half-baths 2026-08-12] Half baths are their own count, not part
+                of the full-bath number — the office prices and staffs them
+                differently, and they were invisible here until now. */}
+            {home.half_baths ? <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.half_baths} half bath</span> : null}
           </div>
 
           {/* Access notes */}
@@ -1610,8 +1614,8 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 Auto-filled from Google. Zone will be assigned on save based on zip.
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-              {F("sq_footage", "Sq Ft", "number")} {F("bedrooms", "Beds", "number")} {F("bathrooms", "Baths", "number")}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}>
+              {F("sq_footage", "Sq Ft", "number")} {F("bedrooms", "Beds", "number")} {F("bathrooms", "Baths", "number")} {F("half_baths", "Half Baths", "number")}
             </div>
             {F("alarm_code", "Alarm Code")}
             {F("access_notes", "Access Notes")}
