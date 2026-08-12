@@ -73,10 +73,25 @@ router.get("/health", async (_req, res) => {
     // Global comms master gate. Non-secret boolean (not the value of any
     // credential) — reports whether email/SMS are allowed to leave the box.
     comms_enabled: process.env.COMMS_ENABLED === "true",
+    // Each entry is a BOOLEAN rendered as a word — whether a credential is
+    // present, never any part of its value.
+    //
+    // [integration-visibility 2026-08-12] Added rentcast + square. Both are
+    // env-gated and fail SILENTLY when unset: property-lookup returns
+    // { configured: false } and never calls out, and the Square card form gets
+    // a blank applicationId. That is the right behaviour, but it makes "is the
+    // key set?" unanswerable from outside the box — which came up chasing why
+    // half baths weren't arriving from the property import. Now it is one
+    // browser tab, on production and on any preview, without shell access.
     services: {
       stripe: process.env.STRIPE_SECRET_KEY ? "configured" : "not_configured",
       resend: process.env.RESEND_API_KEY ? "configured" : "not_configured",
       twilio: process.env.TWILIO_ACCOUNT_SID ? "configured" : "not_configured",
+      rentcast: process.env.RENTCAST_API_KEY ? "configured" : "not_configured",
+      square: process.env.SQUARE_ACCESS_TOKEN ? "configured" : "not_configured",
+      square_card_form:
+        process.env.SQUARE_APPLICATION_ID && process.env.SQUARE_LOCATION_ID
+          ? "configured" : "not_configured",
     },
   });
 });

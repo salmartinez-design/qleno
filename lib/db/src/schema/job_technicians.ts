@@ -25,6 +25,16 @@ export const jobTechniciansTable = pgTable("job_technicians", {
   // flat dollars, both editable.
   pay_deduction_pct: numeric("pay_deduction_pct", { precision: 6, scale: 4 }),
   pay_deduction_flat: numeric("pay_deduction_flat", { precision: 10, scale: 2 }),
+  // [pay-note 2026-08-12] Free text explaining WHY this line was paid the way
+  // it was — "paid for trainees", "$30/hr on this one", "we paid an extra hour
+  // because Alma forgot to clock out". Maribel + Francisco asked for it after
+  // the clock HISTORY landed, and it answers a different question: the history
+  // is what the system knows (who moved a clock), this is what only a person
+  // knows (why the money is what it is). Keyed per (job, tech) because that is
+  // exactly one pay line on the Time Clock screen.
+  pay_note: text("pay_note"),
+  pay_note_by: integer("pay_note_by").references(() => usersTable.id),
+  pay_note_at: timestamp("pay_note_at", { withTimezone: true }),
   created_at: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.job_id, t.user_id)]);
 

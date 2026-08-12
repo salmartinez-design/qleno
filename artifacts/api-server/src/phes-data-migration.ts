@@ -932,6 +932,14 @@ async function runBookingSchemaGuard(): Promise<void> {
         UNIQUE (job_id, user_id)
       )
     ` },
+    // [pay-note 2026-08-12] Why this pay line looks the way it does, in the
+    // office's own words. Sits beside pay_override/final_pay because it is the
+    // same (job, tech) row those live on — one pay line on the Time Clock
+    // screen. Distinct from the clock HISTORY, which records what the system
+    // already knows; this carries what only a person knows.
+    { label: "job_technicians.pay_note",    stmt: `ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_note TEXT` },
+    { label: "job_technicians.pay_note_by", stmt: `ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_note_by INTEGER` },
+    { label: "job_technicians.pay_note_at", stmt: `ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_note_at TIMESTAMPTZ` },
     { label: "CREATE idx_job_technicians_job_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_job_id ON job_technicians(job_id)` },
     { label: "CREATE idx_job_technicians_user_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_user_id ON job_technicians(user_id)` },
 

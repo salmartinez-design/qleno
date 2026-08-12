@@ -381,6 +381,47 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       });
     }
 
+    // [one-clock-at-a-time 2026-08-12] Maribel, on Jose Ardila showing punched
+    // in at two overlapping jobs: "this shouldn't be allowed to happen, he
+    // clocked in at both jobs."
+    //
+    // Nothing stopped it. This route had no open-punch check of any kind, and
+    // the office route only looked for a duplicate on the SAME job — so a
+    // second clock-in on a DIFFERENT job sailed through. A person cannot be at
+    // two houses at once, and every downstream number believes the clock:
+    // actual hours, the allowed-vs-actual efficiency score, the minute-weighted
+    // commission split, and the payroll total all double-count the overlap.
+    //
+    // Blocked, not auto-closed. Closing the earlier punch here would invent a
+    // clock-out time nobody observed and quietly rewrite pay for the first job;
+    // the office decides that with the real end time. The message names the
+    // other job so the tech knows exactly what to close.
+    const openPunch = (await db.execute(sql`
+      SELECT tc.id, tc.job_id, tc.clock_in_at,
+             CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+        FROM timeclock tc
+        LEFT JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.user_id = ${effectiveUserId}
+         AND tc.company_id = ${req.auth!.companyId}
+         AND tc.clock_out_at IS NULL
+       ORDER BY tc.clock_in_at DESC
+       LIMIT 1`) as any).rows[0];
+
+    if (openPunch) {
+      const sameJob = Number(openPunch.job_id) === Number(job_id);
+      return res.status(409).json({
+        error: sameJob ? "ALREADY_CLOCKED_IN" : "OPEN_PUNCH_ELSEWHERE",
+        message: sameJob
+          ? "You're already clocked in on this job."
+          : `You're still clocked in at ${openPunch.job_name || `job #${openPunch.job_id}`}. Clock out there first, then clock in here.`,
+        open_job_id: Number(openPunch.job_id),
+        open_job_name: openPunch.job_name ?? null,
+      });
+    }
+
     const attemptResult = isOverride ? "override_approved" : outsideGeofence ? "soft_warned" : "success";
 
     // Model A: stamp branch_id at clock-in from the job's branch (default Oak
@@ -804,6 +845,33 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       });
     }
 
+    // [one-clock-at-a-time 2026-08-12] The check above is scoped to THIS job,
+    // so a second clock-in on a DIFFERENT job passed it — which is how a tech
+    // ended up punched in at two overlapping jobs (Maribel). Same rule as the
+    // field route: one open clock per person, blocked rather than auto-closed,
+    // with the other job named. The office CAN still key in a closed entry with
+    // explicit in/out times for a job worked earlier — this only rejects
+    // leaving a second clock RUNNING.
+    const openElsewhere = (await db.execute(sql`
+      SELECT tc.job_id,
+             CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+        FROM timeclock tc
+        LEFT JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.user_id = ${user_id} AND tc.company_id = ${companyId}
+         AND tc.clock_out_at IS NULL AND tc.job_id <> ${job_id}
+       ORDER BY tc.clock_in_at DESC LIMIT 1`) as any).rows[0];
+    if (openElsewhere) {
+      return res.status(409).json({
+        error: "OPEN_PUNCH_ELSEWHERE",
+        message: `This cleaner is still clocked in at ${openElsewhere.job_name || `job #${openElsewhere.job_id}`}. Close that entry first — nobody can be on two jobs at once.`,
+        open_job_id: Number(openElsewhere.job_id),
+        open_job_name: openElsewhere.job_name ?? null,
+      });
+    }
+
     const [entry] = await db.insert(timeclockTable).values({
       job_id, user_id, company_id: companyId,
       branch_id: jobRow.branch_id ?? 1,
@@ -969,6 +1037,63 @@ router.post("/tz-backfill", requireAuth, requireRole("owner"), async (req, res) 
 // reads these off job_technicians. NULL = inherit the job's smart default
 // (commercial → allowed_hours; residential → fee_split). Upserts the
 // job_technicians row; only edits an existing assignment or the primary tech.
+// PUT /api/timeclock/office/job/:jobId/tech/:userId/pay-note
+//
+// [pay-note 2026-08-12] Maribel + Francisco, after the clock history landed:
+// "and also a comment box under every job ... to leave notes like 'Paid for
+// trainees', 'Job was $30 per hour', or stuff like that — so you know why some
+// has the pay they have." Francisco's mock-up annotated a real timesheet with
+// "Alma forgot to clock out" and "we paid an extra hour because she is cool".
+// Sal: "kind of like you do in excel."
+//
+// Deliberately NOT the same thing as the clock history. The history records
+// what the system already knows — who moved a punch and when. This carries
+// what only a person knows: why the money on this line is what it is. Both
+// were asked for, for those two different reasons.
+//
+// Stored on job_technicians because that row IS the pay line: same (job, tech)
+// grain as pay_override / final_pay, so the note sits with the number it
+// explains. Empty or whitespace clears it, along with its stamps, so a cleared
+// note leaves no "edited by" ghost behind.
+router.put("/office/job/:jobId/tech/:userId/pay-note", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.jobId, 10);
+    const userId = parseInt(req.params.userId, 10);
+    const companyId = req.auth!.companyId!;
+    const actorId = req.auth!.userId ?? null;
+    if (!Number.isFinite(jobId) || !Number.isFinite(userId)) return res.status(400).json({ error: "Bad job or tech id" });
+
+    const raw = req.body?.pay_note;
+    const note = typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 2000) : null;
+
+    const jobRows = (await db.execute(sql`
+      SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!jobRows.length) return res.status(404).json({ error: "Job not found" });
+
+    // Upsert: a tech can have a pay line on the Time Clock screen without a
+    // job_technicians row yet (assigned_user_id only). is_primary follows the
+    // job's assigned tech — same rule as the pay-override upsert, so writing a
+    // note can never silently re-seat the roster.
+    await db.execute(sql`
+      INSERT INTO job_technicians (job_id, user_id, company_id, is_primary, pay_note, pay_note_by, pay_note_at)
+      SELECT ${jobId}, ${userId}, ${companyId}, (j.assigned_user_id = ${userId}),
+             ${note}, ${note ? actorId : null}, ${note ? sql`NOW()` : sql`NULL`}
+        FROM jobs j WHERE j.id = ${jobId} AND j.company_id = ${companyId}
+      ON CONFLICT (job_id, user_id) DO UPDATE SET
+        pay_note = EXCLUDED.pay_note,
+        pay_note_by = EXCLUDED.pay_note_by,
+        pay_note_at = EXCLUDED.pay_note_at`);
+
+    logAudit(req, note ? "PAY_NOTE_SET" : "PAY_NOTE_CLEARED", "job_technicians", jobId,
+      null, { job_id: jobId, user_id: userId, pay_note: note });
+
+    return res.json({ ok: true, pay_note: note });
+  } catch (err) {
+    console.error("PUT /timeclock/office/job/:jobId/tech/:userId/pay-note error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.put("/office/job/:jobId/tech/:userId/pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
@@ -1205,8 +1330,14 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           SELECT jt.job_id, jt.user_id, jt.is_primary,
                  jt.pay_type, jt.hourly_rate, jt.commission_pct,
                  jt.pay_deduction_pct, jt.pay_deduction_flat,
+                 -- [pay-note 2026-08-12] Carried on the row so the Time Clock
+                 -- screen can show the marker without a second round trip.
+                 jt.pay_note,
+                 to_char(jt.pay_note_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS pay_note_at,
+                 NULLIF(TRIM(COALESCE(nu.first_name,'') || ' ' || COALESCE(nu.last_name,'')), '') AS pay_note_by_name,
                  TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
           FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+          LEFT JOIN users nu ON nu.id = jt.pay_note_by
           WHERE jt.job_id IN (${inList})
         `)).rows as any[];
       } catch {
@@ -1214,6 +1345,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           SELECT jt.job_id, jt.user_id, jt.is_primary,
                  NULL::text AS pay_type, NULL::numeric AS hourly_rate, NULL::numeric AS commission_pct,
                  NULL::numeric AS pay_deduction_pct, NULL::numeric AS pay_deduction_flat,
+                 NULL::text AS pay_note, NULL::text AS pay_note_at, NULL::text AS pay_note_by_name,
                  TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
           FROM job_technicians jt JOIN users u ON u.id = jt.user_id
           WHERE jt.job_id IN (${inList})
@@ -1384,6 +1516,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  address: string | null; client_id: number | null; account_id: number | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
+                 // [pay-note 2026-08-12] Why this line was paid the way it was.
+                 pay_note?: string | null; pay_note_at?: string | null; pay_note_by_name?: string | null;
                  // [allowed-hrs-display 2026-07-04] The job's allowed-hours budget
                  // — the number that DRIVES pay on an Allowed Hours line (pay =
                  // allowed_hours × rate × share) and the denominator for budget-vs-
@@ -1501,6 +1635,16 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       }
       return { pay: payByKey.get(`${jid}:${uid}`) ?? null, pay_kind: "commission", cancel_action: null };
     };
+    // [pay-note 2026-08-12] The office's own explanation of this pay line,
+    // carried on the row so the Time Clock screen can render its marker without
+    // a second request. Absent on rows with no job_technicians record.
+    const payNoteOf = (jid: number, uid: number) => {
+      const t = payByJobUser.get(`${jid}:${uid}`);
+      const note = t?.pay_note ? String(t.pay_note) : null;
+      return note
+        ? { pay_note: note, pay_note_at: t.pay_note_at ?? null, pay_note_by_name: t.pay_note_by_name ?? null }
+        : { pay_note: null, pay_note_at: null, pay_note_by_name: null };
+    };
     const emp = new Map<number, { user_id: number; name: string; rows: Row[] }>();
     const ensureEmp = (uid: number) => {
       if (!emp.has(uid)) emp.set(uid, { user_id: uid, name: nameByUser.get(uid) || "Tech", rows: [] });
@@ -1547,7 +1691,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           fee: feeOf(j),
           billed: billedOf(j),
           effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
-          ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
+          ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), ...payNoteOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
       }
@@ -1566,7 +1710,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         fee: feeOf(j),
         billed: j ? billedOf(j) : null,
         effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${Number(e.job_id)}:${Number(e.user_id)}`)?.pay_type ?? null),
-        ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
+        ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)),
+        ...payNoteOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
     }
