@@ -1342,7 +1342,14 @@ export default function EmployeeProfilePage() {
       await apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(form) });
       showToast('Changes saved');
       refetchUser();
-    } catch { showToast('Save failed'); }
+    } catch (e: any) {
+      // [save-error-detail 2026-08-12] This swallowed the reason and showed a
+      // bare "Save failed", which reads as "nothing happened" — the exact
+      // report Sal filed after entering an emergency contact and internal
+      // notes. apiFetch already goes to the trouble of unwrapping the server's
+      // message (#1400); throwing it away here undid that work.
+      showToast(e?.message ? `Save failed — ${e.message}` : 'Save failed');
+    }
     setSaving(false);
   }
 
