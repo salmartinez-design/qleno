@@ -2904,10 +2904,15 @@ async function runPhesPasswordResetChicago23(): Promise<void> {
     return; // Already reset every eligible user.
   }
   const hash = await bcrypt.hash("Chicago23", 10);
+  // [ANY(array) trap 2026-08-12] `= ANY(${jsArray}::int[])` throws through
+  // Drizzle at any length (see lib/invoice-billing.ts). This one is a cold-start
+  // task, so the throw meant the password reset it performs has never actually
+  // run — it failed every boot. Expanded IN list; `ids` is non-empty here.
+  const idList = sql.join(ids.map(i => sql`${i}`), sql`, `);
   await db.execute(sql`
     UPDATE users
     SET password_hash = ${hash}, password_reset_to_chicago23_at = NOW()
-    WHERE id = ANY(${ids}::int[])
+    WHERE id IN (${idList})
   `);
   console.log(
     `[phes-migration] chicago23-password-reset: ${ids.length} user(s) set (ids: ${ids.join(", ")})`,
