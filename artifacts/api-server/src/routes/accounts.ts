@@ -758,6 +758,35 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
     const emails = Array.from(emailSet);
     const phones = Array.from(phoneSet);
 
+    // [ANY(array) trap 2026-08-12] Maribel: "communications log with accounts is
+    // still not working" — HTTP 500 on every open since this tab shipped.
+    //
+    // The query below matched contacts with `= ANY(${emails}::text[])`. Drizzle's
+    // sql template does NOT bind a JS array as one array parameter — it spreads
+    // the elements into separate placeholders, so that emits ANY(($2)::text[])
+    // for one contact (Postgres: malformed array literal) and ANY(($2,$3)::text[])
+    // for two (cannot cast type record to text[]). Both throw, at any length, and
+    // with zero contacts it emits ANY(()::text[]) — a syntax error. So the tab
+    // 500'd for every account, always, which is exactly what she has been seeing.
+    //
+    // Same trap already documented at routes/users.ts:189, routes/sms.ts, and
+    // lib/invoice-billing.ts. Expanded IN lists are the pattern that works here.
+    // FALSE when a list is empty: an account with no phone on file simply has no
+    // phone-matched messages, and the account_id-keyed communication_log branch
+    // below still returns its logged history.
+    const emailList = emails.length ? sql.join(emails.map(e => sql`${e}`), sql`, `) : null;
+    const phoneList = phones.length ? sql.join(phones.map(p => sql`${p}`), sql`, `) : null;
+    const last10 = (col: string) => sql`RIGHT(regexp_replace(COALESCE(${sql.raw(col)}, ''), '[^0-9]', '', 'g'), 10)`;
+    const nlEmail = emailList ? sql`lower(nl.recipient) IN (${emailList})` : sql`FALSE`;
+    const nlPhone = phoneList ? sql`${last10("nl.recipient")} IN (${phoneList})` : sql`FALSE`;
+    const smsPhone = phoneList
+      ? sql`(${last10("contact_phone")} IN (${phoneList})
+          OR ${last10("to_number")} IN (${phoneList})
+          OR ${last10("from_number")} IN (${phoneList}))`
+      : sql`FALSE`;
+    const mlEmail = emailList ? sql`lower(recipient_email) IN (${emailList})` : sql`FALSE`;
+    const mlPhone = phoneList ? sql`${last10("recipient_phone")} IN (${phoneList})` : sql`FALSE`;
+
     const result = await db.execute(sql`
       SELECT * FROM (
         SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
@@ -766,18 +795,14 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                (nl.metadata->>'html')::text AS email_html, 'automated'::text AS source
           FROM notification_log nl
          WHERE nl.company_id = ${companyId}
-           AND ( lower(nl.recipient) = ANY(${emails}::text[])
-              OR RIGHT(regexp_replace(COALESCE(nl.recipient, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+           AND ( ${nlEmail} OR ${nlPhone} )
         UNION ALL
         SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
                'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
                status::text AS status, NULL::text AS subject, body::text AS body,
                NULL::text AS email_html, 'two_way'::text AS source
           FROM sms_messages
-         WHERE company_id = ${companyId} AND (
-               RIGHT(regexp_replace(COALESCE(contact_phone, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[])
-            OR RIGHT(regexp_replace(COALESCE(to_number, ''),    '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[])
-            OR RIGHT(regexp_replace(COALESCE(from_number, ''),   '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+         WHERE company_id = ${companyId} AND ${smsPhone}
         UNION ALL
         SELECT com.logged_at AS at, com.channel::text AS channel, com.direction::text AS direction,
                COALESCE(com.source, 'message')::text AS type, com.recipient::text AS recipient,
@@ -794,9 +819,7 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                CASE WHEN channel = 'email' AND body ~ '<[a-zA-Z]' THEN body END AS email_html,
                'cadence'::text AS source
           FROM message_log
-         WHERE company_id = ${companyId} AND (
-               lower(recipient_email) = ANY(${emails}::text[])
-            OR RIGHT(regexp_replace(COALESCE(recipient_phone, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+         WHERE company_id = ${companyId} AND ( ${mlEmail} OR ${mlPhone} )
       ) t
       ORDER BY at DESC NULLS LAST
       LIMIT 200`);

@@ -242,7 +242,12 @@ export async function notifyUser(
 
   const dead = [...deadIos, ...deadAndroid];
   if (dead.length) {
-    await db.execute(sql`DELETE FROM device_tokens WHERE token = ANY(${dead})`).catch(() => {});
+    // [ANY(array) trap 2026-08-12] `= ANY(${jsArray})` throws through Drizzle at
+    // any length — and this call swallows its own errors, so dead device tokens
+    // have never actually been pruned. Silent, but it means every push keeps
+    // retrying tokens the OS already rejected. Expanded IN list.
+    const deadList = sql.join(dead.map(t => sql`${t}`), sql`, `);
+    await db.execute(sql`DELETE FROM device_tokens WHERE token IN (${deadList})`).catch(() => {});
   }
   return { status: "sent", devices: devices.length - dead.length };
 }

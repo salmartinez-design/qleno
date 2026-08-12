@@ -129,10 +129,17 @@ export async function recomputeAllEfficiency(companyId: number): Promise<{ jobs_
   const jobIds = jobs.map(j => Number(j.id));
 
   // All per-(job,tech) clocked hours in ONE grouped query.
+  // [ANY(array) trap 2026-08-12] `= ANY(${jsArray}::int[])` does NOT bind as one
+  // array through Drizzle — the elements spread into separate placeholders, so
+  // it throws for any length (see lib/invoice-billing.ts for the full write-up).
+  // This runs inside the efficiency sweep, so the throw took the whole sweep
+  // down rather than one job. Expanded IN list, same pattern as the rest of the
+  // codebase. jobIds is non-empty — guarded by the early return above.
+  const jobIdList = sql.join(jobIds.map(id => sql`${id}`), sql`, `);
   const hr = await db.execute(sql`
     SELECT job_id, user_id, SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric AS hours
       FROM timeclock
-     WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
+     WHERE company_id = ${companyId} AND job_id IN (${jobIdList})
        AND clock_out_at IS NOT NULL AND source = 'punched'
      GROUP BY job_id, user_id
   `);
