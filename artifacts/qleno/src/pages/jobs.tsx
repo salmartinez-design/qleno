@@ -5643,6 +5643,76 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
 // have room. The time lives on the left rail (the "left side bar that does that
 // work") — never inside the block. Rows are ordered by start time with a NOW
 // marker inserted on today. Untimed jobs list below.
+// [open-at-now 2026-08-11] Shared by the mobile Grid and Time views: bring the
+// NOW divider into view once, when the day's list opens on today. Opening at
+// 3pm on the 7:00a row made the operator thumb past a finished morning to reach
+// what's live (Sal) — the same complaint in both views, so one implementation.
+//
+// Mechanism: scrollIntoView + scroll-margin-top, NOT a hand-computed scrollTop
+// against a guessed container. The mobile shell scrolls the document and the
+// desktop one scrolls <main>; scrollIntoView resolves whichever ancestor
+// actually scrolls (and nested ones), and scroll-margin-top keeps the divider
+// clear of the sticky chrome.
+//
+// `sessionKey` is what "once" means: it re-anchors when the key changes (switch
+// views, change day) but never twice for the same one, so the dispatch data
+// refreshing underneath can't yank the operator's scroll back. `dataKey` just
+// re-runs the effect as jobs arrive — the guard still allows a single scroll.
+// A second pass 350ms later covers late layout settling (addresses wrap to 2-3
+// lines, the web font swaps in); any touch or wheel cancels it so the
+// correction never fights someone who has started scrolling.
+function useScrollToNowOnOpen(enabled: boolean, sessionKey: string, dataKey: unknown) {
+  const nowRef = useRef<HTMLDivElement | null>(null);
+  const doneKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (doneKey.current === sessionKey) return;
+    if (!nowRef.current) return;
+    doneKey.current = sessionKey;
+
+    let cancelled = false;
+    const abort = () => { cancelled = true; };
+    window.addEventListener("touchstart", abort, { passive: true });
+    window.addEventListener("wheel", abort, { passive: true });
+
+    const run = () => {
+      const target = nowRef.current;
+      if (!target || cancelled) return;
+      // The app header and the week-summary card both stick at top:0, so they
+      // occlude the SAME band — take the max, not the sum, then a little air.
+      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
+      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
+      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+
+    const raf = requestAnimationFrame(run);
+    const settle = setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      window.removeEventListener("touchstart", abort);
+      window.removeEventListener("wheel", abort);
+    };
+  }, [enabled, sessionKey, dataKey]);
+
+  return nowRef;
+}
+
+// The divider itself — the anchor the hook scrolls to, and the visual break
+// between what's done and what's ahead. Shared so Grid and Time read alike.
+function NowDivider({ innerRef }: { innerRef?: React.RefObject<HTMLDivElement | null> }) {
+  return (
+    <div ref={innerRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
+      <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
+      <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
+    </div>
+  );
+}
+
 function MobileCalendarView({ jobs, onJobClick, isToday }: {
   jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
 }) {
@@ -5661,9 +5731,9 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   const now = isToday ? new Date() : null;
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
-  // Anchor for the open-at-now scroll below; the guard keeps it to one shot.
-  const nowRef = useRef<HTMLDivElement | null>(null);
-  const didScrollToNow = useRef(false);
+  // Anchor for the open-at-now scroll. This component mounts fresh each time
+  // the operator taps Grid, so a constant session key is enough.
+  const nowRef = useScrollToNowOnOpen(isToday, "grid", jobs);
 
   // [mobile-grid-vertical 2026-07-24] Vertical tiles, two per row (grid
   // container below). Time folds into the top of each card (start here, "ends …"
@@ -5754,63 +5824,9 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     );
   };
 
-  // NOW divider — a full-width row placed before the first slot at/after now.
-  const NowMarker = () => (
-    <div ref={nowRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
-      <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
-      <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
-      <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
-    </div>
-  );
-
-  // [grid-open-at-now 2026-08-11] Opening Grid at 3pm landed on the 7:00a row —
-  // the operator had to thumb past the whole finished morning to reach what's
-  // live (Sal). On today, bring the NOW divider into view once, on open.
-  //
-  // Mechanism: scrollIntoView + scroll-margin-top, NOT hand-computed offsets
-  // against a guessed scroll container. The mobile shell scrolls the document
-  // and the desktop one scrolls <main> — scrollIntoView resolves whichever
-  // ancestor actually scrolls (and nested ones) instead of us picking wrong,
-  // and scroll-margin-top keeps the divider clear of the sticky chrome.
-  //
-  // Guard rails: fires ONCE per mount, so dispatch refreshes never yank the
-  // operator's scroll back; only when isToday (leaving a day resets the guard);
-  // and a second pass ~350 ms later because tile heights settle late — client
-  // names and addresses wrap to 2-3 lines and the web font swaps in — which
-  // otherwise leaves the first landing short. Any touch or wheel cancels the
-  // second pass so we never fight someone who has started scrolling.
-  useEffect(() => {
-    if (!isToday) { didScrollToNow.current = false; return; }
-    if (didScrollToNow.current) return;
-    if (!nowRef.current) return;
-    didScrollToNow.current = true;
-
-    let cancelled = false;
-    const abort = () => { cancelled = true; };
-    window.addEventListener("touchstart", abort, { passive: true });
-    window.addEventListener("wheel", abort, { passive: true });
-
-    const run = () => {
-      const target = nowRef.current;
-      if (!target || cancelled) return;
-      // The app header and the week-summary card both stick at top:0, so they
-      // occlude the SAME band — take the max, not the sum, then a little air.
-      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
-      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
-      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
-      target.scrollIntoView({ block: "start", behavior: "smooth" });
-    };
-
-    const raf = requestAnimationFrame(run);
-    const settle = setTimeout(run, 350);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      clearTimeout(settle);
-      window.removeEventListener("touchstart", abort);
-      window.removeEventListener("wheel", abort);
-    };
-  }, [isToday, jobs]);
+  // NOW divider — placed before the first slot at/after now, and the anchor
+  // the open-at-now scroll targets.
+  const NowMarker = () => <NowDivider innerRef={nowRef} />;
 
   // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
   // time axis, so a 9:00 job sits in the 9:00 row BELOW a lone 7:00 job rather
@@ -8745,6 +8761,21 @@ export default function JobsPage() {
   const dayLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const isToday = dateKey(selectedDate) === dateKey(new Date());
 
+  // [open-at-now 2026-08-12] The Time list gets the same landing as Grid (Sal:
+  // "only make sense"). Declared HERE, above the isMobile branch, because hooks
+  // can't live inside it — isMobile flips on resize and would reorder them. On
+  // desktop the ref simply never attaches and the effect no-ops.
+  //
+  // The session key is view + focal day, so switching Time→Grid→Time or
+  // stepping to another day and back re-anchors, while a data refresh within
+  // the same view+day does not. Grid keeps its own anchor (MobileCalendarView
+  // mounts fresh on every tap), so this one is scoped to the Time list.
+  const timeNowRef = useScrollToNowOnOpen(
+    isToday && mobileViewMode === "time",
+    `time:${dateKey(selectedDate)}`,
+    allJobs,
+  );
+
   // ── MOBILE VIEW (AI.7 — risk-first dashboard) ───────────────────────────────
   if (isMobile) {
     // Compute "needs attention" surface from currently-loaded day data.
@@ -9108,8 +9139,31 @@ export default function JobsPage() {
                 });
               })()
             ) : (
+              /* TIME — the day in start-time order, with the same NOW divider
+                 Grid draws, so the finished morning reads as behind you rather
+                 than as the top of the list. `allJobs` is already sorted by
+                 start time; untimed jobs sort to the front and stay above the
+                 divider, which is right — they have no time to be late for. */
               <>
-                {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                {(() => {
+                  const nowMins = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
+                  const rows: JSX.Element[] = [];
+                  let markerPlaced = false;
+                  for (const j of allJobs) {
+                    if (isToday && !markerPlaced && timeToMins(j.scheduled_time) >= nowMins) {
+                      rows.push(<NowDivider key="now" innerRef={timeNowRef} />);
+                      markerPlaced = true;
+                    }
+                    rows.push(<MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />);
+                  }
+                  // Every job today has already started — the divider closes the
+                  // list instead of never rendering, so the view still lands at
+                  // the live end of the day.
+                  if (isToday && !markerPlaced && rows.length > 0) {
+                    rows.push(<NowDivider key="now" innerRef={timeNowRef} />);
+                  }
+                  return rows;
+                })()}
               </>
             )}
           </div>
