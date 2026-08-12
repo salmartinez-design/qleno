@@ -911,34 +911,45 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
  * uses absence_warning; both render the label "Written warning".)
  */
 async function seedPhesOccurrenceLadders(): Promise<void> {
-  // [PLAWA tightened 3-strike 2026-07-11] Post-PLAWA-exhaustion UNEXCUSED
-  // absences are a strict 3-strike scale per Benefit Year: 1st occurrence →
-  // written warning, 2nd → final warning, 3rd → termination trigger.
+  // [unexcused back to 3/4/5 2026-08-12] Sal: the scale ends at FIVE, matching
+  // the 40-hour unexcused bucket (5 scheduled days × 8h). This restores the
+  // scale confirmed 2026-06-24 and REVERSES the 2026-07-11 tightening to 1/2/3,
+  // which put a Final warning on a cleaner's second unexcused day and left the
+  // ladder terminating at 24 hours while the bucket still granted 40.
   // Occurrences only accrue once PLAWA can't cover the absence (PLAWA-covered
   // absences are logged via /leave/usage and never hit the ladder), so the 1st
-  // occurrence here is already a post-exhaustion / notice-violation event. A
-  // No-Call/No-Show weighs +2 occurrences, so one NCNS lands at Final and two
-  // trigger termination. (Superseded the prior 3/4/5 unexcused scale confirmed
-  // 2026-06-24 — handbook + LMS updated in lockstep.) The TARDY ladder is a
-  // SEPARATE track and is NOT tightened — it stays 3/4/5.
+  // occurrence here is already a post-exhaustion / notice-violation event.
+  // Handbook + LMS module and quiz move in lockstep with this constant.
+  //
+  // NOTE on No-Call/No-Show: NCNS weighs +2 occurrences, so under this scale a
+  // single NCNS no longer reaches Final on its own (2 of 3) and two reach Final
+  // (4). That is intentional and not a gap — the handbook makes ONE no-call /
+  // no-show independent grounds for immediate termination, a separate path from
+  // this ladder. The TARDY ladder is its own track and was never tightened.
   const UNEXCUSED = JSON.stringify([
-    { occurrence: 1, discipline_type: "absence_warning", label: "Written warning", notify: true },
-    { occurrence: 2, discipline_type: "final_warning", label: "Final warning", notify: true },
-    { occurrence: 3, discipline_type: "termination", label: "Termination", notify: true },
+    { occurrence: 3, discipline_type: "absence_warning", label: "Written warning", notify: true },
+    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
   ]);
   const TARDY = JSON.stringify([
     { occurrence: 3, discipline_type: "tardy_warning", label: "Written warning", notify: true },
     { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
     { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
   ]);
-  // The exact prior 3/4/5 UNEXCUSED ladder. A one-time UPDATE below migrates
-  // rows still carrying it onto the tightened 1/2/3 — but ONLY that exact shape,
-  // so any office customization is preserved. (Tardy is untouched, so it needs
-  // no migration.)
+  // The exact 2026-07-11 tightened 1/2/3 ladder. A one-time UPDATE below moves
+  // rows still carrying it back onto 3/4/5 — but ONLY that exact shape, so any
+  // office customization is preserved. (Tardy is untouched, so it needs no
+  // migration.)
+  //
+  // This constant is the reason the revert has to happen in CODE. The UPDATE
+  // that used to live here matched the 3/4/5 shape and rewrote it to 1/2/3 on
+  // EVERY cold start — so setting the ladder back by hand in the database would
+  // have been silently undone by the next Railway restart. Reversing the guard
+  // reverses that trap.
   const PRIOR_UNEXCUSED = JSON.stringify([
-    { occurrence: 3, discipline_type: "absence_warning", label: "Written warning", notify: true },
-    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
-    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
+    { occurrence: 1, discipline_type: "absence_warning", label: "Written warning", notify: true },
+    { occurrence: 2, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 3, discipline_type: "termination", label: "Termination", notify: true },
   ]);
   await db.execute(
     sql.raw(`
@@ -993,16 +1004,16 @@ async function seedPhesOccurrenceLadders(): Promise<void> {
         WHERE company_id IN (1,4)
           AND (tardy_occurrence_steps IS NULL OR tardy_occurrence_steps = '[]'::jsonb);
 
-      -- [PLAWA tightened 3-strike 2026-07-11] One-time migration of UNEXCUSED
-      -- rows still on the prior 3/4/5 scale onto the new 1/2/3. Guarded to the
-      -- EXACT prior JSON so any office customization is left untouched.
-      -- Idempotent: after it runs once the rows no longer match the prior shape.
+      -- [unexcused back to 3/4/5 2026-08-12] One-time migration of UNEXCUSED
+      -- rows still on the tightened 1/2/3 scale back onto 3/4/5. Guarded to the
+      -- EXACT tightened JSON so any office customization is left untouched.
+      -- Idempotent: after it runs once the rows no longer match that shape.
       -- The tardy ladder is intentionally NOT migrated (stays 3/4/5).
       UPDATE company_attendance_policy
         SET unexcused_occurrence_steps = '${UNEXCUSED}'::jsonb
         WHERE company_id IN (1,4)
           AND unexcused_occurrence_steps = '${PRIOR_UNEXCUSED}'::jsonb;
-      RAISE NOTICE 'cutover-migration: ensured PHES disciplinary ladders (unexcused tightened to 1/2/3; tardy unchanged 3/4/5)';
+      RAISE NOTICE 'cutover-migration: ensured PHES disciplinary ladders (unexcused restored to 3/4/5; tardy unchanged 3/4/5)';
     END
     $$;
   `),

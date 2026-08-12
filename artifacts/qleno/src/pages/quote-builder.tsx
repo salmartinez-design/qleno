@@ -451,9 +451,19 @@ export default function QuoteBuilderPage() {
       const b = parseInt(rcResult.bedrooms, 10);
       if (!isNaN(b) && b > 0) setBedrooms(b);
     }
-    if (!bathrooms && rcResult.bathrooms != null) {
-      const ba = parseInt(rcResult.bathrooms, 10);
+    // [half-baths 2026-08-12] Take the SPLIT the lookup now returns rather than
+    // parseInt-ing the combined figure. RentCast reports "2.5" for two full and
+    // one half; parseInt made that a 2 and the half bath vanished from the
+    // quote entirely (Francisco). full_bathrooms/half_bathrooms fall back to
+    // the old field so an older API response still fills the full-bath box.
+    const fullFromLookup = rcResult.full_bathrooms ?? rcResult.bathrooms;
+    if (!bathrooms && fullFromLookup != null) {
+      const ba = Math.floor(Number(fullFromLookup));
       if (!isNaN(ba) && ba > 0) setBathrooms(ba);
+    }
+    if (!halfBaths && rcResult.half_bathrooms != null) {
+      const hb = Math.floor(Number(rcResult.half_bathrooms));
+      if (!isNaN(hb) && hb > 0) setHalfBaths(hb);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rcResult]);
@@ -1683,6 +1693,10 @@ export default function QuoteBuilderPage() {
           if (data.property.sq_footage > 0) setSqft(data.property.sq_footage);
           if (data.property.bedrooms > 0) setBedrooms(data.property.bedrooms);
           if (data.property.bathrooms > 0) setBathrooms(data.property.bathrooms);
+          // [half-baths 2026-08-12] Prefill the half-bath count from the saved
+          // property too, so a repeat quote for an existing client doesn't
+          // quietly reset it to zero.
+          if (data.property.half_baths > 0) setHalfBaths(data.property.half_baths);
         }
       })
       .catch(() => {});

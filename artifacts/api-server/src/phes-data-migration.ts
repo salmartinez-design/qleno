@@ -1337,6 +1337,43 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.archived_at",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ` },
 
+    // [employee-info schema drift 2026-08-12] Sal: "I just added and saved a
+    // bunch of stuff to her internal notes and emergency contact and nothing
+    // saved." Every one of these columns is declared in the Drizzle users
+    // schema and read/written by PUT /api/users/:id — and NONE of them was ever
+    // provisioned here. The only emergency_contact_* in this file belongs to
+    // lms_onboarding_intake, a different table entirely. So the Employee Info
+    // tab has been writing to columns that may not exist, which is the same
+    // class of drift as the unexcused_hours_steps fix on 2026-06-25: the code
+    // is right, the table never caught up.
+    //
+    // Every statement is IF NOT EXISTS, so where a column already exists (some
+    // were likely added by an ad-hoc drizzle push against production) this is a
+    // no-op. What it guarantees is that a fresh environment — a PR preview, a
+    // new tenant — can save an employee's details at all.
+    { label: "users.personal_email",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS personal_email TEXT` },
+    { label: "users.dob",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS dob DATE` },
+    { label: "users.gender",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT` },
+    { label: "users.bank_name",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_name TEXT` },
+    { label: "users.bank_account_last4",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_account_last4 TEXT` },
+    { label: "users.emergency_contact_name",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT` },
+    { label: "users.emergency_contact_phone",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT` },
+    { label: "users.emergency_contact_relation",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_relation TEXT` },
+    { label: "users.ssn_last4",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS ssn_last4 TEXT` },
+    { label: "users.notes",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT` },
+    { label: "users.tags",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS tags TEXT[]` },
+
     // [terminate 2026-07-01] HR separation detail for the Terminate flow.
     { label: "users.last_day_worked",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_day_worked DATE` },
@@ -6989,6 +7026,10 @@ async function runNotificationTemplateSeed() {
       // Google review" — the survey thank-you page only shows the ask to clients
       // who have never tapped it before.
       ["clients.google_review_clicked_at",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_review_clicked_at TIMESTAMP`],
+      // [half-baths 2026-08-12] The quote has always captured half_baths, but
+      // the client's property had nowhere to put it, so the count died at the
+      // convert and the office could never see it on the job (Francisco).
+      ["client_homes.half_baths",                   sql`ALTER TABLE client_homes ADD COLUMN IF NOT EXISTS half_baths INTEGER`],
       // [tenant-billing 2026-08-05] Billing cutover becomes per-tenant data
       // instead of the INVOICE_CUTOVER_DATE constant.
       //

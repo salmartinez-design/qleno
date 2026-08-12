@@ -18,7 +18,7 @@ import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { reconcileSquarePayment, decimalToCents } from "../lib/square-payment-reconcile.js";
-import { syncSquareCustomerMap } from "../lib/square-customer-map.js";
+import { syncSquareCustomerMap, fetchSquareCustomers, fetchSquareCards } from "../lib/square-customer-map.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
 import { alertCardSaved } from "../lib/card-saved-alert.js";
@@ -122,6 +122,177 @@ router.post("/sync-customers", ...adminOnly, async (req, res) => {
     // Surface the real reason (e.g. missing SQUARE_ACCESS_TOKEN) so the office
     // isn't left guessing why nothing linked.
     res.status(500).json({ error: err?.message || "Square customer sync failed" });
+  }
+});
+
+// ── Per-client card refresh ─────────────────────────────────────────────────
+//
+// POST /api/square/clients/:id/refresh-card
+// POST /api/square/clients/:id/link-card   { square_customer_id, card_id }
+//
+// [card-refresh 2026-08-12] Maribel: "We should also get a button there to
+// refresh the cards and if it finds a client by the same name, we should have
+// the option to authorize the card right there."
+//
+// /sync-customers already re-matches the WHOLE book, but it is admin-only, runs
+// over every customer, and lands its uncertain matches in a review queue the
+// office has to go find. The case Maribel is describing is one client, in front
+// of her, whose card is sitting in Square — she wants it resolved on that
+// screen.
+//
+// refresh-card does the two useful things in one call:
+//   - Client already linked → re-read that Square customer's cards and update
+//     the stored brand / last4 / expiry. This is the "the card changed in
+//     Square" case, and the answer is authoritative because the link is known.
+//   - Not linked (or linked with no card) → return CANDIDATES: Square customers
+//     matching by email or by name that actually have a card on file. It does
+//     NOT link them. A name match is a suggestion, not proof — two Marias with
+//     different cards is a real way to charge the wrong person — so attaching
+//     stays a deliberate human click through link-card, which takes the exact
+//     square_customer_id + card_id the office was shown.
+router.post("/clients/:id/refresh-card", ...officeOnly, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const clientId = parseInt(req.params.id, 10);
+    const token = process.env.SQUARE_ACCESS_TOKEN;
+    if (!token) return res.status(400).json({ error: "Square is not configured on this environment." });
+
+    const cr = (await db.execute(sql`
+      SELECT id, first_name, last_name, company_name, email, square_customer_id
+        FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!cr.length) return res.status(404).json({ error: "Client not found" });
+    const client = cr[0] as any;
+
+    const [customers, cards] = await Promise.all([fetchSquareCustomers(token), fetchSquareCards(token)]);
+    // include_disabled=true is on the fetch, so filter the dead ones out here —
+    // a disabled card is not something the office can charge.
+    const live = cards.filter(c => c.enabled !== false && c.customer_id);
+    const byCustomer = new Map<string, typeof live>();
+    for (const c of live) {
+      const list = byCustomer.get(c.customer_id!) ?? [];
+      list.push(c);
+      byCustomer.set(c.customer_id!, list);
+    }
+    const custById = new Map(customers.map(c => [c.id, c]));
+    const fmtExp = (c: { exp_month?: number; exp_year?: number }) =>
+      c.exp_month != null && c.exp_year != null ? `${c.exp_month}/${String(c.exp_year).slice(-2)}` : null;
+
+    // Already linked — refresh from the known customer.
+    if (client.square_customer_id) {
+      const list = byCustomer.get(String(client.square_customer_id)) ?? [];
+      if (list.length) {
+        const card = list[0];
+        const brand = card.card_brand ?? null;
+        const last4 = card.last_4 ?? null;
+        const exp = fmtExp(card);
+        await db.execute(sql`
+          UPDATE clients
+             SET square_card_brand = ${brand}, square_card_last4 = ${last4}, square_card_exp = ${exp},
+                 card_brand = ${brand}, card_last_four = ${last4}, card_expiry = ${exp},
+                 default_card_brand = ${brand}, default_card_last_4 = ${last4},
+                 payment_source = 'square'
+           WHERE id = ${clientId} AND company_id = ${companyId}`);
+        logAudit(req, "REFRESH", "square_card", clientId, {}, { square_customer_id: client.square_customer_id, last4 } as any);
+        return res.json({
+          ok: true, state: "refreshed",
+          card: { brand, last4, exp, square_customer_id: client.square_customer_id, card_id: card.id },
+          candidates: [],
+        });
+      }
+      // Linked but Square has no live card — say so plainly rather than
+      // leaving a stale last4 on screen implying it can be charged.
+      return res.json({ ok: true, state: "linked_no_card", card: null, candidates: [] });
+    }
+
+    // Not linked — offer what Square has under this name or email.
+    const norm = (s?: string | null) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const targetName = norm(`${client.first_name ?? ""}${client.last_name ?? ""}`);
+    const targetCompany = norm(client.company_name);
+    const targetEmail = String(client.email ?? "").trim().toLowerCase();
+
+    const candidates = customers
+      .map(sc => {
+        const scName = norm(`${sc.given_name ?? ""}${sc.family_name ?? ""}`);
+        const scCompany = norm(sc.company_name);
+        const scEmail = String(sc.email_address ?? "").trim().toLowerCase();
+        let match_on: "email" | "name" | "company" | null = null;
+        if (targetEmail && scEmail && scEmail === targetEmail) match_on = "email";
+        else if (targetName && scName && scName === targetName) match_on = "name";
+        else if (targetCompany && scCompany && scCompany === targetCompany) match_on = "company";
+        return { sc, match_on };
+      })
+      .filter(x => x.match_on && (byCustomer.get(x.sc.id)?.length ?? 0) > 0)
+      .flatMap(({ sc, match_on }) => (byCustomer.get(sc.id) ?? []).map(card => ({
+        square_customer_id: sc.id,
+        card_id: card.id,
+        match_on,
+        name: [sc.given_name, sc.family_name].filter(Boolean).join(" ") || sc.company_name || "(no name)",
+        company_name: sc.company_name ?? null,
+        email: sc.email_address ?? null,
+        brand: card.card_brand ?? null,
+        last4: card.last_4 ?? null,
+        exp: fmtExp(card),
+      })))
+      // Email first: it is the only one of the three that is near-proof.
+      .sort((a, b) => (a.match_on === "email" ? -1 : 0) - (b.match_on === "email" ? -1 : 0));
+
+    return res.json({ ok: true, state: candidates.length ? "candidates" : "no_match", card: null, candidates });
+  } catch (err: any) {
+    console.error("[square/refresh-card]", err?.message ?? err);
+    return res.status(500).json({ error: err?.message || "Could not refresh cards from Square" });
+  }
+});
+
+router.post("/clients/:id/link-card", ...officeOnly, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const clientId = parseInt(req.params.id, 10);
+    const { square_customer_id, card_id } = req.body ?? {};
+    if (!square_customer_id || !card_id) return res.status(400).json({ error: "square_customer_id and card_id are required" });
+    const token = process.env.SQUARE_ACCESS_TOKEN;
+    if (!token) return res.status(400).json({ error: "Square is not configured on this environment." });
+
+    const cr = (await db.execute(sql`
+      SELECT id FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!cr.length) return res.status(404).json({ error: "Client not found" });
+
+    // Re-verify against Square rather than trusting the ids the browser sent
+    // back — the office may have had the panel open for a while, and a card
+    // can be removed in Square in between.
+    const cards = await fetchSquareCards(token);
+    const card = cards.find(c => c.id === card_id && c.customer_id === square_customer_id && c.enabled !== false);
+    if (!card) return res.status(409).json({ error: "That card is no longer available in Square. Refresh and try again." });
+
+    const brand = card.card_brand ?? null;
+    const last4 = card.last_4 ?? null;
+    const exp = card.exp_month != null && card.exp_year != null ? `${card.exp_month}/${String(card.exp_year).slice(-2)}` : null;
+
+    // square_customer_id is the chargeable handle; the *_last4/brand mirror the
+    // Stripe display fields so the profile renders identically. Clearing the
+    // Stripe handle routes this client to Square (same contract as
+    // saveSquareCardOnFile).
+    await db.execute(sql`
+      UPDATE clients
+         SET square_customer_id = ${square_customer_id},
+             square_card_brand = ${brand}, square_card_last4 = ${last4}, square_card_exp = ${exp},
+             card_brand = ${brand}, card_last_four = ${last4}, card_expiry = ${exp},
+             default_card_brand = ${brand}, default_card_last_4 = ${last4},
+             payment_source = 'square', card_saved_at = NOW(),
+             stripe_payment_method_id = NULL
+       WHERE id = ${clientId} AND company_id = ${companyId}`);
+
+    // Keep the customer map in step so the review queue doesn't keep offering a
+    // row the office has just decided here.
+    await db.execute(sql`
+      UPDATE square_customer_map
+         SET client_id = ${clientId}, status = 'linked'
+       WHERE company_id = ${companyId} AND square_customer_id = ${square_customer_id}`);
+
+    logAudit(req, "LINK", "square_card", clientId, {}, { square_customer_id, card_id, last4 } as any);
+    return res.json({ ok: true, card: { brand, last4, exp, square_customer_id, card_id } });
+  } catch (err: any) {
+    console.error("[square/link-card]", err?.message ?? err);
+    return res.status(500).json({ error: err?.message || "Could not attach that card" });
   }
 });
 

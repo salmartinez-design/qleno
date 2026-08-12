@@ -745,9 +745,10 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     if (clientId) {
       try {
         await db.execute(sql`
-          INSERT INTO client_homes (company_id, client_id, address, city, state, zip, sq_footage, bedrooms, bathrooms, is_primary)
+          INSERT INTO client_homes (company_id, client_id, address, city, state, zip, sq_footage, bedrooms, bathrooms, half_baths, is_primary)
           SELECT ${companyId}, c.id, COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}), c.city, c.state, c.zip,
-                 ${(q as any).sqft ?? null}, ${(q as any).bedrooms ?? null}, ${(q as any).bathrooms ?? null}, true
+                 ${(q as any).sqft ?? null}, ${(q as any).bedrooms ?? null}, ${(q as any).bathrooms ?? null},
+                 ${(q as any).half_baths ?? null}, true
             FROM clients c
            WHERE c.id = ${clientId} AND c.company_id = ${companyId}
              AND COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}) IS NOT NULL

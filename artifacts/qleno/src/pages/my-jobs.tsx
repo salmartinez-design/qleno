@@ -24,8 +24,15 @@ import { shiftForWeekday } from "@/lib/business-hours";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // Row style for the mobile account-menu items (Time Off / Notifications / etc.).
+// [tap-target 2026-08-12] These rows were ~34px tall (9px padding + a 13px
+// line), under the 44px minimum touch target both Apple and Google publish. On
+// a phone held one-handed on a job site that is a genuinely hard thing to hit,
+// and the row a tech reaches for most — Cleaning Checklist — sits in the middle
+// of the stack with a miss landing on a neighbour or the gap. Raised to 44px
+// with the label still vertically centred; nothing else about the menu changes.
 const acctItemStyle: React.CSSProperties = {
-  display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+  display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", minHeight: 44,
+  boxSizing: "border-box",
   borderRadius: 7, background: "none", border: "none", cursor: "pointer",
   width: "100%", textAlign: "left", fontFamily: "'Plus Jakarta Sans', sans-serif",
   fontSize: 13, fontWeight: 500, color: "#1A1917",

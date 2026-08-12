@@ -317,18 +317,22 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "info",
         text: {
-          // LEGAL-REVIEW-PENDING (2026-07-11): tightened post-PLAWA 3-strike scale.
-          en: "This scale begins ONLY after your PLAWA bank reaches 0.00 and the absence has no legally protected reason. As long as PLAWA hours are available and you give the grace call, a call-off is protected and records ZERO occurrences. Protected and approved leave never count. The third unexcused day (up to 24 hours / 3 scheduled days total per Benefit Year) makes you subject to a termination review. The count resets each Benefit Year. Using your paid leave is never held against you.",
-          es: "Esta escala comienza SOLO después de que su banco de PLAWA llega a 0.00 y la ausencia no tiene una razón legalmente protegida. Mientras tenga horas de PLAWA disponibles y dé la llamada de gracia, una ausencia está protegida y registra CERO ocurrencias. La licencia protegida y aprobada nunca cuenta. El tercer día injustificado (hasta 24 horas / 3 días programados en total por Año de Beneficios) lo hace sujeto a una revisión de terminación. El conteo se reinicia cada Año de Beneficios. Usar su licencia pagada nunca se usa en su contra.",
+          // LEGAL-REVIEW-PENDING (2026-08-12): post-PLAWA scale returned to 3/4/5
+          // (Sal) — ends at five occurrences / 40 hours, matching the unexcused
+          // bucket. Supersedes the 2026-07-11 tightened 1/2/3 scale.
+          en: "This scale begins ONLY after your PLAWA bank reaches 0.00 and the absence has no legally protected reason. As long as PLAWA hours are available and you give the grace call, a call-off is protected and records ZERO occurrences. Protected and approved leave never count. The fifth unexcused day (up to 40 hours / 5 scheduled days total per Benefit Year) makes you subject to a termination review. The count resets each Benefit Year. Using your paid leave is never held against you.",
+          es: "Esta escala comienza SOLO después de que su banco de PLAWA llega a 0.00 y la ausencia no tiene una razón legalmente protegida. Mientras tenga horas de PLAWA disponibles y dé la llamada de gracia, una ausencia está protegida y registra CERO ocurrencias. La licencia protegida y aprobada nunca cuenta. El quinto día injustificado (hasta 40 horas / 5 días programados en total por Año de Beneficios) lo hace sujeto a una revisión de terminación. El conteo se reinicia cada Año de Beneficios. Usar su licencia pagada nunca se usa en su contra.",
         },
       },
       {
         type: "table",
         head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
         rows: [
-          { en: ["1st", "Written warning / coaching."], es: ["1ª", "Advertencia por escrito / orientación."] },
-          { en: ["2nd", "Final written warning."], es: ["2ª", "Advertencia final por escrito."] },
-          { en: ["3rd", "Termination review."], es: ["3ª", "Revisión de terminación."] },
+          { en: ["1st", "Recorded. Coaching conversation."], es: ["1ª", "Registrada. Conversación de orientación."] },
+          { en: ["2nd", "Recorded. Coaching conversation."], es: ["2ª", "Registrada. Conversación de orientación."] },
+          { en: ["3rd", "Written warning."], es: ["3ª", "Advertencia por escrito."] },
+          { en: ["4th", "Final warning."], es: ["4ª", "Advertencia final."] },
+          { en: ["5th", "Termination review."], es: ["5ª", "Revisión de terminación."] },
         ],
       },
 
@@ -3749,14 +3753,14 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
-    prompt: { en: "Your PLAWA bank is exhausted, so absences now count on the discipline scale. What does the SECOND unexcused occurrence in your benefit year trigger?", es: "Su banco de PLAWA está agotado, así que las ausencias ahora cuentan en la escala de disciplina. ¿Qué activa la SEGUNDA ocurrencia injustificada en su año de beneficios?" },
+    prompt: { en: "Your PLAWA bank is exhausted, so absences now count on the discipline scale. What does the FOURTH unexcused occurrence in your benefit year trigger?", es: "Su banco de PLAWA está agotado, así que las ausencias ahora cuentan en la escala de disciplina. ¿Qué activa la CUARTA ocurrencia injustificada en su año de beneficios?" },
     options: [
-      { en: "A final written warning is issued.", es: "Se emite una advertencia final por escrito." },
-      { en: "A recorded note with no further action.", es: "Una nota registrada sin acción adicional." },
-      { en: "A first written warning and coaching.", es: "Una primera advertencia por escrito y orientación." },
-      { en: "An automatic termination that same day.", es: "Una terminación automática ese mismo día." },
+      { en: "A recorded occurrence with no formal action.", es: "Una ocurrencia registrada sin acción formal." },
+      { en: "A first written warning and a coaching talk.", es: "Una primera advertencia por escrito y orientación." },
+      { en: "A final written warning for the benefit year.", es: "Una advertencia final por escrito para el año." },
+      { en: "An automatic termination on that same day.", es: "Una terminación automática ese mismo día." },
     ],
-    correctIndex: 0,
+    correctIndex: 2,
   },
   {
     id: "q-pp-12-pto-plawa-distinct",

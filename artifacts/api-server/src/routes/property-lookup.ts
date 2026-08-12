@@ -33,12 +33,29 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     const rec = Array.isArray(data) ? data[0] : data;
     if (!rec) return res.json({ configured: true, found: false });
 
+    // [half-baths 2026-08-12] RentCast reports bathrooms as ONE decimal — a
+    // house with 2 full and 1 half is `2.5`. We were passing that straight
+    // through to a field the quote builder parseInt()s, so the .5 was dropped
+    // on the floor and half baths never reached the quote (Francisco: "the
+    // system only displays the full bathrooms and does not show the half baths
+    // at all"). Split it here, at the boundary that knows the provider's
+    // convention: floor is full baths, a fractional part is one half bath.
+    // `bathrooms` keeps its original meaning for any existing consumer;
+    // full_bathrooms / half_bathrooms are the split view.
+    const rawBaths = rec.bathrooms != null ? Number(rec.bathrooms) : null;
+    const fullBaths = rawBaths != null && Number.isFinite(rawBaths) ? Math.floor(rawBaths) : null;
+    const halfBaths = rawBaths != null && Number.isFinite(rawBaths)
+      ? (rawBaths - Math.floor(rawBaths) >= 0.25 ? 1 : 0)
+      : null;
+
     return res.json({
       configured: true,
       found: true,
       square_footage: rec.squareFootage ?? null,
       bedrooms: rec.bedrooms ?? null,
       bathrooms: rec.bathrooms ?? null,
+      full_bathrooms: fullBaths,
+      half_bathrooms: halfBaths,
       lot_size: rec.lotSize ?? null,
       year_built: rec.yearBuilt ?? null,
       property_type: rec.propertyType ?? null,

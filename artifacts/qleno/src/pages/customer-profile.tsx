@@ -1396,7 +1396,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [showAlarm, setShowAlarm] = useState<number | null>(null);
-  const blank = { name: "", address: "", city: "", state: "", zip: "", bedrooms: "", bathrooms: "", sq_footage: "", access_notes: "", alarm_code: "", has_pets: false, pet_notes: "", parking_notes: "", is_primary: false, base_fee: "", allowed_hours: "", frequency: "", service_type: "" };
+  const blank = { name: "", address: "", city: "", state: "", zip: "", bedrooms: "", bathrooms: "", half_baths: "", sq_footage: "", access_notes: "", alarm_code: "", has_pets: false, pet_notes: "", parking_notes: "", is_primary: false, base_fee: "", allowed_hours: "", frequency: "", service_type: "" };
   const [form, setForm] = useState(blank);
   // [scheduling-engine 2026-04-29] Google Places autocomplete state.
   // Loads the Maps Places script once for the page; the actual
@@ -1558,6 +1558,10 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
             {home.sq_footage && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.sq_footage.toLocaleString()} sq ft</span>}
             {home.bedrooms && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.bedrooms} bed</span>}
             {home.bathrooms && <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.bathrooms} bath</span>}
+            {/* [half-baths 2026-08-12] Half baths are their own count, not part
+                of the full-bath number — the office prices and staffs them
+                differently, and they were invisible here until now. */}
+            {home.half_baths ? <span style={{ fontSize: "12px", color: "#9E9B94" }}>{home.half_baths} half bath</span> : null}
           </div>
 
           {/* Access notes */}
@@ -1610,8 +1614,8 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 Auto-filled from Google. Zone will be assigned on save based on zip.
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-              {F("sq_footage", "Sq Ft", "number")} {F("bedrooms", "Beds", "number")} {F("bathrooms", "Baths", "number")}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}>
+              {F("sq_footage", "Sq Ft", "number")} {F("bedrooms", "Beds", "number")} {F("bathrooms", "Baths", "number")} {F("half_baths", "Half Baths", "number")}
             </div>
             {F("alarm_code", "Alarm Code")}
             {F("access_notes", "Access Notes")}
@@ -2302,6 +2306,12 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   // Qleno (no dashboard, no link). Opens a modal that loads the Square Web
   // Payments SDK, tokenizes the card, and saves it on file via Square.
   const [enterCardOpen, setEnterCardOpen] = useState(false);
+  // [card-refresh 2026-08-12] Re-read this client's cards from Square, and
+  // offer any Square customer matching by email/name that has one on file.
+  const [cardRefreshing, setCardRefreshing] = useState(false);
+  const [cardRefreshMsg, setCardRefreshMsg] = useState<string | null>(null);
+  const [cardCandidates, setCardCandidates] = useState<any[]>([]);
+  const [linkingCardId, setLinkingCardId] = useState<string | null>(null);
   const [sqCfg, setSqCfg] = useState<{ configured: boolean; applicationId: string | null; locationId: string | null; environment: "production" | "sandbox" } | null>(null);
   const [sqCfgLoading, setSqCfgLoading] = useState(false);
   const [enterCardSaved, setEnterCardSaved] = useState(false);
@@ -2472,6 +2482,56 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
     setTimeout(() => { setEnterCardOpen(false); }, 1400);
   }
 
+  // [card-refresh 2026-08-12] One button, two outcomes: refresh the card we
+  // already know about, or surface the ones Square has under this name/email so
+  // the office can attach one without leaving the profile.
+  async function refreshCards() {
+    setCardRefreshing(true);
+    setCardRefreshMsg(null);
+    setCardCandidates([]);
+    try {
+      const r = await fetch(`${API}/api/square/clients/${client.id}/refresh-card`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setCardRefreshMsg(d.error || "Could not reach Square."); return; }
+      if (d.state === "refreshed") {
+        setCardRefreshMsg(`Updated from Square — ${d.card?.brand ?? "card"} ending ${d.card?.last4 ?? "----"}.`);
+        refetch();
+      } else if (d.state === "linked_no_card") {
+        setCardRefreshMsg("This client is linked to Square but has no active card there.");
+      } else if (d.state === "candidates") {
+        setCardCandidates(d.candidates ?? []);
+        setCardRefreshMsg(null);
+      } else {
+        setCardRefreshMsg("No card found in Square under this client's name or email.");
+      }
+    } catch {
+      setCardRefreshMsg("Could not reach Square.");
+    } finally {
+      setCardRefreshing(false);
+    }
+  }
+
+  async function linkCard(c: any) {
+    setLinkingCardId(c.card_id);
+    try {
+      const r = await fetch(`${API}/api/square/clients/${client.id}/link-card`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ square_customer_id: c.square_customer_id, card_id: c.card_id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setCardRefreshMsg(d.error || "Could not attach that card."); return; }
+      setCardCandidates([]);
+      setCardRefreshMsg(`Attached — ${d.card?.brand ?? "card"} ending ${d.card?.last4 ?? "----"}.`);
+      refetch();
+    } finally {
+      setLinkingCardId(null);
+    }
+  }
+
   async function toggleAutoCharge() {
     setTogglingAutoCharge(true);
     try {
@@ -2500,7 +2560,60 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
     <div style={{ padding: "0 0 24px" }}>
       {/* Card status */}
       <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", marginBottom: 16, fontFamily: FF }}>Payment Method</div>
+        {/* [card-refresh 2026-08-12] Maribel: a refresh button right here, and
+            the option to authorize a same-name card on the spot. A card saved
+            in the Square dashboard after the last customer sync was invisible
+            to Qleno until an admin re-ran the whole book. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", fontFamily: FF }}>Payment Method</div>
+          <button
+            onClick={refreshCards}
+            disabled={cardRefreshing}
+            title="Re-read this client's cards from Square"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#0F7A63", background: "#EAF9F4", border: "1px solid #BDEBDD", borderRadius: 7, padding: "6px 11px", cursor: cardRefreshing ? "wait" : "pointer", fontFamily: FF, opacity: cardRefreshing ? 0.6 : 1 }}
+          >
+            {cardRefreshing ? "Checking Square…" : "Refresh cards"}
+          </button>
+        </div>
+        {cardRefreshMsg && (
+          <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, background: "#F7F6F3", border: "1px solid #F0EEE9", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+            {cardRefreshMsg}
+          </div>
+        )}
+        {cardCandidates.length > 0 && (
+          <div style={{ border: "1px solid #F2DFB8", background: "#FDF9F0", borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#B45309", fontFamily: FF, marginBottom: 4 }}>
+              Card{cardCandidates.length > 1 ? "s" : ""} found in Square
+            </div>
+            {/* Name matching is a suggestion, not proof — two clients can share
+                a name and attaching the wrong one charges the wrong person. The
+                email and last-4 are shown so the office confirms before the
+                click, and only this explicit click links anything. */}
+            <div style={{ fontSize: 11, color: "#8A6A2F", fontFamily: FF, marginBottom: 10, lineHeight: 1.5 }}>
+              Check the email and last four before attaching — a name match alone is not proof it's the same person.
+            </div>
+            {cardCandidates.map(c => (
+              <div key={c.card_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #F2E6CE" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                    {c.name} · {c.brand ?? "Card"} •••• {c.last4 ?? "----"}
+                    {c.exp && <span style={{ fontWeight: 400, color: "#6B6860" }}> · exp {c.exp}</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
+                    {c.email || "no email in Square"} · matched on {c.match_on}
+                  </div>
+                </div>
+                <button
+                  onClick={() => linkCard(c)}
+                  disabled={linkingCardId === c.card_id}
+                  style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: "#fff", background: "#0F7A63", border: "none", borderRadius: 7, padding: "7px 12px", cursor: linkingCardId === c.card_id ? "wait" : "pointer", fontFamily: FF, opacity: linkingCardId === c.card_id ? 0.6 : 1 }}
+                >
+                  {linkingCardId === c.card_id ? "Attaching…" : "Use this card"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {hasCard ? (
           <div>

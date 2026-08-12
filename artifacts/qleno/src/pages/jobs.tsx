@@ -749,6 +749,40 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // so a freshly-imported client with NULL address gets the canonical
   // record filled in regardless of the checkbox.
   const clientHasAddress = !!String(job.client_address ?? "").trim();
+  // This job has its own address snapshot AND it disagrees with the client
+  // record. Compared loosely (case + punctuation + spacing) so formatting
+  // differences don't read as a divergence.
+  // The dispatch payload exposes the job's own snapshot as job_address_*, NOT
+  // address_* (which is the resolved display string). Reading the wrong one
+  // here would silently never show the button.
+  const loose = (v: any) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const hasJobOverride = !!String(job.job_address_street ?? "").trim()
+    && clientHasAddress
+    && loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0]);
+
+  async function useClientAddress() {
+    setInheriting(true);
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/address/use-client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Couldn't switch address", description: (d as any).error || "Please try again.", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Now using the client's address",
+        description: (d as any).zone_warning || (d as any).address || "The job follows the client profile again.",
+      });
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Couldn't switch address", description: e?.message, variant: "destructive" });
+    } finally {
+      setInheriting(false);
+    }
+  }
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -763,6 +797,12 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // client has upcoming jobs with their own saved address, we ask how far to
   // cascade instead of guessing. Null = no prompt showing.
   const [cascadePrompt, setCascadePrompt] = useState<{ total: number; same: number; diff: number } | null>(null);
+  // [out-of-zone override 2026-08-12] Set when the server refuses a zip that
+  // isn't in any service zone; carries what to retry with if the office confirms.
+  const [outOfZonePrompt, setOutOfZonePrompt] = useState<{ message: string; mode: "client" | "job"; cascade: "none" | "matching" | "all" } | null>(null);
+  // [address-reinherit 2026-08-12] Drop this job's own address snapshot and go
+  // back to whatever the client profile says.
+  const [inheriting, setInheriting] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -903,7 +943,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
     }
   }
 
-  async function doSave(mode: "client" | "job", cascade: "none" | "matching" | "all") {
+  async function doSave(mode: "client" | "job", cascade: "none" | "matching" | "all", allowOutOfZone = false) {
     if (!pickedAddress) return;
     setSaving(true);
     setError(null);
@@ -918,10 +958,22 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
           zip:     pickedAddress.zip,
           mode,
           cascade_future: cascade,
+          ...(allowOutOfZone ? { allow_out_of_zone: true } : {}),
         }),
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
+        // [out-of-zone override 2026-08-12] The zip isn't in a service zone.
+        // That used to be the end of it, which meant a client outside your
+        // zones could never have a correct address saved — so the WRONG one
+        // stayed, and the wrong one is what goes out in automated texts. Offer
+        // the override instead of refusing outright; the job lands zone-less,
+        // which is visible on the board and in the coverage audit.
+        if (r.status === 422 && (body as any).code === "OUT_OF_ZONE" && (body as any).can_override && !allowOutOfZone) {
+          setOutOfZonePrompt({ message: (body as any).error, mode, cascade });
+          setSaving(false);
+          return;
+        }
         setError(body.error || `Save failed (HTTP ${r.status})`);
         setSaving(false);
         return;
@@ -969,6 +1021,25 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
             </a>
           )}
         </div>
+        {/* [address-reinherit 2026-08-12] Only when this job carries its OWN
+            address that differs from the client's — i.e. exactly the case
+            Francisco hit, where the profile is right and the card is wrong and
+            the card is what the texts read. Nothing to offer otherwise. */}
+        {hasJobOverride && (
+          <button
+            onClick={useClientAddress}
+            disabled={inheriting}
+            style={{
+              fontSize: 11, fontWeight: 600, color: "#B45309",
+              background: "transparent", border: "1px solid #F2DFB8",
+              borderRadius: 6, padding: "2px 8px", cursor: inheriting ? "wait" : "pointer",
+              fontFamily: FF, flexShrink: 0,
+            }}
+            title="Drop this job's own address and use the client profile's current address"
+          >
+            {inheriting ? "…" : "Use client's"}
+          </button>
+        )}
         <button
           onClick={open}
           style={{
@@ -1058,7 +1129,35 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
             {error}
           </div>
         )}
-        {cascadePrompt ? (
+        {outOfZonePrompt ? (
+          /* [out-of-zone override 2026-08-12] The zip isn't in a service zone.
+             Refusing outright is what left wrong addresses in place on clients
+             outside the zones — and a wrong address is what the automated
+             texts send. So: say plainly what will happen, and let the office
+             decide. Saving leaves the job zone-less, which shows as a gray
+             tile and in the zone-coverage audit. */
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", background: "#FDF9F0", border: "1px solid #F2DFB8", borderRadius: 8 }}>
+            <div style={{ fontSize: 12, color: "#8A6A2F", lineHeight: 1.5 }}>{outOfZonePrompt.message}</div>
+            <div style={{ fontSize: 11, color: "#8A6A2F", lineHeight: 1.5 }}>
+              Save anyway and this job will have no zone until you add the zip under Settings &rarr; Service Zones.
+              The address itself will be correct, which is what the client's texts use.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => { const p = outOfZonePrompt; setOutOfZonePrompt(null); doSave(p.mode, p.cascade, true); }}
+                disabled={saving}
+                style={{ padding: "8px 12px", border: "none", borderRadius: 7, background: "#B45309", color: "#fff", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                {saving ? "Saving…" : "Save anyway, no zone"}
+              </button>
+              <button
+                onClick={() => setOutOfZonePrompt(null)}
+                disabled={saving}
+                style={{ padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                Go back
+              </button>
+            </div>
+          </div>
+        ) : cascadePrompt ? (
           /* [address-cascade] Ask how far the permanent change reaches into
              jobs already on the calendar. Jobs without their own saved
              address inherit the client change automatically and aren't
@@ -2050,6 +2149,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // wall-clock string. That is the convention the clock now stores and reads
   // (see the frame fix in #1372); the server marks an office edit normalized.
   const [clockEditUser, setClockEditUser] = useState<number | null>(null);
+  // [clock-history 2026-08-12] Who touched this clock, and when. Loaded on
+  // demand per entry — most opens of a job card never ask for it.
+  const [clockHistoryFor, setClockHistoryFor] = useState<number | null>(null);
+  const [clockHistory, setClockHistory] = useState<Record<number, any>>({});
+  const [clockHistoryLoading, setClockHistoryLoading] = useState(false);
   const [editIn, setEditIn] = useState("");
   const [editOut, setEditOut] = useState("");
 
@@ -2060,6 +2164,25 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     setClockEditUser(user_id);
     setEditIn(hhmm(entry?.clock_in_at));
     setEditOut(hhmm(entry?.clock_out_at));
+  }
+
+  // [clock-history 2026-08-12] Toggle the per-entry history, fetching once and
+  // caching by entry id so re-opening is instant.
+  async function toggleClockHistory(entryId: number) {
+    if (clockHistoryFor === entryId) { setClockHistoryFor(null); return; }
+    setClockHistoryFor(entryId);
+    if (clockHistory[entryId]) return;
+    setClockHistoryLoading(true);
+    try {
+      const r = await fetch(`${API}/api/timeclock/${entryId}/history`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => null);
+      if (r.ok && d) setClockHistory(prev => ({ ...prev, [entryId]: d }));
+      else setClockHistory(prev => ({ ...prev, [entryId]: { events: [], error: d?.error || "Could not load history" } }));
+    } catch {
+      setClockHistory(prev => ({ ...prev, [entryId]: { events: [], error: "Could not load history" } }));
+    } finally {
+      setClockHistoryLoading(false);
+    }
   }
 
   async function saveClockEdit(user_id: number, entryId?: number) {
@@ -2435,6 +2558,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // 2-stage interaction replaces the previous one-click button so accidental
   // completion isn't a 1-pixel miss.
   const [confirmComplete, setConfirmComplete] = useState(false);
+  // [reopen 2026-08-12] Two-step, like Mark Complete — reopening a job undoes a
+  // decision someone made, so it shouldn't be a single stray tap.
+  const [confirmReopen, setConfirmReopen] = useState(false);
   const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
   // [post-completion-adjust 2026-06-21] The office must be able to add a flat
   // fee (e.g. +$20 parking) AFTER a job is marked complete — that case is the
@@ -2533,6 +2659,40 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [AF] Supply-logging state removed — drawer section pulled per cleanup.
   // /api/supplies/log endpoint and supplies table remain in place so the
   // feature can return later without schema churn.
+
+  // [reopen 2026-08-12] Take a completed job back out of Complete. The server
+  // clears the lock and the synthetic 'estimated' clock rows Mark Complete
+  // stamped, keeps real punches, and refuses outright when the job has been
+  // charged or invoiced — those come back as a 409 with the reason, which is
+  // more useful to the office than a generic failure.
+  async function reopenJob() {
+    setBusy(true);
+    try {
+      const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const r = await fetch(`${API2}/api/jobs/${job.id}/reopen`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Could not reopen", description: (d as any).error || "Please try again.", variant: "destructive" });
+        return;
+      }
+      const removed = (d as any).removed_estimated_entries ?? 0;
+      toast({
+        title: (d as any).status === "in_progress" ? "Reopened — job is in progress" : "Reopened",
+        description: removed > 0
+          ? `${removed} estimated clock ${removed === 1 ? "entry" : "entries"} removed. Real punches were kept.`
+          : "This job can be edited and rescheduled again.",
+      });
+      setConfirmReopen(false);
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Could not reopen", description: e?.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function setStatus(s: string) {
     setBusy(true);
@@ -3081,7 +3241,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 scrolling. */}
             <InlineTechEdit job={job} onUpdate={onUpdate} />
             {(() => {
-              const helpers = commTechs.filter(t => !t.is_primary);
+              // [primary-flag-drift 2026-08-11] Exclude the assigned tech by
+              // user_id, not just by the is_primary flag. InlineTechEdit above
+              // renders the primary from jobs.assigned_user_id; if a roster row
+              // for that same person carries a stale is_primary=false, filtering
+              // on the flag alone drew her a second time as her own helper
+              // (Sal: "both techs have same name displayed"). The dispatch
+              // payload now derives the flag from assigned_user_id, so this is
+              // belt-and-braces for local/optimistic state — and it keeps the
+              // panel honest on any surface that hasn't refetched yet.
+              const helpers = commTechs.filter(t => !t.is_primary && t.user_id !== job.assigned_user_id);
               if (helpers.length === 0 && !canManageCommission) return null;
               // [tech-display-parity 2026-07-24] Show EVERY tech the same way —
               // the primary (InlineTechEdit above) renders an avatar + name row,
@@ -3702,7 +3871,58 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         style={{ flexShrink: 0, background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, color: "#6B6860", textDecoration: "underline" }}>
                         {clockEditUser === t.user_id ? "Cancel" : entry ? "Edit" : "Add times"}
                       </button>
+                      {/* [clock-history 2026-08-12] Maribel: "show like a
+                          history ... so we can see who changed it when." Only
+                          offered where there IS an entry to have a history. */}
+                      {entry?.id && (
+                        <button
+                          onClick={() => toggleClockHistory(entry.id)}
+                          title="Who entered or changed these times"
+                          style={{ flexShrink: 0, background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, color: "#6B6860", textDecoration: "underline" }}>
+                          {clockHistoryFor === entry.id ? "Hide history" : "History"}
+                        </button>
+                      )}
                     </div>
+                    {entry?.id && clockHistoryFor === entry.id && (
+                      <div style={{ padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+                        {clockHistoryLoading && !clockHistory[entry.id] ? (
+                          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Loading…</div>
+                        ) : clockHistory[entry.id]?.error ? (
+                          <div style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>{clockHistory[entry.id].error}</div>
+                        ) : (
+                          <>
+                            {(clockHistory[entry.id]?.events ?? []).map((ev: any, i: number) => {
+                              const when = ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+                              const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+                              let line: string;
+                              if (ev.kind === "created") line = ev.detail;
+                              else if (ev.kind === "office_in") line = `Clocked in from the office at ${t12(ev.new_value?.clock_in_at)}`;
+                              else if (ev.kind === "office_out") line = `Clocked out from the office at ${t12(ev.new_value?.clock_out_at)}`;
+                              else if (ev.kind === "deleted") line = "Entry deleted";
+                              else {
+                                // Name only what actually moved — an edit that
+                                // touched one end shouldn't imply both changed.
+                                const parts: string[] = [];
+                                if (String(ev.old_value?.clock_in_at ?? "") !== String(ev.new_value?.clock_in_at ?? "")) parts.push(`in ${t12(ev.old_value?.clock_in_at)} → ${t12(ev.new_value?.clock_in_at)}`);
+                                if (String(ev.old_value?.clock_out_at ?? "") !== String(ev.new_value?.clock_out_at ?? "")) parts.push(`out ${t12(ev.old_value?.clock_out_at)} → ${t12(ev.new_value?.clock_out_at)}`);
+                                line = parts.length ? `Times changed — ${parts.join(", ")}` : "Times edited";
+                              }
+                              return (
+                                <div key={i} style={{ fontSize: 11.5, color: "#1A1917", fontFamily: FF, padding: "4px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                                  {line}
+                                  <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 1 }}>
+                                    {when}{ev.actor_name ? ` · ${ev.actor_name}` : ""}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {(clockHistory[entry.id]?.events ?? []).length === 0 && (
+                              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No recorded changes.</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     {clockEditUser === t.user_id && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
                         <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", fontFamily: FF }}>
@@ -4088,12 +4308,39 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             at ..." label and Reschedule / Cancel are disabled. */}
         <div style={{ padding: "12px 20px 20px", borderTop: "1px solid #EEECE7", display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
           {isLocked ? (
-            <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <CheckCircle size={13} color="#0F7A63" />
-              {job.status === "cancelled"
-                ? "Cancelled"
-                : completedAtLabel ? `Completed at ${completedAtLabel}` : "Completed"}
-            </div>
+            <>
+              <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <CheckCircle size={13} color="#0F7A63" />
+                {job.status === "cancelled"
+                  ? "Cancelled"
+                  : completedAtLabel ? `Completed at ${completedAtLabel}` : "Completed"}
+              </div>
+              {/* [reopen 2026-08-12] The missing counterpart to Mark Complete.
+                  Francisco: clearing a cleaner's clock times left the service
+                  ticked Complete and un-reschedulable, with no way back. Only
+                  on completed jobs — a cancelled job is a different decision
+                  with its own path. The server refuses when money has moved. */}
+              {job.status === "complete" && canManageMods && (
+                confirmReopen ? (
+                  <>
+                    <button onClick={reopenJob} disabled={busy}
+                      style={{ padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#B45309", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>
+                      {busy ? "..." : "Yes, reopen"}
+                    </button>
+                    <button onClick={() => setConfirmReopen(false)} disabled={busy}
+                      style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmReopen(true)} disabled={busy}
+                    title="Take this job out of Complete so it can be edited or rescheduled"
+                    style={{ padding: "10px 12px", border: "1px solid #F2DFB8", borderRadius: 8, backgroundColor: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    Reopen
+                  </button>
+                )
+              )}
+            </>
           ) : confirmComplete ? (
             <>
               <button onClick={() => setStatus("complete")} disabled={busy}
@@ -5634,6 +5881,76 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
 // have room. The time lives on the left rail (the "left side bar that does that
 // work") — never inside the block. Rows are ordered by start time with a NOW
 // marker inserted on today. Untimed jobs list below.
+// [open-at-now 2026-08-11] Shared by the mobile Grid and Time views: bring the
+// NOW divider into view once, when the day's list opens on today. Opening at
+// 3pm on the 7:00a row made the operator thumb past a finished morning to reach
+// what's live (Sal) — the same complaint in both views, so one implementation.
+//
+// Mechanism: scrollIntoView + scroll-margin-top, NOT a hand-computed scrollTop
+// against a guessed container. The mobile shell scrolls the document and the
+// desktop one scrolls <main>; scrollIntoView resolves whichever ancestor
+// actually scrolls (and nested ones), and scroll-margin-top keeps the divider
+// clear of the sticky chrome.
+//
+// `sessionKey` is what "once" means: it re-anchors when the key changes (switch
+// views, change day) but never twice for the same one, so the dispatch data
+// refreshing underneath can't yank the operator's scroll back. `dataKey` just
+// re-runs the effect as jobs arrive — the guard still allows a single scroll.
+// A second pass 350ms later covers late layout settling (addresses wrap to 2-3
+// lines, the web font swaps in); any touch or wheel cancels it so the
+// correction never fights someone who has started scrolling.
+function useScrollToNowOnOpen(enabled: boolean, sessionKey: string, dataKey: unknown) {
+  const nowRef = useRef<HTMLDivElement | null>(null);
+  const doneKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (doneKey.current === sessionKey) return;
+    if (!nowRef.current) return;
+    doneKey.current = sessionKey;
+
+    let cancelled = false;
+    const abort = () => { cancelled = true; };
+    window.addEventListener("touchstart", abort, { passive: true });
+    window.addEventListener("wheel", abort, { passive: true });
+
+    const run = () => {
+      const target = nowRef.current;
+      if (!target || cancelled) return;
+      // The app header and the week-summary card both stick at top:0, so they
+      // occlude the SAME band — take the max, not the sum, then a little air.
+      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
+      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
+      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+
+    const raf = requestAnimationFrame(run);
+    const settle = setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      window.removeEventListener("touchstart", abort);
+      window.removeEventListener("wheel", abort);
+    };
+  }, [enabled, sessionKey, dataKey]);
+
+  return nowRef;
+}
+
+// The divider itself — the anchor the hook scrolls to, and the visual break
+// between what's done and what's ahead. Shared so Grid and Time read alike.
+function NowDivider({ innerRef }: { innerRef?: React.RefObject<HTMLDivElement | null> }) {
+  return (
+    <div ref={innerRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
+      <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
+      <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
+    </div>
+  );
+}
+
 function MobileCalendarView({ jobs, onJobClick, isToday }: {
   jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
 }) {
@@ -5652,9 +5969,9 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   const now = isToday ? new Date() : null;
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
-  // Anchor for the open-at-now scroll below; the guard keeps it to one shot.
-  const nowRef = useRef<HTMLDivElement | null>(null);
-  const didScrollToNow = useRef(false);
+  // Anchor for the open-at-now scroll. This component mounts fresh each time
+  // the operator taps Grid, so a constant session key is enough.
+  const nowRef = useScrollToNowOnOpen(isToday, "grid", jobs);
 
   // [mobile-grid-vertical 2026-07-24] Vertical tiles, two per row (grid
   // container below). Time folds into the top of each card (start here, "ends …"
@@ -5745,63 +6062,9 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     );
   };
 
-  // NOW divider — a full-width row placed before the first slot at/after now.
-  const NowMarker = () => (
-    <div ref={nowRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
-      <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
-      <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
-      <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
-    </div>
-  );
-
-  // [grid-open-at-now 2026-08-11] Opening Grid at 3pm landed on the 7:00a row —
-  // the operator had to thumb past the whole finished morning to reach what's
-  // live (Sal). On today, bring the NOW divider into view once, on open.
-  //
-  // Mechanism: scrollIntoView + scroll-margin-top, NOT hand-computed offsets
-  // against a guessed scroll container. The mobile shell scrolls the document
-  // and the desktop one scrolls <main> — scrollIntoView resolves whichever
-  // ancestor actually scrolls (and nested ones) instead of us picking wrong,
-  // and scroll-margin-top keeps the divider clear of the sticky chrome.
-  //
-  // Guard rails: fires ONCE per mount, so dispatch refreshes never yank the
-  // operator's scroll back; only when isToday (leaving a day resets the guard);
-  // and a second pass ~350 ms later because tile heights settle late — client
-  // names and addresses wrap to 2-3 lines and the web font swaps in — which
-  // otherwise leaves the first landing short. Any touch or wheel cancels the
-  // second pass so we never fight someone who has started scrolling.
-  useEffect(() => {
-    if (!isToday) { didScrollToNow.current = false; return; }
-    if (didScrollToNow.current) return;
-    if (!nowRef.current) return;
-    didScrollToNow.current = true;
-
-    let cancelled = false;
-    const abort = () => { cancelled = true; };
-    window.addEventListener("touchstart", abort, { passive: true });
-    window.addEventListener("wheel", abort, { passive: true });
-
-    const run = () => {
-      const target = nowRef.current;
-      if (!target || cancelled) return;
-      // The app header and the week-summary card both stick at top:0, so they
-      // occlude the SAME band — take the max, not the sum, then a little air.
-      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
-      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
-      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
-      target.scrollIntoView({ block: "start", behavior: "smooth" });
-    };
-
-    const raf = requestAnimationFrame(run);
-    const settle = setTimeout(run, 350);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      clearTimeout(settle);
-      window.removeEventListener("touchstart", abort);
-      window.removeEventListener("wheel", abort);
-    };
-  }, [isToday, jobs]);
+  // NOW divider — placed before the first slot at/after now, and the anchor
+  // the open-at-now scroll targets.
+  const NowMarker = () => <NowDivider innerRef={nowRef} />;
 
   // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
   // time axis, so a 9:00 job sits in the 9:00 row BELOW a lone 7:00 job rather
@@ -8736,6 +8999,21 @@ export default function JobsPage() {
   const dayLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const isToday = dateKey(selectedDate) === dateKey(new Date());
 
+  // [open-at-now 2026-08-12] The Time list gets the same landing as Grid (Sal:
+  // "only make sense"). Declared HERE, above the isMobile branch, because hooks
+  // can't live inside it — isMobile flips on resize and would reorder them. On
+  // desktop the ref simply never attaches and the effect no-ops.
+  //
+  // The session key is view + focal day, so switching Time→Grid→Time or
+  // stepping to another day and back re-anchors, while a data refresh within
+  // the same view+day does not. Grid keeps its own anchor (MobileCalendarView
+  // mounts fresh on every tap), so this one is scoped to the Time list.
+  const timeNowRef = useScrollToNowOnOpen(
+    isToday && mobileViewMode === "time",
+    `time:${dateKey(selectedDate)}`,
+    allJobs,
+  );
+
   // ── MOBILE VIEW (AI.7 — risk-first dashboard) ───────────────────────────────
   if (isMobile) {
     // Compute "needs attention" surface from currently-loaded day data.
@@ -9099,8 +9377,31 @@ export default function JobsPage() {
                 });
               })()
             ) : (
+              /* TIME — the day in start-time order, with the same NOW divider
+                 Grid draws, so the finished morning reads as behind you rather
+                 than as the top of the list. `allJobs` is already sorted by
+                 start time; untimed jobs sort to the front and stay above the
+                 divider, which is right — they have no time to be late for. */
               <>
-                {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                {(() => {
+                  const nowMins = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
+                  const rows: JSX.Element[] = [];
+                  let markerPlaced = false;
+                  for (const j of allJobs) {
+                    if (isToday && !markerPlaced && timeToMins(j.scheduled_time) >= nowMins) {
+                      rows.push(<NowDivider key="now" innerRef={timeNowRef} />);
+                      markerPlaced = true;
+                    }
+                    rows.push(<MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />);
+                  }
+                  // Every job today has already started — the divider closes the
+                  // list instead of never rendering, so the view still lands at
+                  // the live end of the day.
+                  if (isToday && !markerPlaced && rows.length > 0) {
+                    rows.push(<NowDivider key="now" innerRef={timeNowRef} />);
+                  }
+                  return rows;
+                })()}
               </>
             )}
           </div>
