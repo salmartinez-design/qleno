@@ -3081,7 +3081,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 scrolling. */}
             <InlineTechEdit job={job} onUpdate={onUpdate} />
             {(() => {
-              const helpers = commTechs.filter(t => !t.is_primary);
+              // [primary-flag-drift 2026-08-11] Exclude the assigned tech by
+              // user_id, not just by the is_primary flag. InlineTechEdit above
+              // renders the primary from jobs.assigned_user_id; if a roster row
+              // for that same person carries a stale is_primary=false, filtering
+              // on the flag alone drew her a second time as her own helper
+              // (Sal: "both techs have same name displayed"). The dispatch
+              // payload now derives the flag from assigned_user_id, so this is
+              // belt-and-braces for local/optimistic state — and it keeps the
+              // panel honest on any surface that hasn't refetched yet.
+              const helpers = commTechs.filter(t => !t.is_primary && t.user_id !== job.assigned_user_id);
               if (helpers.length === 0 && !canManageCommission) return null;
               // [tech-display-parity 2026-07-24] Show EVERY tech the same way —
               // the primary (InlineTechEdit above) renders an avatar + name row,

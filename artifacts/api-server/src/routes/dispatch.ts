@@ -1035,7 +1035,19 @@ async function buildDispatchPayload(
         return {
           user_id: t.user_id,
           name: t.name,
-          is_primary: t.is_primary,
+          // [primary-flag-drift 2026-08-11] jobs.assigned_user_id is the
+          // authority on who the primary is — it's what the dispatch grid reads
+          // and what every mirror in the codebase writes. job_technicians
+          // .is_primary can fall out of step with it (the pay-override upsert
+          // inserts a roster row with the column's `false` default, so setting a
+          // commission override on an assigned tech who had no roster row left
+          // her assigned but flagged non-primary). Consumers then rendered her
+          // TWICE — once as the primary in the tech dropdown, once in the
+          // helper list below it, which read the stale flag (Sal: "both techs
+          // have same name displayed", job #5932, one tech, $77 = the full 35%
+          // pool rather than a two-way split). Derive the flag here so every
+          // surface reading technicians[] agrees and exactly one row is primary.
+          is_primary: j.assigned_user_id != null ? t.user_id === j.assigned_user_id : t.is_primary,
           est_hours: estHoursPerTech,
           calc_pay: calcPay,
           final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPay),
@@ -1053,7 +1065,10 @@ async function buildDispatchPayload(
       // legacy single-tech display remains correct in single-tech
       // jobs. Multi-tech surfaces should read job.technicians[].pay_*
       // instead.
-      const primaryTech = jobTechs[0];
+      // Same authority as the technicians[] flag above: prefer the roster row
+      // for the assigned tech, so a stale is_primary can't point the legacy
+      // pay-type label at a helper.
+      const primaryTech = jobTechs.find(t => t.user_id === j.assigned_user_id) ?? jobTechs[0];
       const legacyBasis = primaryTech
         ? (isCommercialPay
             ? (primaryTech.commercial_pay_type === "hourly" ? "commercial_hourly" : "commercial_commission")

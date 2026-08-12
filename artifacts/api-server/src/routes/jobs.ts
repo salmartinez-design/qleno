@@ -5476,14 +5476,24 @@ router.put("/:id/technicians/:techId/override", requireAuth, requireRole("owner"
     const companyId = req.auth!.companyId;
     const { pay_override } = req.body;
 
-    const jobRows = await db.execute(sql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    const jobRows = await db.execute(sql`SELECT id, assigned_user_id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
 
     const overrideVal = pay_override != null ? parseFloat(String(pay_override)) : null;
 
+    // [primary-flag-drift 2026-08-11] Stamp is_primary on INSERT instead of
+    // taking the column's `false` default. Setting a commission override on an
+    // assigned tech who had no job_technicians row yet used to create one
+    // flagged non-primary while jobs.assigned_user_id still named her — the
+    // split-brain the assignment-mirror invariant exists to prevent. The panel
+    // then drew her twice, as the primary in the dropdown AND in the helper
+    // list (Sal, job #5932). ON CONFLICT deliberately leaves is_primary alone:
+    // a pay edit must never re-seat an existing roster.
+    const assignedUserId = (jobRows.rows[0] as any).assigned_user_id ?? null;
     await db.execute(sql`
-      INSERT INTO job_technicians (job_id, user_id, company_id, pay_override, final_pay)
-      VALUES (${jobId}, ${techId}, ${companyId}, ${overrideVal}, ${overrideVal})
+      INSERT INTO job_technicians (job_id, user_id, company_id, pay_override, final_pay, is_primary)
+      VALUES (${jobId}, ${techId}, ${companyId}, ${overrideVal}, ${overrideVal},
+              ${assignedUserId != null && Number(assignedUserId) === techId})
       ON CONFLICT (job_id, user_id) DO UPDATE SET
         pay_override = EXCLUDED.pay_override,
         final_pay = EXCLUDED.final_pay
