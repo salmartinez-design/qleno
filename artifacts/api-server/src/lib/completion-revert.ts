@@ -58,6 +58,52 @@ const GHOST_PREDICATE = sql`
   )
 `;
 
+// [auto-issue killed the revert 2026-08-12] Maribel, for at least the third
+// time: "Yesterday Lupe clocked in by mistake, I deleted the clock and it's
+// still showing the check mark. We have reported this one a few times already."
+//
+// She is right, and the reason is a collision between two features that were
+// each correct on their own day.
+//
+// The predicate above refuses to revert a job that carries an invoice in
+// ('sent','paid','overdue') — written 2026-07-28, when completion produced a
+// DRAFT and the comment could honestly say "a DRAFT invoice does NOT protect
+// the job". But since 2026-07-08, with companies.auto_issue_invoices ON,
+// completion ISSUES the invoice: status 'sent', sent_at NULL, no email sent,
+// nobody billed (see lib/ensure-invoice.ts). Every clock-out completion now
+// mints exactly the row the predicate treats as untouchable — so the revert
+// has been dead on arrival for any tenant with auto-issue on, every single
+// time, which is exactly why it keeps getting re-reported.
+//
+// 'sent' is doing two different jobs in this schema: "issued into AR" and
+// "actually emailed to the customer". Only the second is a reason to refuse.
+// So this variant asks whether the invoice has genuinely LEFT THE BUILDING:
+//   sent_at IS NOT NULL  → a human emailed it
+//   paid_at IS NOT NULL  → money arrived
+//   status paid/overdue  → it is real AR
+// An auto-issued, never-emailed, unpaid completion invoice is none of those —
+// it is an artifact of the mistaken completion, and it gets voided with it
+// (below) rather than left behind pointing at a job that is no longer done.
+//
+// Used by the FORWARD path only (delete a punch → revert). The startup heal
+// deliberately keeps the original tight predicate — see healGhostCompletions.
+const GHOST_PREDICATE_FORWARD = sql`
+  j.status = 'complete'
+  AND j.completed_by_user_id IS NOT NULL
+  AND j.locked_at IS NULL
+  AND j.charge_succeeded_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id)
+  AND NOT EXISTS (
+    SELECT 1 FROM invoices inv
+    WHERE inv.job_id = j.id
+      AND (
+        inv.status IN ('paid', 'overdue')
+        OR inv.sent_at IS NOT NULL
+        OR inv.paid_at IS NOT NULL
+      )
+  )
+`;
+
 // Called by the two clock-deletion paths (DELETE /api/timeclock/:id and
 // DELETE /api/jobs/:id/clock-entries) AFTER the delete. If the job is now a ghost
 // completion by the tight predicate above, revert it and audit the auto-revert
@@ -78,10 +124,29 @@ export async function revertJobIfGhostCompletion(opts: {
       SET status = 'scheduled',
           completed_by_user_id = NULL,
           actual_end_time = NULL
-      WHERE j.id = ${jobId} AND j.company_id = ${companyId} AND ${GHOST_PREDICATE}
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} AND ${GHOST_PREDICATE_FORWARD}
       RETURNING j.id
     `);
     if (!upd.rows[0]) return false;
+
+    // Void the completion's own invoice. The predicate above already proved it
+    // was never emailed and never paid, so this is an artifact of the mistaken
+    // completion — and leaving it issued would put a bogus invoice in the
+    // client's AR pointing at a job that is no longer complete. Voided, not
+    // deleted: the number stays on the record with its history.
+    let voidedInvoices = 0;
+    try {
+      const voided = await db.execute(sql`
+        UPDATE invoices
+           SET status = 'void'
+         WHERE job_id = ${jobId} AND company_id = ${companyId}
+           AND status IN ('draft', 'sent')
+           AND sent_at IS NULL AND paid_at IS NULL
+        RETURNING id`);
+      voidedInvoices = voided.rows.length;
+    } catch (e) {
+      console.error("[ghost-revert] invoice void non-fatal:", (e as any)?.message ?? e);
+    }
 
     await logJobStatusChange({
       companyId,
@@ -90,7 +155,9 @@ export async function revertJobIfGhostCompletion(opts: {
       priorStatus: "complete",
       newStatus: "scheduled",
       source: "auto-revert",
-      note: "Auto-reverted out of Complete — last clock punch deleted, job had no clock evidence",
+      note: voidedInvoices > 0
+        ? `Auto-reverted out of Complete — last clock punch deleted, job had no clock evidence. ${voidedInvoices} unsent invoice${voidedInvoices === 1 ? "" : "s"} voided.`
+        : "Auto-reverted out of Complete — last clock punch deleted, job had no clock evidence",
     });
     return true;
   } catch (err) {
