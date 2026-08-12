@@ -153,7 +153,16 @@ router.get("/company-report", requireAuth, requireRole("owner", "admin", "office
         FROM users
        WHERE company_id = ${companyId}
          AND role IN ('technician', 'trainee', 'team_lead')
+         -- [active-definition 2026-08-11] THREE signals, not one. "Inactive"
+         -- across this app means is_active=false OR a termination date OR
+         -- archived — see isInactive() in pages/employees.tsx, which carries a
+         -- comment about an earlier bug caused by checking only is_active. My
+         -- first pass at this made that exact mistake: Norma and Juan dropped
+         -- off but Anissa Bello stayed, because she is is_active=true with a
+         -- termination_date. Keep these three in lockstep with the roster page.
          AND is_active = true
+         AND termination_date IS NULL
+         AND archived_at IS NULL
          AND show_on_dispatch IS NOT FALSE`);
 
     // ── Per-tech window survey counts (attributed to the job's primary tech) ──
