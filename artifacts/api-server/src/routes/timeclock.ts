@@ -381,6 +381,47 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       });
     }
 
+    // [one-clock-at-a-time 2026-08-12] Maribel, on Jose Ardila showing punched
+    // in at two overlapping jobs: "this shouldn't be allowed to happen, he
+    // clocked in at both jobs."
+    //
+    // Nothing stopped it. This route had no open-punch check of any kind, and
+    // the office route only looked for a duplicate on the SAME job — so a
+    // second clock-in on a DIFFERENT job sailed through. A person cannot be at
+    // two houses at once, and every downstream number believes the clock:
+    // actual hours, the allowed-vs-actual efficiency score, the minute-weighted
+    // commission split, and the payroll total all double-count the overlap.
+    //
+    // Blocked, not auto-closed. Closing the earlier punch here would invent a
+    // clock-out time nobody observed and quietly rewrite pay for the first job;
+    // the office decides that with the real end time. The message names the
+    // other job so the tech knows exactly what to close.
+    const openPunch = (await db.execute(sql`
+      SELECT tc.id, tc.job_id, tc.clock_in_at,
+             CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+        FROM timeclock tc
+        LEFT JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.user_id = ${effectiveUserId}
+         AND tc.company_id = ${req.auth!.companyId}
+         AND tc.clock_out_at IS NULL
+       ORDER BY tc.clock_in_at DESC
+       LIMIT 1`) as any).rows[0];
+
+    if (openPunch) {
+      const sameJob = Number(openPunch.job_id) === Number(job_id);
+      return res.status(409).json({
+        error: sameJob ? "ALREADY_CLOCKED_IN" : "OPEN_PUNCH_ELSEWHERE",
+        message: sameJob
+          ? "You're already clocked in on this job."
+          : `You're still clocked in at ${openPunch.job_name || `job #${openPunch.job_id}`}. Clock out there first, then clock in here.`,
+        open_job_id: Number(openPunch.job_id),
+        open_job_name: openPunch.job_name ?? null,
+      });
+    }
+
     const attemptResult = isOverride ? "override_approved" : outsideGeofence ? "soft_warned" : "success";
 
     // Model A: stamp branch_id at clock-in from the job's branch (default Oak
@@ -801,6 +842,33 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       return res.status(409).json({
         error: "Duplicate punch",
         message: "This cleaner already has a time entry covering that time on this job — edit the existing entry instead of adding a new one.",
+      });
+    }
+
+    // [one-clock-at-a-time 2026-08-12] The check above is scoped to THIS job,
+    // so a second clock-in on a DIFFERENT job passed it — which is how a tech
+    // ended up punched in at two overlapping jobs (Maribel). Same rule as the
+    // field route: one open clock per person, blocked rather than auto-closed,
+    // with the other job named. The office CAN still key in a closed entry with
+    // explicit in/out times for a job worked earlier — this only rejects
+    // leaving a second clock RUNNING.
+    const openElsewhere = (await db.execute(sql`
+      SELECT tc.job_id,
+             CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+        FROM timeclock tc
+        LEFT JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.user_id = ${user_id} AND tc.company_id = ${companyId}
+         AND tc.clock_out_at IS NULL AND tc.job_id <> ${job_id}
+       ORDER BY tc.clock_in_at DESC LIMIT 1`) as any).rows[0];
+    if (openElsewhere) {
+      return res.status(409).json({
+        error: "OPEN_PUNCH_ELSEWHERE",
+        message: `This cleaner is still clocked in at ${openElsewhere.job_name || `job #${openElsewhere.job_id}`}. Close that entry first — nobody can be on two jobs at once.`,
+        open_job_id: Number(openElsewhere.job_id),
+        open_job_name: openElsewhere.job_name ?? null,
       });
     }
 
