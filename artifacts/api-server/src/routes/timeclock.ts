@@ -812,6 +812,12 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       override_approved: true,
       source: "punched",
     }).returning();
+    // [clock-history 2026-08-12] Audit the CREATE too, not just later edits.
+    // Without this the clock history could show every correction but never who
+    // put the punch there in the first place — which is half of "who changed it
+    // when" when the office keys in a clock the cleaner never punched.
+    logAudit(req, "TIMECLOCK_OFFICE_IN", "timeclock", entry.id,
+      null, { clock_in_at: entry.clock_in_at, job_id, user_id });
     return res.json(entry);
   } catch (err) {
     console.error("POST /timeclock/office/clock-in error:", err);
@@ -866,6 +872,8 @@ router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "off
       .set({ clock_out_at: clockOutAt })
       .where(eq(timeclockTable.id, open.id)).returning();
     await recomputeJobActualHours(job_id, companyId);
+    logAudit(req, "TIMECLOCK_OFFICE_OUT", "timeclock", updated.id,
+      { clock_out_at: open.clock_out_at ?? null }, { clock_out_at: updated.clock_out_at });
     return res.json(updated);
   } catch (err) {
     console.error("POST /timeclock/office/clock-out error:", err);
@@ -1739,6 +1747,88 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), asyn
     return res.json({ success: true, reverted });
   } catch (err) {
     console.error("DELETE /timeclock/:id error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/timeclock/:id/history — who touched this clock, and when.
+//
+// [clock-history 2026-08-12] Maribel, on the office keying in clock times:
+// "show like a history when we hover over about this clock or something, so we
+// can see who changed it when." Francisco had asked for a free-text Note field
+// per service; Maribel's version is better and Sal agreed — the office should
+// not have to REMEMBER to write down what the system already knows. A note
+// records what someone chose to say; this records what actually happened.
+//
+// Two sources, one timeline:
+//   - the entry itself: how the punch originated (field punch vs office-keyed
+//     vs a synthetic 'estimated' row) and when it was created.
+//   - app_audit_log rows for this entry: every office create, edit and delete,
+//     with the actor resolved to a name and the before/after times.
+// Office-only: techs never see who edited their clock (same posture as the
+// overtime surfaces).
+router.get("/:id/history", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+
+    const entryRows = (await db.execute(sql`
+      SELECT tc.id, tc.created_at, tc.source, tc.clock_in_at, tc.clock_out_at, tc.override_approved,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS tech_name
+        FROM timeclock tc
+        LEFT JOIN users u ON u.id = tc.user_id
+       WHERE tc.id = ${id} AND tc.company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!entryRows.length) return res.status(404).json({ error: "Time entry not found" });
+    const entry = entryRows[0] as any;
+
+    const auditRows = (await db.execute(sql`
+      SELECT a.action, a.old_value, a.new_value, a.performed_at,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS actor_name
+        FROM app_audit_log a
+        LEFT JOIN users u ON u.id = a.performed_by
+       WHERE a.company_id = ${companyId}
+         AND a.target_type = 'timeclock'
+         AND a.target_id = ${String(id)}
+       ORDER BY a.performed_at ASC`) as any).rows;
+
+    // The origin line. A 'punched' row with no office-create audit came from the
+    // field app; anything the office keyed in has its own audit row below, so we
+    // do not guess an actor here — an honest blank beats a wrong name.
+    const hasOfficeCreate = auditRows.some((r: any) => r.action === "TIMECLOCK_OFFICE_IN");
+    const events = [
+      {
+        kind: "created",
+        at: entry.created_at,
+        actor_name: null,
+        detail: hasOfficeCreate
+          ? "Entered by the office"
+          : entry.source === "estimated"
+            ? "Estimated entry — no punch recorded"
+            : "Punched from the field app",
+      },
+      ...auditRows.map((r: any) => ({
+        kind: r.action === "TIMECLOCK_EDIT" ? "edited"
+            : r.action === "TIMECLOCK_DELETE" ? "deleted"
+            : r.action === "TIMECLOCK_OFFICE_IN" ? "office_in"
+            : r.action === "TIMECLOCK_OFFICE_OUT" ? "office_out"
+            : "changed",
+        at: r.performed_at,
+        actor_name: r.actor_name ?? null,
+        old_value: r.old_value ?? null,
+        new_value: r.new_value ?? null,
+      })),
+    ];
+
+    return res.json({
+      entry: {
+        id: entry.id, source: entry.source, tech_name: entry.tech_name,
+        clock_in_at: entry.clock_in_at, clock_out_at: entry.clock_out_at,
+      },
+      events,
+    });
+  } catch (err) {
+    console.error("GET /timeclock/:id/history error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

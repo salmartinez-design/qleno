@@ -2050,6 +2050,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // wall-clock string. That is the convention the clock now stores and reads
   // (see the frame fix in #1372); the server marks an office edit normalized.
   const [clockEditUser, setClockEditUser] = useState<number | null>(null);
+  // [clock-history 2026-08-12] Who touched this clock, and when. Loaded on
+  // demand per entry — most opens of a job card never ask for it.
+  const [clockHistoryFor, setClockHistoryFor] = useState<number | null>(null);
+  const [clockHistory, setClockHistory] = useState<Record<number, any>>({});
+  const [clockHistoryLoading, setClockHistoryLoading] = useState(false);
   const [editIn, setEditIn] = useState("");
   const [editOut, setEditOut] = useState("");
 
@@ -2060,6 +2065,25 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     setClockEditUser(user_id);
     setEditIn(hhmm(entry?.clock_in_at));
     setEditOut(hhmm(entry?.clock_out_at));
+  }
+
+  // [clock-history 2026-08-12] Toggle the per-entry history, fetching once and
+  // caching by entry id so re-opening is instant.
+  async function toggleClockHistory(entryId: number) {
+    if (clockHistoryFor === entryId) { setClockHistoryFor(null); return; }
+    setClockHistoryFor(entryId);
+    if (clockHistory[entryId]) return;
+    setClockHistoryLoading(true);
+    try {
+      const r = await fetch(`${API}/api/timeclock/${entryId}/history`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => null);
+      if (r.ok && d) setClockHistory(prev => ({ ...prev, [entryId]: d }));
+      else setClockHistory(prev => ({ ...prev, [entryId]: { events: [], error: d?.error || "Could not load history" } }));
+    } catch {
+      setClockHistory(prev => ({ ...prev, [entryId]: { events: [], error: "Could not load history" } }));
+    } finally {
+      setClockHistoryLoading(false);
+    }
   }
 
   async function saveClockEdit(user_id: number, entryId?: number) {
@@ -3711,7 +3735,58 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         style={{ flexShrink: 0, background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, color: "#6B6860", textDecoration: "underline" }}>
                         {clockEditUser === t.user_id ? "Cancel" : entry ? "Edit" : "Add times"}
                       </button>
+                      {/* [clock-history 2026-08-12] Maribel: "show like a
+                          history ... so we can see who changed it when." Only
+                          offered where there IS an entry to have a history. */}
+                      {entry?.id && (
+                        <button
+                          onClick={() => toggleClockHistory(entry.id)}
+                          title="Who entered or changed these times"
+                          style={{ flexShrink: 0, background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, color: "#6B6860", textDecoration: "underline" }}>
+                          {clockHistoryFor === entry.id ? "Hide history" : "History"}
+                        </button>
+                      )}
                     </div>
+                    {entry?.id && clockHistoryFor === entry.id && (
+                      <div style={{ padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+                        {clockHistoryLoading && !clockHistory[entry.id] ? (
+                          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Loading…</div>
+                        ) : clockHistory[entry.id]?.error ? (
+                          <div style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>{clockHistory[entry.id].error}</div>
+                        ) : (
+                          <>
+                            {(clockHistory[entry.id]?.events ?? []).map((ev: any, i: number) => {
+                              const when = ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+                              const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+                              let line: string;
+                              if (ev.kind === "created") line = ev.detail;
+                              else if (ev.kind === "office_in") line = `Clocked in from the office at ${t12(ev.new_value?.clock_in_at)}`;
+                              else if (ev.kind === "office_out") line = `Clocked out from the office at ${t12(ev.new_value?.clock_out_at)}`;
+                              else if (ev.kind === "deleted") line = "Entry deleted";
+                              else {
+                                // Name only what actually moved — an edit that
+                                // touched one end shouldn't imply both changed.
+                                const parts: string[] = [];
+                                if (String(ev.old_value?.clock_in_at ?? "") !== String(ev.new_value?.clock_in_at ?? "")) parts.push(`in ${t12(ev.old_value?.clock_in_at)} → ${t12(ev.new_value?.clock_in_at)}`);
+                                if (String(ev.old_value?.clock_out_at ?? "") !== String(ev.new_value?.clock_out_at ?? "")) parts.push(`out ${t12(ev.old_value?.clock_out_at)} → ${t12(ev.new_value?.clock_out_at)}`);
+                                line = parts.length ? `Times changed — ${parts.join(", ")}` : "Times edited";
+                              }
+                              return (
+                                <div key={i} style={{ fontSize: 11.5, color: "#1A1917", fontFamily: FF, padding: "4px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                                  {line}
+                                  <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 1 }}>
+                                    {when}{ev.actor_name ? ` · ${ev.actor_name}` : ""}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {(clockHistory[entry.id]?.events ?? []).length === 0 && (
+                              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No recorded changes.</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     {clockEditUser === t.user_id && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
                         <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", fontFamily: FF }}>
