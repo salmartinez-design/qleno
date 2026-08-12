@@ -6140,6 +6140,167 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
   }
 });
 
+// ─── REOPEN A COMPLETED JOB ───────────────────────────────────────────────────
+//
+// POST /api/jobs/:id/reopen
+//
+// [reopen 2026-08-12] Francisco: deleting a cleaner's clock times leaves the
+// service still ticked Complete, and "it also does not allow us to reschedule
+// the service, because the system still considers it completed."
+//
+// The 2026-07-28 ghost-completion revert already handles ONE version of this —
+// a job completed BY a clock-out whose punches were all deleted. It deliberately
+// refuses everything else, and rightly: auto-reverting on empty clocks would
+// un-complete invoiced work the moment someone tidied a punch. So the office
+// path that was actually missing is an explicit one. There was no way to take a
+// job out of Complete from the UI at all.
+//
+// Undoes exactly what Mark Complete does — status, actual_end_time, locked_at,
+// completed_by_user_id, and the synthetic `estimated` clock rows it stamps.
+// REAL punches are kept: they are evidence of work, and deleting them here would
+// destroy payroll data as a side effect of a status change.
+//
+// Refuses when money has moved — a successful charge, or an invoice already
+// sent/paid/overdue. Those need a credit or a refund, not a quiet status flip,
+// and the 409 says so instead of failing silently.
+router.post("/:id/reopen", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId ?? null;
+
+    const rows = (await db.execute(sql`
+      SELECT j.id, j.status, j.charge_succeeded_at,
+             (SELECT count(*)::int FROM invoices inv
+               WHERE inv.job_id = j.id AND inv.status IN ('sent','paid','overdue')) AS live_invoices,
+             (SELECT count(*)::int FROM timeclock tc
+               WHERE tc.job_id = j.id AND tc.clock_out_at IS NULL) AS open_punches
+        FROM jobs j
+       WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!rows.length) return res.status(404).json({ error: "Job not found" });
+    const job = rows[0] as any;
+
+    if (job.status !== "complete") {
+      return res.status(409).json({ error: "That job isn't marked complete." });
+    }
+    if (job.charge_succeeded_at) {
+      return res.status(409).json({
+        error: "This job has already been charged. Refund or credit the payment first, then reopen it.",
+      });
+    }
+    if (Number(job.live_invoices) > 0) {
+      return res.status(409).json({
+        error: "This job is on an invoice that's already been issued. Void or credit the invoice first, then reopen it.",
+      });
+    }
+
+    // An open punch means someone is on the clock right now — the honest state
+    // to land in is in_progress, not scheduled.
+    const nextStatus = Number(job.open_punches) > 0 ? "in_progress" : "scheduled";
+
+    await db.execute(sql`
+      UPDATE jobs
+         SET status = ${nextStatus}, completed_by_user_id = NULL,
+             actual_end_time = NULL, locked_at = NULL
+       WHERE id = ${jobId} AND company_id = ${companyId}`);
+
+    // Drop only the synthetic rows Mark Complete wrote. Real punches stay.
+    const delRes = await db.execute(sql`
+      DELETE FROM timeclock
+       WHERE job_id = ${jobId} AND company_id = ${companyId} AND source = 'estimated'
+      RETURNING id`);
+    const removedEstimates = delRes.rows.length;
+    if (removedEstimates > 0) {
+      // Same recompute the clock routes run after any write — actual_hours is
+      // the span of the CLOSED entries that remain, and NULL once none do, so
+      // the efficiency numbers don't keep quoting hours from deleted rows.
+      try {
+        await db.execute(sql`
+          UPDATE jobs SET actual_hours = sub.h
+          FROM (
+            SELECT ROUND(GREATEST(
+                     EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2) AS h
+            FROM timeclock
+            WHERE job_id = ${jobId} AND company_id = ${companyId} AND clock_out_at IS NOT NULL
+          ) sub
+          WHERE jobs.id = ${jobId} AND jobs.company_id = ${companyId}`);
+      } catch (e) { console.error("[reopen] hours recompute non-fatal:", (e as any)?.message); }
+    }
+
+    await logJobStatusChange({
+      companyId, jobId, actorUserId: userId,
+      priorStatus: "complete", newStatus: nextStatus,
+      source: "office-reopen",
+      note: removedEstimates > 0
+        ? `Reopened by the office — ${removedEstimates} estimated clock ${removedEstimates === 1 ? "entry" : "entries"} removed, real punches kept`
+        : "Reopened by the office",
+    });
+
+    return res.json({ ok: true, status: nextStatus, removed_estimated_entries: removedEstimates });
+  } catch (err) {
+    console.error("POST /jobs/:id/reopen error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── PUT THE JOB BACK ON THE CLIENT'S CURRENT ADDRESS ─────────────────────────
+//
+// POST /api/jobs/:id/address/use-client
+//
+// [address-reinherit 2026-08-12] Francisco: "The client's profile has the
+// correct address, but the Job Card is displaying an old/incorrect address ...
+// the client is receiving the wrong address in automated messages."
+//
+// A job keeps its own address snapshot, which WINS over the client record. That
+// is deliberate — it is how a one-off service site works — but there was no way
+// to undo it, so a job that picked up a wrong snapshot stayed wrong forever, and
+// that snapshot is what the automated texts read. This clears the override so
+// the job inherits the client's current address again, and re-resolves the zone
+// from the client's zip.
+router.post("/:id/address/use-client", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    const companyId = req.auth!.companyId!;
+
+    const rows = (await db.execute(sql`
+      SELECT j.id, j.client_id, c.address AS c_address, c.city AS c_city, c.state AS c_state, c.zip AS c_zip
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+       WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1`) as any).rows;
+    if (!rows.length) return res.status(404).json({ error: "Job not found" });
+    const row = rows[0] as any;
+    if (!row.client_id) {
+      return res.status(409).json({ error: "This job isn't linked to a client, so there's no address to inherit." });
+    }
+    if (!String(row.c_address ?? "").trim()) {
+      return res.status(409).json({ error: "That client has no address on file yet — add one on their profile first." });
+    }
+
+    // Zone follows the client's zip. A client zip outside every service zone
+    // leaves the job zone-less rather than blocking the correction: a visible
+    // gray tile is better than a wrong address going out in texts.
+    const newZoneId = row.c_zip ? await resolveZoneForZip(companyId, String(row.c_zip)) : null;
+
+    await db.execute(sql`
+      UPDATE jobs
+         SET address_street = NULL, address_city = NULL, address_state = NULL, address_zip = NULL,
+             zone_id = ${newZoneId}
+       WHERE id = ${jobId} AND company_id = ${companyId}`);
+
+    logAudit(req, "ADDRESS_REINHERIT", "job", jobId,
+      null, { inherited_from_client_id: row.client_id, zone_id: newZoneId });
+
+    return res.json({
+      ok: true,
+      address: [row.c_address, row.c_city, [row.c_state, row.c_zip].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+      zone_id: newZoneId,
+      zone_warning: newZoneId ? null : `Zip ${row.c_zip ?? "(none)"} isn't in any of your service zones, so this job has no zone.`,
+    });
+  } catch (err) {
+    console.error("POST /jobs/:id/address/use-client error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── INLINE EDIT: ADDRESS WITH GEOCODE VALIDATION ─────────────────────────────
 //
 // PATCH /api/jobs/:id/address
@@ -6164,7 +6325,7 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId!;
     const userId = req.auth!.userId!;
-    const { address, city, state, zip, mode: requestedMode, cascade_future, preview } = (req.body ?? {}) as {
+    const { address, city, state, zip, mode: requestedMode, cascade_future, preview, allow_out_of_zone: allowOutOfZone } = (req.body ?? {}) as {
       address?: string; city?: string; state?: string; zip?: string;
       mode?: "client" | "job";
       // [address-cascade 2026-06-04] How far an "apply to all future" change
@@ -6177,6 +6338,9 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
       // When true, don't write anything — return how many upcoming jobs would
       // be affected so the frontend can render the cascade prompt.
       preview?: boolean;
+      // [out-of-zone override 2026-08-12] Set by the inline form only after the
+      // office confirms the warning — never a default.
+      allow_out_of_zone?: boolean;
     };
 
     if (!address || !address.trim()) {
@@ -6290,15 +6454,29 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
 
     const newZoneId = zip ? await resolveZoneForZip(companyId, zip) : null;
 
-    // Per the product rule (Sal, 2026-04-28): the only valid failure case is
-    // when the resolved zip is not mapped to any active service zone in this
-    // tenant's database. Reject the save with 422 so the inline form can
-    // surface the message instead of silently saving an unmapped address
-    // (which would render as a gray tile on dispatch).
-    if (!newZoneId) {
+    // Per the product rule (Sal, 2026-04-28): a zip not mapped to any active
+    // service zone is rejected, so an unmapped address can't be saved silently
+    // and render as a gray tile on dispatch.
+    //
+    // [out-of-zone override 2026-08-12] That rule had a hole. A client who is
+    // genuinely outside your zones could never have a CORRECT address saved at
+    // all — every attempt was refused — so the wrong one stayed, and the wrong
+    // one is what the automated texts send (Francisco, on a job showing
+    // "Brownsburg, IN 60661": an Indiana street with a Chicago zip, which then
+    // resolved to the Chicago Downtown zone). A wrong address that goes out to
+    // the customer is worse than a gray tile, which is at least visible and
+    // fixable.
+    //
+    // So the block becomes a speed bump: still refused by default, but the
+    // office can confirm and save with allow_out_of_zone. The job is then
+    // deliberately zone-less and shows up in the zone-coverage audit as the
+    // data gap it is. The default path is unchanged.
+    if (!newZoneId && !allowOutOfZone) {
       return res.status(422).json({
+        code: "OUT_OF_ZONE",
+        can_override: !!zip,
         error: zip
-          ? `Zip ${zip} is not in any of your service zones. Add it under Settings → Service Zones first.`
+          ? `Zip ${zip} is not in any of your service zones. Add it under Settings → Service Zones first, or save it anyway and this job will have no zone.`
           : "Could not determine a zip code from this address.",
       });
     }

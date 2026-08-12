@@ -749,6 +749,40 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // so a freshly-imported client with NULL address gets the canonical
   // record filled in regardless of the checkbox.
   const clientHasAddress = !!String(job.client_address ?? "").trim();
+  // This job has its own address snapshot AND it disagrees with the client
+  // record. Compared loosely (case + punctuation + spacing) so formatting
+  // differences don't read as a divergence.
+  // The dispatch payload exposes the job's own snapshot as job_address_*, NOT
+  // address_* (which is the resolved display string). Reading the wrong one
+  // here would silently never show the button.
+  const loose = (v: any) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const hasJobOverride = !!String(job.job_address_street ?? "").trim()
+    && clientHasAddress
+    && loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0]);
+
+  async function useClientAddress() {
+    setInheriting(true);
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/address/use-client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Couldn't switch address", description: (d as any).error || "Please try again.", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Now using the client's address",
+        description: (d as any).zone_warning || (d as any).address || "The job follows the client profile again.",
+      });
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Couldn't switch address", description: e?.message, variant: "destructive" });
+    } finally {
+      setInheriting(false);
+    }
+  }
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -763,6 +797,12 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // client has upcoming jobs with their own saved address, we ask how far to
   // cascade instead of guessing. Null = no prompt showing.
   const [cascadePrompt, setCascadePrompt] = useState<{ total: number; same: number; diff: number } | null>(null);
+  // [out-of-zone override 2026-08-12] Set when the server refuses a zip that
+  // isn't in any service zone; carries what to retry with if the office confirms.
+  const [outOfZonePrompt, setOutOfZonePrompt] = useState<{ message: string; mode: "client" | "job"; cascade: "none" | "matching" | "all" } | null>(null);
+  // [address-reinherit 2026-08-12] Drop this job's own address snapshot and go
+  // back to whatever the client profile says.
+  const [inheriting, setInheriting] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -903,7 +943,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
     }
   }
 
-  async function doSave(mode: "client" | "job", cascade: "none" | "matching" | "all") {
+  async function doSave(mode: "client" | "job", cascade: "none" | "matching" | "all", allowOutOfZone = false) {
     if (!pickedAddress) return;
     setSaving(true);
     setError(null);
@@ -918,10 +958,22 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
           zip:     pickedAddress.zip,
           mode,
           cascade_future: cascade,
+          ...(allowOutOfZone ? { allow_out_of_zone: true } : {}),
         }),
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
+        // [out-of-zone override 2026-08-12] The zip isn't in a service zone.
+        // That used to be the end of it, which meant a client outside your
+        // zones could never have a correct address saved — so the WRONG one
+        // stayed, and the wrong one is what goes out in automated texts. Offer
+        // the override instead of refusing outright; the job lands zone-less,
+        // which is visible on the board and in the coverage audit.
+        if (r.status === 422 && (body as any).code === "OUT_OF_ZONE" && (body as any).can_override && !allowOutOfZone) {
+          setOutOfZonePrompt({ message: (body as any).error, mode, cascade });
+          setSaving(false);
+          return;
+        }
         setError(body.error || `Save failed (HTTP ${r.status})`);
         setSaving(false);
         return;
@@ -969,6 +1021,25 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
             </a>
           )}
         </div>
+        {/* [address-reinherit 2026-08-12] Only when this job carries its OWN
+            address that differs from the client's — i.e. exactly the case
+            Francisco hit, where the profile is right and the card is wrong and
+            the card is what the texts read. Nothing to offer otherwise. */}
+        {hasJobOverride && (
+          <button
+            onClick={useClientAddress}
+            disabled={inheriting}
+            style={{
+              fontSize: 11, fontWeight: 600, color: "#B45309",
+              background: "transparent", border: "1px solid #F2DFB8",
+              borderRadius: 6, padding: "2px 8px", cursor: inheriting ? "wait" : "pointer",
+              fontFamily: FF, flexShrink: 0,
+            }}
+            title="Drop this job's own address and use the client profile's current address"
+          >
+            {inheriting ? "…" : "Use client's"}
+          </button>
+        )}
         <button
           onClick={open}
           style={{
@@ -1058,7 +1129,35 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
             {error}
           </div>
         )}
-        {cascadePrompt ? (
+        {outOfZonePrompt ? (
+          /* [out-of-zone override 2026-08-12] The zip isn't in a service zone.
+             Refusing outright is what left wrong addresses in place on clients
+             outside the zones — and a wrong address is what the automated
+             texts send. So: say plainly what will happen, and let the office
+             decide. Saving leaves the job zone-less, which shows as a gray
+             tile and in the zone-coverage audit. */
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", background: "#FDF9F0", border: "1px solid #F2DFB8", borderRadius: 8 }}>
+            <div style={{ fontSize: 12, color: "#8A6A2F", lineHeight: 1.5 }}>{outOfZonePrompt.message}</div>
+            <div style={{ fontSize: 11, color: "#8A6A2F", lineHeight: 1.5 }}>
+              Save anyway and this job will have no zone until you add the zip under Settings &rarr; Service Zones.
+              The address itself will be correct, which is what the client's texts use.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => { const p = outOfZonePrompt; setOutOfZonePrompt(null); doSave(p.mode, p.cascade, true); }}
+                disabled={saving}
+                style={{ padding: "8px 12px", border: "none", borderRadius: 7, background: "#B45309", color: "#fff", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                {saving ? "Saving…" : "Save anyway, no zone"}
+              </button>
+              <button
+                onClick={() => setOutOfZonePrompt(null)}
+                disabled={saving}
+                style={{ padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                Go back
+              </button>
+            </div>
+          </div>
+        ) : cascadePrompt ? (
           /* [address-cascade] Ask how far the permanent change reaches into
              jobs already on the calendar. Jobs without their own saved
              address inherit the client change automatically and aren't
@@ -2459,6 +2558,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // 2-stage interaction replaces the previous one-click button so accidental
   // completion isn't a 1-pixel miss.
   const [confirmComplete, setConfirmComplete] = useState(false);
+  // [reopen 2026-08-12] Two-step, like Mark Complete — reopening a job undoes a
+  // decision someone made, so it shouldn't be a single stray tap.
+  const [confirmReopen, setConfirmReopen] = useState(false);
   const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
   // [post-completion-adjust 2026-06-21] The office must be able to add a flat
   // fee (e.g. +$20 parking) AFTER a job is marked complete — that case is the
@@ -2557,6 +2659,40 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [AF] Supply-logging state removed — drawer section pulled per cleanup.
   // /api/supplies/log endpoint and supplies table remain in place so the
   // feature can return later without schema churn.
+
+  // [reopen 2026-08-12] Take a completed job back out of Complete. The server
+  // clears the lock and the synthetic 'estimated' clock rows Mark Complete
+  // stamped, keeps real punches, and refuses outright when the job has been
+  // charged or invoiced — those come back as a 409 with the reason, which is
+  // more useful to the office than a generic failure.
+  async function reopenJob() {
+    setBusy(true);
+    try {
+      const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const r = await fetch(`${API2}/api/jobs/${job.id}/reopen`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Could not reopen", description: (d as any).error || "Please try again.", variant: "destructive" });
+        return;
+      }
+      const removed = (d as any).removed_estimated_entries ?? 0;
+      toast({
+        title: (d as any).status === "in_progress" ? "Reopened — job is in progress" : "Reopened",
+        description: removed > 0
+          ? `${removed} estimated clock ${removed === 1 ? "entry" : "entries"} removed. Real punches were kept.`
+          : "This job can be edited and rescheduled again.",
+      });
+      setConfirmReopen(false);
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Could not reopen", description: e?.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function setStatus(s: string) {
     setBusy(true);
@@ -4172,12 +4308,39 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             at ..." label and Reschedule / Cancel are disabled. */}
         <div style={{ padding: "12px 20px 20px", borderTop: "1px solid #EEECE7", display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
           {isLocked ? (
-            <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <CheckCircle size={13} color="#0F7A63" />
-              {job.status === "cancelled"
-                ? "Cancelled"
-                : completedAtLabel ? `Completed at ${completedAtLabel}` : "Completed"}
-            </div>
+            <>
+              <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <CheckCircle size={13} color="#0F7A63" />
+                {job.status === "cancelled"
+                  ? "Cancelled"
+                  : completedAtLabel ? `Completed at ${completedAtLabel}` : "Completed"}
+              </div>
+              {/* [reopen 2026-08-12] The missing counterpart to Mark Complete.
+                  Francisco: clearing a cleaner's clock times left the service
+                  ticked Complete and un-reschedulable, with no way back. Only
+                  on completed jobs — a cancelled job is a different decision
+                  with its own path. The server refuses when money has moved. */}
+              {job.status === "complete" && canManageMods && (
+                confirmReopen ? (
+                  <>
+                    <button onClick={reopenJob} disabled={busy}
+                      style={{ padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#B45309", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>
+                      {busy ? "..." : "Yes, reopen"}
+                    </button>
+                    <button onClick={() => setConfirmReopen(false)} disabled={busy}
+                      style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmReopen(true)} disabled={busy}
+                    title="Take this job out of Complete so it can be edited or rescheduled"
+                    style={{ padding: "10px 12px", border: "1px solid #F2DFB8", borderRadius: 8, backgroundColor: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    Reopen
+                  </button>
+                )
+              )}
+            </>
           ) : confirmComplete ? (
             <>
               <button onClick={() => setStatus("complete")} disabled={busy}
