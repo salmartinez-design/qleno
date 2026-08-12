@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays, MessageSquare } from "lucide-react";
 import { PunchMapModal } from "@/components/punch-map-modal";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { Link } from "wouter";
@@ -131,6 +131,8 @@ type Row = {
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
   source?: string | null;
+  // [pay-note 2026-08-12] The office's explanation of this pay line.
+  pay_note?: string | null; pay_note_at?: string | null; pay_note_by_name?: string | null;
   gps_in_ft?: number | null; gps_out_ft?: number | null;
   gps_in_outside?: boolean | null; gps_out_outside?: boolean | null; has_gps?: boolean;
   gps_in_lat?: number | null; gps_in_lng?: number | null;
@@ -282,7 +284,148 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
         style={{ fontSize: 11, fontWeight: 700, padding: "5px 9px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: busy ? "default" : "pointer", fontFamily: FF, color: "#0F7A63", background: "#fff", opacity: busy ? 0.6 : 1 }}>
         Save pay
       </button>
+      <PayNote row={row} userId={emp.user_id} onChanged={onChanged} toastFn={toastFn} />
+      {row.entry_id != null && <ClockHistory entryId={row.entry_id} />}
     </div>
+  );
+}
+
+// [pay-note 2026-08-12] Why this line was paid the way it was, in the office's
+// own words — "paid for trainees", "$30/hr on this one", "extra hour because
+// Alma forgot to clock out".
+//
+// Deliberately NOT a box under every job. Sal: "when there is one it does not
+// need to be static." A row with no note shows only a faint "+ note"; a row
+// WITH one shows the note as a chip you hover to read in full, with who wrote
+// it and when. So a screen full of rows stays as quiet as it is today, and the
+// rows carrying an explanation are the ones that stand out.
+function PayNote({ row, userId, onChanged, toastFn }: {
+  row: Row; userId: number; onChanged: () => void; toastFn: (t: { title: string }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(row.pay_note ?? "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setVal(row.pay_note ?? ""); }, [row.pay_note]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await api(`/api/timeclock/office/job/${row.job_id}/tech/${userId}/pay-note`, {
+        method: "PUT", body: JSON.stringify({ pay_note: val }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Failed");
+      setEditing(false);
+      onChanged();
+      toastFn({ title: val.trim() ? "Note saved" : "Note cleared" });
+    } catch (e: any) { toastFn({ title: e.message || "Could not save the note" }); }
+    finally { setBusy(false); }
+  }
+
+  if (editing) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <input
+          value={val} onChange={e => setVal(e.target.value)} autoFocus
+          onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") { setVal(row.pay_note ?? ""); setEditing(false); } }}
+          placeholder="Why this pay? e.g. paid for trainees"
+          style={{ width: 230, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 8px" }} />
+        <button onClick={save} disabled={busy}
+          style={{ fontSize: 11, fontWeight: 700, padding: "5px 9px", borderRadius: 6, border: "none", cursor: busy ? "default" : "pointer", fontFamily: FF, color: "#fff", background: "var(--brand)", opacity: busy ? 0.6 : 1 }}>
+          {busy ? "…" : "Save"}
+        </button>
+        <button onClick={() => { setVal(row.pay_note ?? ""); setEditing(false); }}
+          style={{ fontSize: 11, fontWeight: 600, padding: "5px 7px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, color: "#6B6860", background: "#fff" }}>
+          Cancel
+        </button>
+      </span>
+    );
+  }
+
+  if (!row.pay_note) {
+    return (
+      <button onClick={() => setEditing(true)} title="Add a note explaining this pay line"
+        style={{ fontSize: 11, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px dashed #E5E2DC", cursor: "pointer", fontFamily: FF, color: "#9E9B94", background: "transparent" }}>
+        + note
+      </button>
+    );
+  }
+
+  const when = row.pay_note_at
+    ? new Date(row.pay_note_at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
+  const hover = [row.pay_note, [row.pay_note_by_name, when].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
+  return (
+    <button onClick={() => setEditing(true)} title={hover}
+      style={{ maxWidth: 260, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, border: "1px solid #F2DFB8", cursor: "pointer", fontFamily: FF, color: "#8A5A00", background: "#FDF9F0" }}>
+      <MessageSquare size={11} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.pay_note}</span>
+    </button>
+  );
+}
+
+// [clock-history-timeclock 2026-08-12] Maribel asked for the change history
+// "on the job card AND on Time Clock, so we know what changes are being made."
+// The job card got it first (#1405); this is the second surface, reading the
+// same endpoint. Loaded on click — most rows are never asked about.
+function ClockHistory({ entryId }: { entryId: number }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function toggle() {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (data) return;
+    setLoading(true);
+    try {
+      const r = await api(`/api/timeclock/${entryId}/history`);
+      const d = await r.json().catch(() => null);
+      setData(r.ok && d ? d : { events: [], error: d?.error || "Could not load history" });
+    } catch { setData({ events: [], error: "Could not load history" }); }
+    finally { setLoading(false); }
+  }
+
+  const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+  const line = (ev: any) => {
+    if (ev.kind === "created") return ev.detail;
+    if (ev.kind === "office_in") return `Clocked in from the office at ${t12(ev.new_value?.clock_in_at)}`;
+    if (ev.kind === "office_out") return `Clocked out from the office at ${t12(ev.new_value?.clock_out_at)}`;
+    if (ev.kind === "deleted") return "Entry deleted";
+    const parts: string[] = [];
+    if (String(ev.old_value?.clock_in_at ?? "") !== String(ev.new_value?.clock_in_at ?? "")) parts.push(`in ${t12(ev.old_value?.clock_in_at)} → ${t12(ev.new_value?.clock_in_at)}`);
+    if (String(ev.old_value?.clock_out_at ?? "") !== String(ev.new_value?.clock_out_at ?? "")) parts.push(`out ${t12(ev.old_value?.clock_out_at)} → ${t12(ev.new_value?.clock_out_at)}`);
+    return parts.length ? `Times changed — ${parts.join(", ")}` : "Times edited";
+  };
+
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button onClick={toggle} title="Who entered or changed these times"
+        style={{ fontSize: 11, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, color: "#6B6860", background: "#fff" }}>
+        {open ? "Hide history" : "History"}
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 40, minWidth: 280, maxWidth: 360, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 10px 30px rgba(10,14,26,0.14)", padding: "10px 12px" }}>
+          {loading && !data ? (
+            <div style={{ fontSize: 11, color: "#9E9B94" }}>Loading…</div>
+          ) : data?.error ? (
+            <div style={{ fontSize: 11, color: "#B3261E" }}>{data.error}</div>
+          ) : (data?.events ?? []).length === 0 ? (
+            <div style={{ fontSize: 11, color: "#9E9B94" }}>No recorded changes.</div>
+          ) : (
+            (data.events as any[]).map((ev, i) => (
+              <div key={i} style={{ fontSize: 11.5, color: "#1A1917", padding: "4px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                {line(ev)}
+                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 1 }}>
+                  {ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                  {ev.actor_name ? ` · ${ev.actor_name}` : ""}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </span>
   );
 }
 
