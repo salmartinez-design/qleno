@@ -5652,6 +5652,10 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   const now = isToday ? new Date() : null;
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
+  // Anchor for the open-at-now scroll below; the guard keeps it to one shot.
+  const nowRef = useRef<HTMLDivElement | null>(null);
+  const didScrollToNow = useRef(false);
+
   // [mobile-grid-vertical 2026-07-24] Vertical tiles, two per row (grid
   // container below). Time folds into the top of each card (start here, "ends …"
   // at the bottom) so the old left time-rail can go away and buy width —
@@ -5743,12 +5747,61 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   // NOW divider — a full-width row placed before the first slot at/after now.
   const NowMarker = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+    <div ref={nowRef} data-now-marker style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
       <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
       <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
       <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
     </div>
   );
+
+  // [grid-open-at-now 2026-08-11] Opening Grid at 3pm landed on the 7:00a row —
+  // the operator had to thumb past the whole finished morning to reach what's
+  // live (Sal). On today, bring the NOW divider into view once, on open.
+  //
+  // Mechanism: scrollIntoView + scroll-margin-top, NOT hand-computed offsets
+  // against a guessed scroll container. The mobile shell scrolls the document
+  // and the desktop one scrolls <main> — scrollIntoView resolves whichever
+  // ancestor actually scrolls (and nested ones) instead of us picking wrong,
+  // and scroll-margin-top keeps the divider clear of the sticky chrome.
+  //
+  // Guard rails: fires ONCE per mount, so dispatch refreshes never yank the
+  // operator's scroll back; only when isToday (leaving a day resets the guard);
+  // and a second pass ~350 ms later because tile heights settle late — client
+  // names and addresses wrap to 2-3 lines and the web font swaps in — which
+  // otherwise leaves the first landing short. Any touch or wheel cancels the
+  // second pass so we never fight someone who has started scrolling.
+  useEffect(() => {
+    if (!isToday) { didScrollToNow.current = false; return; }
+    if (didScrollToNow.current) return;
+    if (!nowRef.current) return;
+    didScrollToNow.current = true;
+
+    let cancelled = false;
+    const abort = () => { cancelled = true; };
+    window.addEventListener("touchstart", abort, { passive: true });
+    window.addEventListener("wheel", abort, { passive: true });
+
+    const run = () => {
+      const target = nowRef.current;
+      if (!target || cancelled) return;
+      // The app header and the week-summary card both stick at top:0, so they
+      // occlude the SAME band — take the max, not the sum, then a little air.
+      const headerH = document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0;
+      const weekH = document.querySelector<HTMLElement>("[data-mobile-week-summary]")?.offsetHeight ?? 0;
+      target.style.scrollMarginTop = `${Math.max(headerH, weekH) + 10}px`;
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+
+    const raf = requestAnimationFrame(run);
+    const settle = setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      window.removeEventListener("touchstart", abort);
+      window.removeEventListener("wheel", abort);
+    };
+  }, [isToday, jobs]);
 
   // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
   // time axis, so a 9:00 job sits in the 9:00 row BELOW a lone 7:00 job rather
@@ -8785,7 +8838,7 @@ export default function JobsPage() {
               7-day bar chart with day labels and dollar subtotals. Tap any
               bar to jump the focal day. */}
           {weekSummary && (
-            <div style={{
+            <div data-mobile-week-summary style={{
               position: "sticky", top: 0, zIndex: 10,
               backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7",
               padding: "12px 16px 14px",
