@@ -6171,8 +6171,14 @@ router.post("/:id/reopen", requireAuth, requireRole("owner", "admin", "office", 
 
     const rows = (await db.execute(sql`
       SELECT j.id, j.status, j.charge_succeeded_at,
+             -- [auto-issue 2026-08-12] Count only invoices that have genuinely
+             -- LEFT THE BUILDING. With auto_issue_invoices ON, completion mints
+             -- status 'sent' with sent_at NULL and no email — treating that as
+             -- "already invoiced" would refuse to reopen every clock-completed
+             -- job, which is the same collision that killed the auto-revert.
              (SELECT count(*)::int FROM invoices inv
-               WHERE inv.job_id = j.id AND inv.status IN ('sent','paid','overdue')) AS live_invoices,
+               WHERE inv.job_id = j.id
+                 AND (inv.status IN ('paid','overdue') OR inv.sent_at IS NOT NULL OR inv.paid_at IS NOT NULL)) AS live_invoices,
              (SELECT count(*)::int FROM timeclock tc
                WHERE tc.job_id = j.id AND tc.clock_out_at IS NULL) AS open_punches
         FROM jobs j
@@ -6204,6 +6210,21 @@ router.post("/:id/reopen", requireAuth, requireRole("owner", "admin", "office", 
              actual_end_time = NULL, locked_at = NULL
        WHERE id = ${jobId} AND company_id = ${companyId}`);
 
+    // Void the completion's own invoice when it never left the building. The
+    // query above already proved nothing here was emailed or paid, so an issued
+    // row is an artifact of the completion being undone — leaving it would put a
+    // live invoice in the client's AR for a job that is no longer complete.
+    // Voided, not deleted: the number and its history stay on the record.
+    let voidedInvoices = 0;
+    try {
+      const voided = await db.execute(sql`
+        UPDATE invoices SET status = 'void'
+         WHERE job_id = ${jobId} AND company_id = ${companyId}
+           AND status IN ('draft','sent') AND sent_at IS NULL AND paid_at IS NULL
+        RETURNING id`);
+      voidedInvoices = voided.rows.length;
+    } catch (e) { console.error("[reopen] invoice void non-fatal:", (e as any)?.message); }
+
     // Drop only the synthetic rows Mark Complete wrote. Real punches stay.
     const delRes = await db.execute(sql`
       DELETE FROM timeclock
@@ -6231,12 +6252,14 @@ router.post("/:id/reopen", requireAuth, requireRole("owner", "admin", "office", 
       companyId, jobId, actorUserId: userId,
       priorStatus: "complete", newStatus: nextStatus,
       source: "office-reopen",
-      note: removedEstimates > 0
-        ? `Reopened by the office — ${removedEstimates} estimated clock ${removedEstimates === 1 ? "entry" : "entries"} removed, real punches kept`
-        : "Reopened by the office",
+      note: [
+        "Reopened by the office",
+        removedEstimates > 0 ? `${removedEstimates} estimated clock ${removedEstimates === 1 ? "entry" : "entries"} removed, real punches kept` : null,
+        voidedInvoices > 0 ? `${voidedInvoices} unsent invoice${voidedInvoices === 1 ? "" : "s"} voided` : null,
+      ].filter(Boolean).join(" — "),
     });
 
-    return res.json({ ok: true, status: nextStatus, removed_estimated_entries: removedEstimates });
+    return res.json({ ok: true, status: nextStatus, removed_estimated_entries: removedEstimates, voided_invoices: voidedInvoices });
   } catch (err) {
     console.error("POST /jobs/:id/reopen error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
