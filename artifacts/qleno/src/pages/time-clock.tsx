@@ -23,6 +23,16 @@ function api(path: string, opts?: RequestInit) {
     headers: { ...getAuthHeaders(), "Content-Type": "application/json", ...(opts?.headers || {}) },
   });
 }
+// [open-clock-finder 2026-08-13] Show the server's SENTENCE, never its error
+// CODE. Every save path here read `d.error` — the machine-readable code — so a
+// blocked save surfaced the bare string "OPEN_PUNCH_ELSEWHERE" in a toast
+// (Maribel: "this shows up everywhere"). The route has always sent a plain-
+// English `message` alongside it, naming the job that's still on the clock;
+// the screen was just discarding it. Prefer `message`, fall back to the code
+// only when there isn't one so nothing is ever silently swallowed.
+function errText(d: any, fallback = "Save failed"): string {
+  return d?.message || d?.error || fallback;
+}
 function dateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -464,11 +474,11 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         if (!parsedIn) { toastFn({ title: "Set a clock-in time first" }); setBusy(false); return; }
         const r = await api(`/api/timeclock/office/clock-in`, { method: "POST", body: JSON.stringify({ job_id: row.job_id, user_id: emp.user_id, clock_in_at: hhmmToISO(dateStr, parsedIn) }) });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Failed");
+        if (!r.ok) throw new Error(errText(d));
         entryId = d.id;
         if (parsedOut) {
           const r2 = await api(`/api/timeclock/${entryId}`, { method: "PATCH", body: JSON.stringify({ clock_out_at: hhmmToISO(dateStr, parsedOut) }) });
-          if (!r2.ok) { const e = await r2.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
+          if (!r2.ok) { const e = await r2.json().catch(() => ({})); throw new Error(errText(e)); }
         }
       } else {
         const body: any = {};
@@ -476,7 +486,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         body.clock_out_at = parsedOut ? hhmmToISO(dateStr, parsedOut) : null;
         const r = await api(`/api/timeclock/${entryId}`, { method: "PATCH", body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Failed");
+        if (!r.ok) throw new Error(errText(d));
       }
       onChanged();
       toastFn({ title: "Times saved" });
@@ -488,9 +498,9 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
     setBusy(true);
     try {
       const r = await api(`/api/timeclock/${row.entry_id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error();
+      if (!r.ok) throw new Error(errText(await r.json().catch(() => ({})), "Delete failed"));
       onChanged();
-    } catch { toastFn({ title: "Delete failed" }); } finally { setBusy(false); }
+    } catch (e: any) { toastFn({ title: e?.message || "Delete failed" }); } finally { setBusy(false); }
   }
 
   return (
@@ -690,6 +700,120 @@ function ClockTzFixModal({ onClose, onApplied, toastFn }: { onClose: () => void;
   );
 }
 
+// [open-clock-finder 2026-08-13] "There has to be a way for us to know where
+// she is clocked in without having to check day by day." — Maribel.
+//
+// This is that way. The Time Clock screen shows ONE day, so a punch left
+// running on a job from last Thursday is invisible here no matter how long you
+// stare at today; the only way to find it was to step the date backward until
+// it turned up. This strip reads every still-running punch company-wide
+// (GET /api/timeclock/open, any date, oldest first) and puts each one a single
+// click from being closed: the tech, the house, when the clock started, how
+// long it's been running, and a button that jumps the day view to that date so
+// the OUT time can be typed on the spot.
+//
+// It renders only when something is actually open — an empty strip on a clean
+// day is noise, and the same rule the Needs Attention strip follows.
+//
+// Two kinds of open punch, and conflating them would make this strip useless:
+// a tech mid-clean at 11 AM is SUPPOSED to be on the clock (that's the roster,
+// and painting it amber every single day trains the office to ignore the
+// strip), while a punch still running from a job two days ago is the forgotten
+// one blocking her next clock-in. Stale rows lead and carry the warning; the
+// working-now rows sit below in plain type.
+type OpenClock = {
+  id: number; user_id: number; user_name: string; job_id: number; job_name: string;
+  clock_in_at: string; day: string; open_minutes: number; source: string | null;
+};
+// "6d 3h" / "5h 20m" / "45m" — how long this clock has been running. Days
+// matter more than minutes once a punch is stale, so the units step down.
+function fmtOpenFor(min: number) {
+  if (min < 60) return `${Math.max(0, min)}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ${min % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+function fmtDayLabel(day: string) {
+  const d = new Date(`${day}T00:00:00`);
+  if (isNaN(d.getTime())) return day;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+function OpenClocksBanner({ tick, currentDay, onJump }: { tick: number; currentDay: string; onJump: (day: string) => void }) {
+  const [rows, setRows] = useState<OpenClock[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api(`/api/timeclock/open`);
+        const d = r.ok ? await r.json() : null;
+        if (alive) setRows(d?.data ?? []);
+      } catch { if (alive) setRows([]); }
+    })();
+    return () => { alive = false; };
+  }, [tick]);
+
+  if (!rows || rows.length === 0) return null;
+  // Stale = a punch from a day that isn't today, or one running past 12 hours.
+  // Phes runs no overnight shifts, so either way nobody is still cleaning —
+  // that clock was forgotten, and it's the one holding the tech's next
+  // clock-in hostage.
+  const today = dateKey(new Date());
+  const isStale = (r: OpenClock) => r.day !== today || r.open_minutes >= 12 * 60;
+  const stale = rows.filter(isStale);
+  const working = rows.filter(r => !isStale(r));
+  const alarm = stale.length > 0;
+
+  const row = (r: OpenClock, bad: boolean) => {
+    const here = r.day === currentDay;
+    return (
+      <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "6px 0", borderTop: `1px solid ${alarm ? "#F3E6D2" : "#F4F3F0"}` }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917" }}>{r.user_name}</span>
+        <span style={{ fontSize: 12.5, color: "#6B6860" }}>at <b style={{ color: "#1A1917" }}>{r.job_name}</b></span>
+        <span style={{ fontSize: 12, color: "#6B6860" }}>
+          in {isoToDisplay(r.clock_in_at) || "—"}{r.day !== today ? ` · ${fmtDayLabel(r.day)}` : ""}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 800, color: bad ? "#B3261E" : "#0A7C66" }}>
+          {bad ? "open" : "on the clock"} {fmtOpenFor(r.open_minutes)}
+        </span>
+        <span style={{ flex: 1 }} />
+        {here ? (
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#9E9B94" }}>on this day — set the OUT time below</span>
+        ) : (
+          <button onClick={() => onJump(r.day)} title={`Open ${fmtDayLabel(r.day)} to close this punch`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: `1px solid ${bad ? "#E0C9A4" : "#E5E2DC"}`, background: "#fff", color: bad ? "#B45309" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
+            <CalendarDays size={12} /> Go to {fmtDayLabel(r.day)}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background: alarm ? "#FDF3E7" : "#FFFFFF", border: `1px solid ${alarm ? "#F0DDC2" : "#E5E2DC"}`, borderRadius: 12, padding: "11px 14px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" }}>
+        {alarm ? <AlertTriangle size={14} color="#B45309" /> : <Clock size={14} color="#6B6860" />}
+        <span style={{ fontSize: 13, fontWeight: 800, color: alarm ? "#B45309" : "#1A1917" }}>
+          {alarm
+            ? `Left on the clock — ${stale.length} ${stale.length === 1 ? "punch needs" : "punches need"} a clock-out`
+            : `On the clock now — ${working.length}`}
+        </span>
+        <span style={{ fontSize: 11.5, color: alarm ? "#8A6A44" : "#9E9B94" }}>
+          {alarm
+            ? "Nobody can clock in anywhere else until these are closed."
+            : "Everyone currently punched in, across every date."}
+        </span>
+      </div>
+      {stale.map(r => row(r, true))}
+      {working.length > 0 && stale.length > 0 && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", padding: "9px 0 1px" }}>
+          Working now
+        </div>
+      )}
+      {working.map(r => row(r, false))}
+    </div>
+  );
+}
+
 export default function TimeClockPage() {
   const { toast } = useToast();
   const [date, setDate] = useState(new Date());
@@ -716,6 +840,10 @@ export default function TimeClockPage() {
     setLoading(false);
   }, [dk]);
   useEffect(() => { load(); }, [load]);
+  // Closing a punch has to clear it from the open-clocks strip too, so every
+  // save/delete refreshes both the day and the strip.
+  const [openTick, setOpenTick] = useState(0);
+  const reload = useCallback(() => { setOpenTick(t => t + 1); return load(); }, [load]);
 
   const employees = data?.employees ?? [];
   const totalWorked = employees.reduce((s, e) => s + e.worked_minutes, 0);
@@ -767,7 +895,13 @@ export default function TimeClockPage() {
             )}
           </div>
         </div>
-        {tzFixOpen && <ClockTzFixModal onClose={() => setTzFixOpen(false)} onApplied={load} toastFn={toast} />}
+        {tzFixOpen && <ClockTzFixModal onClose={() => setTzFixOpen(false)} onApplied={reload} toastFn={toast} />}
+
+        {/* Open punches across ALL dates — the answer to "where is she clocked
+            in?" without stepping day by day. Sits above the day summary because
+            a running clock blocks that tech's next clock-in everywhere. */}
+        <OpenClocksBanner tick={openTick} currentDay={dk}
+          onJump={day => setDate(new Date(`${day}T00:00:00`))} />
 
         {/* Day summary — CSS grid with fixed-size columns so every stat sits in
             an identical cell regardless of its value. A flex row with per-stat
@@ -822,7 +956,7 @@ export default function TimeClockPage() {
                   </div>
                 </div>
                 {emp.rows.map(row => (
-                  <RowEditor key={`${row.job_id}:${emp.user_id}:${row.entry_id ?? "new"}`} emp={emp} row={row} dateStr={dk} onChanged={load} toastFn={toast} />
+                  <RowEditor key={`${row.job_id}:${emp.user_id}:${row.entry_id ?? "new"}`} emp={emp} row={row} dateStr={dk} onChanged={reload} toastFn={toast} />
                 ))}
               </div>
             );

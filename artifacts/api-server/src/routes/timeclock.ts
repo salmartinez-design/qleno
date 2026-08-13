@@ -263,6 +263,74 @@ router.get("/attempts", requireAuth, requireRole("owner", "admin", "office"), as
   }
 });
 
+// [open-clock-finder 2026-08-13] Maribel, blocked from clocking Alma in:
+// "I tried to clock in Alma but this shows up everywhere. I looked and couldn't
+// find where she is clocked in. There has to be a way for us to know where she
+// is clocked in without having to check day by day."
+//
+// The one-open-clock rule (#1406) is correct — it's the wall she hit, not the
+// bug. The bug is that the wall came with no map. The block already names the
+// other job in `message`, but every office screen threw `message` away and
+// rendered the raw code (that's the OPEN_PUNCH_ELSEWHERE she circled), and
+// nothing anywhere listed running punches across dates. A clock left open on a
+// job three days back is invisible on a screen that shows one day at a time,
+// so the only way to find it was to step backward day by day — exactly what
+// she's asking not to do.
+//
+// This returns EVERY still-running punch for the company, any date, oldest
+// first, with the day to jump to so the office can close it in one hop.
+// Open minutes are measured against the CENTRAL wall-clock because
+// clock_in_at is stored as naive Central wall-clock, not a UTC instant —
+// comparing it to a raw now() would read 5 hours long on every row.
+router.get("/open", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const userId = req.query.user_id ? parseInt(String(req.query.user_id), 10) : null;
+    const rows = (await db.execute(sql`
+      SELECT tc.id, tc.user_id, tc.job_id, tc.source,
+             to_char(tc.clock_in_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS clock_in_at,
+             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS user_name,
+             COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+                      a.account_name, c.company_name, 'Client') AS job_name,
+             j.client_id, j.account_id,
+             -- The Time Clock day screen is keyed on jobs.scheduled_date, so
+             -- that's the day the office must land on to close this punch.
+             -- Orphan/undated jobs fall back to the punch's own date.
+             COALESCE(j.scheduled_date::text, to_char(tc.clock_in_at, 'YYYY-MM-DD')) AS day,
+             GREATEST(0, ROUND(EXTRACT(EPOCH FROM
+               ((now() AT TIME ZONE 'America/Chicago') - tc.clock_in_at)) / 60))::int AS open_minutes
+        FROM timeclock tc
+        JOIN users u ON u.id = tc.user_id
+        LEFT JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.company_id = ${companyId}
+         AND tc.clock_out_at IS NULL
+         ${userId ? sql`AND tc.user_id = ${userId}` : sql``}
+       ORDER BY tc.clock_in_at ASC`)).rows as any[];
+
+    return res.json({
+      data: rows.map(r => ({
+        id: Number(r.id),
+        user_id: Number(r.user_id),
+        user_name: r.user_name || "Tech",
+        job_id: Number(r.job_id),
+        job_name: r.job_name || `Job #${r.job_id}`,
+        client_id: r.client_id != null ? Number(r.client_id) : null,
+        account_id: r.account_id != null ? Number(r.account_id) : null,
+        clock_in_at: r.clock_in_at,
+        day: r.day,
+        open_minutes: Number(r.open_minutes ?? 0),
+        source: r.source ?? null,
+      })),
+      total: rows.length,
+    });
+  } catch (err) {
+    console.error("GET /timeclock/open error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load open clocks" });
+  }
+});
+
 router.post("/clock-in", requireAuth, async (req, res) => {
   try {
     const { job_id, lat, lng, accuracy, override_token, acting_for_user_id } = req.body;
@@ -396,10 +464,23 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     // clock-out time nobody observed and quietly rewrite pay for the first job;
     // the office decides that with the real end time. The message names the
     // other job so the tech knows exactly what to close.
+    //
+    // [open-clock-finder 2026-08-13] The block also has to say WHEN. Naming the
+    // job alone isn't enough to find a punch that's been running since a job
+    // three days ago — the office reads "still clocked in at Smith" and has no
+    // idea which day's Smith to open. Every rejection now carries the clock-in
+    // date + time in the message and the day to jump to in the payload.
     const openPunch = (await db.execute(sql`
-      SELECT tc.id, tc.job_id, tc.clock_in_at,
+      SELECT tc.id, tc.job_id,
+             -- Wall-clock string, not a Date: JSON-serializing the raw column
+             -- would push it through toISOString() and shift it by the server's
+             -- UTC offset, the same trap the clock screens avoid.
+             to_char(tc.clock_in_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS clock_in_at,
              CASE WHEN j.account_id IS NOT NULL THEN a.account_name
-                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name,
+             to_char(tc.clock_in_at, 'FMMon FMDD') AS in_date_label,
+             to_char(tc.clock_in_at, 'FMHH12:MI AM') AS in_time_label,
+             COALESCE(j.scheduled_date::text, to_char(tc.clock_in_at, 'YYYY-MM-DD')) AS open_day
         FROM timeclock tc
         LEFT JOIN jobs j ON j.id = tc.job_id
         LEFT JOIN clients c ON c.id = j.client_id
@@ -412,13 +493,17 @@ router.post("/clock-in", requireAuth, async (req, res) => {
 
     if (openPunch) {
       const sameJob = Number(openPunch.job_id) === Number(job_id);
+      const when = `${openPunch.in_date_label} at ${openPunch.in_time_label}`;
       return res.status(409).json({
         error: sameJob ? "ALREADY_CLOCKED_IN" : "OPEN_PUNCH_ELSEWHERE",
         message: sameJob
-          ? "You're already clocked in on this job."
-          : `You're still clocked in at ${openPunch.job_name || `job #${openPunch.job_id}`}. Clock out there first, then clock in here.`,
+          ? `You're already clocked in on this job (since ${when}).`
+          : `You're still clocked in at ${openPunch.job_name || `job #${openPunch.job_id}`} from ${when}. Clock out there first, then clock in here.`,
+        open_entry_id: Number(openPunch.id),
         open_job_id: Number(openPunch.job_id),
         open_job_name: openPunch.job_name ?? null,
+        open_clock_in_at: openPunch.clock_in_at,
+        open_day: openPunch.open_day ?? null,
       });
     }
 
@@ -852,10 +937,20 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     // with the other job named. The office CAN still key in a closed entry with
     // explicit in/out times for a job worked earlier — this only rejects
     // leaving a second clock RUNNING.
+    //
+    // [open-clock-finder 2026-08-13] Say WHEN, not just where. This is the exact
+    // 409 Maribel hit trying to clock Alma in, and "still clocked in at <name>"
+    // sent her stepping backward through the day view looking for it. The
+    // clock-in date + time go in the message; open_day is the date the Time
+    // Clock screen must land on to close the punch.
     const openElsewhere = (await db.execute(sql`
-      SELECT tc.job_id,
+      SELECT tc.id, tc.job_id,
              CASE WHEN j.account_id IS NOT NULL THEN a.account_name
-                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS job_name,
+             to_char(tc.clock_in_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS clock_in_at,
+             to_char(tc.clock_in_at, 'FMMon FMDD') AS in_date_label,
+             to_char(tc.clock_in_at, 'FMHH12:MI AM') AS in_time_label,
+             COALESCE(j.scheduled_date::text, to_char(tc.clock_in_at, 'YYYY-MM-DD')) AS open_day
         FROM timeclock tc
         LEFT JOIN jobs j ON j.id = tc.job_id
         LEFT JOIN clients c ON c.id = j.client_id
@@ -866,9 +961,12 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     if (openElsewhere) {
       return res.status(409).json({
         error: "OPEN_PUNCH_ELSEWHERE",
-        message: `This cleaner is still clocked in at ${openElsewhere.job_name || `job #${openElsewhere.job_id}`}. Close that entry first — nobody can be on two jobs at once.`,
+        message: `This cleaner is still clocked in at ${openElsewhere.job_name || `job #${openElsewhere.job_id}`} from ${openElsewhere.in_date_label} at ${openElsewhere.in_time_label}. Close that entry first — nobody can be on two jobs at once.`,
+        open_entry_id: Number(openElsewhere.id),
         open_job_id: Number(openElsewhere.job_id),
         open_job_name: openElsewhere.job_name ?? null,
+        open_clock_in_at: openElsewhere.clock_in_at,
+        open_day: openElsewhere.open_day ?? null,
       });
     }
 
