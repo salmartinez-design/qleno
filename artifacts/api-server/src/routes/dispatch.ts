@@ -323,6 +323,15 @@ async function buildDispatchPayload(
         invoice_id: sql<number | null>`${liveInvoiceId}`,
         invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
         invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
+        // [batch-tip-mislabel 2026-08-13] The REAL tip, not a subtraction.
+        // The hover card had been deriving "tip" as invoice_total − job amount,
+        // which is only ever right for a single-job invoice with no
+        // adjustments. On a combined invoice the remainder is the OTHER visits
+        // on the same document — Heritage Condominium's $108.25 weekly visit
+        // sat on a $433.00 combined invoice and the card called the $324.75
+        // difference a tip (Maribel: "lol why is it counting the rest as
+        // tip?"). Tips have their own column; read it.
+        invoice_tips: sql<string | null>`(SELECT iv.tips FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
         // The combined invoice's number, when this visit was folded into one.
         // Drives the "Billed on #X" chip so a member never reads as missing.
         invoice_number: sql<string | null>`(SELECT iv.invoice_number FROM invoices iv WHERE iv.id = ${liveInvoiceId})`,
@@ -1329,6 +1338,15 @@ async function buildDispatchPayload(
         invoice_id: (j as any).invoice_id != null ? Number((j as any).invoice_id) : null,
         invoice_status: (j as any).invoice_status ?? null,
         invoice_total: (j as any).invoice_total != null ? parseFloat(String((j as any).invoice_total)) : null,
+        // [batch-tip-mislabel 2026-08-13] invoice_number and invoice_is_batch
+        // were computed in the SELECT above but never carried through this
+        // shaper — the same class of miss that made every invoiced job read
+        // "No invoice yet". Without invoice_is_batch the card cannot tell a
+        // combined invoice (whose total covers other visits) from a
+        // single-job one, which is what let the remainder be labelled a tip.
+        invoice_number: (j as any).invoice_number ?? null,
+        invoice_is_batch: !!(j as any).invoice_is_batch,
+        invoice_tips: (j as any).invoice_tips != null ? parseFloat(String((j as any).invoice_tips)) : null,
       };
     });
 
