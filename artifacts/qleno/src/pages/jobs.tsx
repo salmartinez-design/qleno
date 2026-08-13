@@ -2155,6 +2155,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const canClock = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const [clockMap, setClockMap] = useState<Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }>>({});
   const [clockBusy, setClockBusy] = useState<number | null>(null);
+  // [jobcard-clock-controls 2026-08-13] Arms the two-step delete for one entry.
+  const [confirmDeleteClock, setConfirmDeleteClock] = useState<number | null>(null);
   // [clock-block-actionable 2026-08-13] The open-punch-elsewhere rejection, kept
   // on screen next to the tech it blocked instead of flashing past in a toast.
   // `day` is the date holding the punch, linked to so it's one click away.
@@ -2265,6 +2267,34 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       toast({ title: "Clock times saved" });
     } catch (err: any) {
       toast({ title: err.message || "Could not save the times", variant: "destructive" });
+    } finally {
+      setClockBusy(null);
+    }
+  }
+
+  // [jobcard-clock-controls 2026-08-13] Delete a time entry from the job card —
+  // the same DELETE the Time Clock screen's trash button uses, so a punch on the
+  // wrong job can be removed where the office noticed it rather than by leaving
+  // the board and hunting the day. Clears the edit row afterwards so the card
+  // doesn't keep showing times for a row that no longer exists.
+  async function deleteClockEntry(entryId: number) {
+    setClockBusy(-1);
+    try {
+      const r = await fetch(`${_API3}/api/timeclock/${entryId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.message || d.error || "Could not delete the time entry");
+      }
+      setConfirmDeleteClock(null);
+      setClockEditUser(null);
+      await loadClocks();
+      onUpdate();
+      toast({ title: "Time entry deleted" });
+    } catch (err: any) {
+      toast({ title: err.message || "Could not delete the time entry", variant: "destructive" });
     } finally {
       setClockBusy(null);
     }
@@ -4038,6 +4068,35 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           style={{ padding: "6px 14px", border: "none", borderRadius: 7, background: !editIn ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: busy || !editIn ? "default" : "pointer", fontFamily: FF }}>
                           {busy ? "Saving..." : "Save"}
                         </button>
+                        {/* [jobcard-clock-controls 2026-08-13] Francisco: "I am not
+                            able to erase the clock or leaving it open from the job
+                            card like I can from the time clocks."
+                            Both were true. The hint below has always said to leave
+                            Out blank, but these are native <input type="time"> —
+                            a value in one cannot practically be cleared back to
+                            empty by typing, so "leave it open" was unreachable
+                            from here. An explicit Clear does what the sentence
+                            promises. */}
+                        {editOut && (
+                          <button onClick={() => setEditOut("")} disabled={busy}
+                            title="Clear the finish time and put them back on the clock"
+                            style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+                            Clear out
+                          </button>
+                        )}
+                        {/* Deleting the entry outright — the trash the Time Clock
+                            screen has and this card didn't, so a punch keyed on
+                            the wrong job could only be corrected by leaving the
+                            board. Two-step: the second click confirms. */}
+                        {entry?.id && (
+                          <button
+                            onClick={() => { if (confirmDeleteClock === entry.id) deleteClockEntry(entry.id); else setConfirmDeleteClock(entry.id); }}
+                            disabled={busy}
+                            title="Delete this time entry"
+                            style={{ padding: "6px 10px", border: `1px solid ${confirmDeleteClock === entry.id ? "#B3261E" : "#F3D2D2"}`, borderRadius: 7, background: confirmDeleteClock === entry.id ? "#B3261E" : "#FCEBEA", color: confirmDeleteClock === entry.id ? "#FFFFFF" : "#B3261E", fontSize: 12, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+                            {confirmDeleteClock === entry.id ? "Confirm delete" : "Delete"}
+                          </button>
+                        )}
                         <span style={{ fontSize: 10.5, color: "#9E9B94", fontFamily: FF, flexBasis: "100%" }}>
                           Leave Out blank to put them back on the clock. Times are on {job.scheduled_date}.
                         </span>
