@@ -190,6 +190,19 @@ router.post("/action", requireAuth, async (req, res) => {
     // action default (lockout pays, plain cancel doesn't). See
     // resolveCancellationTechPay.
     pay_tech?: boolean;
+    // [cancel-fee-invoice 2026-08-13] Maribel, clarifying what the 2026-07-22
+    // decision actually meant: "we have to be able select whether we bill the
+    // fee manually and how much we are paying the cleaner for that."
+    //
+    // So the fee's two money questions are BOTH per-cancellation choices, not
+    // policy the code decides. bill_fee controls whether this fee raises an
+    // invoice now (false = the office will bill it themselves); omitted = true,
+    // because a fee that is charged and never billed is the bug she reported.
+    bill_fee?: boolean;
+    // The cleaner's cut for this specific cancellation. Omitted = the tenant
+    // default (companies.cancellation_tech_pay_mode/amount). pay_tech=false
+    // still wins — this is the amount, not the whether.
+    tech_pay_amount_override?: number;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -513,17 +526,30 @@ router.post("/action", requireAuth, async (req, res) => {
           // default (lockout pays, plain cancel doesn't) when omitted.
           payTech: typeof body.pay_tech === "boolean" ? body.pay_tech : undefined,
         });
-        if (techPay.pays_tech) {
+        // [cancel-fee-invoice 2026-08-13] "how much we are paying the cleaner
+        // for that" — the amount is a per-cancellation decision, not just the
+        // tenant default. A lockout where the crew drove across town and waited
+        // is not worth the same as one they learned about before leaving.
+        //
+        // Overrides the resolved per-tech amount when supplied, split the same
+        // way the policy splits (per tech, not per job — two cleaners each get
+        // the entered amount, matching how the flat default already behaves).
+        // pay_tech=false still wins: this sets the amount, never the whether.
+        const overrideAmt = Number(body.tech_pay_amount_override);
+        const perTechPay = Number.isFinite(overrideAmt) && overrideAmt >= 0
+          ? overrideAmt
+          : techPay.pay_per_tech;
+        if (techPay.pays_tech && perTechPay > 0) {
           const noteLabel = `${action === "lockout" ? "Lockout" : "Cancel"} pay — ${row.client_name ?? "Customer"} (job #${body.job_id})`;
           for (const tid of techIds) {
             await tx.execute(sql`
               INSERT INTO additional_pay
                 (company_id, user_id, amount, type, notes, job_id, status)
               VALUES
-                (${companyId}, ${tid}, ${techPay.pay_per_tech.toFixed(2)},
+                (${companyId}, ${tid}, ${perTechPay.toFixed(2)},
                  'cancellation_pay', ${noteLabel}, ${body.job_id}, 'pending')
             `);
-            techPayWritten.push({ user_id: tid, amount: techPay.pay_per_tech });
+            techPayWritten.push({ user_id: tid, amount: perTechPay });
           }
         }
       }
@@ -569,7 +595,13 @@ router.post("/action", requireAuth, async (req, res) => {
     // logged and surfaced on the response rather than thrown — the
     // cancellation itself is already committed and must not be undone by an
     // invoicing hiccup.
-    try {
+    //
+    // bill_fee === false means the office is billing this one themselves —
+    // skip silently and leave the visit in the not-yet-invoiced state so it is
+    // still visible as owed.
+    if (body.bill_fee === false) {
+      feeInvoice = null;
+    } else try {
       const inv = await ensureInvoiceForCompletedJob(companyId, body.job_id, userId ?? null);
       feeInvoice = inv.invoiceId != null
         ? { id: inv.invoiceId, status: inv.status, total: inv.total, created: inv.created }
