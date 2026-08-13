@@ -60,6 +60,38 @@ export async function buildJobLineItems(
     .limit(1);
   if (!job) return null;
 
+  // [cancel-fee-invoice 2026-08-13] A charged cancellation or lockout bills a
+  // FEE, not a cleaning. The visit sets status='complete' with billed_amount =
+  // the fee (so revenue reports pick it up), which means every rule below would
+  // otherwise describe it by service_type — a customer who locked the crew out
+  // would receive an invoice reading "Commercial Cleaning $60" for a clean that
+  // never happened. That is a dispute waiting to happen, and it is not what the
+  // office agreed to charge for.
+  //
+  // So: one line, named for what actually happened, and nothing else. No
+  // add-ons and no discounts — nobody entered the house, so there is no parking
+  // to bill and no promo to apply. billed_amount IS the agreed fee (the policy
+  // engine already applied the pct/flat rules and any waiver), so it is used
+  // verbatim rather than recomputed here.
+  const cancelRow = (await exec.execute(sql`
+    SELECT cancel_action
+      FROM cancellation_log
+     WHERE job_id = ${jobId} AND company_id = ${companyId}
+       AND cancel_action IN ('cancel','lockout')
+     ORDER BY id DESC
+     LIMIT 1
+  `)).rows?.[0] as { cancel_action: string } | undefined;
+  if (cancelRow) {
+    const feeAmount = parseFloat(String(job.billed_amount ?? "0"));
+    // A fully-waived fee produces no invoice at all — there is nothing to bill.
+    if (!(feeAmount > 0)) return null;
+    const label = cancelRow.cancel_action === "lockout" ? "Lockout fee" : "Cancellation fee";
+    return {
+      lineItems: [{ description: label, quantity: 1, unit_price: feeAmount, total: feeAmount, job_id: jobId }],
+      subtotal: feeAmount,
+    };
+  }
+
   // [rate-mod-lines 2026-07-03] Time & Fee Adjustments (job_rate_mods) never
   // reached the invoice — the office adds e.g. a "$0 — Unit 2001" or a "+1 hr
   // Additional Time $50" adjustment on a PPM turnover, and it silently vanished

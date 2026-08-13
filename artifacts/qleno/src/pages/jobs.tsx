@@ -1899,6 +1899,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [cancelFeeMode, setCancelFeeMode] = useState<"full" | "pct" | "custom" | "waive">("full");
   const [cancelFeePct, setCancelFeePct] = useState<string>("");
   const [payTechForCancel, setPayTechForCancel] = useState(true);
+  // [cancel-fee-invoice 2026-08-13] Maribel, on what the 2026-07-22 decision
+  // meant: "we have to be able select whether we bill the fee manually and how
+  // much we are paying the cleaner for that." Both are per-cancellation calls.
+  // billFeeNow defaults ON — a fee that gets charged and never billed was the
+  // bug — but unchecking leaves it for the office to bill by hand.
+  const [billFeeNow, setBillFeeNow] = useState(true);
+  // Blank = the tenant default ($60 flat, or the configured percent). Typing an
+  // amount overrides it for this cancellation only.
+  const [techPayAmount, setTechPayAmount] = useState<string>("");
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -2848,6 +2857,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // $60 fee. Defaults on for charging actions; forced off on a waive.
           // Backend also skips tech pay whenever the effective charge is $0.
           pay_tech: isCharging ? (cancelFeeMode === "waive" ? false : payTechForCancel) : undefined,
+          // [cancel-fee-invoice 2026-08-13] Only meaningful when a fee is
+          // actually charged; omitted otherwise so a free skip is untouched.
+          bill_fee: isCharging && cancelFeeMode !== "waive" ? billFeeNow : undefined,
+          tech_pay_amount_override:
+            isCharging && cancelFeeMode !== "waive" && payTechForCancel && techPayAmount.trim() !== "" && Number.isFinite(parseFloat(techPayAmount))
+              ? Math.max(0, parseFloat(techPayAmount))
+              : undefined,
         }),
       });
       if (!res.ok) {
@@ -5518,17 +5534,60 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         />
                         <div style={{ userSelect: "none" }}>
                           <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
-                            Pay the assigned tech the $60 cancellation fee
+                            Pay the assigned tech for this cancellation
                           </div>
                           <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2 }}>
                             {cancelFeeWaived
                               ? "Fee waived — the tech is not paid and nothing shows on the time clock."
                               : (payTechForCancel
-                                ? "A $60 cancellation-fee line will show on the tech's time clock."
+                                ? "A cancellation-fee line will show on the tech's time clock."
                                 : "Uncheck applied — the tech will not be paid for this cancellation.")}
                           </div>
                         </div>
                       </div>
+
+                      {/* [cancel-fee-invoice 2026-08-13] "how much we are paying
+                          the cleaner for that" — the amount, per cancellation.
+                          Blank keeps the tenant default; a crew that drove
+                          across town and waited isn't worth the same as one
+                          told before they left. */}
+                      {!cancelFeeWaived && payTechForCancel && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, marginLeft: 23 }}>
+                          <span style={{ fontSize: 12, color: "#6B6860" }}>Pay each tech</span>
+                          <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
+                          <input type="number" min="0" step="0.01" value={techPayAmount}
+                            onChange={e => setTechPayAmount(e.target.value)}
+                            placeholder="60.00"
+                            style={{ width: 90, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, outline: "none" }} />
+                          <span style={{ fontSize: 11.5, color: "#9E9B94" }}>
+                            {techPayAmount.trim() === "" ? "blank = standard rate" : "for this cancellation only"}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* [cancel-fee-invoice 2026-08-13] "whether we bill the
+                          fee manually" — the other half of the July 22 ask. On
+                          by default, because a fee charged and never billed is
+                          exactly what went wrong. */}
+                      {!cancelFeeWaived && (
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #EFEDE8", cursor: "pointer" }}
+                          onClick={() => setBillFeeNow(v => !v)}>
+                          <input type="checkbox" checked={billFeeNow}
+                            onChange={e => setBillFeeNow(e.target.checked)}
+                            onClick={e => e.stopPropagation()}
+                            style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#0F7A63", flexShrink: 0, marginTop: 2 }} />
+                          <div style={{ userSelect: "none" }}>
+                            <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
+                              Invoice the customer for this fee
+                            </div>
+                            <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2 }}>
+                              {billFeeNow
+                                ? `An invoice for $${cancelFeeAmount.toFixed(2)} is created now, itemized as a ${cancelAction === "lockout" ? "lockout" : "cancellation"} fee.`
+                                : "No invoice — the fee is charged to the job and stays in Not yet invoiced for you to bill by hand."}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -154,10 +154,25 @@ export async function ensureInvoiceForCompletedJob(
     // back the existing one.
     //
     // Cancelled, called-off and no-show visits never invoice. Nobody cleaned, so
-    // there is nothing to bill — and a cancellation FEE is a separate, deliberate
-    // charge the office raises by hand, never an artifact of the cancel itself.
+    // there is nothing to bill.
     // A no-show is the customer's accountability signal (per the job-status
     // model), not a billing event.
+    //
+    // [cancel-fee-invoice 2026-08-13] REVERSED, the half of the rule above that
+    // read "a cancellation FEE is a separate, deliberate charge the office
+    // raises by hand, never an artifact of the cancel itself." Maribel: "This
+    // job was marked as locked out but it was billed, the invoice wasn't
+    // generated. Same has been happening with the skips or cancellations that we
+    // bill the fee for... no invoice is being created and we need that."
+    //
+    // Raising it by hand was the theory; in practice the fee was charged to the
+    // job, counted in revenue, and then never billed to anybody, so Phes was
+    // eating fees it had already decided to charge. A CHARGED cancel/lockout is
+    // a deliberate office decision that already sets status='complete' and
+    // billed_amount = the fee — it reaches this helper like any other completed
+    // billable visit and invoices the same way. A FREE skip still sets
+    // status='cancelled' and is still rejected by the status gate below, so
+    // nothing bills for a waived cancellation.
     if (job.status !== "complete") return NO_OP;
     if (job.no_show_marked_by_tech) return NO_OP;
 
