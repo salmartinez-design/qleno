@@ -254,40 +254,34 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
       }
     }
 
-    // [deep-clean-promo-removal 2026-07-02] Deactivate the existing blanket
-    // deep-clean auto-promo for Oak Lawn (co1) per owner decision — deep cleans
-    // no longer auto-discount; the office applies discounts manually per job.
-    // Idempotent (0 rows once cleared). Schaumburg (co4) is a separate company
-    // and is intentionally left untouched here. Existing invoices already
-    // stamped with an AUTO_DEEP_CLEAN discount correct themselves on the next
-    // "Recalc from job" / edit (ensureAutoPromosForJob re-derives to none).
+    // [no-auto-promos 2026-08-13] Sal: "Remove any automatic promo for any
+    // location."
+    //
+    // One blanket deactivation replaces the per-company, per-kind clears that
+    // accumulated here — deep_clean for Oak Lawn (2026-07-02), second_recurring
+    // everywhere (2026-08-13). Both of those left another promo live somewhere:
+    // Schaumburg kept auto-discounting 15% off every deep clean, year-round,
+    // simply because nobody had got to it. That is the same defect Francisco
+    // reported, waiting on a different branch.
+    //
+    // NO promo applies itself now, for any company or kind. Discounts are an
+    // office decision, made per job via "+ Add discount", which writes an
+    // ordinary job_discounts row that no auto-promo logic reads or clears.
+    //
+    // Idempotent — 0 rows once cleared. Paired with the empty seed above, which
+    // is what stops the next boot re-inserting a fresh active row and quietly
+    // undoing this (the trap the deep-clean removal documented).
+    //
+    // The engine is left intact, not deleted: a future offer is a deliberate
+    // INSERT, never a default that comes back on its own. Jobs already carrying
+    // an AUTO_ discount line self-heal on the next edit / invoice re-sync /
+    // "Recalc from job". Invoices ALREADY SENT keep the discount they were
+    // issued with; nobody is retro-billed.
     await db.execute(sql`
-      UPDATE auto_promos SET is_active = false
-       WHERE company_id = 1 AND kind = ${DEEP_CLEAN} AND is_active = true
+      UPDATE auto_promos SET is_active = false WHERE is_active = true
     `);
 
-    // [second-visit-promo-removal 2026-08-13] Sal: "The 1420 discount should only
-    // be able to be applied manually not automatically."
-    //
-    // So this is deactivated for EVERY company, not just Oak Lawn. The rule is
-    // about the discount itself, not about one branch — a promo that applies
-    // itself in Schaumburg is the same problem Francisco reported in Oak Lawn.
-    // Idempotent — 0 rows once cleared.
-    //
-    // The discount is NOT deleted, only stopped from applying itself. The office
-    // still adds it whenever they choose via "+ Add discount" on the job, which
-    // writes an ordinary job_discounts row that no auto-promo logic touches.
-    //
-    // Jobs already carrying an AUTO_SECOND_RECURRING line correct themselves —
-    // ensureAutoPromosForJob clears prior AUTO_ rows and re-derives to none on
-    // the next edit, invoice re-sync or "Recalc from job". Invoices ALREADY SENT
-    // keep the discount they were issued with; this does not retro-bill anyone.
-    await db.execute(sql`
-      UPDATE auto_promos SET is_active = false
-       WHERE kind = ${SECOND_RECURRING} AND is_active = true
-    `);
-
-    console.log(`[auto-promos] migration ok — seeded companies ${seedCompanyIds.join(", ")}`);
+    console.log("[auto-promos] migration ok — no auto-promos are seeded or active; discounts are applied manually per job");
   } catch (err) {
     console.error("[auto-promos] migration error (non-fatal):", err);
   }
