@@ -1788,17 +1788,43 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     // 'estimated' pairs (stamped by /complete on one-tap done) count too: they
     // carry the operator's best duration signal when no real punch exists.
     const liveJobIds = (liveRes.rows as any[]).map(r => Number(r.id)).filter(n => Number.isFinite(n));
-    const durationsByJob = new Map<number, Array<{ name: string; minutes: number }>>();
+    const durationsByJob = new Map<number, Array<{ name: string; minutes: number; in_at: string | null; out_at: string | null }>>();
     if (liveJobIds.length > 0) {
+      // [ANY(array) trap 2026-08-13] Francisco: "Job History still not showing
+      // duration per cleaner." It never has, for any live job, since the column
+      // shipped on 2026-07-28 — this query could not run for ANY input.
+      //
+      // `= ANY(${jsArray}::int[])` does NOT bind as one array parameter through
+      // Drizzle; it spreads the elements into separate placeholders. One job id
+      // emits ANY(($2)::int[]) → "cannot cast type integer to integer[]"; two
+      // emit ANY(($2,$3)::int[]) → "cannot cast type record to integer[]". Both
+      // verified against Postgres 16. The throw isn't caught locally, so it
+      // reaches the route handler and 500s the WHOLE Job History panel for any
+      // client with post-cutover completed work — the column showing "—" is the
+      // *quiet* version of this bug, seen only by clients whose history is
+      // entirely frozen MaidCentral rows (which never enter this branch).
+      //
+      // This is the seventh instance of a trap already documented in
+      // routes/users.ts, routes/sms.ts, routes/accounts.ts, lib/invoice-billing.ts,
+      // lib/efficiency-engine.ts and lib/push.ts. Same fix as the rest: an
+      // expanded IN list, one placeholder per value.
+      const jobIdList = sql.join(liveJobIds.map(id => sql`${id}`), sql`, `);
       const tcRes = await db.execute(sql`
         SELECT tc.job_id,
                (u.first_name || ' ' || u.last_name) AS name,
                ROUND(SUM(EXTRACT(EPOCH FROM (tc.clock_out_at - tc.clock_in_at)) / 60.0))::int AS minutes,
-               MIN(tc.clock_in_at) AS first_in
+               -- [job-history-inout 2026-08-13] Francisco: "Could we also add
+               -- please time they got in and out". Wall-clock strings, never raw
+               -- timestamps: clock_in_at is stored as naive Central, so letting
+               -- these round-trip through a JS Date would shift every time by the
+               -- server's UTC offset. Earliest in and latest out span the whole
+               -- visit when a cleaner has more than one pair on the job.
+               to_char(MIN(tc.clock_in_at), 'HH24:MI') AS in_at,
+               to_char(MAX(tc.clock_out_at), 'HH24:MI') AS out_at
         FROM timeclock tc
         LEFT JOIN users u ON u.id = tc.user_id
         WHERE tc.company_id = ${companyId}
-          AND tc.job_id = ANY(${liveJobIds}::int[])
+          AND tc.job_id IN (${jobIdList})
           AND tc.clock_out_at IS NOT NULL
         GROUP BY tc.job_id, tc.user_id, u.first_name, u.last_name
         ORDER BY tc.job_id, MIN(tc.clock_in_at)
@@ -1808,7 +1834,12 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
         const minutes = Number(row.minutes);
         if (!Number.isFinite(minutes) || minutes <= 0) continue; // skip zero/negative (bad pair)
         const arr = durationsByJob.get(jid) || [];
-        arr.push({ name: (row.name && String(row.name).trim()) || "Cleaner", minutes });
+        arr.push({
+          name: (row.name && String(row.name).trim()) || "Cleaner",
+          minutes,
+          in_at: row.in_at ?? null,
+          out_at: row.out_at ?? null,
+        });
         durationsByJob.set(jid, arr);
       }
     }

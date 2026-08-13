@@ -3717,12 +3717,33 @@ function TechAvatar({ name, size = 24 }: { name: string; size?: number }) {
 // as `row.durations` = [{ name, minutes }] per cleaner. Frozen MaidCentral rows
 // carry no clock data, so those fall back to the legacy notes "Xh" stamp; when
 // neither exists the cell shows "—" honestly rather than fabricating a value.
-type CleanerDuration = { name: string; minutes: number };
+// [job-history-inout 2026-08-13] Francisco: "Could we also add please time they
+// got in and out". in_at/out_at are "HH:MM" wall-clock strings straight from the
+// clock pair — deliberately NOT timestamps, so they can't be shifted by the
+// browser's timezone the way a parsed Date would be.
+type CleanerDuration = { name: string; minutes: number; in_at?: string | null; out_at?: string | null };
 
 // Standard app duration format ("2h 15m" / "45m") — matches jobs.tsx / time-clock.tsx.
 function fmtWorkedMins(min: number): string {
   const h = Math.floor(min / 60), m = min % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// "09:04" → "9:04 AM". Pure string math, no Date involved.
+function fmtClockHHMM(hhmm: string | null | undefined): string | null {
+  if (!hhmm) return null;
+  const m = String(hhmm).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  if (!Number.isFinite(h)) return null;
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
+}
+
+// "9:04 AM – 2:15 PM", or just the in-time when a pair is half-recorded.
+function fmtInOut(d: CleanerDuration): string | null {
+  const i = fmtClockHHMM(d.in_at), o = fmtClockHHMM(d.out_at);
+  if (i && o) return `${i} – ${o}`;
+  return i || o || null;
 }
 
 function rowDurations(row: any): CleanerDuration[] {
@@ -3738,6 +3759,12 @@ function durationSummary(row: any): string | null {
     const { duration } = parseJobNotes(row.notes);
     return duration ? `${duration}h` : null;
   }
+  // One cleaner → include the in/out window; several → durations only, so the
+  // single-line tooltip doesn't run off the screen.
+  if (durs.length === 1) {
+    const window = fmtInOut(durs[0]);
+    return `${fmtWorkedMins(durs[0].minutes)}${window ? ` (${window})` : ""}`;
+  }
   return durs.map(d => fmtWorkedMins(d.minutes)).join(" + ");
 }
 
@@ -3750,17 +3777,37 @@ function DurationCell({ row }: { row: any }) {
     const { duration } = parseJobNotes(row.notes);
     return <span style={{ fontVariantNumeric: "tabular-nums" }}>{duration ? `${duration}h` : "—"}</span>;
   }
+  // [job-history-inout 2026-08-13] The in/out window sits under the duration on
+  // its own muted line — the duration stays the number the eye lands on, and the
+  // times answer "when were they actually there" without a second column.
   if (durs.length === 1) {
-    return <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWorkedMins(durs[0].minutes)}</span>;
+    const window = fmtInOut(durs[0]);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWorkedMins(durs[0].minutes)}</span>
+        {window && (
+          <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10, lineHeight: 1.2, color: "#9E9B94" }}>{window}</span>
+        )}
+      </div>
+    );
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {durs.map((d, i) => (
-        <span key={i} style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10.5, lineHeight: 1.2 }} title={`${d.name}: ${fmtWorkedMins(d.minutes)}`}>
-          <span style={{ color: "#B7B4AD", fontWeight: 700, marginRight: 3 }}>{makeInitials(d.name)}</span>
-          {fmtWorkedMins(d.minutes)}
-        </span>
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {durs.map((d, i) => {
+        const window = fmtInOut(d);
+        return (
+          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 0 }}
+            title={`${d.name}: ${fmtWorkedMins(d.minutes)}${window ? ` (${window})` : ""}`}>
+            <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10.5, lineHeight: 1.2 }}>
+              <span style={{ color: "#B7B4AD", fontWeight: 700, marginRight: 3 }}>{makeInitials(d.name)}</span>
+              {fmtWorkedMins(d.minutes)}
+            </span>
+            {window && (
+              <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10, lineHeight: 1.2, color: "#9E9B94", marginLeft: 15 }}>{window}</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
