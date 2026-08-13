@@ -3775,7 +3775,24 @@ function DurationCell({ row }: { row: any }) {
   const durs = rowDurations(row);
   if (durs.length === 0) {
     const { duration } = parseJobNotes(row.notes);
-    return <span style={{ fontVariantNumeric: "tabular-nums" }}>{duration ? `${duration}h` : "—"}</span>;
+    if (duration) return <span style={{ fontVariantNumeric: "tabular-nums" }}>{duration}h</span>;
+    // [blank-dur-reason 2026-08-13] An empty cell was answering two different
+    // questions with the same character. Francisco: "we are not getting that
+    // information from MC but why is not working for Qleno's services?" — the
+    // screen gave him no way to tell an imported row (whose clock times were
+    // never exported and never can be) from a Qleno job where the punch is
+    // simply missing. The first is permanent; the second is fixable on the
+    // Time Clock screen, and only one of them is worth chasing.
+    if (row.origin === "imported") {
+      return (
+        <span title="Imported from MaidCentral. Clock times were never part of that export, so no duration exists for this visit — it cannot be recovered."
+          style={{ color: "#C4C0BB" }}>—</span>
+      );
+    }
+    return (
+      <span title="Qleno job with no completed clock pair — nobody clocked in and out, or the tech is still on the clock. Enter the times on the Time Clock screen and the duration appears here."
+        style={{ fontSize: 10.5, color: "#B45309", fontWeight: 600, whiteSpace: "nowrap" as const }}>not clocked</span>
+    );
   }
   // [job-history-inout 2026-08-13] The in/out window sits under the duration on
   // its own muted line — the duration stays the number the eye lands on, and the
