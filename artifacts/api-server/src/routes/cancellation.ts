@@ -5,6 +5,7 @@ import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
 import { logJobStatusChange } from "../lib/audit.js";
+import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import {
   resolveCancellationPolicy,
   CANCEL_ACTIONS,
@@ -320,6 +321,12 @@ router.post("/action", requireAuth, async (req, res) => {
 
   let futureCancelled = 0;
   let techPayWritten: Array<{ user_id: number; amount: number }> = [];
+  // [cancel-fee-invoice 2026-08-13] The invoice raised for a charged
+  // cancel/lockout fee, echoed on the response so the office sees at the moment
+  // of the decision that the fee actually produced a document — not three weeks
+  // later when someone notices it was never billed.
+  let feeInvoice: { id: number; status: string | null; total: string | null; created: boolean } | null = null;
+  let feeInvoiceError = false;
   const logRow = await db.transaction(async (tx) => {
     // [reclassify-lockout] Re-applying a cancellation to an already-completed
     // job must be idempotent — otherwise repeated taps stack the customer
@@ -540,6 +547,38 @@ router.post("/action", requireAuth, async (req, res) => {
       newStatus: "complete",
       source: `charged ${action}`,
     });
+
+    // [cancel-fee-invoice 2026-08-13] Bill the fee. Maribel: "This job was
+    // marked as locked out but it was billed, the invoice wasn't generated...
+    // no invoice is being created and we need that."
+    //
+    // The charged branch above already did everything a completed billable
+    // visit does — status='complete', billed_amount = the fee, locked_at set —
+    // but nothing ever asked for an invoice, so the fee was charged to the job,
+    // counted in revenue, and never billed to the customer. Phes was absorbing
+    // fees it had explicitly decided to charge.
+    //
+    // Same helper the three completion paths use, so this inherits their
+    // idempotency (the invoice_job_links coverage ledger), the auto-issue vs
+    // draft decision, the pre-cutover guard, and the void tombstone. A fully
+    // waived fee never reaches here — it falls to the free branch, which sets
+    // status='cancelled' and bills nothing.
+    //
+    // Awaited, not fire-and-forget: the office needs to know at the moment of
+    // the decision whether the fee actually produced a document. A failure is
+    // logged and surfaced on the response rather than thrown — the
+    // cancellation itself is already committed and must not be undone by an
+    // invoicing hiccup.
+    try {
+      const inv = await ensureInvoiceForCompletedJob(companyId, body.job_id, userId ?? null);
+      feeInvoice = inv.invoiceId != null
+        ? { id: inv.invoiceId, status: inv.status, total: inv.total, created: inv.created }
+        : null;
+      if (inv.error) feeInvoiceError = true;
+    } catch (e) {
+      feeInvoiceError = true;
+      console.error("[cancellation] fee invoice generation failed (non-fatal):", (e as any)?.message);
+    }
   }
 
   // [stale-alert-fix 2026-07-07] Office heads-up: scheduled texts queued for
@@ -695,6 +734,12 @@ router.post("/action", requireAuth, async (req, res) => {
     next_status: isReschedule ? "scheduled" : (isChargedOutcome ? "complete" : "cancelled"),
     future_cancelled_count: futureCancelled,
     tech_pay: techPayWritten,
+    // [cancel-fee-invoice 2026-08-13] null when nothing was billed (free skip,
+    // waived fee, or already covered); fee_invoice_error flags a fee that was
+    // charged but failed to produce a document, which is the one case the
+    // office must chase by hand.
+    fee_invoice: feeInvoice,
+    fee_invoice_error: feeInvoiceError,
     // Echo back the reschedule target so the frontend can confirm in
     // the toast / log it for debugging.
     rescheduled_to: isReschedule ? { date: body.new_date, time: body.new_time ?? null } : undefined,
