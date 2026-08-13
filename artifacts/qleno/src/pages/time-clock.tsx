@@ -166,6 +166,13 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13, fontFamily: FF, color: "#1A1917", outline: "none",
 };
 
+// [trainee-rate-dropped 2026-08-13] Every pay type whose rate box holds a
+// DOLLARS-PER-HOUR figure (fee_split's box holds a percent instead). Both the
+// rate pre-fill and the save read this one list — they were maintained
+// separately, 'trainee' was added to the pre-fill and missed on the save, and
+// every trainee since has been stored with no rate and paid $0.
+const RATE_PAY_TYPES = ["allowed_hours", "hourly", "trainee"];
+
 // Per-tech pay-type override. "" = inherit the job's smart default
 // (commercial → Allowed Hours; residential → Fee Split). Set Hourly / a
 // non-default rate / a breakage deduction here to match MaidCentral exactly.
@@ -196,7 +203,21 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
       const body: any = { pay_type: payType || null, hourly_rate: null, commission_pct: null,
         pay_deduction_flat: ded ? parseFloat(ded) : null, pay_deduction_pct: null };
       if (payType === "fee_split") body.commission_pct = rate ? parseFloat(rate) / 100 : null;
-      else if (payType === "allowed_hours" || payType === "hourly") body.hourly_rate = rate ? parseFloat(rate) : null;
+      // [trainee-rate-dropped 2026-08-13] Maribel: "when we mark them as trainee
+      // it doesn't populate the pay total."
+      //
+      // 'trainee' was missing from this list, so picking Trainee saved
+      // pay_type='trainee' with hourly_rate = NULL — the null the body is
+      // initialized with. The dropdown pre-fills the rate box with 20 and the
+      // save reports "Pay saved", so the office sees a rate that was never
+      // stored. Downstream, a trainee resolves to an hourly cleaner (asPayType)
+      // and an hourly cleaner with no rate can't be paid: the engine emits NO
+      // row for them, which is why every line read "—" and the day totalled
+      // $0.00 rather than being merely wrong.
+      //
+      // RATE_PAY_TYPES is shared with the pre-fill above so the two lists can
+      // never drift apart again — that drift is the whole bug.
+      else if (RATE_PAY_TYPES.includes(payType)) body.hourly_rate = rate ? parseFloat(rate) : null;
       const r = await api(`/api/timeclock/office/job/${row.job_id}/tech/${emp.user_id}/pay`, { method: "PUT", body: JSON.stringify(body) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Failed");
@@ -234,7 +255,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           // type it every time (still editable). Only when switching to a
           // $/hr type with no rate yet; fee_split keeps its % handling.
           // Trainee is paid $/hr too, so it pre-fills the same way.
-          if ((v === "allowed_hours" || v === "hourly" || v === "trainee") && !rate.trim()) setRate("20");
+          if (RATE_PAY_TYPES.includes(v) && !rate.trim()) setRate("20");
         }}
         style={{ height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#fff", padding: "0 6px" }}>
         <option value="">Default</option>
@@ -258,6 +279,19 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
           title="Trainee: excluded from the commission pool for this job. The other cleaners split the full pool; the trainee is paid this hourly rate on top.">
           Excluded from pool · paid hourly
+        </span>
+      )}
+      {/* [trainee-rate-dropped 2026-08-13] An hourly-basis line with NO stored
+          rate pays nothing at all — the engine emits no row for it, so it reads
+          as a quiet "—" rather than an obvious zero. Every trainee saved before
+          this fix is in exactly that state. Say so on the line, because the
+          alternative is an unpaid cleaner nobody notices. Reads the STORED
+          rate, not the edit box, so typing a rate doesn't hide the warning
+          until it's actually saved. */}
+      {RATE_PAY_TYPES.includes(row.pay_type ?? "") && row.hourly_rate == null && (
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#B3261E", background: "#FCEBEA", borderRadius: 999, padding: "3px 9px" }}
+          title="No hourly rate is stored for this line, so it pays $0. Enter the rate and press Save pay.">
+          No rate saved · pays $0
         </span>
       )}
       {/* BILLED — shown on EVERY row, whatever the pay type (Sal: need the total
