@@ -828,7 +828,14 @@ function OpenClocksBanner({ tick, currentDay, onJump }: { tick: number; currentD
 
 export default function TimeClockPage() {
   const { toast } = useToast();
-  const [date, setDate] = useState(new Date());
+  // [clock-block-actionable 2026-08-13] Open on a specific day via
+  // /time-clock?date=YYYY-MM-DD. The blocked-clock-in banner on the dispatch
+  // board links straight here, so the office lands on the day holding the punch
+  // instead of stepping the date arrows back nine weeks to reach June 8.
+  const [date, setDate] = useState(() => {
+    const m = typeof window !== "undefined" && window.location.search.match(/[?&]date=(\d{4}-\d{2}-\d{2})/);
+    return m ? new Date(`${m[1]}T00:00:00`) : new Date();
+  });
   const [data, setData] = useState<{ date: string; employees: Emp[]; revenue?: number; allowed_hours_total?: number; additional_pay_total?: number; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tzFixOpen, setTzFixOpen] = useState(false);
