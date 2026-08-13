@@ -17,6 +17,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
+import { getAuthHeaders } from "@/lib/auth";
+
+// [mileage-review-auth 2026-08-13] This page was written against cookie auth
+// (`credentials: "include"`) but the app authenticates with a Bearer token —
+// requireAuth reads req.headers.authorization and nothing else. So every fetch
+// here 401'd, the period list came back empty, and the screen looked broken
+// even when you reached it. Same helper the rest of the app uses.
+const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+async function payFetch(path: string, opts?: RequestInit): Promise<Response> {
+  return fetch(`${API}/api${path}`, {
+    ...opts,
+    headers: {
+      ...(getAuthHeaders() as Record<string, string>),
+      "Content-Type": "application/json",
+      ...(opts?.headers || {}),
+    },
+  });
+}
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "var(--brand)";
@@ -89,10 +107,18 @@ function techName(t: { first_name: string | null; last_name: string | null }): s
 
 export default function MileageReviewPage() {
   const { toast } = useToast();
+  const params = new URLSearchParams(window.location.search);
   const periodIdFromUrl = (() => {
-    const p = new URLSearchParams(window.location.search).get("periodId");
+    const p = params.get("periodId");
     return p ? Number(p) : null;
   })();
+  // [mileage-entry-point 2026-08-13] Payroll links here with the window the
+  // office is actually looking at (?start=&end=), not a pay_period id it has no
+  // way to know. Match it to a period below so the screen opens on the same
+  // week — landing on "latest period" would show a different set of drives than
+  // the ones they just clicked from.
+  const startFromUrl = params.get("start");
+  const endFromUrl = params.get("end");
 
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodId, setPeriodId] = useState<number | null>(periodIdFromUrl);
@@ -107,11 +133,23 @@ export default function MileageReviewPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/pay/periods", { credentials: "include" });
+        const res = await payFetch("/pay/periods");
+        if (!res.ok) throw new Error(String(res.status));
         const json = await res.json();
-        setPeriods(json.data ?? []);
-        if (periodId == null && json.data && json.data[0]) {
-          setPeriodId(json.data[0].id);
+        const rows: Period[] = (json.data ?? []).map((p: Period) => ({
+          ...p,
+          // pg hands DATE back as a timestamp string; slice to the plain day so
+          // it compares against the ?start/?end the payroll page sends.
+          start_date: String(p.start_date).slice(0, 10),
+          end_date: String(p.end_date).slice(0, 10),
+        }));
+        setPeriods(rows);
+        if (periodId == null && rows.length) {
+          const matched = startFromUrl
+            ? rows.find(p => p.start_date === startFromUrl && (!endFromUrl || p.end_date === endFromUrl))
+              ?? rows.find(p => startFromUrl >= p.start_date && startFromUrl <= p.end_date)
+            : undefined;
+          setPeriodId((matched ?? rows[0]).id);
         }
       } catch (e) {
         toast({ title: "Could not load periods", variant: "destructive" });
@@ -131,8 +169,8 @@ export default function MileageReviewPage() {
     setLoading(true);
     try {
       const [legsRes, carpoolRes] = await Promise.all([
-        fetch(`/api/pay/periods/${id}/mileage-legs`, { credentials: "include" }),
-        fetch(`/api/pay/periods/${id}/mileage-carpool-candidates`, { credentials: "include" }),
+        payFetch(`/pay/periods/${id}/mileage-legs`),
+        payFetch(`/pay/periods/${id}/mileage-carpool-candidates`),
       ]);
       const legsJson = await legsRes.json();
       const carpoolJson = await carpoolRes.json();
@@ -154,10 +192,8 @@ export default function MileageReviewPage() {
   ) {
     setBusyLegId(legId);
     try {
-      const res = await fetch(`/api/pay/mileage-legs/${legId}/${action}`, {
+      const res = await payFetch(`/pay/mileage-legs/${legId}/${action}`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) {
@@ -176,13 +212,36 @@ export default function MileageReviewPage() {
     }
   }
 
+  // [mileage-review-approve-all 2026-08-13] "Apply all reviewed" applied nothing
+  // in practice: apply-all-reviewed only touches legs already in `reviewed`, and
+  // every leg lands as `computed` — so with no per-leg pass first, the batch
+  // button reported "Applied 0 legs" forever. Mark the computed ones reviewed,
+  // then run the batch, so one office click actually clears the gate.
   async function applyAllReviewed() {
     if (periodId == null) return;
-    if (!confirm("Apply ALL reviewed legs in this period? This creates pay adjustments.")) return;
+    const computed = legs.filter(l => l.status === "computed");
+    const reviewed = legs.filter(l => l.status === "reviewed");
+    const total = computed.length + reviewed.length;
+    if (total === 0) {
+      toast({ title: "Nothing pending in this period" });
+      return;
+    }
+    const pendingCents = [...computed, ...reviewed]
+      .reduce((s, l) => s + Math.round(Number(l.amount || 0) * 100), 0);
+    if (!confirm(`Approve ${total} drive${total === 1 ? "" : "s"} (${formatCents(pendingCents)}) in this period?\n\nThis creates pay adjustments — the mileage becomes pay.`)) return;
     try {
-      const res = await fetch(
-        `/api/pay/periods/${periodId}/mileage-legs/apply-all-reviewed`,
-        { method: "POST", credentials: "include" },
+      for (const l of computed) {
+        const r = await payFetch(`/pay/mileage-legs/${l.id}/review`, { method: "POST" });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          toast({ title: err?.message || `Could not review leg #${l.id}`, variant: "destructive" });
+          await loadPeriodLegs(periodId);
+          return;
+        }
+      }
+      const res = await payFetch(
+        `/pay/periods/${periodId}/mileage-legs/apply-all-reviewed`,
+        { method: "POST" },
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -220,6 +279,11 @@ export default function MileageReviewPage() {
 
   const periodLocked =
     period?.status === "approved" || period?.status === "exported";
+
+  const pendingLegs = useMemo(
+    () => legs.filter((l) => l.status === "computed" || l.status === "reviewed"),
+    [legs],
+  );
 
   return (
     <DashboardLayout>
@@ -260,15 +324,18 @@ export default function MileageReviewPage() {
           {!periodLocked && period && (
             <button
               onClick={applyAllReviewed}
+              disabled={pendingLegs.length === 0}
               style={{
                 marginLeft: "auto",
                 fontFamily: FF, fontSize: 13, fontWeight: 700,
-                color: "#FFFFFF", backgroundColor: BRAND,
+                color: "#FFFFFF",
+                backgroundColor: pendingLegs.length === 0 ? MUTED : BRAND,
                 border: "none", borderRadius: 8, padding: "8px 14px",
-                cursor: "pointer",
+                cursor: pendingLegs.length === 0 ? "default" : "pointer",
               }}
             >
-              Apply all reviewed
+              Approve all pending
+              {pendingLegs.length > 0 ? ` (${pendingLegs.length})` : ""}
             </button>
           )}
         </div>

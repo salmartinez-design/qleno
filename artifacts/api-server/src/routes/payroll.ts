@@ -835,7 +835,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     const legsByUser = new Map<number, any[]>();
     try {
       const lRows = await db.execute(sql`
-        SELECT ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status,
+        SELECT ml.id, ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status,
                COALESCE(NULLIF(TRIM(fc.first_name||' '||COALESCE(fc.last_name,'')),''), fa.account_name, 'Job '||ml.from_job_id) AS from_label,
                COALESCE(NULLIF(TRIM(tc.first_name||' '||COALESCE(tc.last_name,'')),''), ta.account_name, 'Job '||ml.to_job_id) AS to_label
         FROM mileage_legs ml
@@ -854,6 +854,12 @@ router.get("/detail", requireAuth, async (req, res) => {
         const uid = Number(r.user_id);
         if (!legsByUser.has(uid)) legsByUser.set(uid, []);
         legsByUser.get(uid)!.push({
+          // [mileage-approve-inline 2026-08-13] The leg id, so the payroll
+          // screen can act on a PENDING drive where the office actually reads
+          // it (POST /pay/mileage-legs/:id/review + /apply). Without the id the
+          // Pending pill was a dead label — the only approval surface was
+          // /payroll/mileage-review, which nothing linked to.
+          id: Number(r.id),
           leg_date: String(r.leg_date),
           miles: parseFloat(String(r.miles || 0)),
           amount: parseFloat(String(r.amount || 0)),
