@@ -397,9 +397,43 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
   const qc = useQueryClient();
   // [hours-override-ui 2026-06-22] Office-only: the per-job "pay hourly" lever.
   const canManage = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
+  // [mileage-approve-inline 2026-08-13] Applying a leg MOVES MONEY (it writes a
+  // pay_adjustment), so it carries the api-server's stricter adminWriteGate —
+  // owner/admin only, NOT office. Kept as its own flag rather than reusing
+  // canManage so an office user never sees a button the server will 403.
+  const canApproveMileage = ['owner', 'admin'].includes(getTokenRole() || '');
+  const [approvingLegs, setApprovingLegs] = useState<number[]>([]);
   const onOverrideChanged = () => {
     qc.invalidateQueries({ queryKey: ['payroll-detail'] });
     qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+  };
+
+  // [mileage-approve-inline 2026-08-13] The review gate, driven from where the
+  // office actually reads mileage. A leg's lifecycle is
+  // computed → reviewed → applied (lib/mileage-approval.ts), and `apply` refuses
+  // anything not already `reviewed` — so one office "Approve" is two POSTs, in
+  // order. This is still the explicit office act the "no money until reviewed"
+  // rule requires; it just stops requiring a second screen nobody could reach.
+  const approveLegs = async (legIds: number[], label: string) => {
+    const ids = legIds.filter(id => Number.isFinite(id) && !approvingLegs.includes(id));
+    if (!ids.length) return;
+    if (!window.confirm(`Approve ${label}?\n\nThis pays the mileage — it creates a pay adjustment on each drive and adds it to take-home pay.`)) return;
+    setApprovingLegs(p => [...p, ...ids]);
+    const failed: number[] = [];
+    for (const id of ids) {
+      try {
+        await apiFetch(`/pay/mileage-legs/${id}/review`, { method: 'POST' });
+        await apiFetch(`/pay/mileage-legs/${id}/apply`, { method: 'POST' });
+      } catch {
+        failed.push(id);
+      }
+    }
+    setApprovingLegs(p => p.filter(id => !ids.includes(id)));
+    qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+    qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+    if (failed.length) {
+      window.alert(`${failed.length} of ${ids.length} drive${ids.length === 1 ? '' : 's'} could not be approved. The pay period may be locked or approved — open Mileage Review for the reason.`);
+    }
   };
 
   const { data, isLoading } = useQuery({
@@ -475,6 +509,13 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
             {
               k: 'Mileage applied', v: money2(teamPay.mileage_applied), color: '#0A6E8A',
               sub: teamPay.mileage_pending > 0 ? `${money2(teamPay.mileage_pending)} pending review` : undefined,
+              // [mileage-entry-point 2026-08-13] /payroll/mileage-review existed
+              // but NOTHING in the app linked to it, so the review gate was
+              // unreachable and every leg has sat 'computed' since Jul 1. The
+              // pending figure is now the way in, pre-scoped to this period.
+              href: teamPay.mileage_pending > 0
+                ? `${API}/payroll/mileage-review?start=${period.start}&end=${period.end}`
+                : undefined,
             },
             { k: 'Total pay', v: money2(teamTotalPay), accent: true },
             { k: 'Labor %', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor, sub: 'total pay ÷ billed' },
@@ -485,7 +526,11 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
             <div key={s.k} style={{ background: '#fff', padding: '16px 18px' }}>
               <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: FF }}>{s.k}</div>
               <div style={{ fontSize: 21, fontWeight: 800, marginTop: 4, color: s.color ?? (s.accent ? 'var(--brand)' : '#1A1917'), fontFamily: FF }}>{s.v}</div>
-              {s.sub && <div style={{ fontSize: 10, color: '#9E9B94', marginTop: 3, fontFamily: FF }}>{s.sub}</div>}
+              {s.sub && (
+                s.href
+                  ? <a href={s.href} style={{ display: 'inline-block', fontSize: 10, color: '#0A6E8A', marginTop: 3, fontFamily: FF, fontWeight: 700, textDecoration: 'underline' }}>{s.sub} →</a>
+                  : <div style={{ fontSize: 10, color: '#9E9B94', marginTop: 3, fontFamily: FF }}>{s.sub}</div>
+              )}
             </div>
           ))}
         </div>
@@ -566,6 +611,11 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                 {(() => {
                   const deductAmt = sumK('amount_owed');
                   const bonusAmt = sumK('bonus');
+                  // [pay-breakdown-total 2026-08-13] The chip row is now a
+                  // breakdown that ADDS UP to the headline (Sal: "so i can see
+                  // the pay breakdown but also total amount owed"). Tips are
+                  // always shown for an employee who has any, and every chip is
+                  // a term of grand_total — nothing decorative sits in this row.
                   const chips = [
                     { label: 'Commission', v: emp.totals.commission, mint: true, neg: false },
                     ...(tipsAmt ? [{ label: 'Tips', v: tipsAmt, mint: false, neg: false }] : []),
@@ -574,18 +624,54 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     ...(timeOffAmt ? [{ label: 'Time Off', v: timeOffAmt, mint: false, neg: false }] : []),
                     ...(deductAmt ? [{ label: 'Deductions', v: deductAmt, mint: false, neg: true }] : []),
                   ];
+                  // Mileage still at the review gate. It is NOT in grand_total —
+                  // "no money until reviewed" (CLAUDE.md) — so it gets its own
+                  // chip + an explicit "owed if approved" figure rather than
+                  // being quietly folded into Total pay.
+                  const pendingMileage = Number(
+                    emp.pay_components?.mileage_pending
+                    ?? Math.max(0, Number(emp.totals?.mileage || 0) - mileageAmt),
+                  );
+                  const pendingLegIds: number[] = (emp.mileage_legs || [])
+                    .filter((l: any) => l.status !== 'applied' && l.status !== 'discarded' && Number(l.amount) > 0)
+                    .map((l: any) => Number(l.id))
+                    .filter((id: number) => Number.isFinite(id));
+                  const owedIfApproved = Number(emp.totals.grand_total) + pendingMileage;
                   return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 30, flexWrap: 'wrap', background: 'linear-gradient(120deg,#F0FDF9,#E9FBF5)', border: '1px solid #B7ECDD', borderRadius: 12, padding: '18px 22px' }}>
                   <div style={{ minWidth: 200 }}>
                     <div style={{ fontSize: 11, fontWeight: 500, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Total pay</div>
                     <div style={{ fontSize: 30, fontWeight: 800, color: '#00A383', lineHeight: 1 }}>{money(emp.totals.grand_total)}</div>
                     <div style={{ marginTop: 11 }}>
-                      {chips.map(p => (
-                        <span key={p.label} style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, marginRight: 7, marginBottom: 5, borderRadius: 999, padding: '4px 11px', color: p.mint ? '#00A383' : '#6B6860', background: p.mint ? '#E9FBF5' : '#F4F3F0' }}>
-                          {p.label} {p.neg && p.v > 0 ? '−' : ''}{money(Math.abs(p.v))}
-                        </span>
+                      {chips.map((p, i) => (
+                        <Fragment key={p.label}>
+                          {i > 0 && <span style={{ fontSize: 11, color: '#9B9890', marginRight: 7 }}>{p.neg ? '−' : '+'}</span>}
+                          <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, marginRight: 7, marginBottom: 5, borderRadius: 999, padding: '4px 11px', color: p.mint ? '#00A383' : '#6B6860', background: p.mint ? '#E9FBF5' : '#F4F3F0' }}>
+                            {p.label} {p.neg && p.v > 0 ? '−' : ''}{money(Math.abs(p.v))}
+                          </span>
+                        </Fragment>
                       ))}
                     </div>
+                    {pendingMileage > 0 && (
+                      <div style={{ marginTop: 4, paddingTop: 9, borderTop: '1px dashed #B7ECDD' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+                          <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, borderRadius: 999, padding: '4px 11px', color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE' }}>
+                            Mileage {money(pendingMileage)} pending
+                          </span>
+                          {canApproveMileage && pendingLegIds.length > 0 && (
+                            <button
+                              onClick={() => approveLegs(pendingLegIds, `${pendingLegIds.length} drive${pendingLegIds.length === 1 ? '' : 's'} for ${emp.name} — ${money(pendingMileage)}`)}
+                              disabled={pendingLegIds.some(id => approvingLegs.includes(id))}
+                              style={{ fontFamily: 'inherit', fontSize: 11, fontWeight: 700, color: '#fff', background: '#0A6E8A', border: 'none', borderRadius: 999, padding: '5px 13px', cursor: 'pointer', opacity: pendingLegIds.some(id => approvingLegs.includes(id)) ? 0.5 : 1 }}>
+                              {pendingLegIds.some(id => approvingLegs.includes(id)) ? 'Approving…' : `Approve mileage (${pendingLegIds.length})`}
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B6860', marginTop: 7 }}>
+                          Owed if mileage approved <span style={{ fontWeight: 800, color: '#0A0E1A' }}>{money(owedIfApproved)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: 26, flexWrap: 'wrap' }}>
                     {[
@@ -725,7 +811,24 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                     <span style={{ fontSize: 12, color: '#6B6860', marginLeft: 8 }}>{leg.from} → {leg.to}</span>
                                     <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
                                       <span style={{ color: '#1A1917', fontWeight: 700 }}>{Number(leg.miles).toFixed(1)} mi</span> · <span style={{ color: '#0A6E8A', fontWeight: 700 }}>{money(Number(leg.amount))}</span>
-                                      <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>{leg.status === 'applied' ? 'Applied' : 'Pending'}</span>
+                                      {/* [mileage-approve-inline 2026-08-13] Pending
+                                          used to be a dead label — Sal: "there is a
+                                          pending for drive but where is it. When i
+                                          click nothing happens no way for me to
+                                          actually approve." It is a button now. */}
+                                      {leg.status === 'applied' ? (
+                                        <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#0A5C3E', background: '#D6F4E9', border: '1px solid #B7E7D4', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>Applied</span>
+                                      ) : canApproveMileage && Number.isFinite(Number(leg.id)) && Number(leg.amount) > 0 ? (
+                                        <button
+                                          onClick={() => approveLegs([Number(leg.id)], `this drive — ${money(Number(leg.amount))}`)}
+                                          disabled={approvingLegs.includes(Number(leg.id))}
+                                          title="Approve this drive — pays the mileage and adds it to take-home pay"
+                                          style={{ fontFamily: 'inherit', fontSize: 9, fontWeight: 700, color: '#fff', background: '#0A6E8A', border: 'none', borderRadius: 5, padding: '2px 8px', marginLeft: 8, textTransform: 'uppercase', cursor: 'pointer', opacity: approvingLegs.includes(Number(leg.id)) ? 0.5 : 1 }}>
+                                          {approvingLegs.includes(Number(leg.id)) ? 'Approving…' : 'Approve'}
+                                        </button>
+                                      ) : (
+                                        <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>Pending</span>
+                                      )}
                                     </span>
                                   </td>
                                 </tr>
