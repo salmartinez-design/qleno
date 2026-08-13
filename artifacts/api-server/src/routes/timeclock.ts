@@ -1463,6 +1463,55 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       WHERE t.company_id = ${companyId} AND t.job_id IN (${inList})
     `)).rows as any[]) : [];
 
+    // [orphan-open-punch 2026-08-13] Maribel, on the open-clocks strip pointing
+    // her at Alma's 66-day-old punch: it named the day, she went there, and the
+    // row wasn't on it.
+    //
+    // The day grid is built from jobs SCHEDULED that date, and the clock query
+    // above is scoped to those job ids (`t.job_id IN (inList)`). The jobs query
+    // also drops anything cancelled. So a punch left running on a job that was
+    // later cancelled — or whose scheduled_date moved off this day — is fetched
+    // by nothing and renders nowhere. It sits in `timeclock` forever, blocking
+    // that tech's next clock-in, with no surface anywhere that can close it.
+    // The strip made the punch findable but still pointed at a day that
+    // couldn't show it, which is a promise the day view has to honor.
+    //
+    // So: also pull punches by their OWN date, whatever became of the job. The
+    // unmatched-clock loop below already renders rows for clocks with no
+    // job/tech pair; these just need to reach it, and the display fields ride
+    // along on the row since the job isn't in `jobById`.
+    //
+    // Deliberately OPEN punches only (clock_out_at IS NULL). A closed punch
+    // contributes real minutes, so sweeping those in would silently move worked
+    // hours — and the pay/efficiency numbers computed off them — for every past
+    // day with a cancelled job. An open punch is worth 0 minutes, so this can
+    // add a row to close but can never shift a total.
+    const orphanOpen = (await db.execute(sql`
+      SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged, t.source,
+             t.clock_in_distance_ft, t.clock_out_distance_ft,
+             t.clock_in_outside_geofence, t.clock_out_outside_geofence,
+             t.clock_in_lat, t.clock_in_lng, t.clock_out_lat, t.clock_out_lng,
+             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name,
+             COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+                      a.account_name, c.company_name, 'Client') AS orphan_client_name,
+             j.service_type::text AS orphan_service_type,
+             j.scheduled_time AS orphan_scheduled_time,
+             j.status::text AS orphan_job_status,
+             j.scheduled_date::text AS orphan_job_date,
+             j.client_id AS orphan_client_id, j.account_id AS orphan_account_id
+        FROM timeclock t
+        JOIN users u ON u.id = t.user_id
+        LEFT JOIN jobs j ON j.id = t.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE t.company_id = ${companyId}
+         AND t.clock_out_at IS NULL
+         AND t.clock_in_at >= ${date}::date
+         AND t.clock_in_at < (${date}::date + INTERVAL '1 day')
+         ${inList ? sql`AND t.job_id NOT IN (${inList})` : sql``}
+    `)).rows as any[];
+    for (const o of orphanOpen) clockRows.push(o);
+
     const jobById = new Map<number, any>(jobs.map(j => [Number(j.job_id), j]));
 
     // [billed-reconcile 2026-07-27] Canonical BILLED total per job — the number
@@ -1614,6 +1663,10 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  address: string | null; client_id: number | null; account_id: number | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
+                 // [orphan-open-punch 2026-08-13] Set when the row exists ONLY to
+                 // close a still-running clock whose job isn't on this day's
+                 // schedule (cancelled, or moved). Null on every normal row.
+                 orphan_reason?: string | null;
                  // [pay-note 2026-08-12] Why this line was paid the way it was.
                  pay_note?: string | null; pay_note_at?: string | null; pay_note_by_name?: string | null;
                  // [allowed-hrs-display 2026-07-04] The job's allowed-hours budget
@@ -1798,10 +1851,26 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const key = `${e.job_id}:${e.user_id}`;
       if (seen.has(key)) continue;
       const j = jobById.get(Number(e.job_id));
+      // [orphan-open-punch 2026-08-13] A punch pulled in by its own date carries
+      // its own display fields — its job isn't in `jobById` (cancelled, or moved
+      // to another day), so without these the row would read a useless bare
+      // "Client" and the office couldn't tell which house to close.
+      // orphan_reason explains WHY a row is showing on a day with no such job,
+      // so a cancelled-job punch doesn't look like a grid bug.
+      const orphanReason = e.orphan_job_status === "cancelled"
+        ? "job cancelled — clock left running"
+        : e.orphan_job_date && e.orphan_job_date !== date
+          ? `job moved to ${e.orphan_job_date} — clock left running`
+          : e.orphan_client_name != null
+            ? "clock left running — job not on this day"
+            : null;
       ensureEmp(Number(e.user_id)).rows.push({
-        job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
-        address: j?.address ?? null, client_id: j?.client_id != null ? Number(j.client_id) : null, account_id: j?.account_id != null ? Number(j.account_id) : null,
-        scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
+        job_id: Number(e.job_id), client_name: e.orphan_client_name ?? j?.client_name ?? "Client", service_type: e.orphan_service_type ?? j?.service_type ?? "",
+        address: j?.address ?? null,
+        client_id: (e.orphan_client_id ?? j?.client_id) != null ? Number(e.orphan_client_id ?? j.client_id) : null,
+        account_id: (e.orphan_account_id ?? j?.account_id) != null ? Number(e.orphan_account_id ?? j.account_id) : null,
+        orphan_reason: orphanReason,
+        scheduled_time: e.orphan_scheduled_time ?? j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,

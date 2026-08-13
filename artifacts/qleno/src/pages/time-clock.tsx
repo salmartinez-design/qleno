@@ -141,6 +141,10 @@ type Row = {
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
   source?: string | null;
+  // [orphan-open-punch 2026-08-13] Set when this row exists only because a clock
+  // is still running on it — the job itself was cancelled or moved off this day.
+  // Explains why a row shows on a day with no such job on the schedule.
+  orphan_reason?: string | null;
   // [pay-note 2026-08-12] The office's explanation of this pay line.
   pay_note?: string | null; pay_note_at?: string | null; pay_note_by_name?: string | null;
   gps_in_ft?: number | null; gps_out_ft?: number | null;
@@ -523,6 +527,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
           {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedWindow(row.scheduled_time, row.allowed_hours ?? row.estimated_hours)}` : ""}
           {!row.entry_id && <span style={{ color: "#9E9B94", marginLeft: 6, fontWeight: 700 }}>· not clocked in</span>}
+          {row.orphan_reason && <span title="This job isn't on today's schedule — the row is here only so the open clock can be closed." style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· {row.orphan_reason}</span>}
           {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
           {row.entry_id && (row.has_gps
