@@ -266,12 +266,17 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
        WHERE company_id = 1 AND kind = ${DEEP_CLEAN} AND is_active = true
     `);
 
-    // [second-visit-promo-removal 2026-08-13] Same treatment for the second-visit
-    // promo on Oak Lawn (co1). Idempotent — 0 rows once cleared.
+    // [second-visit-promo-removal 2026-08-13] Sal: "The 1420 discount should only
+    // be able to be applied manually not automatically."
     //
-    // Scoped to co1, mirroring the deep-clean removal above: Schaumburg (co4) is
-    // a separate company whose offers are not Oak Lawn's to switch off. If
-    // Schaumburg should stop too, it is the same one-line UPDATE.
+    // So this is deactivated for EVERY company, not just Oak Lawn. The rule is
+    // about the discount itself, not about one branch — a promo that applies
+    // itself in Schaumburg is the same problem Francisco reported in Oak Lawn.
+    // Idempotent — 0 rows once cleared.
+    //
+    // The discount is NOT deleted, only stopped from applying itself. The office
+    // still adds it whenever they choose via "+ Add discount" on the job, which
+    // writes an ordinary job_discounts row that no auto-promo logic touches.
     //
     // Jobs already carrying an AUTO_SECOND_RECURRING line correct themselves —
     // ensureAutoPromosForJob clears prior AUTO_ rows and re-derives to none on
@@ -279,7 +284,7 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
     // keep the discount they were issued with; this does not retro-bill anyone.
     await db.execute(sql`
       UPDATE auto_promos SET is_active = false
-       WHERE company_id = 1 AND kind = ${SECOND_RECURRING} AND is_active = true
+       WHERE kind = ${SECOND_RECURRING} AND is_active = true
     `);
 
     console.log(`[auto-promos] migration ok — seeded companies ${seedCompanyIds.join(", ")}`);
