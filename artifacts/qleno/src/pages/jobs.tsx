@@ -1507,7 +1507,15 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 // uses — with cascade_scope:'this_job' so it only touches THIS occurrence, never
 // the whole series. Commercial-hourly prices as rate×hours (the base line is not
 // base_fee), so those stay read-only and route to the full editor.
-function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, tipsTotal = 0 }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void; adjustments?: React.ReactNode; tipsTotal?: number }) {
+// [unit-in-pricing 2026-08-13] `modLines` is the adjustment DATA (as opposed to
+// `adjustments`, the editor block). Francisco: "the unit number that is an
+// adjustment is supposed to show in the service and pricing" — the unit label on
+// a PPM turnover says WHICH unit was cleaned, and it only lived in the editor
+// below the total. It also fixes a quiet arithmetic gap: the Total is
+// job.amount, which already folds rate-mods in, so a non-zero adjustment made
+// the visible lines stop summing to the Total with nothing explaining the
+// difference — the same complaint the tip line fixed in July.
+function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, modLines, tipsTotal = 0 }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void; adjustments?: React.ReactNode; modLines?: Array<{ id: number; mod_type: "time" | "flat"; minutes: number | null; amount: string; reason: string }>; tipsTotal?: number }) {
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1643,6 +1651,25 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, tipsTotal = 
           : line(fmtSvc(job.service_type), num(baseInit))}
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
         {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#0F7A63")}</div>)}
+        {/* [unit-in-pricing 2026-08-13] Adjustments as priced lines, so the unit
+            number reads next to the service it belongs to and the breakdown
+            actually sums to the Total. A $0 adjustment still shows — on a PPM
+            turnover "Unit 2804" IS the information, whatever it costs. The
+            editor for these still lives below; this is the receipt. */}
+        {(modLines ?? []).map(m => {
+          const amt = parseFloat(m.amount);
+          const label = (m.reason || "").trim() || (m.mod_type === "time" ? "Additional time" : "Adjustment");
+          const detail = m.mod_type === "time" && m.minutes ? ` · ${m.minutes} min` : "";
+          return (
+            <div key={`m${m.id}`}>
+              {line(
+                `Adjustment · ${label}${detail}`,
+                amt < 0 ? `−$${Math.abs(amt).toFixed(2)}` : num(amt),
+                amt < 0 ? "#0F7A63" : undefined,
+              )}
+            </div>
+          );
+        })}
         {/* [tip-reconcile 2026-07-24] When there are no add-ons the single service
             line already IS the service total, so a separate "Service total" row just
             repeats the same number (Sal: "i dont need to see 220 two times"). Only
@@ -3364,6 +3391,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               right here, total recomputed. Residential only (commercial-hourly
               stays read-only — see InlinePricingEditor). */}
           <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate} tipsTotal={tipsTotal}
+            modLines={rateMods}
             adjustments={canManageMods ? (
               <div style={{ marginTop: 14, borderTop: "1px solid #F0EEE9", paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Adjustments</div>
