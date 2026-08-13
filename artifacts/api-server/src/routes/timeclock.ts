@@ -2151,8 +2151,21 @@ router.get("/:id/history", requireAuth, requireRole("owner", "admin", "office", 
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
 
+    // [clock-history-500 2026-08-13] Maribel: "the history says this though" —
+    // Internal Server Error, on every entry. This SELECT asked for
+    // `tc.created_at`, and there IS no created_at on `timeclock` (see
+    // lib/db/src/schema/timeclock.ts — the row records clock_in_at/clock_out_at
+    // and nothing about when it was written). Postgres answers "column
+    // tc.created_at does not exist", the route's catch turns that into a 500,
+    // and the popover prints it. The History button shipped yesterday (#1406)
+    // and has failed on every click since — it never worked once.
+    //
+    // Not adding the column to fix this. Backfilling it would have to invent a
+    // creation time for every historical punch, and a history panel that makes
+    // up timestamps is worse than one that admits what it doesn't know. The
+    // origin time is derived below from signals that are actually recorded.
     const entryRows = (await db.execute(sql`
-      SELECT tc.id, tc.created_at, tc.source, tc.clock_in_at, tc.clock_out_at, tc.override_approved,
+      SELECT tc.id, tc.source, tc.clock_in_at, tc.clock_out_at, tc.override_approved,
              NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS tech_name
         FROM timeclock tc
         LEFT JOIN users u ON u.id = tc.user_id
@@ -2173,12 +2186,19 @@ router.get("/:id/history", requireAuth, requireRole("owner", "admin", "office", 
     // The origin line. A 'punched' row with no office-create audit came from the
     // field app; anything the office keyed in has its own audit row below, so we
     // do not guess an actor here — an honest blank beats a wrong name.
-    const hasOfficeCreate = auditRows.some((r: any) => r.action === "TIMECLOCK_OFFICE_IN");
+    const officeCreate = auditRows.find((r: any) => r.action === "TIMECLOCK_OFFICE_IN");
+    const hasOfficeCreate = !!officeCreate;
+    // Origin time, from what's actually on record. An office-keyed row has an
+    // audit entry stamped when it was written — that IS the creation moment. A
+    // field punch has no such row, and for it clock_in_at is the creation
+    // moment: the row exists because the tech tapped Clock In at that time.
+    // Null only when neither exists, which the UI already renders as "—".
+    const createdAt = officeCreate?.performed_at ?? entry.clock_in_at ?? null;
     const events = [
       {
         kind: "created",
-        at: entry.created_at,
-        actor_name: null,
+        at: createdAt,
+        actor_name: officeCreate?.actor_name ?? null,
         detail: hasOfficeCreate
           ? "Entered by the office"
           : entry.source === "estimated"
