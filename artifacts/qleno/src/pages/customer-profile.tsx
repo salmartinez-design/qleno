@@ -3729,6 +3729,24 @@ function fmtWorkedMins(min: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+// [decimal-hours 2026-08-13] Francisco: "I need the decimal time over here too
+// like 2.30 hours not just 2h 18 mins."
+//
+// Decimal hours is the form that multiplies — against a rate, against allowed
+// hours, into a payroll cell — and "2h 18m" has to be converted in your head
+// every time. The Time Clock screen already shows both side by side for exactly
+// this reason (his earlier ask, fmtHrsDec there); Job History showed only the
+// h/m form. Same convention, trailing zeros trimmed so a whole hour reads "2h"
+// rather than "2.00h".
+function fmtWorkedHrsDec(min: number): string {
+  return `${(min / 60).toFixed(2).replace(/\.?0+$/, "")}h`;
+}
+// "2h 18m · 2.3h" — both forms, the h/m first because that's what the eye reads
+// and the decimal second because that's what gets typed into something else.
+function fmtWorkedBoth(min: number): string {
+  return `${fmtWorkedMins(min)} · ${fmtWorkedHrsDec(min)}`;
+}
+
 // "09:04" → "9:04 AM". Pure string math, no Date involved.
 function fmtClockHHMM(hhmm: string | null | undefined): string | null {
   if (!hhmm) return null;
@@ -3763,9 +3781,9 @@ function durationSummary(row: any): string | null {
   // single-line tooltip doesn't run off the screen.
   if (durs.length === 1) {
     const window = fmtInOut(durs[0]);
-    return `${fmtWorkedMins(durs[0].minutes)}${window ? ` (${window})` : ""}`;
+    return `${fmtWorkedBoth(durs[0].minutes)}${window ? ` (${window})` : ""}`;
   }
-  return durs.map(d => fmtWorkedMins(d.minutes)).join(" + ");
+  return durs.map(d => fmtWorkedBoth(d.minutes)).join(" + ");
 }
 
 // DUR. table cell. Single cleaner → "2h 15m". Multiple cleaners → per-cleaner
@@ -3801,7 +3819,7 @@ function DurationCell({ row }: { row: any }) {
     const window = fmtInOut(durs[0]);
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWorkedMins(durs[0].minutes)}</span>
+        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWorkedBoth(durs[0].minutes)}</span>
         {window && (
           <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10, lineHeight: 1.2, color: "#9E9B94" }}>{window}</span>
         )}
@@ -3814,10 +3832,10 @@ function DurationCell({ row }: { row: any }) {
         const window = fmtInOut(d);
         return (
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 0 }}
-            title={`${d.name}: ${fmtWorkedMins(d.minutes)}${window ? ` (${window})` : ""}`}>
+            title={`${d.name}: ${fmtWorkedBoth(d.minutes)}${window ? ` (${window})` : ""}`}>
             <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10.5, lineHeight: 1.2 }}>
               <span style={{ color: "#B7B4AD", fontWeight: 700, marginRight: 3 }}>{makeInitials(d.name)}</span>
-              {fmtWorkedMins(d.minutes)}
+              {fmtWorkedBoth(d.minutes)}
             </span>
             {window && (
               <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10, lineHeight: 1.2, color: "#9E9B94", marginLeft: 15 }}>{window}</span>
@@ -4236,13 +4254,13 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
                 return duration ? <Field label="Duration" value={`${duration} hours`} /> : null;
               }
               if (durs.length === 1) {
-                return <Field label="Duration" value={fmtWorkedMins(durs[0].minutes)} />;
+                return <Field label="Duration" value={fmtWorkedBoth(durs[0].minutes)} />;
               }
               return (
                 <Field label="Duration (per cleaner)" value={
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {durs.map((d, i) => (
-                      <span key={i} style={{ fontVariantNumeric: "tabular-nums" }}>{d.name}: {fmtWorkedMins(d.minutes)}</span>
+                      <span key={i} style={{ fontVariantNumeric: "tabular-nums" }}>{d.name}: {fmtWorkedBoth(d.minutes)}</span>
                     ))}
                   </div>
                 } />
