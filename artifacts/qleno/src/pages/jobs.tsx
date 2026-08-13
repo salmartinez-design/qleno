@@ -2199,7 +2199,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           body: JSON.stringify({ job_id: job.id, user_id, clock_in_at: stampFor(editIn) }),
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Could not add the times");
+        // [open-clock-finder 2026-08-13] `message` first, `error` second. The
+        // error field is the machine code (OPEN_PUNCH_ELSEWHERE, GEOFENCE_BLOCKED);
+        // the message is the sentence that names the job still on the clock and
+        // when it started. Showing the code told the office nothing actionable.
+        if (!r.ok) throw new Error(d.message || d.error || "Could not add the times");
         id = d.id;
       }
       const body: Record<string, unknown> = { clock_in_at: stampFor(editIn) };
@@ -2211,7 +2215,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         body: JSON.stringify(body),
       });
       const d2 = await r2.json().catch(() => ({}));
-      if (!r2.ok) throw new Error(d2.error || "Could not save the times");
+      if (!r2.ok) throw new Error(d2.message || d2.error || "Could not save the times");
       setClockEditUser(null);
       await loadClocks();
       onUpdate();
@@ -2232,7 +2236,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         body: JSON.stringify({ job_id: job.id, user_id }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "Clock action failed");
+      if (!r.ok) throw new Error(d.message || d.error || "Clock action failed");
       await loadClocks();
       onUpdate();
     } catch (err: any) {
