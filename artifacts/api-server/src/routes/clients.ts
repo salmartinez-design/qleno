@@ -1766,8 +1766,26 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     // client's last imported visit — that keeps every historical number identical
     // (no double-count, no shift) while letting post-cutover work flow in. A
     // client with no import history (born in Qleno) gets all their completed jobs.
-    const lastHistDate = histRecords.reduce<string | null>(
-      (mx, r) => (r.job_date && (!mx || r.job_date > mx) ? r.job_date : mx), null);
+    // [history-coverage 2026-08-13] Francisco: "it is supposed to be showing at
+    // least all services done since July right?"
+    //
+    // It wasn't, and the rule above is why. `scheduled_date > lastHistDate` is a
+    // whole-client cutoff at the LAST imported visit, so every Qleno job on or
+    // before that date is hidden permanently — not just the ones that collide.
+    // Any client whose import overlapped the period Qleno was already cleaning
+    // them (the dual-running weeks around the cutover, and every Schaumburg
+    // client, who never migrated and keeps receiving MC rows) loses real
+    // completed work from their history, their visit count and their lifetime
+    // revenue.
+    //
+    // The collision the guard exists to stop is ONE VISIT appearing twice —
+    // once imported, once live. That is a per-DATE question, not a cutoff:
+    // exclude a live job when an imported row already covers that client on
+    // that day, and show it otherwise. Same protection, no collateral.
+    //
+    // Note this raises Total Visits / Lifetime Revenue for affected clients.
+    // Those visits genuinely happened and were being under-counted; the numbers
+    // move because they were wrong, not because this double-counts.
     const liveRes = await db.execute(sql`
       SELECT j.id, j.scheduled_date::text AS job_date, j.billed_amount,
              j.service_type, (u.first_name || ' ' || u.last_name) AS technician
@@ -1775,7 +1793,12 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
         AND j.status::text IN ('complete','invoiced')
-        ${lastHistDate ? sql`AND j.scheduled_date > ${lastHistDate}::date` : sql``}
+        AND NOT EXISTS (
+          SELECT 1 FROM job_history h
+           WHERE h.company_id = ${companyId}
+             AND h.customer_id = ${clientId}
+             AND h.job_date = j.scheduled_date
+        )
       ORDER BY j.scheduled_date DESC
     `);
     // [job-history-duration 2026-07-28] Per-cleaner worked duration from the
