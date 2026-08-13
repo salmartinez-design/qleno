@@ -1769,7 +1769,7 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
         WHERE company_id = ${companyId} AND customer_id = ${clientId}
         -- [qleno-mirror-durations 2026-08-13] When one visit exists BOTH ways —
         -- an MC row and a Qleno mirror with the same date, tech and revenue —
-        -- DISTINCT ON keeps whichever sorts first, and `id` alone kept the MC
+        -- DISTINCT ON keeps whichever sorts first, and ordering by id alone kept the MC
         -- row because the import was inserted first and holds the lower ids.
         -- That silently discarded the only copy that can resolve clock pairs,
         -- so the visit stayed blank no matter what the rest of this fix did.
