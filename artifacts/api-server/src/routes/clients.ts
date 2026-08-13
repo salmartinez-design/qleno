@@ -1879,10 +1879,25 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       // Per-cleaner worked durations from the clock pairs (empty when the job
       // has no completed clock data — the DUR. column then shows "—" honestly).
       durations: durationsByJob.get(Number(r.id)) || [],
+      // [blank-dur-reason 2026-08-13] Francisco, after the durations query was
+      // fixed: "So this means we are not getting that information from MC but
+      // why is not working for Qleno's services?" He can't tell which rows are
+      // which — every row looks identical and an empty DUR reads the same
+      // whether the data never existed or the punch is simply missing.
+      //
+      // origin says which kind of row this is, so the column can explain its
+      // own blank instead of leaving him to guess.
+      origin: "qleno" as const,
     }));
     // Live rows are strictly newer than every imported row, so plain concat keeps
     // the overall newest-first order the response and stats rely on.
-    const records = [...liveRecords, ...histRecords];
+    // [blank-dur-reason 2026-08-13] Imported rows are stamped too — job_history
+    // carries no duration and no clock columns at all, so their blank is
+    // permanent and means something different from a Qleno job nobody clocked.
+    const records = [
+      ...liveRecords,
+      ...histRecords.map(h => ({ ...h, origin: "imported" as const })),
+    ];
 
     // [last-next-fix 2026-06-18] Last = most recent COMPLETED job on/before
     // today (records[0] could be a future or non-completed row → showed a
