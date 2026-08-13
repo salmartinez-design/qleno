@@ -182,22 +182,62 @@ export async function buildJobLineItems(
   // sit in base_fee and have to be split back out. Gated on isMetered (not raw
   // billed_amount) so a residential job with a stamped billed_amount still
   // itemizes (the [flat-addon-itemize] fix).
-  const addons: Array<{ name: string | null; quantity: number | null; unit_price: string | null; subtotal: string | null }> = !isMetered
-    ? await exec
-        .select({
-          name: addOnsTable.name,
-          quantity: jobAddOnsTable.quantity,
-          unit_price: jobAddOnsTable.unit_price,
-          subtotal: jobAddOnsTable.subtotal,
-        })
-        .from(jobAddOnsTable)
-        .leftJoin(addOnsTable, eq(jobAddOnsTable.add_on_id, addOnsTable.id))
-        .where(eq(jobAddOnsTable.job_id, jobId))
-    : [];
+  // [hourly-invoice-itemize 2026-08-13] Fetched unconditionally now — the metered
+  // branch needs the add-on total to decide whether it can safely itemize.
+  const allAddons: Array<{ name: string | null; quantity: number | null; unit_price: string | null; subtotal: string | null }> =
+    await exec
+      .select({
+        name: addOnsTable.name,
+        quantity: jobAddOnsTable.quantity,
+        unit_price: jobAddOnsTable.unit_price,
+        subtotal: jobAddOnsTable.subtotal,
+      })
+      .from(jobAddOnsTable)
+      .leftJoin(addOnsTable, eq(jobAddOnsTable.add_on_id, addOnsTable.id))
+      .where(eq(jobAddOnsTable.job_id, jobId));
+  const allAddOnsSubtotal = allAddons.reduce((s, a) => s + parseFloat(String(a.subtotal ?? "0")), 0);
+
+  // [hourly-invoice-itemize 2026-08-13] Francisco, on PPM turnover #20571: "Why
+  // is it correct in the breakdown of the jobcard but not on the actual invoice?"
+  //
+  // The job card reads $50/hr × 3.5h = $175 plus Parking $20 = $195. The invoice
+  // read ONE line — "Ppm Turnover · qty 1 × $50.00 = $195.00" — with no parking
+  // on it at all. Same total, but a line that cannot survive being read: 1 × $50
+  // is not $195, and the customer is billed $20 for parking the document never
+  // mentions.
+  //
+  // Cause: a commercial hourly job is "metered", and that branch prints
+  // billed_amount verbatim with qty = billed_hours (usually null → 1) and unit =
+  // the hourly rate. Those three numbers were never required to agree. Add-ons
+  // were then deliberately withheld because the metered total already contains
+  // them.
+  //
+  // But billed_amount for a commercial job IS rate×hours + flat mods + add-ons
+  // (recomputeJobBilledAmount), so the parts are recoverable: bill LABOR as
+  // hours × rate and let the add-ons be their own lines — exactly what the job
+  // card and the isHourlyRateDriven branch below already do.
+  //
+  // Guarded on the arithmetic reconciling to the penny. Where a job's
+  // billed_amount has drifted from rate×hours + mods + add-ons (manual override,
+  // legacy row), splitting it would silently change what the customer owes, so
+  // those fall through to the existing behavior untouched. This can make an
+  // invoice clearer; it can never make it a different total.
+  const laborAmount = Math.round(hoursNum * rateNum * 100) / 100;
+  const meteredItemizable = isMetered
+    && rateNum > 0 && hoursNum > 0
+    && Math.abs(laborAmount + allAddOnsSubtotal + modsTotal - billedNum) < 0.011;
+
+  const addons = (!isMetered || meteredItemizable) ? allAddons : [];
   const addOnsSubtotal = addons.reduce((s, a) => s + parseFloat(String(a.subtotal ?? "0")), 0);
 
   let scopeQty: number, scopeUnit: number, scopeAmount: number;
-  if (isMetered) {
+  if (meteredItemizable) {
+    // Labor only. Add-ons and flat mods are their own lines below, and the three
+    // together land back exactly on billed_amount.
+    scopeQty = hoursNum;
+    scopeUnit = rateNum;
+    scopeAmount = laborAmount;
+  } else if (isMetered) {
     // Pull flat mods back out of the metered total — they get their own lines
     // below, so leaving them in the scope would double-count.
     scopeAmount = parseFloat(String(job.billed_amount)) - modsTotal;
