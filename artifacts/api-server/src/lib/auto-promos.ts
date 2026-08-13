@@ -228,7 +228,20 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
       // second-visit promo is seeded. (Removing it from the seed is also what
       // makes the deactivation below stick — otherwise the next boot would
       // re-insert a fresh active deep_clean row.)
-      for (const kind of [SECOND_RECURRING]) {
+      // [second-visit-promo-removal 2026-08-13] SECOND_RECURRING is no longer
+      // seeded either, for the same reason DEEP_CLEAN isn't: leaving it in the
+      // seed would re-insert a fresh active row on the next boot and undo the
+      // deactivation below. The seed list is now empty by design — a new
+      // auto-promo is a deliberate addition, never a default.
+      //
+      // Francisco, on the 15% appearing by itself on Ashley Wedge's job: "I was
+      // under the impression that this was not supposed to be happening."
+      // The engine was working as built; the offer itself is what's stale. The
+      // booking widget advertises "First Recurring Visit (15% off)" — a
+      // different mechanism (the recurring upsell's first-visit rate) — so this
+      // second-visit promo was discounting a visit nothing promises, on top of
+      // the offer the customer was actually shown.
+      for (const kind of [] as string[]) {
         await db.execute(sql`
           INSERT INTO auto_promos (company_id, kind, discount_pct, label)
           SELECT ${cid}, ${kind}, 15.00, ${defaultPromoLabel(kind, 15)}
@@ -251,6 +264,22 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
     await db.execute(sql`
       UPDATE auto_promos SET is_active = false
        WHERE company_id = 1 AND kind = ${DEEP_CLEAN} AND is_active = true
+    `);
+
+    // [second-visit-promo-removal 2026-08-13] Same treatment for the second-visit
+    // promo on Oak Lawn (co1). Idempotent — 0 rows once cleared.
+    //
+    // Scoped to co1, mirroring the deep-clean removal above: Schaumburg (co4) is
+    // a separate company whose offers are not Oak Lawn's to switch off. If
+    // Schaumburg should stop too, it is the same one-line UPDATE.
+    //
+    // Jobs already carrying an AUTO_SECOND_RECURRING line correct themselves —
+    // ensureAutoPromosForJob clears prior AUTO_ rows and re-derives to none on
+    // the next edit, invoice re-sync or "Recalc from job". Invoices ALREADY SENT
+    // keep the discount they were issued with; this does not retro-bill anyone.
+    await db.execute(sql`
+      UPDATE auto_promos SET is_active = false
+       WHERE company_id = 1 AND kind = ${SECOND_RECURRING} AND is_active = true
     `);
 
     console.log(`[auto-promos] migration ok — seeded companies ${seedCompanyIds.join(", ")}`);
