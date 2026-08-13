@@ -1743,10 +1743,28 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
 
     // Deduplicate on (job_date, technician, revenue) — prevents double-rows from deployment race conditions
+    // [qleno-mirror-durations 2026-08-13] qleno_job_id is the whole story behind
+    // "why is not working for Qleno's services?".
+    //
+    // job_history is NOT just the frozen MaidCentral import. Since the
+    // revenue-connect bridge (2026-06-12), every COMPLETED Qleno job is mirrored
+    // into it with qleno_job_id set, so the ledger keeps growing after the
+    // cutover. Which means the rows on this screen for post-switch work are
+    // those mirrors — and job_history has no duration or clock columns, so they
+    // render blank no matter how well the clocks were kept.
+    //
+    // The live rows that DO carry durations were then deduped away against those
+    // same mirrors, so they never reached the screen. Fixing the durations query
+    // (#1413) was necessary but invisible: it computed hours for rows nobody was
+    // being shown.
+    //
+    // Selecting qleno_job_id lets a mirrored row be joined back to its job — and
+    // therefore to its clock pairs — so a Qleno visit shows its hours whether it
+    // arrives here as a live row or as its own ledger mirror.
     const rows = await db.execute(sql`
       SELECT * FROM (
         SELECT DISTINCT ON (job_date, technician, revenue)
-          id, job_date, revenue, service_type, technician, notes
+          id, job_date, revenue, service_type, technician, notes, qleno_job_id
         FROM job_history
         WHERE company_id = ${companyId} AND customer_id = ${clientId}
         ORDER BY job_date, technician, revenue, id
@@ -1757,6 +1775,7 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     const histRecords = rows.rows as Array<{
       id: number; job_date: string; revenue: string;
       service_type: string | null; technician: string | null; notes: string | null;
+      qleno_job_id: number | null;
     }>;
 
     // [history-unify 2026-06-30] job_history is the frozen MaidCentral import; it
@@ -1810,7 +1829,15 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     // does, so those rows stay on their notes-based fallback. Synthetic
     // 'estimated' pairs (stamped by /complete on one-tap done) count too: they
     // carry the operator's best duration signal when no real punch exists.
-    const liveJobIds = (liveRes.rows as any[]).map(r => Number(r.id)).filter(n => Number.isFinite(n));
+    // [qleno-mirror-durations 2026-08-13] Look up clock pairs for BOTH shapes a
+    // Qleno visit can arrive in: a live row, and a ledger mirror pointing at the
+    // same job via qleno_job_id. Previously only live rows were looked up, and
+    // those were exactly the rows the dedup removed — so every duration computed
+    // here was for a row nobody saw.
+    const liveJobIds = Array.from(new Set([
+      ...(liveRes.rows as any[]).map(r => Number(r.id)),
+      ...histRecords.map(h => Number(h.qleno_job_id)),
+    ].filter(n => Number.isFinite(n) && n > 0)));
     const durationsByJob = new Map<number, Array<{ name: string; minutes: number; in_at: string | null; out_at: string | null }>>();
     if (liveJobIds.length > 0) {
       // [ANY(array) trap 2026-08-13] Francisco: "Job History still not showing
@@ -1894,9 +1921,22 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     // [blank-dur-reason 2026-08-13] Imported rows are stamped too — job_history
     // carries no duration and no clock columns at all, so their blank is
     // permanent and means something different from a Qleno job nobody clocked.
+    // [qleno-mirror-durations 2026-08-13] A ledger row carries its job's
+    // durations when it's a Qleno mirror, and is labelled by what it actually
+    // is — qleno_job_id set means Qleno did this work, however the row got here.
+    // Labelling every job_history row "imported" would have told Francisco his
+    // own post-switch jobs came from MaidCentral.
     const records = [
       ...liveRecords,
-      ...histRecords.map(h => ({ ...h, origin: "imported" as const })),
+      ...histRecords.map(h => {
+        const mirroredJobId = Number(h.qleno_job_id);
+        const isMirror = Number.isFinite(mirroredJobId) && mirroredJobId > 0;
+        return {
+          ...h,
+          durations: isMirror ? (durationsByJob.get(mirroredJobId) || []) : [],
+          origin: isMirror ? ("qleno" as const) : ("imported" as const),
+        };
+      }),
     ];
 
     // [last-next-fix 2026-06-18] Last = most recent COMPLETED job on/before
