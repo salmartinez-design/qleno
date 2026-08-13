@@ -2119,6 +2119,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const canClock = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const [clockMap, setClockMap] = useState<Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }>>({});
   const [clockBusy, setClockBusy] = useState<number | null>(null);
+  // [clock-block-actionable 2026-08-13] The open-punch-elsewhere rejection, kept
+  // on screen next to the tech it blocked instead of flashing past in a toast.
+  // `day` is the date holding the punch, linked to so it's one click away.
+  const [clockBlock, setClockBlock] = useState<{ user_id: number; message: string; day: string | null } | null>(null);
+  // In-app navigation for the blocked-clock banner's link, so jumping to the
+  // Time Clock day is a route change rather than a full page reload.
+  const [, navigateTo] = useLocation();
   // [clock-pay-tabs 2026-07-10] Commission + Time Clock share one tabbed section
   // (Maribel: "commission comes from the clock ... combine ... like a tab time
   // clock"). This tracks which tab is showing.
@@ -2236,7 +2243,24 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         body: JSON.stringify({ job_id: job.id, user_id }),
       });
       const d = await r.json().catch(() => ({}));
+      // [clock-block-actionable 2026-08-13] Maribel, still stuck after the
+      // message fix: "not fixed yet." The toast now tells her exactly which job
+      // and day hold the blocking punch — and then vanishes, from a screen with
+      // no way to act on it. Getting to that punch meant leaving the board for
+      // the Time Clock screen and walking the date back nine weeks to June 8.
+      //
+      // The 409 already carries open_day, so keep it on screen as a banner with
+      // a link straight to that day. One click from the block to the fix.
+      if (!r.ok && d.error === "OPEN_PUNCH_ELSEWHERE") {
+        setClockBlock({
+          user_id,
+          message: d.message || "This cleaner is still clocked in somewhere else.",
+          day: d.open_day ?? null,
+        });
+        return;
+      }
       if (!r.ok) throw new Error(d.message || d.error || "Clock action failed");
+      setClockBlock(null);
       await loadClocks();
       onUpdate();
     } catch (err: any) {
@@ -3862,7 +3886,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
                           cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
                           background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#0F7A63",
-                        }}>
+                        }}
+                        data-clock-btn={t.user_id}>
                         <Clock size={12} />
                         {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
                       </button>
@@ -3887,6 +3912,32 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         </button>
                       )}
                     </div>
+                    {/* [clock-block-actionable 2026-08-13] The blocking punch,
+                        stated in place with a way out. Sits under the tech it
+                        blocked so there's no doubt who it refers to on a
+                        multi-tech job, and links to the day holding the punch
+                        so closing it is one click rather than nine weeks of
+                        date arrows on another screen. */}
+                    {clockBlock?.user_id === t.user_id && (
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#FCEBEA", border: "1px solid #F3D2D2", borderRadius: 8, padding: "9px 11px", marginBottom: 10 }}>
+                        <AlertTriangle size={13} color="#B3261E" style={{ flexShrink: 0, marginTop: 1 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 11.5, color: "#8C1D18", lineHeight: 1.45 }}>{clockBlock.message}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                            {clockBlock.day && (
+                              <button onClick={() => navigateTo(`/time-clock?date=${clockBlock.day}`)}
+                                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF, fontSize: 11.5, fontWeight: 700, color: "#B3261E", textDecoration: "underline" }}>
+                                Close that punch →
+                              </button>
+                            )}
+                            <button onClick={() => setClockBlock(null)}
+                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF, fontSize: 11.5, fontWeight: 700, color: "#8C1D18", opacity: 0.7 }}>
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {entry?.id && clockHistoryFor === entry.id && (
                       <div style={{ padding: "10px 12px", marginBottom: 10, background: "#FCFBF9", border: "1px solid #E5E2DC", borderRadius: 8 }}>
                         {clockHistoryLoading && !clockHistory[entry.id] ? (
