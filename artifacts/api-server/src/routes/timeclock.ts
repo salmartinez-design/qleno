@@ -1562,8 +1562,39 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       arr.push({ user_id: Number(t.user_id), name: t.name || "Tech", is_primary: !!t.is_primary });
       techsByJob.set(Number(t.job_id), arr);
     }
-    const entryByJobUser = new Map<string, any>();
-    for (const e of clockRows) entryByJobUser.set(`${e.job_id}:${e.user_id}`, e);
+    // [second-hidden-clock 2026-08-13] Maribel, after the open-clocks strip sent
+    // her to Alma's Jun 8 and the row there showed a DIFFERENT, closed punch:
+    // "must be like a second hidden clock since around that time we still
+    // allowed those." She's right, and that is exactly the bug.
+    //
+    // This was `Map<string, any>` with `.set(key, e)` in a loop — last write
+    // wins. A (job, tech) pair with two punches rendered ONE row and silently
+    // dropped the other, with no marker anywhere that a second entry existed.
+    // Before the one-clock-at-a-time rule (#1406) duplicates were allowed, so
+    // every pair created back then can carry one. Alma's National Able job has
+    // two: a 6:00 AM punch nobody closed, and the 10:58 AM–7:12 PM estimated
+    // pair the grid drew instead. The open one was unreachable — invisible in
+    // the grid, yet still blocking every clock-in she has attempted since.
+    //
+    // Now every punch gets its own row. Order is deterministic (a real closed
+    // punch first, then by clock-in) so the row that has always carried the
+    // day's hours and pay stays the primary and no historical number moves;
+    // the extras render beneath it, flagged, contributing $0 and 0 minutes so
+    // surfacing them can't inflate a total. The office reconciles from there.
+    const entriesByJobUser = new Map<string, any[]>();
+    for (const e of clockRows) {
+      const k = `${e.job_id}:${e.user_id}`;
+      const arr = entriesByJobUser.get(k) || [];
+      arr.push(e);
+      entriesByJobUser.set(k, arr);
+    }
+    for (const arr of entriesByJobUser.values()) {
+      arr.sort((a, b) => {
+        const aClosed = a.clock_out_at ? 0 : 1, bClosed = b.clock_out_at ? 0 : 1;
+        if (aClosed !== bClosed) return aClosed - bClosed;
+        return String(a.clock_in_at ?? "").localeCompare(String(b.clock_in_at ?? ""));
+      });
+    }
     const nameByUser = new Map<number, string>();
     for (const t of techRows) if (t.name) nameByUser.set(Number(t.user_id), t.name);
     for (const e of clockRows) if (e.name) nameByUser.set(Number(e.user_id), e.name);
@@ -1667,6 +1698,11 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // close a still-running clock whose job isn't on this day's
                  // schedule (cancelled, or moved). Null on every normal row.
                  orphan_reason?: string | null;
+                 // [second-hidden-clock 2026-08-13] A SECOND (or later) punch on
+                 // the same job+tech. Rendered so it can be closed or deleted,
+                 // but excluded from the day's hours and pay — the primary row
+                 // already carries those.
+                 duplicate?: boolean; duplicate_reason?: string | null;
                  // [pay-note 2026-08-12] Why this line was paid the way it was.
                  pay_note?: string | null; pay_note_at?: string | null; pay_note_by_name?: string | null;
                  // [allowed-hrs-display 2026-07-04] The job's allowed-hours budget
@@ -1823,6 +1859,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     }
 
     const seen = new Set<string>();
+    // Entry ids already drawn. The unmatched-clock loop below used to skip on
+    // the job:user key, which meant a duplicate punch on an already-rendered
+    // pair was dropped there too — the second half of why the extra clock had
+    // nowhere to appear. Skipping by entry id lets every punch land exactly
+    // once.
+    const renderedEntryIds = new Set<number>();
     for (const j of jobs) {
       const jid = Number(j.job_id);
       if (hiddenCancelJobIds.has(jid)) continue;
@@ -1831,25 +1873,44 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       for (const t of techs) {
         const key = `${jid}:${t.user_id}`;
         seen.add(key);
-        const e = entryByJobUser.get(key) || null;
-        ensureEmp(t.user_id).rows.push({
-          job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
-          address: j.address ?? null, client_id: j.client_id != null ? Number(j.client_id) : null, account_id: j.account_id != null ? Number(j.account_id) : null,
-          entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
-          flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
-          allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
-          estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
-          fee: feeOf(j),
-          billed: billedOf(j),
-          effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
-          ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), ...payNoteOf(jid, t.user_id), source: e?.source ?? null,
-          ...gpsOf(e), ...coordsOf(j),
+        const entries = entriesByJobUser.get(key) || [];
+        // No punch at all → one empty row to type into, exactly as before.
+        const list: (any | null)[] = entries.length ? entries : [null];
+        list.forEach((e, idx) => {
+          if (e) renderedEntryIds.add(Number(e.id));
+          // Only the primary carries the pair's pay and minutes. An extra punch
+          // shows its own times so the office can see and close it, but adds
+          // nothing to the day's money or hours — the pay engine bills this
+          // pair once, and double-counting here is what over-paid Juliana and
+          // Norma before the union fix.
+          const dup = idx > 0;
+          ensureEmp(t.user_id).rows.push({
+            job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
+            address: j.address ?? null, client_id: j.client_id != null ? Number(j.client_id) : null, account_id: j.account_id != null ? Number(j.account_id) : null,
+            entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
+            flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
+            allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
+            estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
+            fee: feeOf(j),
+            billed: billedOf(j),
+            effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
+            ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), ...payNoteOf(jid, t.user_id), source: e?.source ?? null,
+            ...gpsOf(e), ...coordsOf(j),
+            ...(dup ? {
+              duplicate: true,
+              duplicate_reason: e?.clock_out_at
+                ? "extra punch on this job — reconcile or delete"
+                : "extra punch still running — close or delete",
+              pay: null,
+            } : {}),
+          });
         });
       }
     }
     for (const e of clockRows) {
       const key = `${e.job_id}:${e.user_id}`;
-      if (seen.has(key)) continue;
+      if (renderedEntryIds.has(Number(e.id))) continue;
+      if (seen.has(key) && entriesByJobUser.has(key)) continue;
       const j = jobById.get(Number(e.job_id));
       // [orphan-open-punch 2026-08-13] A punch pulled in by its own date carries
       // its own display fields — its job isn't in `jobById` (cancelled, or moved
@@ -1884,10 +1945,15 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     }
 
     const employees = [...emp.values()].map(ev => {
-      const worked = ev.rows.reduce((s, r) => s + (r.minutes ?? 0), 0);
+      // [second-hidden-clock 2026-08-13] Duplicate rows are visibility only —
+      // they must never move the day's hours or pay. Excluded from both sums so
+      // surfacing a punch that was hidden yesterday can't change what anyone
+      // gets paid today.
+      const counted = ev.rows.filter(r => !r.duplicate);
+      const worked = counted.reduce((s, r) => s + (r.minutes ?? 0), 0);
       const ins = ev.rows.map(r => r.clock_in_at).filter(Boolean) as string[];
       const outs = ev.rows.map(r => r.clock_out_at).filter(Boolean) as string[];
-      const payTotal = ev.rows.reduce((s, r) => s + (r.pay ?? 0), 0);
+      const payTotal = counted.reduce((s, r) => s + (r.pay ?? 0), 0);
       return {
         ...ev,
         rows: ev.rows.sort((a, b) => String(a.scheduled_time || "~").localeCompare(String(b.scheduled_time || "~"))),
