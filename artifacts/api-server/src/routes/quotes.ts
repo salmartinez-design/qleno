@@ -12,34 +12,6 @@ import { resolveServiceType } from "../lib/serviceType.js";
 import { materializeClientForQuote } from "../lib/materialize-client.js";
 import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 
-// [hourly-subtype-persist 2026-08-14] Idempotent boot migration for the column
-// that records WHICH hourly service the office picked when the scope cannot say.
-// Deliberately a new column rather than reusing quotes.service_type: that one
-// holds the scope's display NAME and is rendered to the customer on the quote
-// email (see svcLabel below), so putting an enum in it would silently change
-// "Hourly Deep Clean or Move In/Out" into "Deep Clean" on their quote.
-export async function runQuoteSelectedServiceTypeMigration(): Promise<void> {
-  try {
-    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS selected_service_type text`);
-    console.log("[quotes] selected_service_type migration ok");
-  } catch (err) {
-    console.error("[quotes] selected_service_type migration (non-fatal):", err);
-  }
-}
-
-// [slug-validation 2026-08-14] The closed set of jobs.service_type slugs that
-// may arrive from a REQUEST BODY (quotes.selected_service_type). Convert
-// interpolates the chosen type into raw SQL as '<value>'::service_type, so an
-// unvalidated body value is a SQL injection. These four are exactly what the
-// quote builder's Hourly picker can send; anything else falls back to the
-// scope-name resolver rather than being trusted.
-const SERVICE_TYPE_SLUGS = new Set<string>([
-  "standard_clean",
-  "deep_clean",
-  "move_out",
-  "recurring",
-]);
-
 const router = Router();
 
 // [quote-discount-adjustment 2026-08-09] Francisco: "Quote discounts should
@@ -285,7 +257,6 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
       special_instructions, internal_memo, client_notes, notes, status,
       unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
-      selected_service_type,
     } = req.body;
 
     const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
@@ -304,10 +275,6 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       client_id: client_id || null,
       lead_name, lead_email, lead_phone, address,
       service_type: scope?.[0]?.name || null,
-      // [hourly-subtype-persist 2026-08-14] Only set when the builder had to
-      // disambiguate (the Hourly group). NULL everywhere else, which leaves
-      // convert on the scope-name resolver it already uses.
-      selected_service_type: selected_service_type || null,
       frequency, estimated_hours: estimated_hours ? String(estimated_hours) : null,
       manual_hours: manual_hours ? String(manual_hours) : null,
       base_price: base_price ? String(base_price) : null,
@@ -360,7 +327,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const allowed = [
       "status", "base_price", "total_price", "estimated_hours", "manual_hours", "hourly_rate_override",
       "notes", "client_notes", "internal_memo", "special_instructions", "call_notes",
-      "frequency", "scope_id", "pricing_method", "addons", "selected_service_type",
+      "frequency", "scope_id", "pricing_method", "addons",
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
       "lead_name", "lead_email", "lead_phone", "address", "client_id",
@@ -725,17 +692,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // resolver has to pick one. That guess is what stamped Deep Clean bookings
       // as Move Out. Older quotes have no recorded choice and fall through to
       // the resolver, which is correct for every unambiguous scope.
-      // [slug-validation 2026-08-14] selected_service_type is CLIENT-SUPPLIED
-      // (POST /quotes body, and the PATCH allowlist), and serviceType is
-      // interpolated into raw SQL further down as '<value>'::service_type. It
-      // MUST be checked against a closed set before it is trusted — an
-      // unvalidated value here is a SQL injection, not just a bad label.
-      // Every other source is already closed: SCOPE_TO_ENUM is a literal map
-      // and resolveServiceType returns from a fixed list.
-      const pickedSlug = String((q as any).selected_service_type ?? "");
-      serviceType = SERVICE_TYPE_SLUGS.has(pickedSlug)
-        ? pickedSlug
-        : (SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName));
+      serviceType = SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName);
 
       if (String(scopeRow?.pricing_method ?? "").toLowerCase() === "hourly") {
         scopeBillingMethod = "hourly";
