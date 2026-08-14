@@ -12,6 +12,9 @@ const BORDER = "#E5E2DC";
 
 export interface EstimatePdfItem {
   name: string | null;
+  // [itemized-line-scope 2026-08-14] Per-line scope paragraph. Already rendered
+  // on the hosted view; the PDF was dropping it silently.
+  description?: string | null;
   pricing_type: string;
   frequency: string | null;
   quantity: string | number;
@@ -53,7 +56,10 @@ const fmtDate = (d: string | null) => {
 
 export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+    // [estimate-pdf-pagination 2026-08-14] bufferPages so the footer can be
+    // stamped on EVERY page after the body is laid out. Without it the footer
+    // only landed on whatever page was current when it was drawn.
+    const doc = new PDFDocument({ margin: 50, size: "LETTER", bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on("data", (c) => chunks.push(c as Buffer));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -64,6 +70,26 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     const width = right - left;
     const pageW = doc.page.width;
     const isFlat = data.billingMode === "flat";
+
+    // [estimate-pdf-pagination 2026-08-14] This renderer drives a manual `y`
+    // cursor and positions everything with explicit coordinates. PDFKit
+    // auto-paginates TEXT when it overflows, but vector ops (roundedRect, the
+    // total panel, rules) do NOT — they just draw off-canvas. So a long
+    // estimate produced a page that was blank except for whatever text
+    // happened to trigger the break, with the panel silently lost off the
+    // previous page. Fix: reserve space before each block and break
+    // deliberately, keeping `y` and the real page in sync.
+    let y = 112;                                 // manual layout cursor
+    const TOP = 50;                              // where content resumes on a new page
+    const BOTTOM = doc.page.height - 62;         // keep clear of the footer rule
+    const newPage = () => { doc.addPage(); y = TOP; };
+    // Reserve `h` points; break first if this block would cross the boundary.
+    const ensure = (h: number) => { if (y + h > BOTTOM) newPage(); };
+    // Measure wrapped text so `ensure` can reserve the real height.
+    const heightOf = (text: string, size: number, w: number, lineGap = 0) => {
+      doc.fontSize(size).font("Helvetica");
+      return doc.heightOfString(text, { width: w, lineGap });
+    };
 
     // Frequency shared by every named line (shown once instead of per row).
     const named = data.items.filter((it) => (it.name || "").trim());
@@ -104,7 +130,6 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     }
     doc.rect(0, 88, pageW, 3).fill(MINT);
 
-    let y = 112;
     const metaTop = y;
 
     // ── Prepared for (client) + dates ──
@@ -162,10 +187,26 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
           it.pricing_type === "hourly" ? `${Number(it.quantity).toFixed(1)} hrs × ${money(it.unit_rate)}/hr`
             : Number(it.quantity) !== 1 ? `${Number(it.quantity)} × ${money(it.unit_rate)}` : null,
         ].filter(Boolean).join("   ·   ");
+        const scope = (it.description || "").trim();
+        // Reserve the whole row (name + sub + scope + rule) so a line never
+        // splits across a page break with its amount stranded behind.
+        ensure(
+          heightOf(it.name || "Service", 11, width - 90)
+          + (sub ? heightOf(sub, 9, width - 90) : 0)
+          + (scope ? heightOf(scope, 9.5, width - 90, 2) + 4 : 0)
+          + 18
+        );
         const startY = y;
         doc.fillColor(INK).fontSize(11).font("Helvetica-Bold").text(it.name || "Service", left, y, { width: width - 90 });
         y = doc.y;
         if (sub) { doc.fillColor(MUTE).fontSize(9).font("Helvetica").text(sub, left, y, { width: width - 90 }); y = doc.y; }
+        // [itemized-line-scope 2026-08-14] Per-line scope under the line, matching
+        // the hosted view. Indented-free, full column width minus the amount.
+        if (scope) {
+          y += 4;
+          doc.fillColor("#4B5563").fontSize(9.5).font("Helvetica").text(scope, left, y, { width: width - 90, lineGap: 2 });
+          y = doc.y;
+        }
         doc.fillColor(INK).fontSize(11).font("Helvetica-Bold").text(money(it.amount), right - 90, startY, { width: 90, align: "right" });
         y += 9;
         doc.moveTo(left, y).lineTo(right, y).strokeColor("#F0EEE9").lineWidth(1).stroke();
@@ -185,6 +226,9 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     // ── Total panel ──
     y += 4;
     const panelH = 56;
+    // The panel is a vector fill — it will NOT auto-paginate, so reserve first.
+    // This is what used to vanish off the bottom of page 1.
+    ensure(panelH + 22);
     doc.roundedRect(left, y, width, panelH, 10).fill(NAVY);
     doc.fillColor("#9CA3AF").fontSize(11).font("Helvetica").text("Total", left + 20, y + 15);
     const caption = isFlat
@@ -203,18 +247,38 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     y += panelH + 22;
 
     // ── Terms ──
+    // Long terms (multi-location estimates run to a full page) are flowed
+    // paragraph-by-paragraph so each break lands between paragraphs instead of
+    // letting PDFKit overflow past the footer.
     if (data.terms) {
+      ensure(13 + 24);
       doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica-Bold").text("TERMS", left, y, { characterSpacing: 0.5 });
       y += 13;
-      doc.fillColor("#4B5563").fontSize(9.5).font("Helvetica").text(data.terms, left, y, { width, lineGap: 2 });
+      for (const para of String(data.terms).split(/\n{2,}/)) {
+        const block = para.trim();
+        if (!block) continue;
+        const h = heightOf(block, 9.5, width, 2);
+        // A paragraph taller than a full page can't be reserved whole — start it
+        // on a fresh page and let PDFKit flow the remainder.
+        if (h > BOTTOM - TOP) { if (y > TOP) newPage(); }
+        else ensure(h);
+        doc.fillColor("#4B5563").fontSize(9.5).font("Helvetica").text(block, left, y, { width, lineGap: 2 });
+        y = doc.y + 8;
+      }
     }
 
     // ── Footer — company contact (phone + email; never the physical address) ──
-    const footY = doc.page.height - 46;
+    // [estimate-pdf-pagination 2026-08-14] Stamped on EVERY page, after layout.
     const contact = [data.companyName, data.companyPhone, data.companyEmail].filter(Boolean).join("    ·    ");
-    doc.page.margins.bottom = 0; // draw in the bottom margin without forcing a new page
-    doc.moveTo(left, footY).lineTo(right, footY).strokeColor("#EEECE7").lineWidth(1).stroke();
-    doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica").text(contact, left, footY + 9, { width, align: "center", lineBreak: false });
+    const footY = doc.page.height - 46;
+    const range = doc.bufferedPageRange();
+    for (let p = range.start; p < range.start + range.count; p++) {
+      doc.switchToPage(p);
+      doc.page.margins.bottom = 0; // draw in the bottom margin without forcing a new page
+      doc.moveTo(left, footY).lineTo(right, footY).strokeColor("#EEECE7").lineWidth(1).stroke();
+      doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica").text(contact, left, footY + 9, { width, align: "center", lineBreak: false });
+    }
+    doc.flushPages();
 
     doc.end();
   });

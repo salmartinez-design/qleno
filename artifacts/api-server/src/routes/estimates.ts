@@ -824,7 +824,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     const est = (e as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
     const items = await db.execute(sql`
-      SELECT name, pricing_type, frequency, quantity, unit_rate, amount
+      SELECT name, description, pricing_type, frequency, quantity, unit_rate, amount
       FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId} ORDER BY sort_order
     `);
     const logo = await fetchLogoBuffer(est.company_logo);
