@@ -938,11 +938,21 @@ router.get("/revenue-chart", requireAuth, officeGate, async (req, res) => {
   }
 });
 
+// [right-now audit 2026-08-14] "Today" on these widgets has to be the local
+// business day, not the container's. Railway runs UTC, so `new Date()
+// .toISOString()` rolls over at 7pm Chicago (CDT) / 6pm (CST) — from then
+// until midnight the RIGHT NOW cards were quietly showing TOMORROW.
+// computeLastWeekPayrollPct further down already did this correctly; these
+// two endpoints did not.
+function companyTodayStr(): string {
+  const ct = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  return `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, "0")}-${String(ct.getDate()).padStart(2, "0")}`;
+}
+
 router.get("/techs-today", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
+    const todayStr = companyTodayStr();
 
     const techs = await db
       .select({
@@ -1002,7 +1012,7 @@ router.get("/techs-today", requireAuth, officeGate, async (req, res) => {
 router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = companyTodayStr();
 
     const [chargeFailedJobs, noCardAccounts, hoursVarianceJobs] = await Promise.all([
       db.select({
@@ -1021,6 +1031,17 @@ router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
         eq(jobsTable.company_id, companyId),
         isNotNull(jobsTable.charge_failed_at),
         eq(jobsTable.status, "complete"),
+        // [right-now audit 2026-08-14] This is the COMMERCIAL alerts card, but
+        // the query had no account filter — so a residential card decline
+        // surfaced here with account_name, billed_amount and property_address
+        // all null, rendering the nonsense row Sal flagged:
+        //   "Charge failed — Account: $0.00 at unknown address"
+        // One missing predicate, three misleading fallbacks.
+        isNotNull(jobsTable.account_id),
+        // A failure that was later collected is not an open alert. jobs.ts's
+        // own payment_status filter already pairs these two; this card didn't,
+        // so a resolved decline stayed red forever.
+        isNull(jobsTable.charge_succeeded_at),
       ))
       .limit(5),
 
@@ -1032,7 +1053,12 @@ router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
       .where(and(
         eq(accountsTable.company_id, companyId),
         eq(accountsTable.is_active, true),
+        // [right-now audit 2026-08-14] Square has been the house rail for all
+        // office-initiated card capture since 2026-07-24, but this only looked
+        // at stripe_customer_id — so every account with a Square card on file
+        // was reported as having no payment method. Both rails count.
         isNull(accountsTable.stripe_customer_id),
+        isNull(accountsTable.square_customer_id),
       ))
       .limit(5),
 
@@ -1051,6 +1077,9 @@ router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
         eq(jobsTable.scheduled_date, todayStr),
         isNotNull(jobsTable.actual_hours),
         isNotNull(jobsTable.allowed_hours),
+        // Same leak as the charge-failed query — without this a residential job
+        // shows up as "Hours variance — Job: ..." on the commercial card.
+        isNotNull(jobsTable.account_id),
       ))
       .limit(10),
     ]);

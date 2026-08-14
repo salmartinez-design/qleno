@@ -161,6 +161,33 @@ function fmtTime(t: string | null): string {
 }
 function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 
+// [combined-scope mixup 2026-08-14] The pricing block printed the raw enum slug
+// through fmtSvc, so `move_out` read as a bare "Move Out". For PHES that slug is
+// the CANONICAL value for the combined "Move In / Move Out" product — both the
+// booking widget and the hourly quote path map to it — so the card was naming
+// only half the service it had actually sold. jobs-list.tsx already resolves
+// through a label map; the job card did not. Same map here, keyed off the same
+// slugs, so the two surfaces agree.
+const SVC_LABELS: Record<string, string> = {
+  standard_clean: "Standard Clean",
+  deep_clean: "Deep Clean",
+  move_in: "Move In",
+  move_out: "Move In / Move Out",
+  move_in_out: "Move In / Move Out",
+  post_construction: "Post-Construction",
+  post_event: "Post Event",
+  carpet_cleaning: "Carpet Cleaning",
+  office_cleaning: "Office",
+  common_areas: "Common Areas",
+  retail_store: "Retail",
+  medical_office: "Medical Office",
+  ppm_turnover: "PPM Turnover",
+  recurring: "Recurring",
+};
+function svcLabel(s: string | null | undefined) {
+  return SVC_LABELS[s ?? ""] ?? fmtSvc(s ?? "");
+}
+
 // [freq-consistency 2026-06-08] Canonical recurring-frequency label — ONE source
 // of truth so the Gantt chip, hover card, repeat-badge, and panel header never
 // disagree. monthly AND every_4_weeks both read "Monthly" (Sal's call). Returns
@@ -1552,6 +1579,16 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, modLines, ti
   // want the office typing a dollar amount for these. Available even if a prior
   // dollar edit pinned it (manual_rate_override); saving hours un-pins it.
   const isHourlyCommercial = isCommercial && job.hourly_rate != null && job.hourly_rate > 0;
+  // [hourly-invisible 2026-08-14] DISPLAY-only flag. isHourlyCommercial above
+  // also gates the hours-driven price EDITOR, which is deliberately commercial-
+  // only — but the label had no business being commercial-only too. A
+  // residential job booked off "Hourly Deep Clean" rendered as a bare flat
+  // total with nothing anywhere saying it was hourly (Maribel: "scheduled as
+  // hourly. Doesn't say it anywhere."). billing_method is the real signal now
+  // that convert persists it; hourly_rate alone still counts so jobs booked
+  // before that fix are covered.
+  const showsHourly = (job.billing_method === "hourly" || (job.hourly_rate != null && job.hourly_rate > 0))
+    && job.hourly_rate != null && job.hourly_rate > 0;
   // [pricing-edit 2026-07-01] Pricing is now editable on EVERY scope/type,
   // including rate-driven commercial jobs (Maribel: "should be available for all
   // scopes and types of jobs"). Editing a rate-driven job pins the typed total
@@ -1646,9 +1683,11 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, modLines, ti
     );
     return (
       <PS label="Service & pricing">
-        {isHourlyCommercial && (job as any).allowed_hours
-          ? line(`${fmtSvc(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr × ${(job as any).allowed_hours}h`, num(baseInit))
-          : line(fmtSvc(job.service_type), num(baseInit))}
+        {showsHourly && (job as any).allowed_hours
+          ? line(`${svcLabel(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr × ${(job as any).allowed_hours}h`, num(baseInit))
+          : showsHourly
+            ? line(`${svcLabel(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr`, num(baseInit))
+            : line(svcLabel(job.service_type), num(baseInit))}
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
         {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#0F7A63")}</div>)}
         {/* [unit-in-pricing 2026-08-13] Adjustments as priced lines, so the unit
@@ -6037,7 +6076,10 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
             // computed TOTAL prominently, with "$50/hr × 4h" as a secondary detail —
             // never just the bare rate (Sal: the price must always be visible and it
             // updates when the billed hours change).
-            const isHourly = isCommercial && job.hourly_rate != null && job.hourly_rate > 0;
+            // [hourly-invisible 2026-08-14] Was `isCommercial && ...`, which hid
+            // the rate on residential hourly work — the same gap as the pricing
+            // block in InlinePricingEditor. If we know the rate, show it.
+            const isHourly = job.hourly_rate != null && job.hourly_rate > 0;
             if (isHourly) {
               const detail = ah != null && ah > 0
                 ? `$${job.hourly_rate!.toFixed(0)}/hr × ${ah}h`
