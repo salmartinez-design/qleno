@@ -20,10 +20,10 @@ import { getAuthHeaders } from "@/lib/auth";
 import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
+import { AccountJobPhotos } from "@/components/account-job-photos";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
 import { ActivityFeed } from "@/components/activity-feed";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
-import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1536,6 +1536,31 @@ export default function AccountDetailPage() {
                         ) : (
                           <p className="text-xs text-gray-400">No service history yet</p>
                         )}
+                      </div>
+
+                      {/* [commercial-photos 2026-08-14] Maribel: "There's no place
+                          in the 'accounts' clients where we can see the pictures
+                          they have uploaded per job. I guess this should be under
+                          locations where it shows the history." — here, scoped to
+                          the selected building. Sits directly under Last service
+                          because grouped-by-visit IS the history for this location;
+                          the single Last-service row above is all there was.
+
+                          Deliberately below the Building photos block rather than
+                          merged with it: those are the sticky access/reference
+                          shots that appear on every job here, these are what the
+                          cleaner actually shot on a given visit. Same page, but
+                          confusing them is how the office concluded the feature
+                          existed and was broken. */}
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Job photos</p>
+                        <AccountJobPhotos
+                          accountId={Number(id)}
+                          propertyId={p.id}
+                          showToast={(msg, kind) =>
+                            toast({ title: msg, variant: kind === "error" ? "destructive" : undefined })
+                          }
+                        />
                       </div>
                     </div>
                   );
