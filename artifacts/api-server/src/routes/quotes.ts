@@ -722,6 +722,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // keyword resolver so punctuation/spacing variants of hourly scopes
       // (e.g. "Hourly Move-In / Move-Out") resolve to the right enum instead of
       // silently collapsing to standard_clean. See lib/serviceType.ts.
+      // [hourly-subtype-persist 2026-08-14] What the office ACTUALLY picked wins
+      // over anything re-derived from the scope name. The Hourly group's "Deep
+      // Clean" and "Move In / Move Out" buttons share one combined scope, so the
+      // name below genuinely cannot tell them apart — it names both, and the
+      // resolver has to pick one. That guess is what stamped Deep Clean bookings
+      // as Move Out. Older quotes have no recorded choice and fall through to
+      // the resolver, which is correct for every unambiguous scope.
       serviceType = SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName);
 
       if (String(scopeRow?.pricing_method ?? "").toLowerCase() === "hourly") {
@@ -1209,7 +1216,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${clientId},
         ${jobDate},
         ${scheduled_time || null},
-        ${sql.raw(`'${serviceType}'::service_type`)},
+        ${serviceType}::service_type,
         ${firstVisitFee != null ? String(firstVisitFee) : (q.total_price || '0')},
         'scheduled',
         ${assigned_user_id || null},
