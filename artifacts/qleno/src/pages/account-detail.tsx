@@ -374,6 +374,12 @@ export default function AccountDetailPage() {
   const [account, setAccount] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
+  // [past-visits 2026-08-14] Maribel: "I would rather see here the past visits
+  // instead of upcoming." Kept SEPARATE from `upcoming` rather than swapping it,
+  // because `upcoming` also drives the per-building "next visit" line and the
+  // unassigned-visit count on the Properties tab — repurposing it would have
+  // quietly broken both.
+  const [recentVisits, setRecentVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   // Expandable property cards — click to drop down details + last service.
   const [expandedProp, setExpandedProp] = useState<number | null>(null);
@@ -741,10 +747,15 @@ export default function AccountDetailPage() {
       // [pre-bill-month 2026-07-03] Only constrain by month while pre-billing —
       // the completed-only list must never hide billable work by month.
       const monthParam = includeScheduled ? `&month=${jobsMonth}` : "";
-      const [accR, jobsR, upR] = await Promise.all([
+      // [past-visits 2026-08-14] A second window, backwards, for the overview's
+      // visit list. Same endpoint — it already takes an arbitrary range — so
+      // this needs no server change.
+      const since = new Date(today.getTime() - 90 * 86400000);
+      const [accR, jobsR, upR, pastR] = await Promise.all([
         fetch(`${API}/api/accounts/${id}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/uninvoiced-jobs?include_scheduled=${includeScheduled}${monthParam}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(today)}&to=${ymd(to)}`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(since)}&to=${ymd(today)}`, { headers: getAuthHeaders() }),
       ]);
       if (accR.ok) setAccount(await accR.json());
       if (jobsR.ok) setJobs(await jobsR.json());
@@ -755,6 +766,18 @@ export default function AccountDetailPage() {
           .sort((a: any, b: any) => `${a.scheduled_date}${a.scheduled_time || ""}`.localeCompare(`${b.scheduled_date}${b.scheduled_time || ""}`))
           .slice(0, 8);
         setUpcoming(up);
+      }
+      if (pastR.ok) {
+        const all = await pastR.json();
+        // Visits that actually HAPPENED. A cancelled visit is not service
+        // history, and a still-scheduled row inside the window is one that
+        // never got completed — showing either under "Recent visits" would
+        // misrepresent what this building has had done.
+        const past = (Array.isArray(all) ? all : [])
+          .filter((j: any) => j.status === "complete")
+          .sort((a: any, b: any) => `${b.scheduled_date}${b.scheduled_time || ""}`.localeCompare(`${a.scheduled_date}${a.scheduled_time || ""}`))
+          .slice(0, 8);
+        setRecentVisits(past);
       }
     } catch {}
     setLoading(false);
@@ -1225,17 +1248,21 @@ export default function AccountDetailPage() {
               </div>
             </div>
 
-            {/* Upcoming visits — fills the overview with actionable info */}
+            {/* [past-visits 2026-08-14] Maribel: "I would rather see here the
+                past visits instead of upcoming." What's coming is already one
+                tap away on the Calendar tab; what the account has actually HAD
+                done is the thing you reach for on the overview when a customer
+                calls. Last 90 days, completed only, newest first. */}
             <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Upcoming visits</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Recent visits</p>
                 <button onClick={() => setTab("calendar")} className="text-xs font-semibold text-[var(--brand)]">View calendar →</button>
               </div>
-              {upcoming.length === 0 ? (
-                <p className="text-sm text-gray-400">No upcoming visits scheduled.</p>
+              {recentVisits.length === 0 ? (
+                <p className="text-sm text-gray-400">No completed visits in the last 90 days.</p>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {upcoming.map((j: any) => {
+                  {recentVisits.map((j: any) => {
                     const d = new Date(j.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
                     let t = "";
                     if (j.scheduled_time) { const [h, m] = String(j.scheduled_time).split(":"); let hh = parseInt(h, 10); const ap = hh >= 12 ? "PM" : "AM"; hh = hh % 12 || 12; t = ` · ${hh}:${(m ?? "00").slice(0, 2)} ${ap}`; }

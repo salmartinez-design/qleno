@@ -31,21 +31,6 @@ import { SquareCardForm } from "@/components/square-card-form";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
-// [subtype-coinflip 2026-08-14] The hourly sub-type button → the jobs.service_type
-// slug it means. Keys match HOURLY_SUBS below; values are enum slugs the server
-// re-validates before use.
-//
-// This exists because the SCOPE cannot answer the question. Phes has one scope,
-// "Hourly Deep Clean or Move In/Out", behind both the Deep Clean and the Move
-// In/Out buttons, so resolving from its name gave the same answer for both and
-// one was always wrong. The button is the only place the distinction exists, so
-// it has to be the thing that travels.
-const HOURLY_SUB_SERVICE_TYPE: Record<string, string> = {
-  standard: "standard_clean",
-  deep: "deep_clean",
-  moveinout: "move_out",
-  recurring: "recurring",
-};
 
 // [counter-unify 2026-05-27] Centralized rule for which add-ons render
 // with the +/- counter UI vs a checkbox. Name-matched (case-insensitive)
@@ -1408,17 +1393,23 @@ export default function QuoteBuilderPage() {
       lead_phone: client?.phone || leadPhone || null,
       address: address || client?.address || null,
       scope_id: primaryScopeId || null,
-      // [subtype-coinflip 2026-08-14] Send WHICH hourly sub-type was clicked,
-      // because the scope alone cannot say. Phes has one scope, "Hourly Deep
-      // Clean or Move In/Out", sitting behind both the Deep Clean and the Move
-      // In/Out buttons — the server used to resolve the job's service type from
-      // that scope's NAME, so both buttons produced the same answer and one was
-      // always wrong. Sal, picking Move In/Out: "it should not display deep
-      // clean."
+      // [mirror-settings 2026-08-14] Deliberately null now. This carried the
+      // hardcoded hourly sub-type, which existed only because the picker showed
+      // four invented buttons over a different set of real scopes. The picker
+      // renders the real scopes now, so there is no second choice to
+      // disambiguate — the scope IS the choice, and the server resolves from it.
       //
-      // Null for every non-hourly path, which leaves the server on its existing
-      // name resolution and changes nothing for them.
-      service_type_slug: HOURLY_SUB_SERVICE_TYPE[hourlySubType ?? ""] ?? null,
+      // The column and the server-side handling stay: NULL means "nothing
+      // explicit was picked, use the scope", which is exactly this case, and the
+      // capability is there for any future surface that genuinely knows better
+      // than the scope name does.
+      //
+      // One honest limitation remains, and it is a DATA one rather than a code
+      // one: a scope literally named "Hourly Deep Clean or Move In/Out" names
+      // two services, so its type still resolves to one of them. The office can
+      // now see exactly that, and fix it by splitting the scope in Settings —
+      // which is the outcome Maribel asked for.
+      service_type_slug: null,
       frequency: primaryScopeState?.frequency || null,
       sqft: sqft || null,
       bedrooms, bathrooms,
@@ -2807,19 +2798,35 @@ export default function QuoteBuilderPage() {
                       const label = GROUP_LABELS[groupKey] || groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
                       const groupHasSelection = groupScopes.some(s => selectedScopeIds.includes(s.id));
 
-                      // ── Special Hourly rendering: single card + sub-type selector ──
+                      // ── Special Hourly rendering: single card + the real scopes ──
+                      //
+                      // [mirror-settings 2026-08-14] These used to be four HARDCODED
+                      // buttons — Standard Cleaning / Deep Clean / Move In / Move Out /
+                      // Recurring — matched back to real scopes by regex. They were a
+                      // fiction, and the fiction is what caused the whole "quoting tool
+                      // mixes things up" thread:
+                      //
+                      //   * Phes's active hourly scopes are Carpet Cleaning, Hourly
+                      //     Recurring Cleaning, "Hourly Deep Clean or Move In/Out" and
+                      //     Hourly Standard Cleaning. Two different buttons — Deep Clean
+                      //     and Move In / Move Out — both matched that ONE combined
+                      //     scope, so whichever you clicked you got the same thing and
+                      //     the label you picked was not the label that travelled.
+                      //   * Carpet Cleaning is active and office-visible, but no button
+                      //     matched it, so it could not be quoted AT ALL.
+                      //   * The office could not see any of this, because the buttons
+                      //     never showed a real scope name.
+                      //
+                      // Maribel: "here it does show this but this is not what we see in
+                      // the quoting tool... what we edit in setting should be in the
+                      // quoting tool so it doesnt have to guess."
+                      //
+                      // So: render the actual scopes. No matching, no guessing, nothing
+                      // to fall out of step. If the office wants Deep Clean and Move
+                      // In/Out as separate choices, they split that scope in Settings and
+                      // this list follows — which is the point.
                       if (groupKey === "hourly") {
                         const hourlySelected = groupHasSelection;
-                        const HOURLY_SUBS = [
-                          { key: "standard", label: "Standard Cleaning", scopeMatch: /hourly.*standard/i },
-                          { key: "deep", label: "Deep Clean", scopeMatch: /hourly.*deep/i },
-                          { key: "moveinout", label: "Move In / Move Out", scopeMatch: /hourly.*(move|in.*out)/i },
-                          // [custom-recurring] "Other" renamed "Recurring" (Sal, mock v2).
-                          // Maps to the dedicated "Hourly Recurring Cleaning" scope
-                          // ($65) — split out from Hourly Standard ($70) so the two
-                          // rates are independent and separately editable in Settings.
-                          { key: "recurring", label: "Recurring", scopeMatch: /hourly.*recurring/i },
-                        ];
                         return (
                           <div key={groupKey} style={{ marginBottom: 16 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -2861,36 +2868,30 @@ export default function QuoteBuilderPage() {
                             {/* Sub-type options (shown when expanded) */}
                             {hourlyExpanded && (
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8, paddingLeft: 12 }}>
-                                {HOURLY_SUBS.map(sub => {
-                                  const isActive = hourlySubType === sub.key;
+                                {groupScopes.map(scope => {
+                                  const isActive = hourlySubType === String(scope.id);
                                   return (
                                     <button
-                                      key={sub.key}
+                                      key={scope.id}
                                       onClick={() => {
                                         // Deselect previous hourly scope
                                         groupScopes.forEach(s => { if (selectedScopeIds.includes(s.id)) toggleScope(s); });
-                                        setHourlySubType(sub.key);
-                                        // [custom-recurring] "Recurring" sub-type carries a real
-                                        // recurring cadence, never one-time. Seed it to weekly so
-                                        // the Cadence dropdown opens on a recurring value; the other
-                                        // sub-types keep their scope default (one-time). toggleScope
-                                        // is async (awaits the freq/addon fetch), so the seed MUST go
-                                        // through initialState — a post-call updateScopeFrequency
-                                        // would race ahead of the scope being added.
+                                        setHourlySubType(String(scope.id));
                                         setHourlyCustomOpen(false);
-                                        // [hourly-recurring-label] Recurring reuses the Hourly Standard
-                                        // scope for its $65 rate, so carry a displayLabel override so
-                                        // every surface reads "Hourly Recurring Cleaning" instead of
-                                        // the scope's real "Hourly Standard Cleaning" name.
-                                        const seed = sub.key === "recurring" ? { frequency: "weekly", displayLabel: "Hourly Recurring Cleaning" } : undefined;
-                                        // Select matching scope
-                                        if (sub.scopeMatch) {
-                                          const match = groupScopes.find(s => sub.scopeMatch!.test(s.name));
-                                          if (match) toggleScope(match, seed);
-                                        } else {
-                                          // "Other" — select first hourly scope as fallback
-                                          if (groupScopes[0]) toggleScope(groupScopes[0], seed);
-                                        }
+                                        // A scope that recurs by name opens on a recurring cadence
+                                        // rather than one-time — a recurring service is by
+                                        // definition not a single visit. toggleScope is async
+                                        // (it awaits the frequency/add-on fetch), so the seed has
+                                        // to go through initialState; a post-call
+                                        // updateScopeFrequency would race ahead of the scope
+                                        // actually being added.
+                                        //
+                                        // No displayLabel override any more: the button now shows
+                                        // the scope's own name, so the label the office picked and
+                                        // the label that travels are the same string by
+                                        // construction.
+                                        const seed = /recurring/i.test(scope.name) ? { frequency: "weekly" } : undefined;
+                                        toggleScope(scope, seed);
                                       }}
                                       style={{
                                         padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: isActive ? 600 : 400,
@@ -2900,7 +2901,7 @@ export default function QuoteBuilderPage() {
                                         cursor: "pointer", fontFamily: FF, textAlign: "left" as const,
                                       }}
                                     >
-                                      {sub.label}
+                                      {scope.name}
                                     </button>
                                   );
                                 })}
@@ -2910,13 +2911,17 @@ export default function QuoteBuilderPage() {
                             {hourlySubType && (() => {
                               const hourlySel = selectedScopes.find(s => groupScopes.some(gs => gs.id === s.scope_id));
                               if (!hourlySel) return null;
-                              // [custom-recurring] The "Recurring" sub-type must offer real
+                              // [custom-recurring] A recurring hourly scope must offer real
                               // recurring cadences inline (weekly / bi-weekly / monthly + Custom)
                               // and NOT one-time — a recurring service is by definition not a
                               // single visit. Force the canonical recurring set regardless of the
-                              // scope's own frequency list (Hourly Standard only carries onetime).
-                              // Other sub-types keep the scope's frequencies (or the mixed fallback).
-                              const isRecurringSub = hourlySubType === "recurring";
+                              // scope's own frequency list (some carry only onetime).
+                              // [mirror-settings 2026-08-14] Was keyed off the hardcoded
+                              // "recurring" button. Now read off the SELECTED SCOPE's own name,
+                              // so a scope the office renames or adds in Settings behaves
+                              // correctly here without anyone editing this file.
+                              const selectedHourlyScope = groupScopes.find(gs => gs.id === hourlySel.scope_id);
+                              const isRecurringSub = /recurring/i.test(selectedHourlyScope?.name ?? "");
                               const cadenceOpts = isRecurringSub
                                 ? [
                                     { value: "weekly", label: "Weekly" },
