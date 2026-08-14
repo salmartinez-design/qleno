@@ -241,8 +241,22 @@ export async function buildJobLineItems(
     // Pull flat mods back out of the metered total — they get their own lines
     // below, so leaving them in the scope would double-count.
     scopeAmount = parseFloat(String(job.billed_amount)) - modsTotal;
-    scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
-    scopeUnit = rateNum || scopeAmount;
+    // [unreadable-line 2026-08-14] This is the branch a job lands in when its
+    // billed_amount has DRIFTED from rate×hours + mods + add-ons, so the total
+    // cannot be safely split (see meteredItemizable above). Holding the total
+    // steady is right. Printing `qty 1 · unit $50.00 · $170.00` was not — three
+    // numbers that do not multiply, on a document the customer reads. Maribel,
+    // verbatim: "the math on the invoices doesn't make sense: says 1 x $50 =
+    // $170."
+    //
+    // The rate is only meaningful as a unit price when it actually meters the
+    // amount. When it doesn't, quote the line as a single priced item: qty 1 ×
+    // the amount. Same dollars, and the arithmetic on the page holds.
+    const meteredQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
+    const reconciles = rateNum > 0
+      && Math.abs(meteredQty * rateNum - scopeAmount) < 0.011;
+    scopeQty = reconciles ? meteredQty : 1;
+    scopeUnit = reconciles ? rateNum : scopeAmount;
   } else if (isHourlyRateDriven) {
     scopeQty = hoursNum;
     scopeUnit = rateNum;
@@ -318,5 +332,27 @@ export async function buildJobLineItems(
   }
 
   const subtotal = Math.max(0, Math.round(runningTotal * 100) / 100);
+
+  // [unreadable-line 2026-08-14] Last line of defence: an invoice is a document
+  // a customer reads and checks. Every line on it must survive being multiplied
+  // out. Any line whose qty × unit does not equal its own total collapses to a
+  // single priced item — same dollars, arithmetic intact — and is logged so the
+  // upstream cause is findable rather than merely papered over.
+  //
+  // This is deliberately a normalization, not a throw. A malformed line should
+  // never block an invoice from being produced; it should just stop being
+  // printed in a form that reads as a mistake to the customer.
+  for (const li of lineItems) {
+    const product = Math.round(li.quantity * li.unit_price * 100) / 100;
+    const stated = Math.round(li.total * 100) / 100;
+    if (Math.abs(product - stated) >= 0.011) {
+      console.warn(
+        `[invoice-line-items] job ${jobId}: "${li.description}" had ${li.quantity} × ${li.unit_price} = ${product} but stated ${stated}; collapsed to 1 × ${stated}`,
+      );
+      li.quantity = 1;
+      li.unit_price = stated;
+    }
+  }
+
   return { lineItems, subtotal };
 }
