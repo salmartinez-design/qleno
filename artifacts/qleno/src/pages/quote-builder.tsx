@@ -2307,17 +2307,13 @@ export default function QuoteBuilderPage() {
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
         <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1A1917" }}>{isEdit ? "Edit Quote" : "New Quote"}</h1>
-        <div className="ml-auto flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5 text-[#1A1917]">
-            <Save className="w-4 h-4" /> Save Draft
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => save("sent")} disabled={saving} className="gap-1.5">
-            <SendHorizonal className="w-4 h-4" /> Save & Send
-          </Button>
-          <Button size="sm" onClick={() => save("draft", true)} disabled={saving || !canConvert} style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90">
-            <ArrowRight className="w-4 h-4" /> Save & Convert to Job
-          </Button>
-        </div>
+        {/* [one-action-set 2026-08-14] The same Save Draft / Save & Send /
+            Save & Convert trio used to render here in the header, again at the
+            foot of the Review step, and a third time in the Price Preview rail
+            — three identical sets on one screen (Sal: "we do not need 3 of the
+            same option on one page, it crowds the page"). The Price Preview
+            rail is the one that stays: it sits beside the total the office is
+            about to commit to, and it is visible on every step. */}
       </div>
 
       {/* Two-column body */}
@@ -3889,26 +3885,12 @@ export default function QuoteBuilderPage() {
                     QUOTE. Say which email, not whether. */}
                 Booking on the call (Convert to Job) sends the appointment confirmation, not the quote. <strong style={{ color: "#6B6860" }}>Save &amp; Send</strong> is what emails the quote for approval.
               </div>
+              {/* [one-action-set 2026-08-14] Save/Send/Convert removed from here
+                  — they live once, in the Price Preview rail, next to the total
+                  the office is committing to. "Back" stays: it is step
+                  navigation, not a save action. */}
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(3)}>Back</Button>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5">
-                    <Save className="w-3.5 h-3.5" /> Save Draft
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => save("sent")} disabled={saving || !finalScopeId} className="gap-1.5">
-                    <SendHorizonal className="w-3.5 h-3.5" />
-                    {selectedScopes.length >= 2 && sendBoth ? "Save & Send Both" : "Save & Send Quote"}
-                  </Button>
-                  <Button size="sm" onClick={() => {
-                      // Never a silent no-op: tell the office exactly what's missing
-                      // instead of a dead, pointer-events:none button.
-                      if (!canConvert) { toast.error("Add a customer and pick a service before converting."); return; }
-                      if (!selectedDate) { toast.error("Pick a scheduled date to convert to a job."); return; }
-                      save("draft", true);
-                    }} disabled={saving} style={{ background: "var(--brand)", color: "#FFF", cursor: "pointer" }} className="gap-1.5 hover:opacity-90">
-                    <ArrowRight className="w-3.5 h-3.5" /> Save &amp; Convert to Job
-                  </Button>
-                </div>
               </div>
             </div>
           )}
@@ -4185,18 +4167,32 @@ export default function QuoteBuilderPage() {
             })()}
 
             {/* Action buttons */}
+            {/* [one-action-set 2026-08-14] The single Save/Send/Convert set for
+                the whole builder — the header copy and the Review-step footer
+                copy are gone. This rail already carried the same three, so the
+                two behaviours that lived ONLY in the Review footer are ported
+                here rather than lost: the "Save & Send Both" label for
+                multi-option quotes, and the explain-why-not toasts on Convert
+                (it used to sit dead and silent when canConvert was false). */}
             <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
               <Button
                 className="w-full gap-1.5 hover:opacity-90"
-                style={{ background: "var(--brand)", color: "#FFF" }}
+                style={{ background: "var(--brand)", color: "#FFF", cursor: "pointer" }}
                 size="sm"
-                onClick={() => save("draft", true)}
-                disabled={saving || !canConvert}
+                onClick={() => {
+                  // Never a silent no-op: tell the office exactly what's missing
+                  // instead of a dead, pointer-events:none button.
+                  if (!canConvert) { toast.error("Add a customer and pick a service before converting."); return; }
+                  if (!selectedDate) { toast.error("Pick a scheduled date to convert to a job."); return; }
+                  save("draft", true);
+                }}
+                disabled={saving}
               >
                 <ArrowRight className="w-3.5 h-3.5" /> Save & Convert to Job
               </Button>
               <Button className="w-full gap-1.5" variant="outline" size="sm" onClick={() => save("sent")} disabled={saving}>
-                <SendHorizonal className="w-3.5 h-3.5" /> Save & Send Quote
+                <SendHorizonal className="w-3.5 h-3.5" />
+                {selectedScopes.length >= 2 && sendBoth ? "Save & Send Both" : "Save & Send Quote"}
               </Button>
               <Button className="w-full gap-1.5" variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving}>
                 <Save className="w-3.5 h-3.5" /> Save Draft
