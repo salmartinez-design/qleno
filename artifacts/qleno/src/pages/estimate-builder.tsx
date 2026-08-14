@@ -51,6 +51,13 @@ const FACILITY_TYPES: [string, string][] = [
 type PricingType = "flat" | "hourly" | "one_time";
 interface Item {
   name: string;
+  // [itemized-line-scope 2026-08-14] Per-line scope, shown to the client under
+  // the line name on the hosted view and the PDF. Itemized mode previously had
+  // no way to say WHAT is done at each line — a multi-location estimate could
+  // price each site but not describe it, forcing scope into the shared intro
+  // note. The column already existed on estimate_line_items; only the builder
+  // was missing. Flat mode keeps using the single `scope_note` + checklist.
+  description: string;
   pricing_type: PricingType;
   frequency: string;
   quantity: string;
@@ -77,7 +84,7 @@ const CATEGORY_META: Record<string, { label: string; hint: string }> = {
   medical: { label: "Medical Facility", hint: "Exam rooms, disinfection, biohaz" },
 };
 
-const blankItem = (): Item => ({ name: "", pricing_type: "flat", frequency: "Monthly", quantity: "1", unit_rate: "" });
+const blankItem = (): Item => ({ name: "", description: "", pricing_type: "flat", frequency: "Monthly", quantity: "1", unit_rate: "" });
 
 // The cadence shared by all line items, or "" when they differ.
 const commonFreqOf = (arr: Item[]): string =>
@@ -231,7 +238,9 @@ export default function EstimateBuilderPage() {
     items: items.filter(it => it.included !== false && (it.name.trim() || (billingMode === "itemized" && Number(it.unit_rate) > 0))).map(it => (
       billingMode === "flat"
         ? { name: it.name, pricing_type: "flat", frequency: it.frequency, quantity: 1, unit_rate: 0 }
-        : { name: it.name, pricing_type: it.pricing_type, frequency: it.frequency, quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0 }
+        // [itemized-line-scope 2026-08-14] description rides only on itemized
+        // lines; flat mode's scope lives in the estimate-level `scope_note`.
+        : { name: it.name, description: it.description || null, pricing_type: it.pricing_type, frequency: it.frequency, quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0 }
     )),
   });
 
@@ -532,19 +541,41 @@ export default function EstimateBuilderPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
+    // [estimate-pdf-preview 2026-08-14] Open the tab SYNCHRONOUSLY, before any
+    // await. Browsers only honor window.open while the user-gesture is still
+    // on the stack; the previous version opened it after save() + fetch had
+    // already resolved, so the popup blocker killed it every time and the
+    // fallback silently downloaded the file instead of previewing it.
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(
+        `<!doctype html><title>${estimateNumber || "Estimate"}</title>` +
+        `<body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;` +
+        `font:600 14px/1.4 'Plus Jakarta Sans',system-ui,sans-serif;color:#6B6860;background:#F7F6F3">` +
+        `Preparing the estimate…</body>`
+      );
+      w.document.close();
+    }
     // Always persist current edits first — the PDF is rendered server-side from
     // the saved row, so a stale save would preview the wrong content.
     const savedId = await save();
-    if (!savedId) return;
+    if (!savedId) { w?.close(); return; }
     setPdfBusy(true);
     try {
       const r = await fetch(`${API}/api/estimates/${savedId}/pdf`, { headers: { ...(getAuthHeaders() as Record<string, string>) } });
       if (!r.ok) throw new Error(await r.text());
       const url = URL.createObjectURL(await r.blob());
-      const w = window.open(url, "_blank");
-      if (!w) { const a = document.createElement("a"); a.href = url; a.download = `${estimateNumber || "estimate"}.pdf`; a.click(); }
+      if (w && !w.closed) {
+        w.location.replace(url);
+      } else {
+        // Blocker still won, or the user closed the placeholder — fall back to
+        // a download so the action isn't a dead end.
+        const a = document.createElement("a");
+        a.href = url; a.download = `${estimateNumber || "estimate"}.pdf`; a.click();
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch {
+      w?.close();
       toast.error("Couldn't generate the PDF");
     } finally {
       setPdfBusy(false);
@@ -815,7 +846,19 @@ export default function EstimateBuilderPage() {
                       <FrequencyPicker value={it.frequency} onChange={v => updateItem(i, { frequency: v })} />
                     </Field>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
+                  {/* [itemized-line-scope 2026-08-14] Per-line scope. Without this a
+                      multi-location estimate could price each site but not say what
+                      gets done there, so scope had to be crammed into the shared
+                      intro note. Renders under the line name on the hosted view + PDF. */}
+                  <Field label="Scope for this line" hint="optional — shown to the client under this line">
+                    <textarea
+                      style={{ ...inp, minHeight: 56, resize: "vertical" }}
+                      value={it.description}
+                      onChange={e => updateItem(i, { description: e.target.value })}
+                      placeholder="What gets done here — areas covered, tasks each visit, anything specific to this location."
+                    />
+                  </Field>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end", marginTop: 8 }}>
                     <Field label={L.qty}><input style={inp} type="number" min="0" step="0.25" value={it.quantity} onChange={e => updateItem(i, { quantity: e.target.value })} /></Field>
                     <Field label={L.rate}><input style={inp} type="number" min="0" step="0.01" value={it.unit_rate} onChange={e => updateItem(i, { unit_rate: e.target.value })} placeholder="0.00" /></Field>
                     <Field label="Amount"><div style={{ ...inp, background: "#F0EEE9", fontWeight: 700, color: INK }}>{money(lineAmount(it))}</div></Field>
@@ -1022,6 +1065,7 @@ export default function EstimateBuilderPage() {
 function mapRow(r: any): Item {
   return {
     name: r.name || "",
+    description: r.description || "",
     pricing_type: (["flat", "hourly", "one_time"].includes(r.pricing_type) ? r.pricing_type : "flat") as PricingType,
     frequency: r.frequency || "",
     quantity: String(r.quantity ?? "1"),
@@ -1041,9 +1085,14 @@ const Section = ({ title, right, children }: { title: string; right?: React.Reac
 const Grid = ({ children }: { children: React.ReactNode }) => (
   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>{children}</div>
 );
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+// `hint` renders as lighter, sentence-case trailing text on the label row — the
+// same treatment the flat-mode section headers already use inline.
+const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
   <label style={{ display: "block", marginBottom: 10 }}>
-    <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>{label}</span>
+    <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>
+      {label}
+      {hint && <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9E9B94" }}> {hint}</span>}
+    </span>
     {children}
   </label>
 );

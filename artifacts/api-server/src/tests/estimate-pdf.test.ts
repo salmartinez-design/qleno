@@ -60,4 +60,73 @@ describe("estimate PDF", () => {
     assert.match(builder, /async function markSent\(\) \{[\s\S]*?const savedId = await save\(\);/);
     assert.match(builder, /PDF preview/);
   });
+
+  // [estimate-pdf-pagination 2026-08-14] A long itemized estimate (4 locations +
+  // full terms) used to emit a BLANK page: the total panel is a vector fill, so
+  // it silently drew off the bottom of page 1 instead of paginating, and only
+  // the terms text triggered a page break. Pin that every page has content and
+  // the footer is stamped on all of them.
+  const longItems = Array.from({ length: 4 }, (_, i) => ({
+    name: `LOCATION ${i + 1}: a long service line with address and square footage, Chicago IL 6060${i}`,
+    description: "Remove all trash and replace all liners. Clean and disinfect all restrooms. "
+      + "Dust high and low. Vacuum all carpeted floors and area rugs. Mop all hard surface floors. "
+      + "Disinfect high touch points including door handles, light switches and reception counters.",
+    pricing_type: "flat", frequency: "5x/week", quantity: 1, unit_rate: 3033.33, amount: 3033.33,
+  }));
+  // Sized to the real 4-location estimate that surfaced the bug: a long intro
+  // (scope list), four long line names, and a full terms block.
+  const longIntro = "Thank you for the walk-through. Below is our proposal for all four locations. "
+    + "SCOPE OF WORK (performed every visit, at all four locations): "
+    + Array.from({ length: 8 }, (_, i) => `${i + 1}. A scope line describing the work performed at every visit`).join(" ")
+    + " Areas serviced include reception and waiting areas, exam rooms, treatment rooms, infusion areas, "
+    + "retail rooms, community rooms, private offices, hallways, break rooms and all restrooms. "
+    + "Phes provides all cleaning chemicals, equipment and trash liners. Our cleaners are W-2 employees "
+    + "covered by workers compensation and general liability.";
+  const longTerms = Array.from({ length: 12 }, (_, i) =>
+    `SECTION ${i + 1}: ${"Terms copy that runs long enough to wrap across several lines. ".repeat(3)}`
+  ).join("\n\n");
+  const pageCount = (b: Buffer) => (b.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length;
+
+  it("paginates a long itemized estimate without emitting a blank page", async () => {
+    const buf = await renderEstimatePdf({
+      ...base, introNote: longIntro, billingMode: "itemized", flatPriceUnit: "visit", scopeNote: null,
+      subtotal: 8233.32, discount: 0, total: 8233.32, terms: longTerms, items: longItems as any,
+    });
+    assert.equal(buf.subarray(0, 5).toString("latin1"), "%PDF-");
+    // Measured against origin/main with this exact shape: the old renderer emitted
+    // THREE pages, the middle one blank — the navy total panel is a vector fill
+    // that drew off the bottom of page 1 instead of paginating, and only the
+    // terms text triggered a break. Reserving space first collapses it to two.
+    assert.equal(pageCount(buf), 2, "long estimate must not emit a blank filler page");
+  });
+
+  it("renders per-line scope text on itemized lines", async () => {
+    const withScope = await renderEstimatePdf({
+      ...base, billingMode: "itemized", flatPriceUnit: "visit", scopeNote: null,
+      items: [{ name: "Floors", description: "Vacuum all carpet and mop hard surfaces each visit.",
+        pricing_type: "hourly", frequency: "Weekly", quantity: 1.5, unit_rate: 50, amount: 75 }] as any,
+    });
+    const without = await renderEstimatePdf({
+      ...base, billingMode: "itemized", flatPriceUnit: "visit", scopeNote: null,
+      items: [{ name: "Floors", description: null,
+        pricing_type: "hourly", frequency: "Weekly", quantity: 1.5, unit_rate: 50, amount: 75 }] as any,
+    });
+    // The scope paragraph is real drawn content, so it makes the stream longer.
+    assert.ok(withScope.length > without.length,
+      "line description should be drawn into the PDF, not dropped");
+  });
+
+  it("passes description through the PDF route query and opens preview in a tab", () => {
+    const route = read("../routes/estimates.ts");
+    const builder = read("../../../qleno/src/pages/estimate-builder.tsx");
+    // The /pdf route must SELECT description or the renderer never sees it.
+    assert.match(route, /SELECT name, description, pricing_type, frequency, quantity, unit_rate, amount\s*\n\s*FROM estimate_line_items WHERE estimate_id = \$\{id\}/);
+    // Itemized mode must expose the per-line scope editor.
+    assert.match(builder, /Scope for this line/);
+    // window.open must happen BEFORE the first await, or the popup blocker wins.
+    const fn = builder.slice(builder.indexOf("async function downloadPdf()"));
+    const openAt = fn.indexOf("window.open");
+    const awaitAt = fn.indexOf("await save()");
+    assert.ok(openAt > -1 && openAt < awaitAt, "window.open must precede the first await");
+  });
 });
