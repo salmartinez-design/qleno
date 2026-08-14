@@ -1,19 +1,24 @@
 # Qleno CI — runs on every PR + push to main.
 #
-# Three concerns:
+# Four concerns:
 #   1. .dispatch-stop guard — if the file exists at repo root on
 #      the branch under test, fail immediately. Sal can drop this
 #      file via the GitHub mobile app to halt all autonomous work.
-#   2. tsc-check — type-check the api-server + frontend without
+#   2. any-array-guard — block the ANY(array) trap. It type-checks
+#      and builds fine and throws at RUNTIME at every input length,
+#      so tsc-check and build cannot catch it. Eighteen fixes and
+#      counting; the worst instances were swallowed by a catch and
+#      silently dropped hand-set pay overrides from payroll.
+#   3. tsc-check — type-check the api-server + frontend without
 #      emitting. Catches PRs that compile in isolation but break
 #      the workspace's shared types.
-#   3. build — full build of api-server + frontend, the same
+#   4. build — full build of api-server + frontend, the same
 #      command Railway runs. Catches PRs that pass tsc but fail
 #      bundling (Vite import errors, etc.).
 #
-# These three are the candidate "required status checks" for
-# branch protection (see docs/branch-protection-setup.md). The
-# Playwright suite lives in a separate workflow and is currently
+# These are the candidate "required status checks" for branch
+# protection (see docs/branch-protection-setup.md). The Playwright
+# suite lives in a separate workflow and is currently
 # advisory-only.
 
 name: ci
@@ -45,6 +50,23 @@ jobs:
             exit 1
           fi
           echo "no .dispatch-stop file — proceeding"
+
+  # Runtime-only bug class: `= ANY(${jsArray})` compiles and bundles
+  # cleanly, then throws on every query. Nothing else in this pipeline
+  # can see it, so it gets its own gate. Deliberately not `needs:` the
+  # stop-guard — it costs seconds and the answer is useful even when
+  # the rest of CI is halted.
+  any-array-guard:
+    name: any-array-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Block the ANY(array) trap
+        run: node scripts/guard-any-array.mjs
 
   # Project-references typecheck only — `tsc --build` walks the
   # workspace's lib packages (packages/*) and their declared deps.
