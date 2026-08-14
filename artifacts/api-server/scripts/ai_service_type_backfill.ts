@@ -36,7 +36,24 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveServiceType } from "../src/lib/serviceType.js";
 
-const APPLY = process.argv.includes("--apply");
+// [DISARMED 2026-08-14] --apply alone is no longer enough. A full trace of every
+// writer of jobs.service_type showed the premise this script rests on — that a
+// scope's NAME determines the service type — is not sound at Phes:
+//
+//   * One live scope, "Hourly Deep Clean or Move In/Out", backs BOTH the Deep
+//     Clean and the Move In/Out hourly sub-type buttons. Its name cannot tell
+//     you which one the office picked. Any re-derivation is a coin flip.
+//   * FOUR divergent hand-written name mappers exist (lib/serviceType.ts,
+//     public.ts, edit-job-modal.tsx, recurring-jobs.ts) and they disagree with
+//     each other on exactly these names.
+//
+// So a mass re-derive would not repair history; it would overwrite correct rows
+// with a guess, at scale, with no undo. The DRY RUN is still genuinely useful —
+// it shows which jobs disagree with their scope name, which is the evidence
+// needed to decide anything — so previewing stays one command.
+//
+// Writing requires BOTH flags and a per-row review of the dry run first.
+const APPLY = process.argv.includes("--apply") && process.argv.includes("--i-reviewed-every-row");
 
 // Mirrors the strict table in routes/quotes.ts. Kept in sync by hand — it only
 // exists to reproduce convert's exact decision, so a divergence here would make
@@ -140,9 +157,20 @@ async function main() {
   if (!typeFixes.length && !hourlyFixes.length) return;
 
   if (!APPLY) {
-    console.log("DRY RUN — nothing written. Re-run with --apply to correct.");
-    console.log("Review the service_type table first: a corrected type changes what");
-    console.log("invoices and payroll describe for that visit.");
+    console.log("DRY RUN — nothing written.");
+    console.log("");
+    console.log("READ THIS BEFORE WRITING ANYTHING:");
+    console.log("  A scope's NAME does not reliably determine the service type here.");
+    console.log("  \"Hourly Deep Clean or Move In/Out\" is ONE scope serving BOTH the");
+    console.log("  Deep Clean and the Move In/Out buttons, so re-deriving from it is a");
+    console.log("  coin flip — and four separate mappers in this codebase disagree on");
+    console.log("  names like it. A row appearing above does NOT mean it is wrong.");
+    console.log("");
+    console.log("  Treat this table as EVIDENCE, not a work list. Check a few against");
+    console.log("  what the office actually booked before trusting any of it.");
+    console.log("");
+    console.log("  To write anyway, after reviewing every row:");
+    console.log("    --apply --i-reviewed-every-row");
     return;
   }
 

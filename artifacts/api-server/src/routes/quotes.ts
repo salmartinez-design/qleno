@@ -345,6 +345,32 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
       }
     }
 
+    // [stale-quote-label 2026-08-14] `quotes.service_type` holds the scope NAME
+    // (set once at creation, quotes.ts:277) and is what every human-readable
+    // surface prints: the quote list, the quote email, and the customer's
+    // booking page. `scope_id` is in the allowlist above; service_type is not.
+    //
+    // So re-picking a scope on an existing quote moved scope_id and left the
+    // label frozen. Convert stamps the job from the CURRENT scope_id, and the
+    // customer-facing accept page posts scope_id while displaying the OLD name
+    // — every surface a person reads says one service while the booked job says
+    // another. That is the "quoting tool mixes up Move in/out with Deep Clean"
+    // report, and it needs no oddly-named scope to happen.
+    //
+    // Re-derived from scope_id rather than accepted from the client, so the
+    // label cannot be set to something the scope isn't.
+    if (updates.scope_id !== undefined && updates.scope_id !== null) {
+      try {
+        const scopeRow = (await db.execute(sql`
+          SELECT name FROM pricing_scopes
+           WHERE id = ${updates.scope_id} AND company_id = ${req.auth!.companyId} LIMIT 1`)).rows[0] as any;
+        if (scopeRow?.name) updates.service_type = scopeRow.name;
+      } catch (e) {
+        // Non-fatal: a stale label is bad, but it must not block saving the quote.
+        console.warn(`[quotes] could not refresh service_type label for quote ${id}:`, e);
+      }
+    }
+
     const [q] = await db.update(quotesTable).set(updates)
       .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, req.auth!.companyId)))
       .returning();
