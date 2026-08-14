@@ -3,8 +3,9 @@ import { db } from "@workspace/db";
 import {
   accountsTable, accountRateCardsTable, accountPropertiesTable, accountContactsTable,
   jobsTable, invoicesTable, usersTable, clientsTable, recurringSchedulesTable,
-  technicianPreferencesTable,
+  technicianPreferencesTable, jobPhotosTable,
 } from "@workspace/db/schema";
+import { isR2Key, r2SignedGetUrl } from "../lib/r2.js";
 import { eq, and, sql, inArray, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { utcIso } from "../lib/time-serialize.js";
@@ -556,6 +557,77 @@ router.get("/:id/properties/:propId/recent-job", requireAuth, requireRole("owner
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch recent job" });
+  }
+});
+
+// GET /api/accounts/:id/job-photos[?property_id=N]
+//
+// [commercial-photos 2026-08-14] Maribel: "There's no place in the 'accounts'
+// clients where we can see the pictures they have uploaded per job. I guess
+// this should be under locations where it shows the history."
+//
+// Techs have been uploading before/after photos on commercial jobs the whole
+// time — POST /api/jobs/:id/photos is job-keyed and never cared whether the job
+// was residential or commercial. There was simply no way to READ them by
+// account: /api/clients/:id/job-photos is the only aggregated reader and its
+// join is pinned to jobs.client_id, so the commercial side had nothing.
+//
+// Worse than nothing, actually: the Properties tab already shows a picture grid
+// (TeamPhotoNotes — the sticky access/reference shots that appear on every job
+// at a building), so the office could reasonably believe the tech's photos were
+// there and simply missing. Different table, different purpose.
+//
+// Mirrors /api/clients/:id/job-photos exactly — same columns, same R2 signing,
+// same ordering — plus the property columns, so one account-wide fetch can be
+// grouped by building OR filtered to one. Role-gated to match the rest of this
+// file (the residential twin is requireAuth-only, which is looser than every
+// other account route; not copying that here).
+router.get("/:id/job-photos", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const companyId = req.auth!.companyId!;
+    const propertyId = req.query.property_id ? parseInt(String(req.query.property_id)) : null;
+    if (req.query.property_id && (propertyId === null || isNaN(propertyId))) {
+      return res.status(400).json({ error: "Invalid property_id" });
+    }
+
+    const rows = await db.select({
+      photo_id: jobPhotosTable.id,
+      job_id: jobPhotosTable.job_id,
+      photo_type: jobPhotosTable.photo_type,
+      url: jobPhotosTable.url,
+      photo_timestamp: jobPhotosTable.timestamp,
+      job_date: jobsTable.scheduled_date,
+      service_type: jobsTable.service_type,
+      status: jobsTable.status,
+      tech_first: usersTable.first_name,
+      tech_last: usersTable.last_name,
+      account_property_id: jobsTable.account_property_id,
+      property_name: accountPropertiesTable.property_name,
+    })
+      .from(jobPhotosTable)
+      .innerJoin(jobsTable, and(
+        eq(jobPhotosTable.job_id, jobsTable.id),
+        eq(jobsTable.account_id, id),
+        eq(jobsTable.company_id, companyId),
+        ...(propertyId !== null ? [eq(jobsTable.account_property_id, propertyId)] : []),
+      ))
+      .leftJoin(usersTable, eq(jobPhotosTable.uploaded_by, usersTable.id))
+      .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobPhotosTable.timestamp));
+
+    // R2-stored photos carry an object key in `url`; sign it into a short-lived
+    // GET URL the browser can load. Skipping this renders the bare object key
+    // as an <img src> and every thumbnail breaks.
+    const signed = await Promise.all(rows.map(async (r) => ({
+      ...r,
+      url: isR2Key(r.url) ? await r2SignedGetUrl(r.url) : r.url,
+    })));
+    return res.json(signed);
+  } catch (err) {
+    console.error("Account job photos error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

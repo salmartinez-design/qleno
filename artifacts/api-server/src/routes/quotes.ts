@@ -650,16 +650,6 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // standard_clean and the office "didn't recognize the hourly option".
       "hourly move in / move out": "move_out",
       "hourly move in/move out": "move_out",
-      // [combined-scope mixup 2026-08-14] PHES's legacy combined scopes name
-      // two services at once. They were in neither this table nor the old
-      // resolver's favour, so both booked as move_out and the card read
-      // "Move Out" on a Deep Clean. Pinned explicitly here as well as fixed
-      // positionally in resolveServiceType — a name this load-bearing should
-      // not depend on keyword ordering.
-      "deep clean or move in/out": "deep_clean",
-      "deep clean or move in / move out": "deep_clean",
-      "hourly deep clean or move in/out": "deep_clean",
-      "hourly deep clean or move in / move out": "deep_clean",
       "commercial cleaning": "office_cleaning",
       "ppm turnover": "ppm_turnover",
       "ppm common areas": "common_areas",
