@@ -79,7 +79,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
-interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
+interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; /* [per-tech-actual 2026-08-14] What this cleaner actually clocked on this job, from their own punches (unioned, so a duplicate pair can't double-count). NULL — not 0 — while they are still clocked in: "hasn't clocked out" and "worked no time" are different facts. */ actual_hours?: number | null; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [batch-tip-mislabel 2026-08-13] invoice_is_batch marks a COMBINED invoice whose total covers other visits too — never render it as this job's total. invoice_tips is the real tip from invoices.tips; the card used to infer one by subtracting the service amount from the invoice total, which on a combined invoice made the other visits read as a tip. */ invoice_number?: string | null; invoice_is_batch?: boolean; invoice_tips?: number | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; /* [rail-dots 2026-07-30] Server-derived rail state: is_clocked_in spans job AND event punches and ignores the board's zone/branch filter; current_zone is the zone of the job they're actually on (null when not working — the rail then falls back to `zone`, their assigned home zone). */ is_clocked_in?: boolean; current_zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | 'custom' | null; time_off_color?: string | null; time_off_label?: string | null; /* [time-block 2026-07-08] designated window ("HH:MM") when unit='custom' — the band tints only this span */ time_off_start?: string | null; time_off_end?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
@@ -3805,6 +3805,39 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </div>
               )}
               {tab === "commission" && commissionAvail && (<>
+              {/* [per-tech-actual 2026-08-14] Francisco: "The breakdown should
+                  also include both the total service time and the individual
+                  cleaner's actual time." This is the TOTAL half — the sum of
+                  every cleaner's clocked time on this visit, which is what the
+                  job cost. The per-cleaner half is on each row below.
+
+                  Summed from the same per-tech figures rather than read from
+                  job.actual_hours, so the total and the rows can never disagree
+                  on screen. Hidden entirely until at least one cleaner has
+                  clocked out — an empty "0.0 hrs" on a job in progress reads as
+                  a fact rather than an absence. */}
+              {(() => {
+                const clocked = (job.technicians ?? []).filter(t => t.actual_hours != null);
+                if (!clocked.length) return null;
+                const total = clocked.reduce((s, t) => s + (t.actual_hours ?? 0), 0);
+                const allowed = (job as any).allowed_hours ?? job.estimated_hours ?? null;
+                return (
+                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #F0EEE9", display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#9E9B94" }}>Total service time</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{total.toFixed(1)} hrs</span>
+                    {clocked.length > 1 && (
+                      <span style={{ fontSize: 11, color: "#C4C0BB" }}>
+                        across {clocked.length} cleaners
+                      </span>
+                    )}
+                    {allowed != null && Number(allowed) > 0 && (
+                      <span style={{ fontSize: 11, color: "#9E9B94", marginLeft: "auto" }}>
+                        {Number(allowed).toFixed(1)} hrs allowed
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
               {/* [commission-override 2026-06-27] Pool rate row — shows company default or override */}
               {job.commission_basis !== "commercial_hourly" && (() => {
                 const effectivePct = job.commission_override_pct != null
@@ -3892,7 +3925,22 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: "#9E9B94" }}>
-                    Est. {t.est_hours.toFixed(1)} hrs · Calc: ${t.calc_pay.toFixed(2)}
+                    Est. {t.est_hours.toFixed(1)} hrs
+                    {/* [per-tech-actual 2026-08-14] Francisco: "The breakdown
+                        should also include both the total service time and the
+                        individual cleaner's actual time." This is the cleaner's
+                        half — their own punches on this job, unioned so a
+                        duplicate pair can't double-count. The job total sits
+                        under the Commission heading.
+
+                        Rendered only when they have a CLOSED punch: the server
+                        sends null, not 0, while someone is still clocked in, and
+                        printing "Actual 0.0" at that moment would read as "did
+                        nothing" rather than "still working". */}
+                    {t.actual_hours != null && (
+                      <> · Actual <span style={{ color: "#1A1917", fontWeight: 600 }}>{t.actual_hours.toFixed(1)} hrs</span></>
+                    )}
+                    {" · "}Calc: ${t.calc_pay.toFixed(2)}
                     {t.pay_type && t.pay_rate != null && (
                       <span style={{ marginLeft: 6, color: "#C4C0BB" }}>
                         ({t.pay_type === "hourly"
