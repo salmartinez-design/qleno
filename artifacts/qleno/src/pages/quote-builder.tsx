@@ -673,6 +673,15 @@ export default function QuoteBuilderPage() {
   // so opening one must NOT light up / open the other (Sal: "they are
   // separate"). convert() ships whichever one is active.
   const [hourlyCustomOpen, setHourlyCustomOpen] = useState(false);
+  // [decimal-money 2026-08-14] Raw text for the +/- adjustment amounts, keyed
+  // `<scopeId>:<field>`. The inputs are controlled off a NUMBER, so a
+  // half-typed decimal could not survive its own round trip: typing "12."
+  // parsed to 12 and re-rendered as "12", eating the point the moment it was
+  // pressed. The office could only ever enter whole dollars — Francisco:
+  // "Discounts only allow whole numbers [...] we need to be able to enter
+  // discounts with decimals." Keeping the keystrokes here lets "12." exist
+  // while it is being typed; the numeric model still gets parseFloat.
+  const [adjText, setAdjText] = useState<Record<string, string>>({});
   const [hourlyCustomRec, setHourlyCustomRec] = useState<{ interval: number; unit: "weeks" | "months"; weekday: number; weekOfMonth: number }>(
     { interval: 2, unit: "weeks", weekday: 2, weekOfMonth: 1 }
   );
@@ -3352,7 +3361,9 @@ export default function QuoteBuilderPage() {
                                     after-hours / special pricing). Blank = configured rate. */}
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                                   <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Rate: $</span>
-                                  <input type="number" min="0" step="1"
+                                  {/* [decimal-money 2026-08-14] step="1" rejected any rate with
+                                      cents — $82.50/hr for a Sunday could not be entered at all. */}
+                                  <input type="number" min="0" step="0.01"
                                     value={s.hourlyRateOverride ?? ""}
                                     placeholder={Number(s.calc?.hourly_rate ?? scope.hourly_rate).toFixed(2)}
                                     onChange={e => updateScopeRate(s.scope_id, e.target.value === "" ? null : parseFloat(e.target.value))}
@@ -3555,8 +3566,28 @@ export default function QuoteBuilderPage() {
                                             <span style={{ padding: "0 8px", fontSize: 14, color: "#9E9B94", fontFamily: FF, borderRight: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>$</span>
                                             <input
                                               type="text" inputMode="decimal" placeholder="0.00"
-                                              value={row.amt ? String(row.amt) : ""}
-                                              onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ""); updateScopeAdj(targetScope.scope_id, row.amtField, parseFloat(v) || 0); }}
+                                              // [decimal-money 2026-08-14] Show what was typed while
+                                              // typing, falling back to the model when untouched. A
+                                              // value driven straight off the number cannot represent
+                                              // "12." and so swallowed the decimal point.
+                                              value={adjText[`${targetScope.scope_id}:${row.amtField}`] ?? (row.amt ? String(row.amt) : "")}
+                                              onChange={e => {
+                                                // One leading number, at most one dot, max 2 decimals.
+                                                const cleaned = e.target.value.replace(/[^0-9.]/g, "");
+                                                const parts = cleaned.split(".");
+                                                const v = parts.length > 1
+                                                  ? `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`
+                                                  : cleaned;
+                                                setAdjText(t => ({ ...t, [`${targetScope.scope_id}:${row.amtField}`]: v }));
+                                                updateScopeAdj(targetScope.scope_id, row.amtField, parseFloat(v) || 0);
+                                              }}
+                                              onBlur={() => setAdjText(t => {
+                                                // Hand control back to the model once editing ends, so
+                                                // a reset or a reload is reflected rather than stuck.
+                                                const next = { ...t };
+                                                delete next[`${targetScope.scope_id}:${row.amtField}`];
+                                                return next;
+                                              })}
                                               style={{ flex: 1, minWidth: 0, height: 34, border: "none", padding: "0 8px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF, outline: "none", background: "transparent" }} />
                                           </div>
                                           <input
