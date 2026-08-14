@@ -78,6 +78,71 @@ async function applyQuoteDiscountAdjustment(
   }
 }
 
+// [manual-adj-to-job 2026-08-14] Carry the office's manual +/- adjustments from
+// the quote onto the booked job.
+//
+// Francisco: "a discount applied in the Quoting Tool should appear on the Job
+// Card as a separate adjustment [...] manual or with code." The CODE path has
+// worked since 2026-08-09 (applyQuoteDiscountAdjustment, off discount_amount).
+// The MANUAL path never has: the office's own +/- rows are stored in
+// quotes.manual_adjustments and, until now, convert SELECTed that column and
+// then ignored it. The only consumer was the quote email. So a hand-typed
+// discount showed on the quote the customer received and then vanished the
+// moment the quote became a job — ADJUSTMENTS read "No adjustments" and the
+// client was billed the undiscounted total.
+//
+// Mirrors applyQuoteDiscountAdjustment exactly: negative flat rows for a
+// subtract, positive for an add, affects_commission=false so the cleaner is
+// still paid on the full pre-adjustment base, then one recompute.
+//
+// Only the PRIMARY scope's adjustments are carried — the same filter
+// followUpService.quoteAdjustmentLines uses. A multi-option quote holds rows
+// for scopes that were never booked, and only the primary scope's are baked
+// into the total_price this job is priced from.
+async function applyQuoteManualAdjustments(
+  companyId: number,
+  jobId: number | null | undefined,
+  rawAdjustments: unknown,
+  bookedScopeId: number | null | undefined,
+  userId: number | null,
+): Promise<void> {
+  if (!jobId) return;
+  const adjs = Array.isArray(rawAdjustments) ? rawAdjustments : [];
+  if (!adjs.length) return;
+  try {
+    // Idempotent — a re-convert must not stack a second set.
+    const dupe = await db.execute(sql`
+      SELECT 1 FROM job_rate_mods
+       WHERE job_id = ${jobId} AND company_id = ${companyId} AND reason LIKE 'Quote adjustment%'
+       LIMIT 1`);
+    if (dupe.rows.length > 0) return;
+
+    const scopeId = bookedScopeId != null ? Number(bookedScopeId) : null;
+    let wrote = 0;
+    for (const a of adjs as any[]) {
+      if (scopeId != null && a?.scope_id != null && Number(a.scope_id) !== scopeId) continue;
+      const amt = Number(a?.amount) || 0;
+      if (!(amt > 0)) continue;
+      const isSubtract = a?.type === "subtract";
+      const signed = isSubtract ? -amt : amt;
+      const why = String(a?.reason ?? "").trim();
+      // Prefixed so the dupe guard above can find them, and so the office can
+      // tell a quote-time adjustment from one added later on the job card.
+      const reason = `Quote adjustment${why ? ` (${why})` : ""}`;
+      await db.execute(sql`
+        INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by, affects_commission)
+        VALUES (${companyId}, ${jobId}, 'flat', NULL, ${signed.toFixed(2)}, ${reason}, ${userId}, false)`);
+      wrote++;
+    }
+    if (wrote > 0) {
+      const { recomputeJobBilledAmount } = await import("./jobs.js");
+      await recomputeJobBilledAmount(jobId, companyId);
+    }
+  } catch (e) {
+    console.warn("[convert] quote manual adjustments non-fatal:", e);
+  }
+}
+
 // [quote-convert-stickiness 2026-06-10] Map the quote's `addons` jsonb
 // (addon_breakdown rows: { id: pricing_addons.id, name, amount, price_type })
 // into the shape persistJobAddOns expects. The convert previously dropped
@@ -1166,6 +1231,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
              ORDER BY scheduled_date ASC, id ASC LIMIT 1`);
           const firstId = (firstRow.rows[0] as any)?.id ?? null;
           await applyQuoteDiscountAdjustment(companyId, firstId, convertDiscount, (q as any).discount_code ?? null, req.auth!.userId ?? null);
+          await applyQuoteManualAdjustments(companyId, firstId, (q as any).manual_adjustments, q.scope_id, req.auth!.userId ?? null);
         } catch (e) { console.warn("[quote convert] recurring discount adjustment non-fatal:", e); }
       }
 
@@ -1244,6 +1310,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // commission_base = base_fee (full price) and billed_amount = base − discount
     // (what the client pays) from the row itself.
     await applyQuoteDiscountAdjustment(companyId, jobId, convertDiscount, (q as any).discount_code ?? null, req.auth!.userId ?? null);
+    await applyQuoteManualAdjustments(companyId, jobId, (q as any).manual_adjustments, q.scope_id, req.auth!.userId ?? null);
 
     // Link job back to quote (safe — column may not exist yet)
     if (jobId) {
