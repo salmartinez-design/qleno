@@ -15,7 +15,21 @@ export const quotesTable = pgTable("quotes", {
   lead_email: text("lead_email"),
   lead_phone: text("lead_phone"),
   address: text("address"),
+  // Display NAME of the chosen scope ("Hourly Deep Clean or Move In/Out").
+  // Customer-facing: the quote email's service label is built from this. NOT an
+  // enum — do not compare it against jobs.service_type values.
   service_type: text("service_type"),
+  // [hourly-subtype-persist 2026-08-14] The jobs.service_type ENUM the office
+  // actually picked, when the scope alone cannot say. The Hourly group offers
+  // "Deep Clean" and "Move In / Move Out" as separate buttons, but BOTH resolve
+  // to one combined scope ("Hourly Deep Clean or Move In/Out" — same work, same
+  // $80/hr), so scope_id cannot carry the distinction. Before this, the choice
+  // lived only in React state and was discarded at save; convert then re-derived
+  // the label from the scope NAME, which names both, and had to guess. That is
+  // the "quoting tool mixes up Move in/out with Deep Clean" the office reported.
+  // NULL = nothing explicit was chosen; convert falls back to the scope-name
+  // resolver, which is correct for every unambiguous scope.
+  selected_service_type: text("selected_service_type"),
   frequency: text("frequency"),
   estimated_hours: numeric("estimated_hours", { precision: 4, scale: 2 }),
   base_price: numeric("base_price", { precision: 10, scale: 2 }),

@@ -228,6 +228,19 @@ interface SelectedScopeState {
   displayLabel?: string;
 }
 
+// [hourly-subtype-persist 2026-08-14] Hourly sub-type key -> jobs.service_type
+// enum. The Hourly group's buttons do NOT map one-to-one onto scopes: "Deep
+// Clean" and "Move In / Move Out" both match the single combined scope "Hourly
+// Deep Clean or Move In/Out" (identical work, identical $80/hr), so the scope
+// cannot carry the distinction and the office's pick has to travel separately.
+// Keys mirror HOURLY_SUBS below — keep the two in sync.
+const HOURLY_SUBTYPE_SERVICE_TYPE: Record<string, string | undefined> = {
+  standard: "standard_clean",
+  deep: "deep_clean",
+  moveinout: "move_out",
+  recurring: "recurring",
+};
+
 interface SuggestedTech { id: number; name: string; zone_name: string; zone_color: string; }
 
 interface PreferredTech { id: number; full_name: string; job_count: number; }
@@ -1392,6 +1405,13 @@ export default function QuoteBuilderPage() {
       lead_phone: client?.phone || leadPhone || null,
       address: address || client?.address || null,
       scope_id: primaryScopeId || null,
+      // [hourly-subtype-persist 2026-08-14] Carry the Hourly sub-type the office
+      // actually clicked. It used to live only in local state and was dropped at
+      // save, leaving convert to re-derive the label from a scope name that
+      // names both services — the Deep-Clean-stamped-Move-Out bug. null for
+      // every other group, where the scope name is already unambiguous and the
+      // server's existing resolver stays in charge.
+      selected_service_type: HOURLY_SUBTYPE_SERVICE_TYPE[hourlySubType ?? ""] ?? null,
       frequency: primaryScopeState?.frequency || null,
       sqft: sqft || null,
       bedrooms, bathrooms,
