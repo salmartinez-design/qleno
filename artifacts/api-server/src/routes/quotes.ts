@@ -650,21 +650,54 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // standard_clean and the office "didn't recognize the hourly option".
       "hourly move in / move out": "move_out",
       "hourly move in/move out": "move_out",
+      // [combined-scope mixup 2026-08-14] PHES's legacy combined scopes name
+      // two services at once. They were in neither this table nor the old
+      // resolver's favour, so both booked as move_out and the card read
+      // "Move Out" on a Deep Clean. Pinned explicitly here as well as fixed
+      // positionally in resolveServiceType — a name this load-bearing should
+      // not depend on keyword ordering.
+      "deep clean or move in/out": "deep_clean",
+      "deep clean or move in / move out": "deep_clean",
+      "hourly deep clean or move in/out": "deep_clean",
+      "hourly deep clean or move in / move out": "deep_clean",
       "commercial cleaning": "office_cleaning",
       "ppm turnover": "ppm_turnover",
       "ppm common areas": "common_areas",
       "multi-unit common areas": "common_areas",
     };
     let serviceType = "standard_clean";
+    // [hourly-invisible 2026-08-14] The scope knows whether it bills hourly and
+    // at what rate; the job never learned either. `billing_method` was never
+    // written at all, and `hourly_rate` came only from the office's per-quote
+    // override — so a residential job booked off "Hourly Deep Clean" landed
+    // with billing_method NULL and hourly_rate NULL and read on the card as a
+    // plain flat total. Maribel: "scheduled as hourly. Doesn't say it anywhere."
+    // Carry the scope's own pricing_method + hourly_rate through, with the
+    // per-quote override still winning when the office set one.
+    let scopeBillingMethod: string | null = null;
+    let scopeHourlyRate: string | null = null;
     if (q.scope_id) {
-      const scopeResult = await db.execute(sql`SELECT name FROM pricing_scopes WHERE id = ${q.scope_id} LIMIT 1`);
-      const scopeName = ((scopeResult.rows[0] as any)?.name || "").toLowerCase().trim();
+      const scopeResult = await db.execute(sql`
+        SELECT name, pricing_method, hourly_rate FROM pricing_scopes WHERE id = ${q.scope_id} LIMIT 1`);
+      const scopeRow = scopeResult.rows[0] as any;
+      const scopeName = (scopeRow?.name || "").toLowerCase().trim();
       // Strict table first (preserves exact commercial mappings), then a robust
       // keyword resolver so punctuation/spacing variants of hourly scopes
       // (e.g. "Hourly Move-In / Move-Out") resolve to the right enum instead of
       // silently collapsing to standard_clean. See lib/serviceType.ts.
       serviceType = SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName);
+
+      if (String(scopeRow?.pricing_method ?? "").toLowerCase() === "hourly") {
+        scopeBillingMethod = "hourly";
+        const r = parseFloat(String(scopeRow?.hourly_rate ?? "0"));
+        if (Number.isFinite(r) && r > 0) scopeHourlyRate = String(r);
+      } else if (scopeRow) {
+        scopeBillingMethod = "flat_rate";
+      }
     }
+    const jobHourlyRate = q.hourly_rate_override != null
+      ? String(q.hourly_rate_override)
+      : scopeHourlyRate;
 
     // [multi-frequency] Book the customer's CHOSEN tier. Override precedence:
     // request body (office picks on convert) → quote.selected_frequency
@@ -1103,7 +1136,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, address_street, created_at,
+        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, billing_method, address_street, created_at,
         -- [job-created-audit 2026-08-08] Who booked it, from where. Convert
         -- never wrote a CREATE audit row, so the activity feed could show
         -- every later edit to this visit but not the booking itself.
@@ -1122,7 +1155,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${jobOfficeNotes},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
-        ${q.hourly_rate_override != null ? String(q.hourly_rate_override) : null},
+        ${jobHourlyRate},
+        ${scopeBillingMethod ? sql.raw(`'${scopeBillingMethod}'::billing_method`) : sql`NULL`},
         ${(q as any).address || null},
         NOW(),
         ${req.auth!.userId ?? null},

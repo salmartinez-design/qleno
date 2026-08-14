@@ -528,6 +528,11 @@ export default function MessagesPage() {
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const [convos, setConvos] = useState<Convo[]>([]);
+  // [unread-filter 2026-08-12] Which slice of the inbox is showing.
+  const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">("all");
+  const visibleConvos = readFilter === "all"
+    ? convos
+    : convos.filter(c => (readFilter === "unread" ? c.unread > 0 : c.unread === 0));
   const [q, setQ] = useState("");
   const [active, setActive] = useState<Convo | null>(null);
   // [media-lightbox 2026-07-30] Switching conversations closes the viewer — the
@@ -1043,10 +1048,39 @@ export default function MessagesPage() {
                 <Search size={15} color={MUTE} style={{ position: "absolute", left: 20, top: 19 }} />
                 <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name or number"
                   style={{ width: "100%", padding: "9px 12px 9px 34px", border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
+                {/* [unread-filter 2026-08-12] Maribel: "There should be a way to
+                    filter texts by read and not read." The unread count already
+                    came down on every conversation and drove the bold row and the
+                    sidebar badge — it just could not be filtered ON, so a busy
+                    day buried the three threads actually waiting for a reply.
+                    Client-side: the list is already fully loaded and capped, so
+                    a round trip would only add latency. */}
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  {([["all", "All"], ["unread", "Unread"], ["read", "Read"]] as const).map(([val, label]) => {
+                    const on = readFilter === val;
+                    const n = val === "unread" ? convos.filter(c => c.unread > 0).length : null;
+                    return (
+                      <button key={val} onClick={() => setReadFilter(val)}
+                        style={{ flex: 1, padding: "5px 0", borderRadius: 7, cursor: "pointer", fontFamily: FF,
+                          fontSize: 12, fontWeight: 700, border: `1px solid ${on ? "transparent" : BORDER}`,
+                          background: on ? INK : "#fff", color: on ? "#fff" : MUTE }}>
+                        {label}{n ? ` (${n})` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
-                {convos.length === 0 && <p style={{ textAlign: "center", color: MUTE, fontSize: 13, padding: 30 }}>No conversations yet.</p>}
-                {convos.map(c => (
+                {visibleConvos.length === 0 && (
+                  <p style={{ textAlign: "center", color: MUTE, fontSize: 13, padding: 30 }}>
+                    {convos.length === 0
+                      ? "No conversations yet."
+                      : readFilter === "unread" ? "Nothing unread — you're caught up."
+                      : readFilter === "read" ? "No read conversations."
+                      : "No conversations yet."}
+                  </p>
+                )}
+                {visibleConvos.map(c => (
                   <button key={c.contact_phone} onClick={() => openConvo(c)}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "12px 14px", border: "none", borderBottom: `1px solid ${BORDER}`, cursor: "pointer",
                       background: active?.contact_phone === c.contact_phone ? "#F1F0EC" : "#fff", fontFamily: FF }}>

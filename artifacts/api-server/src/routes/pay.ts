@@ -25,6 +25,7 @@
  */
 import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
+import { inIntList } from "../lib/sql-lists.js";
 import {
   payPeriodsTable,
   payPeriodSummariesTable,
@@ -1282,13 +1283,19 @@ async function computeAndApplyCommission(
   let jobTechs: JobTechRow[] = [];
   const techHoursByKey = new Map<string, number>();
   const serviceTypePctBySlug = new Map<string, number>();
-  if (jobIds.length > 0) {
+  // [ANY(array) trap 2026-08-14] Both lookups below used `= ANY(${jobIds}::int[])`,
+  // which throws through Drizzle at EVERY length — and the catch blocks turned
+  // that throw into "no per-tech pay rows, no clocked hours". So every hand-set
+  // final_pay override and every per-tech pay type silently fell back to the
+  // legacy single-basis path on this surface. inIntList builds a real IN list.
+  const jobIdList = inIntList(jobIds);
+  if (jobIdList) {
     try {
       const techRows = await db.execute(
         sql`SELECT job_id, user_id, is_primary, pay_type, hourly_rate, commission_pct,
                    pay_deduction_pct, pay_deduction_flat, final_pay
               FROM job_technicians
-             WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])`,
+             WHERE company_id = ${companyId} AND job_id IN (${jobIdList})`,
       );
       jobTechs = (techRows.rows as any[]).map((r) => ({
         job_id: Number(r.job_id),
@@ -1306,9 +1313,11 @@ async function computeAndApplyCommission(
           overrides.set(`${r.user_id}:${r.job_id}`, pay);
         }
       }
-    } catch {
+    } catch (err) {
       // job_technicians (or the pay-type columns) may be absent on a
-      // freshly-seeded tenant — empty jobTechs falls back to legacy.
+      // freshly-seeded tenant — empty jobTechs falls back to legacy. Logged so
+      // a genuine query failure is not mistaken for "this tenant has no rows".
+      console.warn("[pay] job_technicians pay-row lookup failed:", err);
     }
 
     // Per-tech clocked hours (the split denominator + hourly basis).
@@ -1319,15 +1328,16 @@ async function computeAndApplyCommission(
       const intervalRows = await db.execute(
         sql`SELECT job_id, user_id, clock_in_at, clock_out_at
               FROM timeclock
-             WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
+             WHERE company_id = ${companyId} AND job_id IN (${jobIdList})
                AND clock_out_at IS NOT NULL
                AND source = 'punched'`,
       );
       for (const [key, h] of unionHoursByKey(intervalRows.rows as any[])) {
         if (h > 0) techHoursByKey.set(key, h);
       }
-    } catch {
+    } catch (err) {
       // No timeclock data → every job falls back to legacy single-basis.
+      console.warn("[pay] timeclock interval lookup failed:", err);
     }
   }
 
@@ -1357,13 +1367,15 @@ async function computeAndApplyCommission(
 
   // Existing commission rows in this window — match by job_id IN (...).
   // type='commission' filter keeps tips/bonuses/mileage out of the diff.
-  const existingRows = jobIds.length > 0
+  // [ANY(array) trap 2026-08-14] Not wrapped in a catch — this one threw
+  // outright, 500ing the whole preview whenever the window had any job.
+  const existingRows = jobIdList
     ? await db.execute(sql`
         SELECT id, user_id, job_id, amount, voided_at
           FROM additional_pay
          WHERE company_id = ${companyId}
            AND type = 'commission'
-           AND job_id = ANY(${jobIds}::int[])
+           AND job_id IN (${jobIdList})
       `)
     : { rows: [] as any[] };
   const existing = (existingRows.rows as any[]).map((r) => ({

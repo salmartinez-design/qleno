@@ -10,6 +10,7 @@ import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
 import { ctDateStr } from "../lib/ct-day.js";
+import { inIntList } from "../lib/sql-lists.js";
 
 const router = Router();
 
@@ -2020,11 +2021,16 @@ router.post("/prune-far-future", requireAuth, requireRole("owner", "super_admin"
     // Delete non-cascading children first, then the jobs. job_technicians and
     // job_audit_log cascade on delete; the rest do not, so they go explicitly.
     // All in one transaction — an unexpected FK child rolls everything back.
+    // [ANY(array) trap 2026-08-14] These four used `= ANY(${ids})`, which throws
+    // at every length — so the prune has never actually deleted anything; the
+    // transaction rolled back and the caller got a 500. Fails safe, but it means
+    // the tool was inert. Expanded IN list; `ids` is non-empty (guarded above).
+    const pruneList = inIntList(ids)!;
     await db.transaction(async (tx) => {
-      await tx.execute(sql`DELETE FROM job_add_ons     WHERE job_id = ANY(${ids})`);
-      await tx.execute(sql`DELETE FROM job_discounts   WHERE job_id = ANY(${ids})`);
-      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ANY(${ids})`);
-      await tx.execute(sql`DELETE FROM jobs j WHERE j.id = ANY(${ids}) AND j.company_id = ${companyId}`);
+      await tx.execute(sql`DELETE FROM job_add_ons     WHERE job_id IN (${pruneList})`);
+      await tx.execute(sql`DELETE FROM job_discounts   WHERE job_id IN (${pruneList})`);
+      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id IN (${pruneList})`);
+      await tx.execute(sql`DELETE FROM jobs j WHERE j.id IN (${pruneList}) AND j.company_id = ${companyId}`);
     });
 
     return res.json({ dry_run: false, deleted: ids.length, cutoff_days: cutoffDays });
