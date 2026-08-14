@@ -15,7 +15,32 @@ export const quotesTable = pgTable("quotes", {
   lead_email: text("lead_email"),
   lead_phone: text("lead_phone"),
   address: text("address"),
+  /**
+   * The scope's display NAME, not a jobs.service_type enum value. This is what
+   * the quote list, the quote email and the customer's booking page print.
+   * Different semantics from `service_type_slug` below — do not confuse them.
+   */
   service_type: text("service_type"),
+  /**
+   * [subtype-coinflip 2026-08-14] The EXACT service type the office picked,
+   * when the UI knows it and the scope's name cannot express it.
+   *
+   * Phes has one scope, "Hourly Deep Clean or Move In/Out", sitting behind BOTH
+   * the Deep Clean and the Move In / Move Out hourly buttons. Convert resolved
+   * a job's type by reading that scope's NAME, so both buttons produced the
+   * same answer and one of them was always wrong — whichever way the name
+   * matching leaned. No amount of parsing fixes a name that genuinely describes
+   * two services.
+   *
+   * So the picker records what was actually clicked. NULL means "nothing
+   * explicit was chosen" and convert falls back to the old name resolution, so
+   * every existing quote and every other booking path is unaffected.
+   *
+   * Holds a jobs.service_type enum slug (e.g. "deep_clean"). Convert casts it
+   * into raw SQL, so it MUST be validated against the enum before use — see
+   * SERVICE_TYPE_SLUGS in routes/quotes.ts.
+   */
+  service_type_slug: text("service_type_slug"),
   frequency: text("frequency"),
   estimated_hours: numeric("estimated_hours", { precision: 4, scale: 2 }),
   base_price: numeric("base_price", { precision: 10, scale: 2 }),

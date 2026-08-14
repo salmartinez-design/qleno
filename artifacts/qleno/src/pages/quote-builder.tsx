@@ -31,6 +31,22 @@ import { SquareCardForm } from "@/components/square-card-form";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// [subtype-coinflip 2026-08-14] The hourly sub-type button → the jobs.service_type
+// slug it means. Keys match HOURLY_SUBS below; values are enum slugs the server
+// re-validates before use.
+//
+// This exists because the SCOPE cannot answer the question. Phes has one scope,
+// "Hourly Deep Clean or Move In/Out", behind both the Deep Clean and the Move
+// In/Out buttons, so resolving from its name gave the same answer for both and
+// one was always wrong. The button is the only place the distinction exists, so
+// it has to be the thing that travels.
+const HOURLY_SUB_SERVICE_TYPE: Record<string, string> = {
+  standard: "standard_clean",
+  deep: "deep_clean",
+  moveinout: "move_out",
+  recurring: "recurring",
+};
+
 // [counter-unify 2026-05-27] Centralized rule for which add-ons render
 // with the +/- counter UI vs a checkbox. Name-matched (case-insensitive)
 // so it works regardless of slug/scope-id.
@@ -1392,6 +1408,17 @@ export default function QuoteBuilderPage() {
       lead_phone: client?.phone || leadPhone || null,
       address: address || client?.address || null,
       scope_id: primaryScopeId || null,
+      // [subtype-coinflip 2026-08-14] Send WHICH hourly sub-type was clicked,
+      // because the scope alone cannot say. Phes has one scope, "Hourly Deep
+      // Clean or Move In/Out", sitting behind both the Deep Clean and the Move
+      // In/Out buttons — the server used to resolve the job's service type from
+      // that scope's NAME, so both buttons produced the same answer and one was
+      // always wrong. Sal, picking Move In/Out: "it should not display deep
+      // clean."
+      //
+      // Null for every non-hourly path, which leaves the server on its existing
+      // name resolution and changes nothing for them.
+      service_type_slug: HOURLY_SUB_SERVICE_TYPE[hourlySubType ?? ""] ?? null,
       frequency: primaryScopeState?.frequency || null,
       sqft: sqft || null,
       bedrooms, bathrooms,

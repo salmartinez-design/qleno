@@ -9,10 +9,26 @@ import { randomBytes, randomUUID } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 import { resolveServiceType } from "../lib/serviceType.js";
+import { serviceTypeEnum } from "@workspace/db/schema";
 import { materializeClientForQuote } from "../lib/materialize-client.js";
 import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 
 const router = Router();
+
+// [subtype-coinflip 2026-08-14] Every valid jobs.service_type value, taken from
+// the enum itself so it cannot drift as slugs are added.
+//
+// This is a SECURITY boundary, not a tidiness one: convert stamps the job with
+// sql.raw(`'${serviceType}'::service_type`), so any value that reaches it is
+// concatenated into SQL. The name-resolved path can only ever return a literal
+// from its own table, but service_type_slug arrives from a client. It is
+// checked against this set before it is allowed anywhere near that template.
+//
+// Tenant-added commercial slugs are ALTERed into the Postgres enum at runtime
+// (POST /api/commercial-service-types) but are not in this compiled list, so a
+// brand-new one falls back to name resolution rather than being injected. That
+// is the correct failure direction.
+const SERVICE_TYPE_SLUGS = new Set<string>(serviceTypeEnum.enumValues);
 
 // [quote-discount-adjustment 2026-08-09] Francisco: "Quote discounts should
 // appear as adjustments on the Job Card and should not affect cleaner
@@ -275,6 +291,11 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       client_id: client_id || null,
       lead_name, lead_email, lead_phone, address,
       service_type: scope?.[0]?.name || null,
+      // [subtype-coinflip 2026-08-14] The exact type the office picked, when the
+      // UI knows it. Validated at convert, not here — an unrecognised value is
+      // ignored there and name resolution stands, so a bad one can never be
+      // stamped on a job.
+      service_type_slug: (req.body.service_type_slug ?? null) || null,
       frequency, estimated_hours: estimated_hours ? String(estimated_hours) : null,
       manual_hours: manual_hours ? String(manual_hours) : null,
       base_price: base_price ? String(base_price) : null,
@@ -327,7 +348,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const allowed = [
       "status", "base_price", "total_price", "estimated_hours", "manual_hours", "hourly_rate_override",
       "notes", "client_notes", "internal_memo", "special_instructions", "call_notes",
-      "frequency", "scope_id", "pricing_method", "addons",
+      "frequency", "scope_id", "pricing_method", "addons", "service_type_slug",
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
       "lead_name", "lead_email", "lead_phone", "address", "client_id",
@@ -709,6 +730,32 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         if (Number.isFinite(r) && r > 0) scopeHourlyRate = String(r);
       } else if (scopeRow) {
         scopeBillingMethod = "flat_rate";
+      }
+    }
+
+    // [subtype-coinflip 2026-08-14] An EXPLICIT pick beats anything inferred
+    // from wording, so this runs AFTER the name resolution above and overrides
+    // it. Phes has one scope, "Hourly Deep Clean or Move In/Out", behind BOTH
+    // the Deep Clean and the Move In/Out hourly buttons — name resolution
+    // answered identically for both, so one of them was always wrong whichever
+    // way the matching leaned. Sal, picking Move In/Out: "it should not display
+    // deep clean." Maribel, on the same thing from the other side: "it should
+    // just mirror what we are selecting here."
+    //
+    // Only the TYPE is overridden. Billing method and rate still come from the
+    // scope, because those are properties of the scope and not of the choice.
+    //
+    // Validated against the enum rather than merely non-empty: this value is
+    // interpolated into raw SQL below via sql.raw, so an unchecked string would
+    // be an injection. Anything unrecognised is ignored and the name-resolved
+    // answer stands, which is also what makes this safe for every existing
+    // quote (the column is NULL on all of them).
+    const pickedSlug = String((q as any).service_type_slug ?? "").trim().toLowerCase();
+    if (pickedSlug) {
+      if (SERVICE_TYPE_SLUGS.has(pickedSlug)) {
+        serviceType = pickedSlug;
+      } else {
+        console.warn(`[quotes] quote ${id}: ignoring unrecognised service_type_slug "${pickedSlug}"`);
       }
     }
     const jobHourlyRate = q.hourly_rate_override != null

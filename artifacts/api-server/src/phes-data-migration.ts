@@ -521,6 +521,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "quotes.zone_override",           stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS zone_override BOOLEAN DEFAULT FALSE" },
     { label: "quotes.address_verified",        stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS address_verified BOOLEAN DEFAULT FALSE" },
     { label: "quotes.hourly_rate_override",    stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS hourly_rate_override NUMERIC(10,2)" },
+    // [subtype-coinflip 2026-08-14] The exact service type the office picked,
+    // for the case where the scope's NAME cannot express it — one scope backs
+    // both the Deep Clean and the Move In/Out hourly buttons. NULL = fall back
+    // to name resolution, so existing quotes are unaffected.
+    { label: "quotes.service_type_slug",       stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_type_slug TEXT" },
     // ── service_zones extra columns ─────────────────────────────────────────
     { label: "service_zones.location",         stmt: "ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'oak_lawn'" },
     // ── rate_locks table ────────────────────────────────────────────────────
