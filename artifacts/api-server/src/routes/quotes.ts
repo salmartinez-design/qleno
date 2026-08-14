@@ -12,6 +12,21 @@ import { resolveServiceType } from "../lib/serviceType.js";
 import { materializeClientForQuote } from "../lib/materialize-client.js";
 import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
 
+// [hourly-subtype-persist 2026-08-14] Idempotent boot migration for the column
+// that records WHICH hourly service the office picked when the scope cannot say.
+// Deliberately a new column rather than reusing quotes.service_type: that one
+// holds the scope's display NAME and is rendered to the customer on the quote
+// email (see svcLabel below), so putting an enum in it would silently change
+// "Hourly Deep Clean or Move In/Out" into "Deep Clean" on their quote.
+export async function runQuoteSelectedServiceTypeMigration(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS selected_service_type text`);
+    console.log("[quotes] selected_service_type migration ok");
+  } catch (err) {
+    console.error("[quotes] selected_service_type migration (non-fatal):", err);
+  }
+}
+
 const router = Router();
 
 // [quote-discount-adjustment 2026-08-09] Francisco: "Quote discounts should
@@ -257,6 +272,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
       special_instructions, internal_memo, client_notes, notes, status,
       unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
+      selected_service_type,
     } = req.body;
 
     const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
@@ -275,6 +291,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       client_id: client_id || null,
       lead_name, lead_email, lead_phone, address,
       service_type: scope?.[0]?.name || null,
+      // [hourly-subtype-persist 2026-08-14] Only set when the builder had to
+      // disambiguate (the Hourly group). NULL everywhere else, which leaves
+      // convert on the scope-name resolver it already uses.
+      selected_service_type: selected_service_type || null,
       frequency, estimated_hours: estimated_hours ? String(estimated_hours) : null,
       manual_hours: manual_hours ? String(manual_hours) : null,
       base_price: base_price ? String(base_price) : null,
@@ -327,7 +347,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const allowed = [
       "status", "base_price", "total_price", "estimated_hours", "manual_hours", "hourly_rate_override",
       "notes", "client_notes", "internal_memo", "special_instructions", "call_notes",
-      "frequency", "scope_id", "pricing_method", "addons",
+      "frequency", "scope_id", "pricing_method", "addons", "selected_service_type",
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
       "lead_name", "lead_email", "lead_phone", "address", "client_id",
@@ -685,7 +705,16 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // keyword resolver so punctuation/spacing variants of hourly scopes
       // (e.g. "Hourly Move-In / Move-Out") resolve to the right enum instead of
       // silently collapsing to standard_clean. See lib/serviceType.ts.
-      serviceType = SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName);
+      // [hourly-subtype-persist 2026-08-14] What the office ACTUALLY picked wins
+      // over anything re-derived from the scope name. The Hourly group's "Deep
+      // Clean" and "Move In / Move Out" buttons share one combined scope, so the
+      // name below genuinely cannot tell them apart — it names both, and the
+      // resolver has to pick one. That guess is what stamped Deep Clean bookings
+      // as Move Out. Older quotes have no recorded choice and fall through to
+      // the resolver, which is correct for every unambiguous scope.
+      serviceType = (q as any).selected_service_type
+        || SCOPE_TO_ENUM[scopeName]
+        || resolveServiceType(scopeName);
 
       if (String(scopeRow?.pricing_method ?? "").toLowerCase() === "hourly") {
         scopeBillingMethod = "hourly";

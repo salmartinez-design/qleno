@@ -910,6 +910,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     recordStartupFailure("runLeadReferralSourceMigration", err);
   }
+  // [hourly-subtype-persist 2026-08-14] quotes.selected_service_type — records
+  // which hourly service the office chose when one scope serves two buttons.
+  try {
+    await withBootTimeout("runQuoteSelectedServiceTypeMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runQuoteSelectedServiceTypeMigration } = await import("./routes/quotes.js");
+      await runQuoteSelectedServiceTypeMigration();
+    });
+  } catch (err: any) {
+    recordStartupFailure("runQuoteSelectedServiceTypeMigration", err);
+  }
   // [system-schedule-log 2026-07-21] Relax job_audit_log.user_id NOT NULL so the
   // recurrence engine can log "Qleno scheduled this" as a system actor.
   try {
