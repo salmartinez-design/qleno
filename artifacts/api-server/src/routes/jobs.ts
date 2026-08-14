@@ -4437,7 +4437,26 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     }
 
     // ── Hourly billing engine ─────────────────────────────────────────────
-    if (completedJob.billing_method === "hourly" && completedJob.hourly_rate) {
+    // [no-auto-remeter 2026-08-14] COMMERCIAL ONLY. This stamps billed_hours /
+    // billed_amount from clocked time (rounded UP to the next 0.25h), and
+    // invoice-line-items treats any job with billed_hours as metered — so it
+    // silently replaces the quoted price with hours × rate.
+    //
+    // That must never happen on a residential job. Maribel: "not because it
+    // says hourly, it means it will automatically adjust the price to the
+    // actual hours" — Sal: "we still do that manually [...] even if they go
+    // over the time, that should not change anything automatically."
+    //
+    // This matters now because the 2026-08-14 hourly-visibility fix started
+    // writing billing_method='hourly' onto residential quote-booked jobs so the
+    // card could SAY hourly. That display fix silently armed this engine for a
+    // population it was never meant to touch. The gate below re-narrows it to
+    // account/commercial jobs, exactly where it ran before.
+    //
+    // NOTE: commercial behaviour is deliberately unchanged here. Whether PPM
+    // should also stop auto-metering is a separate question for the office.
+    const isCommercialJob = completedJob.account_id != null;
+    if (isCommercialJob && completedJob.billing_method === "hourly" && completedJob.hourly_rate) {
       try {
         // Sum all completed timeclock entries for this job
         const tcRows = await db
