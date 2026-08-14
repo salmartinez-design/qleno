@@ -27,6 +27,19 @@ export async function runQuoteSelectedServiceTypeMigration(): Promise<void> {
   }
 }
 
+// [slug-validation 2026-08-14] The closed set of jobs.service_type slugs that
+// may arrive from a REQUEST BODY (quotes.selected_service_type). Convert
+// interpolates the chosen type into raw SQL as '<value>'::service_type, so an
+// unvalidated body value is a SQL injection. These four are exactly what the
+// quote builder's Hourly picker can send; anything else falls back to the
+// scope-name resolver rather than being trusted.
+const SERVICE_TYPE_SLUGS = new Set<string>([
+  "standard_clean",
+  "deep_clean",
+  "move_out",
+  "recurring",
+]);
+
 const router = Router();
 
 // [quote-discount-adjustment 2026-08-09] Francisco: "Quote discounts should
@@ -712,9 +725,17 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // resolver has to pick one. That guess is what stamped Deep Clean bookings
       // as Move Out. Older quotes have no recorded choice and fall through to
       // the resolver, which is correct for every unambiguous scope.
-      serviceType = (q as any).selected_service_type
-        || SCOPE_TO_ENUM[scopeName]
-        || resolveServiceType(scopeName);
+      // [slug-validation 2026-08-14] selected_service_type is CLIENT-SUPPLIED
+      // (POST /quotes body, and the PATCH allowlist), and serviceType is
+      // interpolated into raw SQL further down as '<value>'::service_type. It
+      // MUST be checked against a closed set before it is trusted — an
+      // unvalidated value here is a SQL injection, not just a bad label.
+      // Every other source is already closed: SCOPE_TO_ENUM is a literal map
+      // and resolveServiceType returns from a fixed list.
+      const pickedSlug = String((q as any).selected_service_type ?? "");
+      serviceType = SERVICE_TYPE_SLUGS.has(pickedSlug)
+        ? pickedSlug
+        : (SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName));
 
       if (String(scopeRow?.pricing_method ?? "").toLowerCase() === "hourly") {
         scopeBillingMethod = "hourly";
@@ -1175,7 +1196,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${clientId},
         ${jobDate},
         ${scheduled_time || null},
-        ${sql.raw(`'${serviceType}'::service_type`)},
+        ${serviceType}::service_type,
         ${firstVisitFee != null ? String(firstVisitFee) : (q.total_price || '0')},
         'scheduled',
         ${assigned_user_id || null},
