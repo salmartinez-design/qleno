@@ -2924,14 +2924,58 @@ export default function QuoteBuilderPage() {
                                     { value: "every_2_weeks", label: "Bi-Weekly" },
                                     { value: "every_4_weeks", label: "Monthly" },
                                   ]
-                                : hourlySel.frequencies.length
-                                ? hourlySel.frequencies.map(f => ({ value: f.frequency, label: f.label || f.frequency }))
-                                : [
-                                    { value: "onetime", label: "One Time" },
-                                    { value: "weekly", label: "Weekly" },
-                                    { value: "every_2_weeks", label: "Bi-Weekly" },
-                                    { value: "every_4_weeks", label: "Monthly" },
-                                  ];
+                                // [cadence-is-a-cadence 2026-08-14] This dropdown answers "how
+                                // often does the client want this?", so every option must BE a
+                                // cadence. It used to render a scope's pricing_frequencies rows
+                                // verbatim — and one row on "Hourly Deep Clean or Move In/Out"
+                                // has label '80' (the $80 rate typed into the label field), so
+                                // the office saw a cadence of "80". Sal: "the cadence should be
+                                // the actual cadence the client wants, not a number value."
+                                //
+                                // Rows are now kept only when their `frequency` is a real
+                                // cadence, and the LABEL is only trusted to rename a known
+                                // cadence, never to introduce one. Bad rows are dropped rather
+                                // than shown, and if nothing survives we fall back to the
+                                // canonical set — so a data problem can degrade the list but can
+                                // never put a price, or anything else, in front of the office as
+                                // a cadence.
+                                : (() => {
+                                    const CANONICAL = [
+                                      { value: "onetime", label: "One Time" },
+                                      { value: "weekly", label: "Weekly" },
+                                      { value: "biweekly", label: "Bi-Weekly" },
+                                      { value: "every_2_weeks", label: "Bi-Weekly" },
+                                      { value: "every_4_weeks", label: "Monthly" },
+                                      { value: "monthly", label: "Monthly" },
+                                      { value: "every_3_weeks", label: "Every 3 Weeks" },
+                                      { value: "monthly_weekday", label: "Monthly (weekday)" },
+                                    ];
+                                    const known = new Map(CANONICAL.map(c => [c.value, c.label]));
+                                    // Deduped: the same scope can carry two identical rows
+                                    // (Hourly Deep Clean and Hourly Standard Cleaning each have
+                                    // two 'onetime' rows), which listed the option twice.
+                                    const fromScope: Array<{ value: string; label: string }> = [];
+                                    for (const f of hourlySel.frequencies) {
+                                      if (!known.has(f.frequency)) continue;
+                                      if (fromScope.some(o => o.value === f.frequency)) continue;
+                                      // A label may RENAME a known cadence ("Every Other Week"),
+                                      // but never define one. A purely numeric label is the '80'
+                                      // case — drop it and use the canonical name instead.
+                                      const labelIsUsable = f.label && !/^\s*[\d.,$]+\s*$/.test(f.label);
+                                      fromScope.push({
+                                        value: f.frequency,
+                                        label: labelIsUsable ? f.label : known.get(f.frequency)!,
+                                      });
+                                    }
+                                    return fromScope.length
+                                      ? fromScope
+                                      : [
+                                          { value: "onetime", label: "One Time" },
+                                          { value: "weekly", label: "Weekly" },
+                                          { value: "every_2_weeks", label: "Bi-Weekly" },
+                                          { value: "every_4_weeks", label: "Monthly" },
+                                        ];
+                                  })();
                               return (
                                 <div style={{ marginTop: 10, paddingLeft: 12 }}>
                                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Cadence</div>
