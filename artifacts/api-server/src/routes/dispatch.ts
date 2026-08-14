@@ -764,17 +764,38 @@ async function buildDispatchPayload(
     // no blast radius on jobs nobody has configured yet.
     const enginePayByKey = new Map<string, number>();   // "job_id:user_id" → $
     const engineJobIds = new Set<number>();
+
+    // [per-tech-actual 2026-08-14] Francisco: "The breakdown should also include
+    // both the total service time and the individual cleaner's actual time."
+    //
+    // The job total was already on the card; the per-cleaner split was computed
+    // right here and then thrown away, because it only ever fed the commission
+    // engine. Hoisted out of that block so the payload can carry it too — same
+    // numbers the pay engine uses, so the hours a cleaner sees and the hours
+    // they are paid on can never disagree.
+    //
+    // 'punched' only: an 'estimated' clock row is a placeholder, not time
+    // anybody worked, and labelling it "actual" would be a lie on a screen the
+    // office uses to check up on people. unionHoursByKey unions overlapping
+    // punches so a duplicate pair cannot double-count the minutes.
+    const punched = clockEntries.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at);
+    let techHoursByKey = new Map<string, number>();
+    try {
+      techHoursByKey = unionHoursByKey(punched as any);
+    } catch (e) {
+      // Never 500 the whole board over a display figure.
+      console.error("[dispatch] per-tech actual hours failed:", e);
+    }
+
     try {
       // Jobs with a per-tech pay-type override set on the time clock.
       for (const r of techRows.rows as any[]) {
         if (r.pay_type != null) engineJobIds.add(Number(r.job_id));
       }
       // Jobs with at least one REAL (punched) closed clock pair.
-      const punched = clockEntries.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at);
       for (const e of punched) engineJobIds.add(Number(e.job_id));
 
       if (engineJobIds.size > 0) {
-        const techHoursByKey = unionHoursByKey(punched as any);
         // Per-service fee-split % (mirrors the time-clock/payroll path).
         const serviceTypePctBySlug = new Map<string, number>();
         try {
@@ -1059,6 +1080,14 @@ async function buildDispatchPayload(
           // surface reading technicians[] agrees and exactly one row is primary.
           is_primary: j.assigned_user_id != null ? t.user_id === j.assigned_user_id : t.is_primary,
           est_hours: estHoursPerTech,
+          // [per-tech-actual 2026-08-14] What this cleaner actually clocked on
+          // this job, from their own punches. null (not 0) when they have no
+          // closed punch — "hasn't clocked out yet" and "worked no time" are
+          // different facts and the card must not state the second when it
+          // means the first.
+          actual_hours: techHoursByKey.has(`${j.id}:${t.user_id}`)
+            ? Math.round((techHoursByKey.get(`${j.id}:${t.user_id}`) ?? 0) * 100) / 100
+            : null,
           calc_pay: calcPay,
           final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPay),
           pay_override: t.pay_override,

@@ -184,22 +184,61 @@ function normalizeTimeStr(t: string | null | undefined): string {
 // sync — used when the operator changes the residential Service Type dropdown so
 // the job's service_type persists (see save payload). Values line up with the
 // service_type enum in lib/db/src/schema/jobs.ts.
+// [mapper-drift 2026-08-14] This is a hand-copied mirror of the server's
+// resolver, and it had drifted: the server now decides a name containing two
+// service words by which appears FIRST, while this copy still tested the move
+// keywords before "deep". Saving through this modal could therefore stamp
+// move_out on a name the server would have called deep_clean — and the modal's
+// cascade rewrites every future job in the series, so the disagreement did not
+// stay local.
+//
+// Kept aligned by hand because the frontend cannot import the api-server lib.
+// There are FOUR copies of this logic in the codebase (this one,
+// api-server/src/lib/serviceType.ts, routes/public.ts, lib/recurring-jobs.ts)
+// and they have all drifted from each other at least once. The durable fix is
+// for a scope to CARRY its service type as data instead of every caller
+// re-deriving it from wording — see the note in lib/serviceType.ts.
 function scopeNameToServiceType(scopeName: string | null | undefined): string {
   const n = (scopeName || "").toLowerCase().trim();
   if (!n) return "standard_clean";
-  if (n.includes("move out") || n.includes("move-out") || (n.includes("move in") && n.includes("out"))) return "move_out";
-  if (n.includes("move in") || n.includes("move-in")) return "move_in";
-  if (n.includes("post construction") || n.includes("post-construction")) return "post_construction";
-  if (n.includes("post event") || n.includes("post-event")) return "post_event";
-  if (n.includes("deep")) return "deep_clean";
-  if (n.includes("carpet")) return "carpet_cleaning";
+
+  const firstIdx = (needles: string[]): number => {
+    let best = -1;
+    for (const needle of needles) {
+      const i = n.indexOf(needle);
+      if (i !== -1 && (best === -1 || i < best)) best = i;
+    }
+    return best;
+  };
+
   if (n.includes("ppm") && n.includes("turnover")) return "ppm_turnover";
-  if (n.includes("common area")) return "common_areas";
-  if (n.includes("recurring")) return "recurring";
-  if (n.includes("retail")) return "retail_store";
-  if (n.includes("medical")) return "medical_office";
-  if (n.includes("office") || n.includes("commercial")) return "office_cleaning";
-  return "standard_clean";
+
+  const MATCHERS: Array<{ needles: string[]; type: string }> = [
+    { needles: ["post construction", "post-construction"], type: "post_construction" },
+    { needles: ["post event", "post-event"], type: "post_event" },
+    { needles: ["deep"], type: "deep_clean" },
+    { needles: ["carpet"], type: "carpet_cleaning" },
+    { needles: ["common area"], type: "common_areas" },
+    { needles: ["recurring"], type: "recurring" },
+    { needles: ["retail"], type: "retail_store" },
+    { needles: ["medical"], type: "medical_office" },
+    { needles: ["office", "commercial"], type: "office_cleaning" },
+  ];
+
+  const candidates: Array<{ idx: number; rank: number; type: string }> = [];
+  const moveIdx = firstIdx(["move in", "move-in", "move out", "move-out"]);
+  if (moveIdx !== -1) {
+    const isOut = n.includes("move out") || n.includes("move-out") || n.includes("out");
+    candidates.push({ idx: moveIdx, rank: 0, type: isOut ? "move_out" : "move_in" });
+  }
+  MATCHERS.forEach((m, rank) => {
+    const idx = firstIdx(m.needles);
+    if (idx !== -1) candidates.push({ idx, rank: rank + 1, type: m.type });
+  });
+
+  if (!candidates.length) return "standard_clean";
+  candidates.sort((a, b) => (a.idx !== b.idx ? a.idx - b.idx : a.rank - b.rank));
+  return candidates[0].type;
 }
 
 const FREQUENCIES_STANDARD: Array<{ value: string; label: string }> = [

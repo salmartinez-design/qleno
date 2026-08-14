@@ -109,10 +109,14 @@ async function main() {
   `);
   const ids = (techIds.rows as any[]).map(r => r.user_id);
   console.log("Unique tech ids in staging:", ids);
+  // [ANY(array) trap 2026-08-14] Caught by scripts/guard-any-array.mjs on its
+  // first run. `= ANY(${ids}::int[])` throws through Drizzle at every length,
+  // so this verification step could never have reported anything but an error.
+  const idLit = sql.raw(`ARRAY[${ids.map((n: any) => Number(n)).filter(Number.isFinite).join(",")}]::int[]`);
   const verifyUsers = await db.execute(sql`
     SELECT id, first_name, last_name, is_active, role
       FROM users
-     WHERE id = ANY(${ids}::int[])
+     WHERE id = ANY(${idLit})
      ORDER BY id
   `);
   console.table(verifyUsers.rows);
