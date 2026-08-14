@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { requireAuth } from "../lib/auth.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
+import { inIntList } from "../lib/sql-lists.js";
 
 // [voice-assistant 2026-06-08] Field-tech voice assistant. The mobile app
 // transcribes the tech's spoken question (browser speech-to-text), POSTs it
@@ -140,7 +141,11 @@ router.post("/ask", requireAuth, async (req, res) => {
       const ojobIds = orows.map(j => j.id);
       if (ojobIds.length) {
         try {
-          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${ojobIds}::int[]) AND final_pay IS NOT NULL`);
+          // [ANY(array) trap 2026-08-14] see lib/sql-lists.ts
+          const ovL = inIntList(ojobIds);
+          const ov = ovL
+            ? await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id IN (${ovL}) AND final_pay IS NOT NULL`)
+            : { rows: [] as any[] };
           for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
         } catch { /* job_technicians absent */ }
       }

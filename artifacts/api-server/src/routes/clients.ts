@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
+import { inIntList } from "../lib/sql-lists.js";
 import {
   clientsTable, jobsTable, usersTable, invoicesTable,
   scorecardsTable, clientHomesTable, technicianPreferencesTable,
@@ -2441,9 +2442,16 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
           // array = "only matching weekdays". Postgres EXTRACT(DOW...)
           // returns 0=Sun..6=Sat which matches our 0=Sun..6=Sat
           // convention for parking_fee_days.
+          // [ANY(array) trap 2026-08-14] `= ANY(${jsArray})` throws through
+          // Drizzle at every length — the day-restricted parking cascade never
+          // ran. inIntList builds a real IN list; an empty/invalid day array
+          // means "no day matches", not "every day".
+          const dayList = inIntList((sched.parking_fee_days as number[]) ?? []);
           const dayFilter = sched.parking_fee_days == null
             ? sql`TRUE`
-            : sql`EXTRACT(DOW FROM scheduled_date)::int = ANY(${sched.parking_fee_days as number[]})`;
+            : dayList
+              ? sql`EXTRACT(DOW FROM scheduled_date)::int IN (${dayList})`
+              : sql`FALSE`;
           // INSERT ... ON CONFLICT (job_id, add_on_id) DO UPDATE so amount
           // changes propagate to already-stamped jobs.
           const upsertRes = await db.execute(sql`
@@ -2474,7 +2482,7 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
                     AND j.recurring_schedule_id = ${sched.id}
                     AND j.status = 'scheduled'
                     AND j.scheduled_date >= ${today}
-                    AND NOT (EXTRACT(DOW FROM scheduled_date)::int = ANY(${sched.parking_fee_days as number[]}))
+                    AND NOT (${dayFilter})
                 )
             `);
             parkingCascadeRemoved = (removeRes as any).rowCount ?? 0;

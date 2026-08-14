@@ -26,6 +26,7 @@ import {
   type OvertimeRules,
 } from "../lib/overtime.js";
 import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
+import { inIntList } from "../lib/sql-lists.js";
 
 const router = Router();
 
@@ -325,11 +326,18 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
       // Per-job final_pay overrides (one query for the whole range).
       const overrides = new Map<string, number>();
       const jobIds = cJobs.map(j => j.id);
-      if (jobIds.length) {
+      // [ANY(array) trap 2026-08-14] This lookup used `= ANY(${jobIds}::int[])`,
+      // which throws at every length through Drizzle — and the catch below
+      // swallowed it, so `overrides` was ALWAYS empty. Every hand-set final_pay
+      // the office entered was silently dropped and this surface paid the
+      // engine amount instead. The catch stays for a genuinely absent table on
+      // a fresh tenant, but it is no longer hiding a query bug.
+      const ovList = inIntList(jobIds);
+      if (ovList) {
         try {
-          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL`);
+          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id IN (${ovList}) AND final_pay IS NOT NULL`);
           for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
-        } catch { /* job_technicians may be absent */ }
+        } catch (e) { console.error("[payroll] final_pay override lookup failed:", (e as any)?.message); }
       }
 
       const ccOut = await chargedCancelJobIds(companyId, jobIds);
@@ -721,11 +729,24 @@ router.get("/detail", requireAuth, async (req, res) => {
       const allJobIds = jobs.map(j => j.id);
       if (allJobIds.length) {
         try {
-          const sc = await db.execute(
-            sql`SELECT job_id, score, excluded FROM scorecards WHERE company_id = ${companyId} AND job_id = ANY(${allJobIds}::int[])`,
-          );
+          // [ANY(array) trap 2026-08-14] Broken binding, swallowed by the catch —
+          // so the quality column has always been empty here.
+          //
+          // [dead table 2026-08-14] AND it reads `scorecards`, which #1382
+          // established is a LEGACY table nothing writes to; live ratings are in
+          // `scorecard_entries` (one row per tech per job, written by
+          // captureJobScore). Fixing only the binding would have swapped an
+          // empty column for another empty column. Averaged per job, since this
+          // map is keyed by job and a multi-tech visit has one row per tech.
+          const scoreList = inIntList(allJobIds);
+          const sc = scoreList ? await db.execute(
+            sql`SELECT job_id, AVG(score)::numeric AS score, bool_and(COALESCE(excluded, false)) AS excluded
+                  FROM scorecard_entries
+                 WHERE company_id = ${companyId} AND job_id IN (${scoreList})
+                 GROUP BY job_id`,
+          ) : { rows: [] as any[] };
           for (const r of sc.rows as any[]) scoreByJob.set(Number(r.job_id), { score: Number(r.score), excluded: !!r.excluded });
-        } catch { /* scorecards table absent — skip quality */ }
+        } catch (e) { console.error("[payroll] quality score lookup failed:", (e as any)?.message); }
       }
     }
 
@@ -1502,11 +1523,13 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       // produced pay.
       const overrides = new Map<string, number>();
       const jobIds = cJobs.map(j => j.id);
-      if (jobIds.length) {
+      // [ANY(array) trap 2026-08-14] Same silent-override bug as above.
+      const ovList2 = inIntList(jobIds);
+      if (ovList2) {
         try {
-          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL`);
+          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id IN (${ovList2}) AND final_pay IS NOT NULL`);
           for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
-        } catch { /* job_technicians absent */ }
+        } catch (e) { console.error("[payroll] final_pay override lookup failed:", (e as any)?.message); }
       }
       const ccOut2 = await chargedCancelJobIds(companyId, jobIds);
       const rows = computeCommissionRows({ jobs: cJobs.filter(j => !ccOut2.has(j.id)) as any, resRates, commercial, overrides });

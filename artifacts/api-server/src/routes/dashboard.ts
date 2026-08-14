@@ -8,6 +8,7 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { computeCommissionRows, type CommissionInputJob } from "../lib/commission-compute.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
+import { inIntList } from "../lib/sql-lists.js";
 
 const router = Router();
 
@@ -1422,16 +1423,23 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
   const overrides = new Map<string, number>();
   const jobIds = jobs.map(j => j.id);
   if (jobIds.length > 0) {
-    try {
-      const t = await db.execute(sql`
-        SELECT job_id, user_id, final_pay FROM job_technicians
-        WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL
-      `);
-      for (const r of t.rows as any[]) {
-        const pay = parseFloat(String(r.final_pay));
-        if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
-      }
-    } catch { /* job_technicians absent on a fresh tenant — engine-computed only */ }
+    // [ANY(array) trap 2026-08-14] `= ANY(${jobIds}::int[])` throws at every
+    // length through Drizzle, and the catch swallowed it — so this card's
+    // percentage was computed with NO overrides applied, however many the
+    // office had hand-set that week. Same bug on both payroll surfaces.
+    const ovList = inIntList(jobIds);
+    if (ovList) {
+      try {
+        const t = await db.execute(sql`
+          SELECT job_id, user_id, final_pay FROM job_technicians
+          WHERE company_id = ${companyId} AND job_id IN (${ovList}) AND final_pay IS NOT NULL
+        `);
+        for (const r of t.rows as any[]) {
+          const pay = parseFloat(String(r.final_pay));
+          if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
+        }
+      } catch (e) { console.error("[dashboard] final_pay override lookup failed:", (e as any)?.message); }
+    }
   }
 
   const commissionRows = computeCommissionRows({
@@ -1552,16 +1560,25 @@ async function commissionCostForRange(companyId: number, from: string, to: strin
   if (jobs.length === 0) return 0;
 
   const overrides = new Map<string, number>();
-  try {
-    const t = await db.execute(sql`
-      SELECT job_id, user_id, final_pay FROM job_technicians
-      WHERE company_id = ${companyId} AND job_id = ANY(${jobs.map(j => j.id)}::int[]) AND final_pay IS NOT NULL
-    `);
-    for (const r of t.rows as any[]) {
-      const pay = parseFloat(String(r.final_pay));
-      if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
+  // [ANY(array) trap 2026-08-14] Second copy of the same dropped-override bug —
+  // see the note on the other override lookup above. inIntList, not ANY().
+  const ovList2 = inIntList(jobs.map(j => j.id));
+  if (ovList2) {
+    try {
+      const t = await db.execute(sql`
+        SELECT job_id, user_id, final_pay FROM job_technicians
+        WHERE company_id = ${companyId} AND job_id IN (${ovList2}) AND final_pay IS NOT NULL
+      `);
+      for (const r of t.rows as any[]) {
+        const pay = parseFloat(String(r.final_pay));
+        if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
+      }
+    } catch (err) {
+      // job_technicians absent on a fresh tenant — engine-computed only. Log it
+      // so a real failure is not mistaken for "no overrides exist".
+      console.warn("[dashboard] final_pay override lookup failed:", err);
     }
-  } catch { /* job_technicians absent on a fresh tenant — engine-computed only */ }
+  }
 
   return computeCommissionRows({
     jobs,

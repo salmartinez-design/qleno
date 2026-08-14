@@ -14,6 +14,7 @@
 // is worse than an unresolved row, because it looks settled.
 import { Router } from "express";
 import { db } from "@workspace/db";
+import { inIntList } from "../lib/sql-lists.js";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -434,10 +435,13 @@ router.get("/payments", ...officeOnly, async (req, res) => {
       rows.flatMap((r: any) => Array.isArray(r.candidate_invoice_ids) ? r.candidate_invoice_ids : [])
     )) as number[];
     let candidates: any[] = [];
-    if (candidateIds.length) {
+    // [ANY(array) trap 2026-08-14] `= ANY(${jsArray}::int[])` throws through
+    // Drizzle at every length — see lib/sql-lists.ts.
+    const candList = inIntList(candidateIds);
+    if (candList) {
       candidates = (await db.execute(sql`
         SELECT id, invoice_number, total, status::text AS status, due_date::text AS due_date
-          FROM invoices WHERE company_id = ${companyId} AND id = ANY(${candidateIds}::int[])`) as any).rows;
+          FROM invoices WHERE company_id = ${companyId} AND id IN (${candList})`) as any).rows;
     }
 
     res.json({ rows, counts, candidates });

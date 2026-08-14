@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
+import { inIntList } from "../lib/sql-lists.js";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable, additionalPayTable } from "@workspace/db/schema";
 import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
@@ -7160,6 +7161,11 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
     if (!Array.isArray(job_ids) || job_ids.length === 0) return res.status(400).json({ error: "job_ids required" });
     const idList = job_ids.map((id: any) => parseInt(id)).filter((n: number) => !isNaN(n));
     if (idList.length === 0) return res.status(400).json({ error: "no valid job IDs" });
+    // [ANY(array) trap 2026-08-14] Every branch below used `id = ANY(${idList}::int[])`,
+    // which throws through Drizzle at every length — so the whole bulk-actions
+    // endpoint 500'd on any selection. Real IN list instead.
+    const idIn = inIntList(idList);
+    if (!idIn) return res.status(400).json({ error: "no valid job IDs" });
 
     switch (action) {
       case "mark_complete": {
@@ -7169,10 +7175,10 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
         // completed_by_user_id, so these jobs are never ghost-revert eligible.
         const toComplete = await db.execute(sql`
           SELECT id, status FROM jobs
-          WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}
+          WHERE id IN (${idIn}) AND company_id = ${companyId}
             AND status NOT IN ('complete', 'cancelled')
         `);
-        await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         for (const r of toComplete.rows as any[]) {
           void logJobStatusChange({
             companyId,
@@ -7189,12 +7195,12 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
         return res.json({ success: true, affected: idList.length });
       }
       case "mark_paid": {
-        await db.execute(sql`UPDATE jobs SET charge_succeeded_at = NOW() WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        await db.execute(sql`UPDATE jobs SET charge_succeeded_at = NOW() WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         return res.json({ success: true, affected: idList.length });
       }
       case "cancel": {
         const reason = String(payload?.reason || "cancelled").slice(0, 200);
-        await db.execute(sql`UPDATE jobs SET status = 'cancelled', notes = COALESCE(notes, '') || ${` [Cancelled: ${reason}]`} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        await db.execute(sql`UPDATE jobs SET status = 'cancelled', notes = COALESCE(notes, '') || ${` [Cancelled: ${reason}]`} WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         // Void any draft invoices tied to these now-cancelled jobs.
         Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { cancel: true })))
           .catch(e => console.error("[bulk cancel] invoice void non-fatal:", e));
@@ -7203,7 +7209,7 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
       case "reassign": {
         const techId = parseInt(payload?.assigned_user_id);
         if (!techId || isNaN(techId)) return res.status(400).json({ error: "assigned_user_id required" });
-        await db.execute(sql`UPDATE jobs SET assigned_user_id = ${techId} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        await db.execute(sql`UPDATE jobs SET assigned_user_id = ${techId} WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         return res.json({ success: true, affected: idList.length });
       }
       case "reschedule": {
@@ -7211,9 +7217,9 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
         if (!date || !DATE_RE.test(date)) return res.status(400).json({ error: "valid date required (YYYY-MM-DD)" });
         const timeShift = payload?.time_shift || null;
         if (timeShift) {
-          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date}, scheduled_time = ${timeShift} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date}, scheduled_time = ${timeShift} WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         } else {
-          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date} WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         }
         // Shift due_date on any draft invoices for these rescheduled jobs.
         Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { newDate: date })))
@@ -7222,7 +7228,7 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
       }
       case "flag": {
         const flagged = payload?.flagged !== false;
-        await db.execute(sql`UPDATE jobs SET flagged = ${flagged} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        await db.execute(sql`UPDATE jobs SET flagged = ${flagged} WHERE id IN (${idIn}) AND company_id = ${companyId}`);
         return res.json({ success: true, affected: idList.length });
       }
       case "batch_invoice_preflight": {
@@ -7239,7 +7245,7 @@ router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "su
             COUNT(*) FILTER (WHERE NOT ${billed}) AS to_invoice,
             COUNT(*) FILTER (WHERE ${billed}) AS already_invoiced,
             COALESCE(SUM(CAST(j.base_fee AS NUMERIC)) FILTER (WHERE NOT ${billed}), 0) AS total_amount
-          FROM jobs j WHERE j.id = ANY(${idList}::int[]) AND j.company_id = ${companyId}
+          FROM jobs j WHERE j.id IN (${idIn}) AND j.company_id = ${companyId}
         `);
         const r = (pf as any).rows?.[0] ?? {};
         return res.json({ to_invoice: parseInt(r.to_invoice) || 0, already_invoiced: parseInt(r.already_invoiced) || 0, total_amount: parseFloat(r.total_amount) || 0 });
