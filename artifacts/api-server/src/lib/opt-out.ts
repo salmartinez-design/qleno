@@ -207,9 +207,17 @@ export async function sendSmsOptOutConfirmation(
     // different problem and shouldn't read the same.
     const code = Number(e?.code ?? e?.status ?? 0);
     const carrierHandled = code === 21610 || /21610|opted out|blacklist/i.test(String(e?.message ?? ""));
+    // Say only what 21610 actually proves. It means Twilio has this number on
+    // its opt-out list and refused our send — so the unsubscribe is definitely
+    // in force. It does NOT prove a confirmation text reached them: whether
+    // Twilio auto-replies depends on how opt-out management is configured on
+    // the messaging service, and that reply never passes through Qleno (it is
+    // outbound from Twilio, not an inbound webhook). Claiming "the customer was
+    // answered" here would be asserting something nobody verified. The Twilio
+    // message log for the number is the only place that can confirm delivery.
     await noteOnThread(companyId, toPhone,
       carrierHandled
-        ? "Opted out of texts. The carrier had already sent its own STOP confirmation, so ours was not delivered — the customer was answered and will receive no further texts."
+        ? "Opted out of texts — confirmed in force: the carrier rejected our confirmation because this number is already on its STOP list. They will receive no further texts. Whether the carrier sent its own confirmation text is only visible in the Twilio message log for this number."
         : `Opted out of texts. The confirmation could not be sent (${e?.message ?? "unknown error"}) — the customer may not have received a reply.`);
     return false;
   }
