@@ -510,18 +510,52 @@ router.get("/:id/engagement", requireAuth, async (req, res) => {
     `);
     // Latest enrollment → next scheduled touch + step progress.
     const enr = await db.execute(sql`
-      SELECT fe.id, fe.current_step, fe.next_fire_at, fe.stopped_at, fe.stopped_reason, fe.completed_at,
+      SELECT fe.id, fe.sequence_id, fe.enrolled_at, fe.current_step, fe.next_fire_at,
+             fe.stopped_at, fe.stopped_reason, fe.completed_at,
+             fs.name AS sequence_name,
              (SELECT COUNT(*)::int FROM follow_up_steps s WHERE s.sequence_id = fe.sequence_id) AS total_steps,
              (SELECT channel FROM follow_up_steps s WHERE s.sequence_id = fe.sequence_id AND s.step_number = fe.current_step LIMIT 1) AS next_channel
-      FROM follow_up_enrollments fe WHERE fe.estimate_id = ${id} AND fe.company_id = ${companyId}
+      FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.estimate_id = ${id} AND fe.company_id = ${companyId}
       ORDER BY fe.id DESC LIMIT 1
     `);
+    const enrollment = (enr as any).rows[0] ?? null;
+
+    // [followup-visibility 2026-08-15] The panel showed "Step 3 of 8" and a
+    // progress bar but never said WHAT the 8 touches are — so the office could
+    // not tell what was already sent to a live prospect, or what is queued to
+    // go out next. Return the actual steps so the panel can list them.
+    // `fires_at` is enrolled_at + cumulative delay_hours, matching how the cron
+    // schedules each touch.
+    let steps: any[] = [];
+    if (enrollment) {
+      const s = await db.execute(sql`
+        SELECT step_number, channel, subject, delay_hours,
+               SUM(delay_hours) OVER (ORDER BY step_number
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_hours
+        FROM follow_up_steps
+        WHERE sequence_id = ${enrollment.sequence_id}
+        ORDER BY step_number
+      `);
+      const enrolledAt = enrollment.enrolled_at ? new Date(enrollment.enrolled_at).getTime() : null;
+      steps = (s as any).rows.map((r: any) => ({
+        step_number: Number(r.step_number),
+        channel: r.channel,
+        subject: r.subject,
+        delay_hours: Number(r.delay_hours || 0),
+        fires_at: enrolledAt
+          ? new Date(enrolledAt + Number(r.cumulative_hours || 0) * 3600_000).toISOString()
+          : null,
+      }));
+    }
 
     return res.json({
       estimate: est,
       counts: (counts as any).rows[0] ?? { opened: 0, clicked: 0, viewed: 0, touches_sent: 0 },
       timeline: (timeline as any).rows,
-      enrollment: (enr as any).rows[0] ?? null,
+      enrollment,
+      steps,
     });
   } catch (err) {
     console.error("Estimate engagement error:", err);

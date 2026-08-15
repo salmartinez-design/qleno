@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard, FileSignature, MoreHorizontal, Copy, ShieldCheck, RefreshCw } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard, FileSignature, MoreHorizontal, Copy, ShieldCheck, RefreshCw, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -1173,11 +1173,14 @@ function AgreementTracking({ estimateId, version }: { estimateId: number; versio
 function EstimateTracking({ estimateId, version }: { estimateId: number; version: number }) {
   const [data, setData] = useState<any>(null);
   const [stopping, setStopping] = useState(false);
+  // [followup-visibility 2026-08-15] Step list is collapsed by default so the
+  // panel stays compact; expanded state is per-view, not persisted.
+  const [stepsOpen, setStepsOpen] = useState(false);
   const load = async () => { try { setData(await apiFetch(`/api/estimates/${estimateId}/engagement`)); } catch { /* non-fatal */ } };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [estimateId, version]);
   if (!data?.estimate) return null;
 
-  const { estimate, counts, timeline, enrollment } = data;
+  const { estimate, counts, timeline, enrollment, steps = [] } = data;
   const status = String(estimate.status || "").toUpperCase();
   const pill = STATUS_PILL[status] || { bg: "#F1EFE8", fg: "#5F5E5A" };
   const ICONS: Record<string, any> = { sent: Mail, viewed: Eye, opened: Mail, clicked: MousePointerClick };
@@ -1249,7 +1252,10 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
       {enrollment && (
         <div style={{ padding: "14px 16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#9E9B94" }}>FOLLOW-UP SEQUENCE</span>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#9E9B94" }}>
+              FOLLOW-UP SEQUENCE
+              {enrollment.sequence_name && <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", color: MUTE }}> · {enrollment.sequence_name}</span>}
+            </span>
             <span style={{ fontSize: 12, color: MUTE }}>Step <span style={{ color: INK, fontWeight: 700 }}>{Math.min(step, total)}</span> of {total}</span>
           </div>
           <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
@@ -1271,6 +1277,50 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
             )}
           </div>
           {!stopped && !done && !accepted && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 8 }}>Stops automatically when the client accepts or declines.</div>}
+
+          {/* [followup-visibility 2026-08-15] The bar alone never said WHAT the
+              touches are. This lists every step: what already went out, what is
+              next, and what is queued — so nobody has to guess what a live
+              prospect is about to receive. */}
+          {steps.length > 0 && (
+            <div style={{ marginTop: 12, borderTop: `1px solid #EEECE7`, paddingTop: 10 }}>
+              <button
+                onClick={() => setStepsOpen(o => !o)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700, color: MUTE }}
+              >
+                <ChevronRight size={13} style={{ transform: stepsOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                {stepsOpen ? "Hide" : "Show"} all {steps.length} touches
+              </button>
+              {stepsOpen && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 9 }}>
+                  {steps.map((s: any) => {
+                    // Steps below current_step have already fired. Once the
+                    // sequence is stopped or complete nothing further is "next".
+                    const sent = done || s.step_number < step;
+                    const isNext = !sent && !stopped && !done && !accepted && s.step_number === step;
+                    const StepIcon = s.channel === "sms" ? MessageSquare : Mail;
+                    return (
+                      <div key={s.step_number}
+                        style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "7px 9px", borderRadius: 8,
+                          background: isNext ? "#FFF8EC" : "transparent",
+                          border: isNext ? "1px solid #F2E2C4" : "1px solid transparent" }}>
+                        <StepIcon size={14} style={{ marginTop: 2, flexShrink: 0, color: sent ? "#3B6D11" : isNext ? "#BA7517" : "#C9C6BF" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12.5, color: sent || isNext ? INK : MUTE, fontWeight: isNext ? 700 : 500 }}>
+                            {s.step_number}. {s.subject || (s.channel === "sms" ? "Text message" : "Email")}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#9E9B94" }}>
+                            {sent ? "Sent" : isNext ? "Next up" : stopped || accepted ? "Will not send" : "Scheduled"}
+                            {s.fires_at ? ` · ${fmtWhen(s.fires_at)}` : s.delay_hours ? ` · +${s.delay_hours}h` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
