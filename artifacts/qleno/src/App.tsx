@@ -53,6 +53,7 @@ const RevenueHistoryPage  = lazy(() => import("@/pages/reports/revenue-history")
 const PayrollReportPage   = lazy(() => import("@/pages/reports/payroll"));
 const EmployeeStatsPage   = lazy(() => import("@/pages/reports/employee-stats"));
 const TipsReportPage      = lazy(() => import("@/pages/reports/tips"));
+const MileageReportPage   = lazy(() => import("@/pages/reports/mileage"));
 const DiscountsReportPage = lazy(() => import("@/pages/reports/discounts"));
 const FeesReportPage      = lazy(() => import("@/pages/reports/fees"));
 const ReceivablesPage     = lazy(() => import("@/pages/reports/receivables"));
@@ -298,6 +299,7 @@ function Router() {
         <Route path="/reports/payroll" component={PayrollReportPage} />
         <Route path="/reports/employee-stats" component={EmployeeStatsPage} />
         <Route path="/reports/tips" component={TipsReportPage} />
+        <Route path="/reports/mileage" component={MileageReportPage} />
         <Route path="/reports/discounts" component={DiscountsReportPage} />
         <Route path="/reports/fees" component={FeesReportPage} />
         <Route path="/reports/receivables" component={ReceivablesPage} />
