@@ -2066,7 +2066,7 @@ router.post(
 // tech, so approving both pays the same drive twice. These two endpoints let
 // the office split it instead of having to discard one tech's leg outright.
 //
-// No lifecycle transition happens here — a split leg stays `computed` and still
+// Splitting causes no lifecycle transition — a split leg stays `computed` and still
 // has to go through review + apply like any other. All that changes is the
 // amount each tech carries. That keeps the 2B rule intact: nothing is money
 // until the office applies it.

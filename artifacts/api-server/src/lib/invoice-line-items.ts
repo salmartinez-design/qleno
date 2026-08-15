@@ -108,13 +108,18 @@ export async function buildJobLineItems(
   // amount is stored (e.g. 60 min → $50) and lives in billed_amount too, so it
   // gets the identical subtract-then-line treatment.
   const modRows = await exec.execute(sql`
-    SELECT reason, amount, mod_type
+    SELECT reason, amount, mod_type, minutes
       FROM job_rate_mods
      WHERE job_id = ${jobId} AND company_id = ${companyId}
      ORDER BY created_at ASC
   `);
-  const mods = (modRows.rows as Array<{ reason: string | null; amount: string; mod_type: string }>);
+  const mods = (modRows.rows as Array<{ reason: string | null; amount: string; mod_type: string; minutes: number | null }>);
   const modsTotal = mods.reduce((s, m) => s + parseFloat(String(m.amount ?? "0")), 0);
+  // Minutes that a 'time' mod already pushed INTO allowed_hours (adjustAllowedHours).
+  const timeModMinutes = mods.reduce(
+    (s, m) => s + (m.mod_type === "time" ? Number(m.minutes ?? 0) : 0),
+    0,
+  );
 
   // [hourly-line-fix 2026-07-03] Scope line, three modes:
   //  - metered (billed_amount set): the all-in metered total; add-ons rolled in.
@@ -222,9 +227,33 @@ export async function buildJobLineItems(
   // legacy row), splitting it would silently change what the customer owes, so
   // those fall through to the existing behavior untouched. This can make an
   // invoice clearer; it can never make it a different total.
-  const laborAmount = Math.round(hoursNum * rateNum * 100) / 100;
+  // [time-mod-doublecount 2026-08-15] The scope line bills the hours that are
+  // NOT already itemized as a time adjustment below. A "+30 min · $25" mod grew
+  // allowed_hours to 3.5, so rate×3.5 = $175 ALREADY contains that $25; printing
+  // the $25 again as its own line (which the mods loop does, and should) made
+  // the parts sum to $25 more than the invoice total. The reconciliation check
+  // then failed, add-ons were withheld, and the parking fee vanished from the
+  // document while still being charged inside the service line. That is what
+  // Maribel has been reporting every time a parking fee is on the job — the fee
+  // itself was never the trigger, it was just the line that disappeared.
+  //
+  // Billing the base hours instead makes the decomposition EXACT, not merely
+  // within a tolerance:
+  //   rate×baseHours + all mods + add-ons
+  //     = rate×allowed_hours − rate×(time minutes) + time mods + flat mods + add-ons
+  //     = billed_amount   (recomputeJobBilledAmount's commercial formula)
+  //
+  // Only allowed_hours carries the added minutes — adjustAllowedHours writes
+  // that column alone. A clock-metered job (billed_hours set) reports the hours
+  // the crew actually stood in the house, which no adjustment inflates, so its
+  // hours are billed as-is.
+  const hoursIncludeTimeMods = !job.billed_hours;
+  const laborHours = hoursIncludeTimeMods
+    ? Math.max(0, Math.round((hoursNum - timeModMinutes / 60) * 100) / 100)
+    : hoursNum;
+  const laborAmount = Math.round(laborHours * rateNum * 100) / 100;
   const meteredItemizable = isMetered
-    && rateNum > 0 && hoursNum > 0
+    && rateNum > 0 && laborHours > 0
     && Math.abs(laborAmount + allAddOnsSubtotal + modsTotal - billedNum) < 0.011;
 
   const addons = (!isMetered || meteredItemizable) ? allAddons : [];
@@ -232,9 +261,10 @@ export async function buildJobLineItems(
 
   let scopeQty: number, scopeUnit: number, scopeAmount: number;
   if (meteredItemizable) {
-    // Labor only. Add-ons and flat mods are their own lines below, and the three
-    // together land back exactly on billed_amount.
-    scopeQty = hoursNum;
+    // Labor only, at the hours not already covered by a time adjustment. Add-ons
+    // and mods are their own lines below, and the three together land back
+    // exactly on billed_amount.
+    scopeQty = laborHours;
     scopeUnit = rateNum;
     scopeAmount = laborAmount;
   } else if (isMetered) {
@@ -258,9 +288,11 @@ export async function buildJobLineItems(
     scopeQty = reconciles ? meteredQty : 1;
     scopeUnit = reconciles ? rateNum : scopeAmount;
   } else if (isHourlyRateDriven) {
-    scopeQty = hoursNum;
+    // Same time-mod carve-out as the metered branch: the adjustment is printed
+    // as its own line below, so its hours must not also be inside this one.
+    scopeQty = laborHours;
     scopeUnit = rateNum;
-    scopeAmount = Math.round(hoursNum * rateNum * 100) / 100;   // labor only
+    scopeAmount = laborAmount;   // labor only
   } else {
     // [addon-doublecount 2026-07-08] base_fee is the ALL-IN residential total
     // (the wizard/quote/edit-modal convention — it already CONTAINS the add-on

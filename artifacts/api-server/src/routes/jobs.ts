@@ -7450,7 +7450,30 @@ router.get("/v2/export", requireAuth, requireRole("owner", "admin", "office", "s
 // revenue rollups, manual charge) reads via COALESCE(billed_amount, base_fee), so
 // pushing the post-mod total there flows through automatically.
 
+// [dry-run-projection 2026-08-15] An overlay lets the preview ask "what would
+// the price be if I added THIS mod?" without writing anything. The mod's own
+// dollars/minutes are folded into the same totals the real path reads, and a
+// 'time' overlay also grows the projected allowed_hours — because that is what
+// the real path does (adjustAllowedHours runs before this). Without it the
+// preview answered with a different formula than the submit, so the office was
+// quoted one number and the customer billed another.
+type RateModOverlay = { mod_type: "time" | "flat"; minutes: number; amount: number };
+
 export async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
+  const projected = await projectJobBilling(jobId, companyId);
+  if (!projected) return 0;
+  await db
+    .update(jobsTable)
+    .set(projected.updateFields as any)
+    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+  return projected.billedAmount;
+}
+
+async function projectJobBilling(
+  jobId: number,
+  companyId: number,
+  overlay?: RateModOverlay,
+): Promise<{ billedAmount: number; updateFields: Record<string, unknown> } | null> {
   // [commercial-revenue 2026-06-04] Keep billed_amount — the cache payroll +
   // the weekly chart read — in lockstep with how dispatch computes revenue
   // live, so the two never diverge. Commercial work whose price is NOT a
@@ -7468,7 +7491,7 @@ export async function recomputeJobBilledAmount(jobId: number, companyId: number)
     LIMIT 1
   `);
   const job = rows.rows[0] as any;
-  if (!job) return 0;
+  if (!job) return null;
   const base = parseFloat(String(job.base_fee || "0"));
   const sumRows = await db.execute(sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS total,
@@ -7481,10 +7504,15 @@ export async function recomputeJobBilledAmount(jobId: number, companyId: number)
     FROM job_rate_mods
     WHERE job_id = ${jobId} AND company_id = ${companyId}
   `);
-  const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
-  const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
-  const timeModsTotal = parseFloat(String((sumRows.rows[0] as any)?.time_total ?? "0"));
-  const timeModsMinutes = parseFloat(String((sumRows.rows[0] as any)?.time_minutes ?? "0"));
+  const isTimeOverlay = overlay?.mod_type === "time";
+  const overlayAmount = overlay ? overlay.amount : 0;
+  const overlayMinutes = isTimeOverlay ? overlay!.minutes : 0;
+  const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0")) + overlayAmount;
+  const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"))
+    + (overlay && !isTimeOverlay ? overlayAmount : 0);
+  const timeModsTotal = parseFloat(String((sumRows.rows[0] as any)?.time_total ?? "0"))
+    + (isTimeOverlay ? overlayAmount : 0);
+  const timeModsMinutes = parseFloat(String((sumRows.rows[0] as any)?.time_minutes ?? "0")) + overlayMinutes;
   const commModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_total ?? "0"));
   const commFlatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_flat_total ?? "0"));
 
@@ -7501,7 +7529,9 @@ export async function recomputeJobBilledAmount(jobId: number, companyId: number)
   const isCommercial = job.account_id != null || job.client_type === "commercial";
   const override = job.manual_rate_override === true;
   const rate = parseFloat(String(job.hourly_rate || "0"));
-  const hrs = parseFloat(String(job.allowed_hours || "0"));
+  // The overlay's minutes are added here because on the real path
+  // adjustAllowedHours has already grown allowed_hours by the time we read it.
+  const hrs = Math.max(0, parseFloat(String(job.allowed_hours || "0")) + overlayMinutes / 60);
 
   let newBilled: number;
   if (isCommercial && !override && rate > 0 && hrs > 0) {
@@ -7547,11 +7577,7 @@ export async function recomputeJobBilledAmount(jobId: number, companyId: number)
     updateFields.billed_hours = (newBilled / rate).toFixed(2);
   }
 
-  await db
-    .update(jobsTable)
-    .set(updateFields as any)
-    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
-  return newBilled;
+  return { billedAmount: newBilled, updateFields };
 }
 
 // [additional-time 2026-06-04] A 'time' rate-mod (e.g. "Additional Time: 1.5h")
@@ -7635,17 +7661,20 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Job not found" });
     }
 
-    // Dry-run projection: current_billed + amt. No write to job_rate_mods,
-    // no UPDATE on jobs.billed_amount, no audit log row.
+    // Dry-run projection. No write to job_rate_mods, no UPDATE on
+    // jobs.billed_amount, no audit log row.
+    // [dry-run-projection 2026-08-15] Runs the REAL pricing formula with this
+    // mod overlaid, instead of the old `base_fee + mods + amount` shortcut. On a
+    // commercial hourly job that shortcut ignored the hourly rate, the allowed
+    // hours and the add-ons entirely, so the preview and the submit could
+    // disagree by hundreds of dollars on the same click.
     if (isDryRun) {
-      const base = parseFloat(String(existing.base_fee || "0"));
-      const sumRows = await db.execute(sql`
-        SELECT COALESCE(SUM(amount), 0)::numeric AS total
-        FROM job_rate_mods
-        WHERE job_id = ${jobId} AND company_id = ${companyId}
-      `);
-      const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
-      const projected = base + modsTotal + amt;
+      const proj = await projectJobBilling(jobId, companyId, {
+        mod_type,
+        minutes: mod_type === "time" ? Number(minutes) : 0,
+        amount: amt,
+      });
+      const projected = proj ? proj.billedAmount : parseFloat(String(existing.base_fee || "0")) + amt;
       return res.status(200).json({
         dry_run: true,
         mod: null,
@@ -7663,9 +7692,17 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
       )
       RETURNING id, mod_type, minutes, amount, reason, created_by, created_at, affects_commission
     `);
-    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     // Time mods extend the job's allowed hours (commercial commission + block).
+    // [time-mod-order 2026-08-15] MUST run BEFORE recomputeJobBilledAmount. The
+    // commercial formula there is rate×allowed_hours + flat mods + (time mod
+    // amount − rate×its minutes) + add-ons: it assumes allowed_hours ALREADY
+    // grew by this mod's minutes, so it subtracts rate×minutes back out to avoid
+    // double-counting. Recomputing first meant the hours had NOT grown yet, so
+    // the subtraction had nothing to cancel and the added time was priced at $0
+    // — job 20572 stamped $170 instead of $195 and the $25 of extra time was
+    // billed to nobody. Same inversion existed on PATCH and DELETE below.
     const newAllowedHours = mod_type === "time" ? await adjustAllowedHours(jobId, companyId, Number(minutes)) : null;
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     // [post-completion-adjust 2026-06-21] Push the new amount onto the job's
     // DRAFT invoice if one exists (no-op for sent/paid — those stay immutable;
     // the office uses "Recalc from Job" to pull an adjustment onto a sent
@@ -7733,9 +7770,10 @@ router.patch("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
              affects_commission = ${affects_commission === true}
        WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId}`);
 
-    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    // [time-mod-order 2026-08-15] Hours first, then price — see POST above.
     const newAllowedHours = (newMin - oldMin) !== 0
       ? await adjustAllowedHours(jobId, companyId, newMin - oldMin) : null;
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod-edit] invoice draft sync non-fatal:", e));
     logAudit(req, "UPDATE", "job_rate_mod", modId, null, { mod_type, minutes, amount: amt });
     return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
@@ -7765,9 +7803,13 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
       DELETE FROM job_rate_mods
       WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId}
     `);
-    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    // [time-mod-order 2026-08-15] Hours first, then price — see POST above. On
+    // delete the inversion over-billed: the hours still carried the removed
+    // mod's minutes when the price was stamped, so the customer kept paying for
+    // time that had just been taken off the job.
     const newAllowedHours = mod.mod_type === "time" && mod.minutes
       ? await adjustAllowedHours(jobId, companyId, -Number(mod.minutes)) : null;
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod-delete] invoice draft sync non-fatal:", e));
     logAudit(req, "DELETE", "job_rate_mod", modId, null, null);
     return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
