@@ -39,6 +39,27 @@
 //
 //   4. Nothing else available -> the snapshot, rather than no coords at all.
 //
+//   5. [mileage-address-geocode 2026-08-15] Still nothing -> `jobs.address_lat/
+//      address_lng`. THE BUG THIS CLOSES (Maribel, payroll review, Vanessa
+//      Aranda's week of Aug 3): a drive that simply never appeared. Job 20225
+//      (Ribstein, 5487 S Cornell) HAD a correct geocode all along — it just
+//      lived in address_lat/address_lng, which this resolver did not read, and
+//      its client had never been geocoded. So the resolver returned NULL, the
+//      engine logged `no_from_coords`, and the 9.46-mile leg was dropped in
+//      silence. She was paid $7.60 for a week that measured $14.46, and the
+//      only reason anyone found out is that Maribel added the miles by hand.
+//      Every other surface already coalesced this column — dispatch.ts:191 and
+//      timeclock.ts:1765 both do — so mileage was the lone holdout. 7 jobs
+//      resolve only through this branch today.
+//
+// PAIRING INVARIANT: lat and lng must come from the SAME source, or the leg is
+// measured between two different places. The branches used to be `COALESCE(a,
+// b)` per axis, which silently allowed lat from one source and lng from
+// another whenever a row had a half-filled pair. Each branch now tests BOTH
+// axes before it claims the row, so a half-pair falls through to the next
+// source instead of producing a hybrid point. A job that reaches the end with
+// nothing resolves to NULL and is reported as unmeasured — never guessed.
+//
 // KNOWN GAP, deliberately left: if someone edits the address on a job that is a
 // genuine one-off (branch 2), that job's snapshot still goes stale, because
 // nothing re-geocodes it. Branch 2 is rare (218 jobs) and the failure is the
@@ -58,22 +79,32 @@ import { sql, type SQL } from "drizzle-orm";
 
 /** Raw-SQL form. Requires aliases j / c / ap in scope. */
 export const JOB_COORD_LAT: SQL = sql`CASE
-    WHEN j.account_property_id IS NOT NULL THEN COALESCE(ap.lat, j.job_lat)
-    WHEN j.job_lat IS NOT NULL AND j.address_street IS NOT NULL
+    WHEN j.account_property_id IS NOT NULL THEN
+      CASE WHEN ap.lat IS NOT NULL AND ap.lng IS NOT NULL THEN ap.lat
+           WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL THEN j.job_lat
+           ELSE j.address_lat END
+    WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL AND j.address_street IS NOT NULL
          AND lower(btrim(j.address_street))
              IS DISTINCT FROM lower(btrim(split_part(COALESCE(c.address, ''), ',', 1)))
       THEN j.job_lat
-    ELSE COALESCE(c.lat, j.job_lat)
+    WHEN c.lat IS NOT NULL AND c.lng IS NOT NULL THEN c.lat
+    WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL THEN j.job_lat
+    ELSE j.address_lat
   END`;
 
 /** Raw-SQL form. Requires aliases j / c / ap in scope. */
 export const JOB_COORD_LNG: SQL = sql`CASE
-    WHEN j.account_property_id IS NOT NULL THEN COALESCE(ap.lng, j.job_lng)
-    WHEN j.job_lat IS NOT NULL AND j.address_street IS NOT NULL
+    WHEN j.account_property_id IS NOT NULL THEN
+      CASE WHEN ap.lat IS NOT NULL AND ap.lng IS NOT NULL THEN ap.lng
+           WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL THEN j.job_lng
+           ELSE j.address_lng END
+    WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL AND j.address_street IS NOT NULL
          AND lower(btrim(j.address_street))
              IS DISTINCT FROM lower(btrim(split_part(COALESCE(c.address, ''), ',', 1)))
       THEN j.job_lng
-    ELSE COALESCE(c.lng, j.job_lng)
+    WHEN c.lat IS NOT NULL AND c.lng IS NOT NULL THEN c.lng
+    WHEN j.job_lat IS NOT NULL AND j.job_lng IS NOT NULL THEN j.job_lng
+    ELSE j.address_lng
   END`;
 
 /**
@@ -87,23 +118,40 @@ export const JOB_COORD_LNG: SQL = sql`CASE
  * between two different places.
  */
 export function jobCoordDrizzle(
-  jobs: { job_lat: unknown; job_lng: unknown; address_street: unknown; account_property_id: unknown },
+  jobs: {
+    job_lat: unknown; job_lng: unknown; address_street: unknown;
+    account_property_id: unknown; address_lat: unknown; address_lng: unknown;
+  },
   clients: { lat: unknown; lng: unknown; address: unknown },
   props: { lat: unknown; lng: unknown },
 ): { lat: SQL<string | null>; lng: SQL<string | null> } {
-  const isGenuineOverride = sql`${jobs.job_lat} IS NOT NULL AND ${jobs.address_street} IS NOT NULL
+  const isGenuineOverride = sql`${jobs.job_lat} IS NOT NULL AND ${jobs.job_lng} IS NOT NULL
+      AND ${jobs.address_street} IS NOT NULL
       AND lower(btrim(${jobs.address_street}))
           IS DISTINCT FROM lower(btrim(split_part(COALESCE(${clients.address}, ''), ',', 1)))`;
+  const hasProp = sql`${props.lat} IS NOT NULL AND ${props.lng} IS NOT NULL`;
+  const hasJob = sql`${jobs.job_lat} IS NOT NULL AND ${jobs.job_lng} IS NOT NULL`;
+  const hasClient = sql`${clients.lat} IS NOT NULL AND ${clients.lng} IS NOT NULL`;
   return {
     lat: sql<string | null>`CASE
-        WHEN ${jobs.account_property_id} IS NOT NULL THEN COALESCE(${props.lat}, ${jobs.job_lat})
+        WHEN ${jobs.account_property_id} IS NOT NULL THEN
+          CASE WHEN ${hasProp} THEN ${props.lat}
+               WHEN ${hasJob} THEN ${jobs.job_lat}
+               ELSE ${jobs.address_lat} END
         WHEN ${isGenuineOverride} THEN ${jobs.job_lat}
-        ELSE COALESCE(${clients.lat}, ${jobs.job_lat})
+        WHEN ${hasClient} THEN ${clients.lat}
+        WHEN ${hasJob} THEN ${jobs.job_lat}
+        ELSE ${jobs.address_lat}
       END`,
     lng: sql<string | null>`CASE
-        WHEN ${jobs.account_property_id} IS NOT NULL THEN COALESCE(${props.lng}, ${jobs.job_lng})
+        WHEN ${jobs.account_property_id} IS NOT NULL THEN
+          CASE WHEN ${hasProp} THEN ${props.lng}
+               WHEN ${hasJob} THEN ${jobs.job_lng}
+               ELSE ${jobs.address_lng} END
         WHEN ${isGenuineOverride} THEN ${jobs.job_lng}
-        ELSE COALESCE(${clients.lng}, ${jobs.job_lng})
+        WHEN ${hasClient} THEN ${clients.lng}
+        WHEN ${hasJob} THEN ${jobs.job_lng}
+        ELSE ${jobs.address_lng}
       END`,
   };
 }

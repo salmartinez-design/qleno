@@ -73,10 +73,15 @@ import {
   roundMiles,
   computeAmountCents,
   MAX_PLAUSIBLE_LEG_MILES,
+  PAY_ESTIMATED_MEASUREMENTS,
   type JobCoords,
   type MileageLegInput,
   type DateToCalendarDay,
 } from "../lib/mileage-compute.js";
+import {
+  isWithinServiceArea,
+  loadServiceArea as loadServiceAreaFor,
+} from "../lib/service-area.js";
 import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
 import {
   JOB_COORD_LAT,
@@ -144,6 +149,14 @@ function refusedDueToPeriodState(res: Response, status: string) {
     code: "period_state_invalid",
   });
 }
+
+/**
+ * [mileage-service-area 2026-08-15] The tenant's believable-coordinate region.
+ * See lib/service-area.ts for what it is, why it is derived from the tenant's
+ * own clients rather than configured, and why it fails open.
+ */
+const loadServiceArea = (companyId: number) =>
+  loadServiceAreaFor((q) => db.execute(q), companyId);
 
 /**
  * Cutover 2A — Recompute mileage adjustments for a period.
@@ -268,12 +281,15 @@ async function recomputeMileageForPeriod(
   });
   const toCalendarDay: DateToCalendarDay = (d) => phesTzFormatter.format(d);
 
+  const serviceArea = await loadServiceArea(companyId);
+
   const outcomes = await computeMileageForLegs(
     legInputs,
     coordsByJobId,
     rateForDate,
     provider,
     toCalendarDay,
+    serviceArea,
   );
 
   const skipped: Record<string, number> = {};
@@ -428,6 +444,7 @@ async function recomputeClockSequenceLegsForPeriod(
       coordsByJobId.set(r.job_id, { lat: Number(r.lat), lng: Number(r.lng) });
     }
   }
+  const serviceArea = await loadServiceArea(companyId);
 
   // Process each (user, day) group — consecutive pairs only.
   for (const group of groups.values()) {
@@ -456,6 +473,17 @@ async function recomputeClockSequenceLegsForPeriod(
       const toCoords = coordsByJobId.get(toJobId);
       if (!fromCoords) { skipped.no_from_coords = (skipped.no_from_coords ?? 0) + 1; continue; }
       if (!toCoords) { skipped.no_to_coords = (skipped.no_to_coords ?? 0) + 1; continue; }
+      // [mileage-service-area 2026-08-15] A coordinate nowhere near the
+      // tenant's work is a broken geocode, not a long drive. Checked before
+      // the provider call — measuring two wrong points only yields a
+      // believable-looking distance between them. See lib/service-area.ts.
+      if (
+        !isWithinServiceArea(fromCoords.lat, fromCoords.lng, serviceArea) ||
+        !isWithinServiceArea(toCoords.lat, toCoords.lng, serviceArea)
+      ) {
+        skipped.out_of_service_area = (skipped.out_of_service_area ?? 0) + 1;
+        continue;
+      }
 
       const measurement = await provider.measureLeg(fromCoords.lat, fromCoords.lng, toCoords.lat, toCoords.lng);
       if (!measurement) { skipped.provider_null = (skipped.provider_null ?? 0) + 1; continue; }
@@ -464,6 +492,12 @@ async function recomputeClockSequenceLegsForPeriod(
       if (miles > MAX_PLAUSIBLE_LEG_MILES) {
         // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
         skipped.implausible_distance = (skipped.implausible_distance ?? 0) + 1;
+        continue;
+      }
+      if (measurement.is_estimated && !PAY_ESTIMATED_MEASUREMENTS) {
+        // Straight-line guess, not a road route. Defer; the next recompute
+        // inserts it for real. See [mileage-no-estimates 2026-08-15].
+        skipped.estimated_measurement = (skipped.estimated_measurement ?? 0) + 1;
         continue;
       }
       const amountCents = computeAmountCents(miles, rate);
@@ -904,9 +938,19 @@ async function deriveClockSequenceLegs(
   }
 
   const skipped: Record<string, number> = {};
+  // [mileage-service-area 2026-08-15] Resolved once per run, not per leg.
+  const serviceArea = await loadServiceArea(companyId);
   let inserted = 0;
   for (const leg of legs) {
     if (leg.fromLat == null || leg.fromLng == null || leg.toLat == null || leg.toLng == null) { skipped.skip_no_coords = (skipped.skip_no_coords ?? 0) + 1; continue; }
+    // [mileage-service-area 2026-08-15] Present but not believable. A geocode
+    // that landed outside the tenant's service area measures a real road
+    // distance between two wrong places, so no later guard catches it. Checked
+    // before the provider call. See lib/service-area.ts.
+    if (!isWithinServiceArea(leg.fromLat, leg.fromLng, serviceArea)
+        || !isWithinServiceArea(leg.toLat, leg.toLng, serviceArea)) {
+      skipped.skip_out_of_service_area = (skipped.skip_out_of_service_area ?? 0) + 1; continue;
+    }
     const rate = rateForDate(leg.leg_date);
     if (rate == null) { skipped.skip_no_rate = (skipped.skip_no_rate ?? 0) + 1; continue; }
     const m = await provider.measureLeg(leg.fromLat, leg.fromLng, leg.toLat, leg.toLng);
@@ -915,6 +959,9 @@ async function deriveClockSequenceLegs(
     if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
     // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
     if (miles > MAX_PLAUSIBLE_LEG_MILES) { skipped.skip_implausible_distance = (skipped.skip_implausible_distance ?? 0) + 1; continue; }
+    // Straight-line guess, not a road route. Defer; the next recompute inserts
+    // it for real. See [mileage-no-estimates 2026-08-15].
+    if (m.is_estimated && !PAY_ESTIMATED_MEASUREMENTS) { skipped.skip_estimated_measurement = (skipped.skip_estimated_measurement ?? 0) + 1; continue; }
     const rateNum = parseFloat(String(rate));
     const amount = Math.round(miles * rateNum * 100) / 100;
     const ins = await db.execute(sql`
@@ -1019,9 +1066,19 @@ async function deriveScheduledLegsForPeriod(
   }
 
   const skipped: Record<string, number> = {};
+  // [mileage-service-area 2026-08-15] Resolved once per run, not per leg.
+  const serviceArea = await loadServiceArea(companyId);
   let inserted = 0;
   for (const leg of legs) {
     if (leg.fromLat == null || leg.fromLng == null || leg.toLat == null || leg.toLng == null) { skipped.skip_no_coords = (skipped.skip_no_coords ?? 0) + 1; continue; }
+    // [mileage-service-area 2026-08-15] Present but not believable. A geocode
+    // that landed outside the tenant's service area measures a real road
+    // distance between two wrong places, so no later guard catches it. Checked
+    // before the provider call. See lib/service-area.ts.
+    if (!isWithinServiceArea(leg.fromLat, leg.fromLng, serviceArea)
+        || !isWithinServiceArea(leg.toLat, leg.toLng, serviceArea)) {
+      skipped.skip_out_of_service_area = (skipped.skip_out_of_service_area ?? 0) + 1; continue;
+    }
     const rate = rateForDate(leg.leg_date);
     if (rate == null) { skipped.skip_no_rate = (skipped.skip_no_rate ?? 0) + 1; continue; }
     const m = await provider.measureLeg(leg.fromLat, leg.fromLng, leg.toLat, leg.toLng);
@@ -1030,6 +1087,11 @@ async function deriveScheduledLegsForPeriod(
     if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
     // Bad geocode, not a long drive. See MAX_PLAUSIBLE_LEG_MILES.
     if (miles > MAX_PLAUSIBLE_LEG_MILES) { skipped.skip_implausible_distance = (skipped.skip_implausible_distance ?? 0) + 1; continue; }
+    // This failsafe infers the LEG, but the DISTANCE still has to be a real
+    // road route — an inferred leg measured by a straight line is a guess on
+    // top of a guess, and it prices the same as a witnessed one. Defer it.
+    // See [mileage-no-estimates 2026-08-15].
+    if (m.is_estimated && !PAY_ESTIMATED_MEASUREMENTS) { skipped.skip_estimated_measurement = (skipped.skip_estimated_measurement ?? 0) + 1; continue; }
     const rateNum = parseFloat(String(rate));
     const amount = Math.round(miles * rateNum * 100) / 100;
     const ins = await db.execute(sql`
