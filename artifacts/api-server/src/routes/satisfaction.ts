@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { satisfactionSurveysTable, jobsTable, clientsTable, usersTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, desc, isNotNull, avg, count, sql, gte, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
-import { captureSurveyScore } from "../lib/scorecard-engine.js";
+import { recordSurveyResponse } from "../lib/survey-sms-reply.js";
 import { shortenUrl } from "../lib/short-link.js";
 import { SURVEY_SMS } from "../lib/sms-copy.js";
 import crypto from "crypto";
@@ -194,37 +194,16 @@ router.post("/respond", async (req, res) => {
     if (!survey[0]) return res.status(404).json({ error: "Survey not found" });
     if (survey[0].responded_at) return res.status(409).json({ error: "Already responded" });
 
-    const score04 = survey_score != null && Number.isFinite(Number(survey_score))
-      ? Math.max(0, Math.min(4, Math.round(Number(survey_score)))) : null;
-    // Follow-up when the 0–4 score signals concerns (≤2), or legacy NPS ≤6.
-    const follow_up_required = (score04 != null && score04 <= 2) || (nps_score != null && nps_score <= 6);
-
-    const [updated] = await db.update(satisfactionSurveysTable)
-      .set({
-        survey_score: score04,
-        nps_score: nps_score ?? null,
-        rating: rating ?? null,
-        comment: comment || null,
-        responded_at: new Date(),
-        follow_up_required,
-      })
-      .where(eq(satisfactionSurveysTable.token, token))
-      .returning();
-
-    // Attribute the 0–4 to the job's tech(s) → scorecard_entries → recompute.
-    if (score04 != null && updated.job_id) {
-      try {
-        const [job] = await db.select({ dt: jobsTable.scheduled_date })
-          .from(jobsTable).where(eq(jobsTable.id, updated.job_id)).limit(1);
-        const entryDate = job?.dt ? String(job.dt).slice(0, 10) : new Date().toISOString().slice(0, 10);
-        await captureSurveyScore({
-          companyId: updated.company_id, jobId: updated.job_id, surveyId: updated.id,
-          score: score04, entryDate, notes: comment || null,
-        });
-      } catch (e: any) {
-        console.error("[satisfaction/respond] scorecard capture failed (non-fatal):", e?.message ?? e);
-      }
-    }
+    // [survey-sms-reply 2026-08-15] The clamp, the follow-up flag and the
+    // scorecard capture moved into recordSurveyResponse so a text reply and a
+    // tap on this page produce identical state. Do not re-inline them here.
+    const updated = await recordSurveyResponse({
+      token,
+      survey_score,
+      nps_score: nps_score ?? null,
+      rating: rating ?? null,
+      comment: comment || null,
+    });
 
     return res.json(updated);
   } catch (err) {

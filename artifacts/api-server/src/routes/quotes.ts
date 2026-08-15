@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { quotesTable, clientsTable, pricingScopesTable, recurringSchedulesTable, usersTable } from "@workspace/db/schema";
-import { eq, and, desc, count, sql } from "drizzle-orm";
+import { eq, and, desc, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { getBranchByZip } from "../lib/branchRouter";
@@ -1427,6 +1427,99 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), asyn
     logAudit(req, "DELETE", "quote", id, null, null);
     return res.json({ success: true });
   } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [bulk-quote-delete 2026-08-15] Maribel clears out stale quotes one row, one
+// menu, one confirm at a time — 267 of the 445 quotes on the books are drafts.
+//
+// This is a HARD delete, exactly like the single-row route above it: there is no
+// archive column, no soft-delete, nothing to restore from. Deleting fifty rows
+// at once therefore deserves more care than deleting one, so:
+//   - the ids are re-read and re-scoped to the caller's company BEFORE deleting,
+//     so a hand-crafted id list can't reach another tenant's quotes,
+//   - each deleted quote gets its OWN audit row (id, client, status, price), so
+//     the log can answer "what was in that batch" after the rows are gone,
+//   - the response reports what actually went, including how many were `booked`
+//     — those are quotes attached to real jobs, and the UI warns before sending.
+//
+// GET /api/quotes/bulk-delete/preview?ids=1,2,3 answers the same question
+// without deleting, which is what the confirm dialog reads.
+//
+// `quote_attachments` is the only table with an FK to quotes and it is ON DELETE
+// CASCADE, so nothing else is orphaned by this.
+//
+// Route-order note: these sit below `/:id` and that is fine today — `/:id` is a
+// single segment and there is no `POST /:id`. If one is ever added, move these
+// two registrations ABOVE it or "bulk-delete" starts arriving as an id.
+const MAX_BULK_DELETE = 200;
+
+function parseIdList(raw: unknown): number[] {
+  const arr = Array.isArray(raw) ? raw : String(raw ?? "").split(",");
+  const ids = arr.map(v => parseInt(String(v), 10)).filter(n => Number.isInteger(n) && n > 0);
+  return [...new Set(ids)];
+}
+
+router.get("/bulk-delete/preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "No company context" });
+    const ids = parseIdList(req.query.ids);
+    if (!ids.length) return res.json({ total: 0, booked: 0, quotes: [] });
+    const rows = await db.select({ id: quotesTable.id, status: quotesTable.status })
+      .from(quotesTable)
+      .where(and(inArray(quotesTable.id, ids.slice(0, MAX_BULK_DELETE)), eq(quotesTable.company_id, companyId)));
+    return res.json({
+      total: rows.length,
+      booked: rows.filter(r => r.status === "booked").length,
+      quotes: rows,
+    });
+  } catch (err) {
+    console.error("Bulk delete preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/bulk-delete", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "No company context" });
+    const ids = parseIdList(req.body?.ids);
+    if (!ids.length) return res.status(400).json({ error: "ids required" });
+    if (ids.length > MAX_BULK_DELETE) {
+      return res.status(400).json({ error: `Too many quotes at once — ${MAX_BULK_DELETE} max per batch.` });
+    }
+
+    // Re-read under the caller's company_id. Anything not returned here either
+    // doesn't exist or belongs to another tenant; either way it is never touched.
+    const targets = await db.select({
+      id: quotesTable.id, status: quotesTable.status, client_id: quotesTable.client_id,
+      total_price: quotesTable.total_price,
+    })
+      .from(quotesTable)
+      .where(and(inArray(quotesTable.id, ids), eq(quotesTable.company_id, companyId)));
+
+    if (!targets.length) return res.json({ deleted: 0, skipped: ids.length, booked: 0 });
+
+    const targetIds = targets.map(t => t.id);
+    await db.delete(quotesTable)
+      .where(and(inArray(quotesTable.id, targetIds), eq(quotesTable.company_id, companyId)));
+
+    // One row per quote, with the values captured before the delete — the whole
+    // point is that this is the only surviving record of what was removed.
+    for (const t of targets) {
+      logAudit(req, "DELETE", "quote", t.id,
+        { status: t.status, client_id: t.client_id, total_price: t.total_price, bulk: true }, null);
+    }
+
+    return res.json({
+      deleted: targets.length,
+      skipped: ids.length - targets.length,
+      booked: targets.filter(t => t.status === "booked").length,
+    });
+  } catch (err) {
+    console.error("Bulk delete quotes error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

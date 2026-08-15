@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { openQuoteBuilder } from "@/lib/open-quote";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,9 +18,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, FileText, Send, CheckCircle, Briefcase, Search,
-  MoreHorizontal, Pencil, Trash2, SendHorizonal, ArrowRight,
+  MoreHorizontal, Pencil, Trash2, SendHorizonal, ArrowRight, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -166,6 +167,39 @@ export default function QuotesPage() {
     onError: () => toast.error("Failed to delete quote"),
   });
 
+  // [bulk-quote-delete 2026-08-15] Clearing stale quotes was one row, one menu,
+  // one confirm at a time. Selection lives on the CURRENTLY FILTERED set, and
+  // switching tab/search/branch clears it — otherwise "Select all" on the Draft
+  // tab would silently keep holding rows you can no longer see.
+  //
+  // The confirm names the count and calls out how many are `booked` (attached to
+  // a real job), because this delete is permanent: there is no archive and
+  // nothing to restore from.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const clearSelection = () => setSelected(new Set());
+  const toggleOne = (id: number) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: number[]) => apiFetch(`/api/quotes/bulk-delete`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+    }),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["quote-stats"] });
+      const n = r?.deleted ?? 0;
+      toast.success(`${n} quote${n === 1 ? "" : "s"} deleted`);
+      if (r?.skipped) toast.message(`${r.skipped} could not be found and were left alone.`);
+      setBulkConfirm(false);
+      clearSelection();
+    },
+    onError: () => toast.error("Failed to delete quotes"),
+  });
+
   const filtered = quotes.filter(q => {
     if (!search) return true;
     const s = search.toLowerCase();
@@ -176,6 +210,14 @@ export default function QuotesPage() {
       (q.lead_email || "").toLowerCase().includes(s)
     );
   });
+
+  // Selection is scoped to what is actually on screen, and reset whenever the
+  // view changes, so the count on the button always equals what you can see.
+  useEffect(() => { clearSelection(); }, [activeTab, search, activeBranchId]);
+  const filteredIds = filtered.map(q => q.id);
+  const selectedIds = filteredIds.filter(id => selected.has(id));
+  const allVisibleSelected = filteredIds.length > 0 && selectedIds.length === filteredIds.length;
+  const selectedBooked = filtered.filter(q => selected.has(q.id) && q.status === "booked").length;
 
   // [quote-breakdown 2026-06-08] Residential vs commercial + who quoted, over the
   // currently-filtered set, so the office can see the mix at a glance.
@@ -387,6 +429,26 @@ export default function QuotesPage() {
             </div>
           </div>
 
+          {selectedIds.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[#E5E2DC] bg-[#F7F6F3]">
+              <span className="text-sm font-medium text-[#1A1917]">
+                {selectedIds.length} selected
+              </span>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-[#6B6860]" onClick={clearSelection}>
+                <X className="w-3.5 h-3.5 mr-1" /> Clear
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 ml-auto bg-red-600 hover:bg-red-700 text-white text-xs gap-1.5"
+                onClick={() => setBulkConfirm(true)}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {bulkDeleteMutation.isPending ? "Deleting..." : "Delete Selected"}
+              </Button>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="p-8 text-center text-[#9E9B94]">Loading quotes...</div>
           ) : filtered.length === 0 ? (
@@ -405,6 +467,13 @@ export default function QuotesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#F7F6F3]">
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      aria-label="Select all quotes in this view"
+                      onCheckedChange={v => setSelected(v ? new Set(filteredIds) : new Set())}
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold text-[#1A1917]">Client</TableHead>
                   <TableHead className="font-semibold text-[#1A1917]">Service</TableHead>
                   <TableHead className="font-semibold text-[#1A1917]">Frequency</TableHead>
@@ -420,6 +489,13 @@ export default function QuotesPage() {
                   const cfg = STATUS_CONFIG[quote.status] ?? { label: quote.status, className: "bg-gray-100 text-gray-600" };
                   return (
                     <TableRow key={quote.id} className="hover:bg-[#F7F6F3] cursor-pointer" onClick={() => navigate(`/quotes/${quote.id}`)}>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selected.has(quote.id)}
+                          aria-label={`Select quote for ${clientName(quote)}`}
+                          onCheckedChange={() => toggleOne(quote.id)}
+                        />
+                      </TableCell>
                       <TableCell>
                         <p className="font-medium text-[#1A1917] text-sm">{clientName(quote)}</p>
                         {(quote.client_email || quote.lead_email) && <p className="text-xs text-[#9E9B94]">{quote.client_email || quote.lead_email}</p>}
@@ -465,6 +541,40 @@ export default function QuotesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deleteId && deleteMutation.mutate(deleteId)}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkConfirm} onOpenChange={open => !open && setBulkConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length} quote{selectedIds.length === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {/* Deletion is permanent — there is no archive to restore from — so the
+                  count and the booked subset are both named before you can confirm. */}
+              This permanently deletes {selectedIds.length} quote{selectedIds.length === 1 ? "" : "s"}.
+              There is no archive and this cannot be undone.
+              {selectedBooked > 0 && (
+                <>
+                  {" "}
+                  <strong className="text-[#1A1917]">
+                    {selectedBooked} of them {selectedBooked === 1 ? "is" : "are"} already booked
+                  </strong>
+                  {" "}— the jobs those quotes created stay scheduled, but the quote record itself goes away.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => bulkDeleteMutation.mutate(selectedIds)}
+            >
+              Delete {selectedIds.length}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

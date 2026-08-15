@@ -127,13 +127,31 @@ router.post("/", async (req, res) => {
       return res.send("<Response></Response>");
     }
 
-    // Parse rating — accept only first character
+    // [survey-sms-reply 2026-08-15] SURVEY RATINGS NO LONGER LIVE HERE.
+    //
+    // This route has never once fired in production: it resolves the tenant with
+    // `companies.twilio_from_number = <our number>`, and Phes keeps its Twilio
+    // numbers on the BRANCHES (co1's company-level column is NULL), so every
+    // rating reply fell out at the company lookup below. Zero rows in
+    // `scorecards` carry its "Inbound SMS reply" marker. The live webhook is
+    // `/api/comms/inbound`, and that is where reply-parsing now lives
+    // (lib/survey-sms-reply.ts), against the open `satisfaction_surveys` row.
+    //
+    // What is fixed here is the landmine: this used to read the FIRST CHARACTER
+    // of EVERY inbound message as a rating and answer anything else with
+    // "Please reply with 1, 2, 3, or 4 to rate your cleaning." Point Twilio at
+    // this URL by accident and every customer asking "can you come Tuesday?"
+    // gets bot-nagged. Now a non-rating is simply not answered.
+    //
+    // Still dormant below, and NOT ported to the live path on purpose — it would
+    // start sending customers messages nobody asked for: the automatic Google
+    // review-request SMS, the 24h scheduled review nudge, the 95%-floor tech
+    // alert, and the auto-created complaint tickets. Worth a decision, not a
+    // silent switch-on.
     const firstChar = bodyText.trim()[0];
     const rating = parseInt(firstChar);
     if (isNaN(rating) || rating < 1 || rating > 4) {
-      return res.send(
-        "<Response><Message>Please reply with 1, 2, 3, or 4 to rate your cleaning.</Message></Response>"
-      );
+      return res.send("<Response></Response>");
     }
 
     const weight = WEIGHT_MAP[rating];

@@ -7,6 +7,15 @@ const router = Router();
 
 const OPT_OUT = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
 
+// TwiML is XML. The only interpolated value is a customer's own first name out
+// of our DB, but an "O'Brien & Sons" is enough to produce a malformed body that
+// Twilio rejects — and a silently dropped reply is the exact failure we're here
+// to fix.
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
 // POST /api/comms/inbound — Twilio inbound-SMS/MMS webhook (PUBLIC, no auth).
 // Twilio posts form-encoded { From, To, Body, MessageSid, NumMedia, MediaUrl0... }.
 // The `To` number maps to a tenant. We:
@@ -145,6 +154,45 @@ router.post("/inbound", async (req, res) => {
       }
     } catch (e) { console.warn("[comms/inbound] opt-out flag update failed:", e); }
 
+    // [survey-sms-reply 2026-08-15] A bare "4" back from a customer with an open
+    // satisfaction survey IS their answer — record it. This lives here, in the
+    // live webhook, because the rating parser that already existed in
+    // routes/sms-inbound.ts resolves the tenant by `companies.twilio_from_number`
+    // and Phes keeps its numbers on the BRANCHES, so it has never run once in
+    // production (zero rows in `scorecards` from it).
+    //
+    // handleSurveySmsReply returns null unless the sender has an OPEN survey AND
+    // the message is nothing but a digit — so a customer asking a question gets
+    // silence from the bot and a human from the office, which is the point. The
+    // acknowledgement is mirrored into sms_messages: Twilio sends TwiML replies
+    // itself, so without this the office would see a one-sided thread.
+    let surveyAck: string | null = null;
+    try {
+      const { handleSurveySmsReply } = await import("../lib/survey-sms-reply.js");
+      surveyAck = await handleSurveySmsReply(companyId, match.client_id ?? null, body, match.name ?? null);
+      // The SCORE is a database write and always lands. The courtesy text back
+      // is a customer-facing send, so it respects COMMS_ENABLED and the
+      // per-company/branch gate like everything else — a muted tenant records
+      // the rating silently rather than quietly bypassing the gate.
+      if (surveyAck) {
+        const { resolveSender } = await import("../lib/comms-sender.js");
+        const sender = await resolveSender(companyId);
+        if (sender.reason) {
+          console.log(`[comms/inbound] survey ack suppressed (${sender.reason}); rating still recorded`);
+          surveyAck = null;
+        }
+      }
+      if (surveyAck) {
+        const { recordOutboundSms } = await import("../lib/sms-store.js");
+        await recordOutboundSms({
+          companyId, toRaw: from, fromNumber: to, body: surveyAck, clientId: match.client_id ?? null,
+        }).catch(() => {});
+      }
+    } catch (e) { console.warn("[comms/inbound] survey reply handling failed:", e); }
+
+    if (surveyAck) {
+      return res.type("text/xml").send(`<Response><Message>${escapeXml(surveyAck)}</Message></Response>`);
+    }
     return res.type("text/xml").send("<Response/>");
   } catch (err) {
     console.error("[comms/inbound]", err);
