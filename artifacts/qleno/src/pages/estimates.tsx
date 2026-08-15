@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Plus, FileText, Send, CheckCircle, Clock, Trash2, Pencil, LayoutTemplate, Search, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { FollowUpEditor } from "@/pages/estimates-followup-editor";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -62,6 +63,11 @@ export default function EstimatesPage() {
   const estimates: any[] = listData?.data ?? [];
   const templates: any[] = templatesData?.data ?? [];
   const stats = statsData ?? {};
+
+  // [branded-confirm 2026-08-15] Which row is awaiting delete confirmation.
+  // Replaces window.confirm() — see components/confirm-dialog.tsx for why the
+  // native dialog silently no-op'd the delete button.
+  const [pendingDelete, setPendingDelete] = useState<{ kind: "estimate" | "template"; id: number; label: string } | null>(null);
 
   const del = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/estimates/${id}`, { method: "DELETE" }),
@@ -166,7 +172,7 @@ export default function EstimatesPage() {
                       </div>
                       <div style={{ display: "flex", gap: 4 }} onClick={ev => ev.stopPropagation()}>
                         <button title="Edit" onClick={() => navigate(`/estimates/${e.id}`)} style={iconBtn}><Pencil size={15} /></button>
-                        <button title="Delete" onClick={() => { if (confirm("Delete this estimate?")) del.mutate(e.id); }} style={iconBtn}><Trash2 size={15} /></button>
+                        <button title="Delete" onClick={() => setPendingDelete({ kind: "estimate", id: e.id, label: e.estimate_number || "this estimate" })} style={iconBtn}><Trash2 size={15} /></button>
                       </div>
                     </div>
                   );
@@ -193,13 +199,33 @@ export default function EstimatesPage() {
                   </div>
                   <button onClick={() => navigate(`/estimates/new?template=${t.id}`)}
                     style={{ background: MINT, color: "#063", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Use template</button>
-                  <button title="Delete" onClick={() => { if (confirm("Delete this template?")) delTemplate.mutate(t.id); }} style={iconBtn}><Trash2 size={15} /></button>
+                  <button title="Delete" onClick={() => setPendingDelete({ kind: "template", id: t.id, label: t.name || "this template" })} style={iconBtn}><Trash2 size={15} /></button>
                 </div>
               ))
             )}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.kind === "template" ? "Delete this template?" : "Delete this estimate?"}
+        body={
+          pendingDelete?.kind === "template"
+            ? `"${pendingDelete?.label}" will be removed. Estimates already built from it are not affected.`
+            : `${pendingDelete?.label} and its line items will be permanently removed. This cannot be undone.`
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={del.isPending || delTemplate.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          if (pendingDelete.kind === "template") delTemplate.mutate(pendingDelete.id);
+          else del.mutate(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
     </DashboardLayout>
   );
 }
