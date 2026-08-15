@@ -107,6 +107,15 @@ function str(v: unknown, max = 2000): string | null {
   return s ? s.slice(0, max) : null;
 }
 
+// [longform-truncation 2026-08-15] The 2000-char default silently cut the
+// client-facing prose fields MID-WORD. A four-location estimate's terms ran
+// past 2000 and were stored ending "INSURANCE: Phes carries gener" — the
+// client read a document that stopped mid-sentence, with no warning anywhere
+// in the UI or the response. These are long-form TEXT columns with no DB
+// limit; the cap existed only as a default argument nobody passed.
+// Use this for anything the client actually reads.
+const LONG_TEXT = 20000;
+
 function intOrNull(v: unknown): number | null {
   if (v === undefined || v === null || v === "") return null;
   const n = parseInt(v.toString(), 10);
@@ -224,7 +233,7 @@ router.post("/templates", requireAuth, async (req, res) => {
     const flatPrice = billingMode === "flat" ? Math.max(0, Number(req.body?.flat_price ?? 0) || 0) : 0;
     const inserted = await db.execute(sql`
       INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, billing_mode, flat_price, created_by)
-      VALUES (${companyId}, ${name}, ${str(req.body?.category, 40)}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${billingMode}, ${flatPrice}, ${req.auth!.userId})
+      VALUES (${companyId}, ${name}, ${str(req.body?.category, 40)}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note, LONG_TEXT)}, ${str(req.body?.terms, LONG_TEXT)}, ${billingMode}, ${flatPrice}, ${req.auth!.userId})
       RETURNING id
     `);
     const templateId = (inserted as any).rows[0].id;
@@ -260,7 +269,7 @@ router.patch("/templates/:id", requireAuth, async (req, res) => {
     await db.execute(sql`
       UPDATE estimate_templates SET
         name = ${name}, category = ${str(req.body?.category, 40)}, title = ${str(req.body?.title, 300)},
-        intro_note = ${str(req.body?.intro_note)}, terms = ${str(req.body?.terms)},
+        intro_note = ${str(req.body?.intro_note, LONG_TEXT)}, terms = ${str(req.body?.terms, LONG_TEXT)},
         billing_mode = ${billingMode}, flat_price = ${flatPrice}
       WHERE id = ${id} AND company_id = ${companyId}
     `);
@@ -1157,7 +1166,7 @@ router.post("/", requireAuth, async (req, res) => {
       VALUES
         (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
          ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
-         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice}, ${priceUnitOf(b.flat_price_unit)}, ${str(b.scope_note)}, ${str(b.facility_type, 40)},
+         ${str(b.title, 300)}, ${str(b.intro_note, LONG_TEXT)}, ${str(b.terms, LONG_TEXT)}, ${str(b.internal_notes, LONG_TEXT)}, 'draft', ${billingMode}, ${flatPrice}, ${priceUnitOf(b.flat_price_unit)}, ${str(b.scope_note, LONG_TEXT)}, ${str(b.facility_type, 40)},
          ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
       RETURNING id
     `);
@@ -1191,7 +1200,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
         billing_mode = ${billingMode},
         flat_price = ${flatPrice},
         flat_price_unit = ${priceUnitOf(b.flat_price_unit)},
-        scope_note = ${str(b.scope_note)},
+        scope_note = ${str(b.scope_note, LONG_TEXT)},
         facility_type = ${str(b.facility_type, 40)},
         account_property_id = ${intOrNull(b.account_property_id)},
         client_id = ${intOrNull(b.client_id)},
@@ -1202,9 +1211,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
         property_name = ${str(b.property_name, 300)},
         service_address = ${str(b.service_address, 400)},
         title = ${str(b.title, 300)},
-        intro_note = ${str(b.intro_note)},
-        terms = ${str(b.terms)},
-        internal_notes = ${str(b.internal_notes)},
+        intro_note = ${str(b.intro_note, LONG_TEXT)},
+        terms = ${str(b.terms, LONG_TEXT)},
+        internal_notes = ${str(b.internal_notes, LONG_TEXT)},
         subtotal = ${subtotal},
         discount_amount = ${discount},
         total = ${total},
