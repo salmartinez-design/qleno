@@ -28,6 +28,14 @@ import {
 import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
 import { inIntList } from "../lib/sql-lists.js";
 import { tzOf } from "../lib/company-tz.js";
+// [mileage-unmeasured 2026-08-15] Same coord rule the mileage engine uses, so
+// "this drive has no coordinates" on the summary means exactly what it means to
+// the writer. See lib/job-coords.ts.
+import { JOB_COORD_LAT, JOB_COORD_LNG } from "../lib/job-coords.js";
+// [mileage-service-area 2026-08-15] Same believable-coordinate rule the mileage
+// writers apply, so this screen explains a missing drive the way the engine
+// decided it. See lib/service-area.ts.
+import { isWithinServiceArea, loadServiceArea } from "../lib/service-area.js";
 
 const router = Router();
 
@@ -892,6 +900,125 @@ router.get("/detail", requireAuth, async (req, res) => {
       }
     } catch { /* mileage_legs absent — skip */ }
 
+    // [mileage-unmeasured 2026-08-15] The drives that produced NO mileage row.
+    //
+    // THE BUG THIS CLOSES (Maribel, payroll review, Vanessa Aranda's week of
+    // Aug 3): her card said $7.60. Maribel added the week up by hand and got
+    // 20.5 miles — about $14.46. Both numbers were "right": the engine had
+    // measured two of her three drives and silently dropped the third, because
+    // one job's coordinates resolved to NULL. A dropped leg looks identical to
+    // a day with no driving. Nothing on the screen distinguished them.
+    //
+    // That is the whole problem with a missing row: it is invisible. Every
+    // other failure mode of this engine announces itself (a wrong number looks
+    // wrong), but an absent leg just makes the total smaller, and the total is
+    // what the office types into payroll. The only reason this one surfaced is
+    // that someone happened to check the arithmetic by hand.
+    //
+    // So the summary now reports the gap next to the total. Each consecutive
+    // pair of clocked stops in the period is a drive that physically happened;
+    // any such pair with no non-discarded leg is listed with why:
+    //
+    //   no_coordinates — a job on one end has no resolvable point on the map.
+    //     Actionable: geocode the client/property. The leg computes on the next
+    //     recompute with no further intervention.
+    //   not_measured  — coordinates are fine but no leg exists. The distance
+    //     provider was unavailable, the measurement came back as a straight-line
+    //     estimate ([mileage-no-estimates]), the distance was implausible
+    //     ([mileage-ceiling]), or a recompute simply has not run for this period.
+    //
+    // Derived at READ time on purpose — no table, no migration, no backfill, and
+    // it cannot go stale: fix the data, and the row disappears from this list on
+    // the next load because the leg now exists.
+    //
+    // Pairs match in EITHER direction. The scheduled failsafe orders a day's
+    // stops by scheduled time while this orders by clock-in, so a day worked out
+    // of order would otherwise report a measured drive as missing.
+    const unmeasuredByUser = new Map<number, any[]>();
+    try {
+      const tz = tzOf(companyId);
+      const uRows = await db.execute(sql`
+        WITH stops AS (
+          SELECT t.user_id,
+                 (t.clock_in_at AT TIME ZONE ${tz})::date AS stop_day,
+                 t.job_id,
+                 MIN(t.clock_in_at) AS started_at
+            FROM timeclock t
+           WHERE t.company_id = ${companyId}
+             AND (t.clock_in_at AT TIME ZONE ${tz})::date >= ${String(pay_period_start)}
+             AND (t.clock_in_at AT TIME ZONE ${tz})::date <= ${String(pay_period_end)}
+             ${filterUserId ? sql`AND t.user_id = ${filterUserId}` : sql``}
+           GROUP BY 1, 2, 3
+        ),
+        seq AS (
+          SELECT s.*,
+                 LEAD(s.job_id) OVER (
+                   PARTITION BY s.user_id, s.stop_day ORDER BY s.started_at, s.job_id
+                 ) AS next_job_id
+            FROM stops s
+        ),
+        pairs AS (
+          SELECT user_id, stop_day, job_id AS from_job_id, next_job_id AS to_job_id
+            FROM seq
+           WHERE next_job_id IS NOT NULL AND next_job_id <> job_id
+        ),
+        job_pt AS (
+          SELECT j.id AS job_id,
+                 ${JOB_COORD_LAT} AS lat,
+                 ${JOB_COORD_LNG} AS lng,
+                 COALESCE(NULLIF(TRIM(c.first_name||' '||COALESCE(c.last_name,'')),''),
+                          a.account_name, 'Job '||j.id) AS label
+            FROM jobs j
+            LEFT JOIN clients c ON c.id = j.client_id
+            LEFT JOIN accounts a ON a.id = j.account_id
+            LEFT JOIN account_properties ap ON ap.id = j.account_property_id
+           WHERE j.id IN (SELECT from_job_id FROM pairs UNION SELECT to_job_id FROM pairs)
+        )
+        SELECT p.user_id, p.stop_day::text AS leg_date,
+               p.from_job_id, p.to_job_id,
+               fp.label AS from_label, tp.label AS to_label,
+               (fp.lat IS NULL OR fp.lng IS NULL OR tp.lat IS NULL OR tp.lng IS NULL) AS missing_coords,
+              fp.lat AS from_lat, fp.lng AS from_lng, tp.lat AS to_lat, tp.lng AS to_lng
+          FROM pairs p
+          LEFT JOIN job_pt fp ON fp.job_id = p.from_job_id
+          LEFT JOIN job_pt tp ON tp.job_id = p.to_job_id
+         WHERE NOT EXISTS (
+                 SELECT 1 FROM mileage_legs ml
+                  WHERE ml.company_id = ${companyId}
+                    AND ml.user_id = p.user_id
+                    AND ml.status <> 'discarded'
+                    AND ((ml.from_job_id = p.from_job_id AND ml.to_job_id = p.to_job_id)
+                      OR (ml.from_job_id = p.to_job_id AND ml.to_job_id = p.from_job_id))
+               )
+         ORDER BY p.user_id, p.stop_day, p.from_job_id
+      `);
+      // [mileage-service-area 2026-08-15] Classified with the SAME predicate the
+      // writers use, so the screen agrees with the engine about why a drive has
+      // no leg. Without this, a coordinate the writer rejected as out-of-area
+      // would show as "not measured yet — it measures on the next recompute",
+      // which is a promise the system cannot keep: nothing recomputes a broken
+      // geocode into a good one. The office needs to be told to fix an address.
+      const area = await loadServiceArea((q) => db.execute(q), companyId);
+      for (const r of uRows.rows as any[]) {
+        const uid = Number(r.user_id);
+        if (!unmeasuredByUser.has(uid)) unmeasuredByUser.set(uid, []);
+        const outOfArea = !r.missing_coords && (
+          !isWithinServiceArea(Number(r.from_lat), Number(r.from_lng), area) ||
+          !isWithinServiceArea(Number(r.to_lat), Number(r.to_lng), area)
+        );
+        unmeasuredByUser.get(uid)!.push({
+          leg_date: String(r.leg_date),
+          from_job_id: Number(r.from_job_id),
+          to_job_id: Number(r.to_job_id),
+          from: r.from_label,
+          to: r.to_label,
+          reason: r.missing_coords
+            ? "no_coordinates"
+            : outOfArea ? "bad_coordinates" : "not_measured",
+        });
+      }
+    } catch { /* mileage_legs / timeclock absent — skip */ }
+
     // ── [payroll-P0] per-tech-CLOCKED attribution via the pay-type engine ────
     // A tech earns from every job they personally clocked (helpers included).
     // Pay type is per-tech (job_technicians): fee_split / allowed_hours / hourly,
@@ -1129,6 +1256,10 @@ router.get("/detail", requireAuth, async (req, res) => {
         // employee's expanded panel.
         commission_by_branch: branchRollup,
         mileage_legs: legsByUser.get(uid) || [],
+        // [mileage-unmeasured 2026-08-15] Drives with no leg. See the derivation
+        // above — this is what makes a dropped leg visible instead of just a
+        // smaller total.
+        unmeasured_drives: unmeasuredByUser.get(uid) || [],
         // [pay-components 2026-07-31] The canonical breakdown, so the UI stops
         // re-deriving it. The payroll strip printed a Labor % built from
         // grand_total next to a Commission card built from commission alone, and
@@ -1162,6 +1293,12 @@ router.get("/detail", requireAuth, async (req, res) => {
     const extraUids = new Set<number>();
     for (const uid of mileageByUser.keys()) extraUids.add(uid);
     for (const uid of adjByUser.keys()) extraUids.add(uid);
+    // [mileage-unmeasured 2026-08-15] A tech whose ONLY mileage signal this
+    // period is a drive that failed to measure has no leg, no adjustment, and
+    // possibly no completed job — so without this they'd be dropped from the
+    // response entirely and the gap would stay invisible, which is the exact
+    // failure this list exists to expose.
+    for (const uid of unmeasuredByUser.keys()) extraUids.add(uid);
     for (const p of addlPay) extraUids.add(p.user_id);
     for (const uid of extraUids) {
       if (emitted.has(uid)) continue;
@@ -1189,6 +1326,7 @@ router.get("/detail", requireAuth, async (req, res) => {
         })),
         commission_by_branch: [],
         mileage_legs: legsByUser.get(uid) || [],
+        unmeasured_drives: unmeasuredByUser.get(uid) || [],
         // Same canonical breakdown on the mileage/adjustment-only path — a tech
         // with pending mileage and no completed job still gets real components.
         pay_components: payComponentsFor(uid, 0, addlByType),

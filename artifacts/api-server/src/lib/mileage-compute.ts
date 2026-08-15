@@ -36,6 +36,7 @@
  * gross_total until 2B applies the leg.
  */
 import type { DistanceProvider, LegMeasurement } from "./distance-provider.js";
+import { isWithinServiceArea, type ServiceArea } from "./service-area.js";
 
 /** Minimal shape from `on_my_way_events` that mileage cares about. */
 export type MileageLegInput = {
@@ -70,7 +71,13 @@ export type LegOutcome =
         | "skip_no_rate"
         | "skip_provider_null"
         /** Measured farther than MAX_PLAUSIBLE_LEG_MILES — bad geocode. */
-        | "skip_implausible_distance";
+        | "skip_implausible_distance"
+        /** Only a straight-line estimate was available — see
+         *  [mileage-no-estimates 2026-08-15] below. */
+        | "skip_estimated_measurement"
+        /** An endpoint sits outside the tenant's service area — the
+         *  geocode is wrong. See lib/service-area.ts. */
+        | "skip_out_of_service_area";
       leg_id: number;
       user_id: number;
     };
@@ -104,13 +111,53 @@ export type MileageLegSpec = {
  * quarter of the way around the planet and priced it.
  *
  * A leg past this ceiling is not a long drive, it is bad data. Skipping it
- * makes the failure visible in the skip counters instead of paying it out.
+ * keeps it off the payroll summary, and /payroll/summary reports the pair as an
+ * unmeasured drive so the office sees the hole rather than a quiet omission.
  *
- * 150 miles is deliberately far above any real route: the longest genuine leg
- * on the books is 35.26 miles, so this cannot clip legitimate work even for an
- * unusually spread-out day.
+ * [mileage-ceiling 2026-08-15] Lowered 150 -> 60. 150 was chosen to be
+ * unmistakably absurd, but the number that matters is not "could this be a
+ * real drive anywhere on earth" — it is "could this be a real drive inside the
+ * tenant's service area". The office reads the mileage total off the payroll
+ * summary and types it into the outside payroll system by hand; there is no
+ * approval gate in that workflow, so the ceiling is the last automatic check
+ * before a bad geocode becomes money. At 150, a geocode in Rockford (~90 mi) sails
+ * through; at 60 it is caught. The longest genuine leg on the books is 35.26
+ * miles, so 60 still leaves ~70% headroom over the worst real day and cannot
+ * clip legitimate work.
+ *
+ * When a tenant's service area is genuinely larger than Chicagoland this
+ * becomes a per-tenant column. Until then a single honest constant beats a
+ * generous one.
  */
-export const MAX_PLAUSIBLE_LEG_MILES = 150;
+export const MAX_PLAUSIBLE_LEG_MILES = 60;
+
+/**
+ * [mileage-no-estimates 2026-08-15] A straight-line guess never becomes money.
+ *
+ * The distance provider falls back to a great-circle haversine whenever the
+ * mapping service does not answer — quota, network blip, a rejected key, or two
+ * points with no road route between them. The fallback is fine as a *display*
+ * number. It is not fine as a *payable* one: it measures through buildings and
+ * lakes, so it under-reads every real drive, and on a bad geocode it is exactly
+ * the mechanism that priced the 9,668-mile Chicago→Melbourne leg at $7,009.71 —
+ * no road route existed, so haversine happily drew the line anyway.
+ *
+ * The office reads the mileage total off the payroll summary and types it into
+ * the outside payroll system by hand. Nothing sits between an estimate and a
+ * paycheck. So the writers skip `is_estimated` measurements instead of
+ * storing them.
+ *
+ * Deferring costs nothing: the clock_sequence conflict key is ON CONFLICT DO
+ * NOTHING, so a leg skipped during an outage inserts cleanly, once, on the next
+ * recompute — with a real road distance. A skipped leg also surfaces on
+ * /payroll/summary as an unmeasured drive, so the gap is visible rather than
+ * quietly absorbed into a lower total.
+ *
+ * The provider itself is deliberately unchanged: the haversine path still runs,
+ * still caches, and still records its provenance, so the audit trail shows what
+ * happened. Only the decision to *pay* it is removed.
+ */
+export const PAY_ESTIMATED_MEASUREMENTS = false;
 
 /** Round to 2 decimal places without float drift. */
 export function roundMiles(miles: number): number {
@@ -147,6 +194,10 @@ export type RateForDate = (date: string) => number | null;
  * @param provider          DistanceProvider (cached + adapted by the
  *                          factory at the route level).
  * @param toCalendarDay     Date → YYYY-MM-DD in the tenant's TZ.
+ * @param serviceArea       Tenant's believable-coordinate region, or null for
+ *                          "no opinion" (too few geocoded clients to derive a
+ *                          center). Optional so existing callers keep today's
+ *                          behaviour until they pass one.
  */
 export async function computeMileageForLegs(
   legs: ReadonlyArray<MileageLegInput>,
@@ -154,6 +205,7 @@ export async function computeMileageForLegs(
   rateForDate: RateForDate,
   provider: DistanceProvider,
   toCalendarDay: DateToCalendarDay,
+  serviceArea: ServiceArea | null = null,
 ): Promise<LegOutcome[]> {
   // Identify the first leg of each (user_id, calendar day). The set
   // of legs to drop = the legs with the earliest sent_at in their
@@ -222,6 +274,21 @@ export async function computeMileageForLegs(
       });
       continue;
     }
+    // [mileage-service-area 2026-08-15] Both endpoints must be somewhere the
+    // tenant actually works. This runs BEFORE the provider call on purpose: a
+    // known-bad coordinate is not worth an API request, and measuring it first
+    // would only produce a plausible-looking distance between two wrong places.
+    if (
+      !isWithinServiceArea(from.lat, from.lng, serviceArea) ||
+      !isWithinServiceArea(to.lat, to.lng, serviceArea)
+    ) {
+      outcomes.push({
+        kind: "skip_out_of_service_area",
+        leg_id: leg.id,
+        user_id: leg.user_id,
+      });
+      continue;
+    }
     const ratePerMile = rateForDate(dayKey);
     if (ratePerMile == null) {
       // No mileage_rates row in effect for this date. Flag, do not
@@ -248,10 +315,23 @@ export async function computeMileageForLegs(
       continue;
     }
     const miles = roundMiles(measurement.meters / METERS_PER_MILE);
+    // Order matters: an over-the-ceiling leg is reported as bad DATA even when
+    // the measurement was also a straight line, because that is the actionable
+    // fact (someone has to fix a geocode). Only a plausible-but-estimated leg
+    // falls through to the deferral below, where the fix is simply to recompute.
     if (miles > MAX_PLAUSIBLE_LEG_MILES) {
       // Bad geocode, not a long drive. Drop it rather than price it.
       outcomes.push({
         kind: "skip_implausible_distance",
+        leg_id: leg.id,
+        user_id: leg.user_id,
+      });
+      continue;
+    }
+    if (measurement.is_estimated && !PAY_ESTIMATED_MEASUREMENTS) {
+      // Straight-line guess, not a measured road route. Defer, don't price.
+      outcomes.push({
+        kind: "skip_estimated_measurement",
         leg_id: leg.id,
         user_id: leg.user_id,
       });

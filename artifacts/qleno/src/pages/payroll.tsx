@@ -51,6 +51,28 @@ const PAY_GROUPS = [
 // readable title-case so owner-defined pay categories display cleanly.
 // [mdy 2026-06-12] Display dates month-first (mm/dd/yy) — Sal: "stop
 // displaying year first, i know what year we are in."
+// [mileage-unmeasured 2026-08-15] Why a drive produced no mileage leg, in the
+// office's words. The three reasons need three different actions, which is the
+// whole reason they are distinguished rather than lumped into "missing":
+//   no_coordinates  — the address was never geocoded. Fix the address.
+//   bad_coordinates — it WAS geocoded, to somewhere the company doesn't work.
+//                     Re-enter the address; recomputing will not fix it.
+//   not_measured    — nothing is wrong with the data; the distance lookup did
+//                     not answer. It resolves itself on the next run.
+// Only the last one is safe to promise will fix itself, so only the last one
+// says so.
+const unmeasuredLabel = (reason: string) =>
+  reason === 'no_coordinates' ? 'No address coordinates'
+  : reason === 'bad_coordinates' ? 'Address looks wrong'
+  : 'Not measured';
+
+const unmeasuredHelp = (reason: string) =>
+  reason === 'no_coordinates'
+    ? 'One of these two addresses has no map coordinates, so the distance could not be measured. Fix the address on the client or property and it will measure on the next run.'
+  : reason === 'bad_coordinates'
+    ? 'One of these two addresses is mapped to a location outside the area you work in — almost always a bad address on the client or property. This drive will NOT measure on its own; correct the address first.'
+    : 'This drive has no mileage leg yet — usually the distance lookup was unavailable when it ran. It measures on the next recompute.';
+
 const mdy = (s: string) => {
   const [y, m, d] = String(s || '').slice(0, 10).split('-');
   return y && m && d ? `${m}/${d}/${y.slice(2)}` : String(s || '');
@@ -637,6 +659,16 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     .map((l: any) => Number(l.id))
                     .filter((id: number) => Number.isFinite(id));
                   const owedIfApproved = Number(emp.totals.grand_total) + pendingMileage;
+                  // [mileage-unmeasured 2026-08-15] Drives this period that
+                  // produced no mileage leg. This sits in the Total Pay box on
+                  // purpose: the office reads the mileage figure off this box
+                  // and types it into the outside payroll system by hand, so a
+                  // drive that failed to measure has to be visible right next to
+                  // the number it is missing from. Without it, a dropped leg is
+                  // indistinguishable from a day nobody drove — which is how
+                  // Vanessa's 9.46-mile leg went out at $7.60 instead of $14.46
+                  // and was only caught because someone added the miles by hand.
+                  const unmeasured: any[] = emp.unmeasured_drives || [];
                   return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 30, flexWrap: 'wrap', background: 'linear-gradient(120deg,#F0FDF9,#E9FBF5)', border: '1px solid #B7ECDD', borderRadius: 12, padding: '18px 22px' }}>
                   <div style={{ minWidth: 200 }}>
@@ -669,6 +701,32 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                         </div>
                         <div style={{ fontSize: 12, color: '#6B6860', marginTop: 7 }}>
                           Owed if mileage approved <span style={{ fontWeight: 800, color: '#0A0E1A' }}>{money(owedIfApproved)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {unmeasured.length > 0 && (
+                      <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px dashed #B7ECDD' }}>
+                        <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '4px 11px', color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE' }}>
+                          {unmeasured.length} drive{unmeasured.length === 1 ? '' : 's'} not measured
+                        </span>
+                        <div style={{ fontSize: 12, color: '#6B6860', marginTop: 7, maxWidth: 460 }}>
+                          Not in the mileage above. Fix these and they measure on the next run.
+                        </div>
+                        <div style={{ marginTop: 5 }}>
+                          {unmeasured.slice(0, 6).map((u: any, ui: number) => (
+                            <div key={`ums-${ui}`} style={{ fontSize: 11, color: '#6B6860', lineHeight: 1.7 }}>
+                              <span style={{ color: '#9B9890' }}>{mdy(String(u.leg_date).slice(0, 10))}</span>
+                              {' '}{u.from} → {u.to}
+                              <span style={{ color: '#9B7B17', fontWeight: 700 }}>
+                                {' · '}{unmeasuredLabel(u.reason).toLowerCase()}
+                              </span>
+                            </div>
+                          ))}
+                          {unmeasured.length > 6 && (
+                            <div style={{ fontSize: 11, color: '#9B9890', marginTop: 2 }}>
+                              + {unmeasured.length - 6} more — see the day rows below
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -746,6 +804,14 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     // = not yet applied to pay (office reviews on the mileage screen).
                     const milesByDate: Record<string, any[]> = {};
                     for (const leg of (emp.mileage_legs || [])) { const k = String(leg.leg_date).slice(0, 10); (milesByDate[k] = milesByDate[k] || []).push(leg); }
+                    // [mileage-unmeasured 2026-08-15] Drives that happened but
+                    // produced no leg — see the server derivation in
+                    // routes/payroll.ts. They sit in the same place a measured
+                    // drive would, because the failure they represent is
+                    // invisible otherwise: a missing leg looks exactly like a
+                    // day with no driving, and the difference is money.
+                    const unmeasuredByDate: Record<string, any[]> = {};
+                    for (const u of (emp.unmeasured_drives || [])) { const k = String(u.leg_date).slice(0, 10); (unmeasuredByDate[k] = unmeasuredByDate[k] || []).push(u); }
                     // [payroll-scan 2026-06-20] Eff as a colored pill so the eye
                     // scans the column: green = at/under budget (≥100%), amber =
                     // over budget (<100%). "—" stays plain when not yet clocked.
@@ -829,6 +895,27 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                       ) : (
                                         <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>Pending</span>
                                       )}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                              {/* [mileage-unmeasured 2026-08-15] A drive with no
+                                  leg. Rendered as a sibling of the measured ones
+                                  so it reads as "this drive exists and is not in
+                                  the total", not as an absence. Deliberately no
+                                  miles and no dollar figure — inventing either
+                                  would be the guess this whole change removes. */}
+                              {(unmeasuredByDate[d] || []).map((u: any, ui: number) => (
+                                <tr key={`um-${d}-${ui}`}>
+                                  <td colSpan={cols} style={{ ...td, borderTop: '0.5px dashed #F0E4BE', paddingTop: 6, paddingBottom: 6, background: '#FEFCF5' }}>
+                                    <span style={{ fontSize: 12, color: '#9B7B17', fontWeight: 700 }}>↳ Drive</span>
+                                    <span style={{ fontSize: 12, color: '#6B6860', marginLeft: 8 }}>{u.from} → {u.to}</span>
+                                    <span style={{ float: 'right', fontSize: 12, color: '#9B7B17' }}>
+                                      <span
+                                        style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', textTransform: 'uppercase' }}
+                                        title={unmeasuredHelp(u.reason)}>
+                                        {unmeasuredLabel(u.reason)}
+                                      </span>
                                     </span>
                                   </td>
                                 </tr>

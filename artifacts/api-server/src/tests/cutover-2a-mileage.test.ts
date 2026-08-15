@@ -40,12 +40,19 @@ import {
   roundMiles,
   utcCalendarDay,
   MAX_PLAUSIBLE_LEG_MILES,
+  PAY_ESTIMATED_MEASUREMENTS,
   type MileageLegInput,
   type JobCoords,
   type LegOutcome,
   type DateToCalendarDay,
   type RateForDate,
 } from "../lib/mileage-compute.js";
+import {
+  deriveServiceArea,
+  isWithinServiceArea,
+  serviceAreaFromRow,
+  SERVICE_AREA_RADIUS_MILES,
+} from "../lib/service-area.js";
 import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
 import {
   haversineMeters,
@@ -310,10 +317,24 @@ describe("Cutover 2A — leg eligibility filter", () => {
     );
   });
 
-  it("the ceiling clears the longest genuine leg on the books by a wide margin", () => {
-    // Longest real leg measured in production: 35.26 mi. The ceiling exists to
-    // catch geocode errors, so it must never be tight enough to clip real work.
-    assert.ok(MAX_PLAUSIBLE_LEG_MILES > 35.26 * 2);
+  // The ceiling is squeezed from both sides, and both sides are load-bearing.
+  // Too low and it clips a real drive out of someone's pay; too high and a
+  // geocode that landed in the wrong metro gets paid as if it were a drive.
+  // [mileage-ceiling 2026-08-15] moved it 150 -> 60, which is why this asserts
+  // a band rather than a floor: a later "let's be safe" bump back toward 150
+  // silently re-opens the gap that the lower ceiling exists to close.
+  it("the ceiling clears the longest genuine leg without clearing the next metro", () => {
+    // Longest real leg measured in production: 35.26 mi.
+    assert.ok(
+      MAX_PLAUSIBLE_LEG_MILES > 35.26 * 1.5,
+      "ceiling must not be tight enough to clip real work",
+    );
+    // Rockford is ~90 mi from the service area — the shape of a plausible-looking
+    // bad geocode. It has to fail the check, not pass it.
+    assert.ok(
+      MAX_PLAUSIBLE_LEG_MILES < 90,
+      "ceiling must reject a geocode that landed in another metro",
+    );
   });
 
   it("a leg exactly at the ceiling still pays — the guard is strictly greater", async () => {
@@ -335,6 +356,79 @@ describe("Cutover 2A — leg eligibility filter", () => {
       utcCalendarDay,
     );
     assert.equal(out[1]!.kind, "eligible");
+  });
+
+  // [mileage-no-estimates 2026-08-15] The office types the mileage total off
+  // the payroll summary straight into ADP. A straight-line guess must never be
+  // one of the numbers it is made of.
+  it("skip_estimated_measurement: a haversine fallback is deferred, not priced", async () => {
+    const legs: MileageLegInput[] = [
+      { id: 100, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 101, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.88, -87.63], 2: [41.92, -87.65] }),
+      FLAT_RATE,
+      fakeProvider(HAVERSINE_LEG_3MI),
+      utcCalendarDay,
+    );
+    assert.equal(out[1]!.kind, "skip_estimated_measurement");
+    assert.equal(
+      out.some((o) => o.kind === "eligible"),
+      false,
+      "an estimated distance must not price at all",
+    );
+  });
+
+  // The deferral is only safe because it is recoverable: the leg is not
+  // written, so the ON CONFLICT DO NOTHING conflict key is still free and the
+  // next recompute inserts it once, with a real road distance. If this ever
+  // starts writing a placeholder row, the recovery path silently dies.
+  it("a deferred leg pays in full once a real measurement is available", async () => {
+    const legs: MileageLegInput[] = [
+      { id: 110, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 111, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const jobCoords = coords({ 1: [41.88, -87.63], 2: [41.92, -87.65] });
+    const outage = await computeMileageForLegs(legs, jobCoords, FLAT_RATE, fakeProvider(HAVERSINE_LEG_3MI), utcCalendarDay);
+    assert.equal(outage[1]!.kind, "skip_estimated_measurement");
+
+    const recovered = await computeMileageForLegs(legs, jobCoords, FLAT_RATE, fakeProvider(PAID_LEG_5MI), utcCalendarDay);
+    const eligible = recovered[1]!;
+    assert.equal(eligible.kind, "eligible");
+    assert.equal(eligible.kind === "eligible" && eligible.spec.miles, 5);
+  });
+
+  it("estimated measurements are off by policy, not by accident", () => {
+    // Flipping this to true re-arms the mechanism that priced Chicago→Melbourne
+    // at $7,009.71. It is a constant so the reversal is a reviewed code change.
+    assert.equal(PAY_ESTIMATED_MEASUREMENTS, false);
+  });
+
+  // Ordering guard: an over-the-ceiling leg reports as BAD DATA even though its
+  // measurement is also estimated, because "fix this geocode" is the actionable
+  // fact. Swapping the two checks would hide every bad geocode behind a reason
+  // that reads like a transient outage.
+  it("an implausible estimated leg reports as bad data, not as a deferral", async () => {
+    const legs: MileageLegInput[] = [
+      { id: 120, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 121, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const acrossThePlanet: LegMeasurement = {
+      meters: 9668.57 * 1609.344,
+      minutes: 0,
+      source: "haversine_fallback",
+      is_estimated: true,
+    };
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.7046686, -87.7746138], 2: [-37.9105055, 145.1269746] }),
+      FLAT_RATE,
+      fakeProvider(acrossThePlanet),
+      utcCalendarDay,
+    );
+    assert.equal(out[1]!.kind, "skip_implausible_distance");
   });
 });
 
@@ -894,5 +988,144 @@ describe("Cutover 2A — distance helpers", () => {
 
   it("metersToMiles converts 1609.344 → 1.0", () => {
     assert.equal(metersToMiles(1609.344), 1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// J. Service area — the guard that looks at ONE coordinate
+//
+// The ceiling and the no-estimates rule both judge a PAIR. Neither of them can
+// see the two failures below, and both of those failures end up as real dollars
+// on the payroll summary that the office types into the outside payroll system
+// by hand. See lib/service-area.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A believable Chicagoland center, derived the same way production derives
+ *  it — from a sample of the tenant's own client coordinates. */
+const CHICAGO_AREA = deriveServiceArea(
+  Array.from({ length: 40 }, (_, i) => ({
+    lat: 41.7 + (i % 8) * 0.03,
+    lng: -87.7 + (i % 5) * 0.04,
+  })),
+)!;
+
+const MELBOURNE: [number, number] = [-37.91, 145.13]; // job 8784's real geocode
+
+describe("Cutover 2A — service area rejects a point, not just a pair", () => {
+  it("derives a center that survives an outlier", () => {
+    // One catastrophically wrong client must not move the center. A mean
+    // would be dragged thousands of miles by this single row and would then
+    // happily widen the area around the very data it should reject.
+    const withOutlier = deriveServiceArea([
+      ...Array.from({ length: 40 }, () => ({ lat: 41.8, lng: -87.7 })),
+      { lat: MELBOURNE[0], lng: MELBOURNE[1] },
+    ])!;
+    assert.equal(withOutlier.lat, 41.8);
+    assert.equal(withOutlier.lng, -87.7);
+    assert.equal(isWithinServiceArea(MELBOURNE[0], MELBOURNE[1], withOutlier), false);
+  });
+
+  it("fails OPEN below the minimum sample — a thin tenant is not blocked", () => {
+    // The alternative is a payroll run where every drive is rejected by a
+    // center derived from a handful of addresses. No opinion beats a bad one.
+    const thin = deriveServiceArea([
+      { lat: 41.88, lng: -87.63 },
+      { lat: 41.9, lng: -87.65 },
+    ]);
+    assert.equal(thin, null);
+    assert.equal(isWithinServiceArea(MELBOURNE[0], MELBOURNE[1], thin), true);
+  });
+
+  it("ignores 0/0 — the failed-geocode sentinel, not an address", () => {
+    const area = deriveServiceArea([
+      ...Array.from({ length: 25 }, () => ({ lat: 41.8, lng: -87.7 })),
+      ...Array.from({ length: 24 }, () => ({ lat: 0, lng: 0 })),
+    ])!;
+    assert.equal(area.sample_size, 25);
+    assert.equal(area.lat, 41.8);
+  });
+
+  it("BOTH endpoints wrong in the same wrong place: caught only by this guard", async () => {
+    // The failure no existing guard sees. Two geocodes that both landed in
+    // the same distant metro measure a short, road-routable, entirely
+    // believable distance apart — under the ceiling, not an estimate. Without
+    // the service-area check this pays, and the number is fiction.
+    const legs: MileageLegInput[] = [
+      { id: 900, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 901, user_id: 42, from_job_id: 2, to_job_id: 3, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const bothWrong = coords({
+      1: [41.88, -87.63],
+      2: [MELBOURNE[0], MELBOURNE[1]],
+      3: [MELBOURNE[0] + 0.05, MELBOURNE[1] + 0.05],
+    });
+    const unguarded = await computeMileageForLegs(
+      legs, bothWrong, FLAT_RATE, fakeProvider(PAID_LEG_5MI), utcCalendarDay,
+    );
+    assert.equal(unguarded[1]!.kind, "eligible"); // every other guard passes it
+
+    const guarded = await computeMileageForLegs(
+      legs, bothWrong, FLAT_RATE, fakeProvider(PAID_LEG_5MI), utcCalendarDay, CHICAGO_AREA,
+    );
+    assert.equal(guarded[1]!.kind, "skip_out_of_service_area");
+  });
+
+  it("one endpoint wrong but UNDER the leg ceiling is still rejected", async () => {
+    // ~90 miles out — a real road route, a plausible-looking drive, and below
+    // nothing that would flag it if the ceiling were ever loosened. The point
+    // is simply not somewhere this tenant works.
+    const legs: MileageLegInput[] = [
+      { id: 910, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 911, user_id: 42, from_job_id: 2, to_job_id: 3, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.88, -87.63], 2: [41.9, -87.65], 3: [44.5, -88.0] }),
+      FLAT_RATE,
+      fakeProvider(PAID_LEG_5MI),
+      utcCalendarDay,
+      CHICAGO_AREA,
+    );
+    assert.equal(out[1]!.kind, "skip_out_of_service_area");
+  });
+
+  it("real in-area work is untouched — the guard must not clip a paycheck", async () => {
+    // The failure mode that would be worse than the bug: a guard that quietly
+    // drops legitimate drives out of someone's pay.
+    const legs: MileageLegInput[] = [
+      { id: 920, user_id: 42, from_job_id: 1, to_job_id: 2, sent_at: DAY_2026_05_20 },
+      { id: 921, user_id: 42, from_job_id: 2, to_job_id: 3, sent_at: DAY_2026_05_20_LATER },
+    ];
+    const out = await computeMileageForLegs(
+      legs,
+      coords({ 1: [41.88, -87.63], 2: [41.72, -87.75], 3: [42.03, -88.08] }),
+      FLAT_RATE,
+      fakeProvider(PAID_LEG_5MI),
+      utcCalendarDay,
+      CHICAGO_AREA,
+    );
+    assert.equal(out[1]!.kind, "eligible");
+  });
+
+  it("the radius stays wider than the leg ceiling — the two guards are not redundant", () => {
+    // Tuning them toward each other collapses a coarse point check and a tight
+    // pair check into one, and the coarse one is what catches both-endpoints-
+    // wrong. If someone ever narrows the radius to "match" the ceiling, this
+    // fails and explains why that is the wrong move.
+    assert.ok(
+      SERVICE_AREA_RADIUS_MILES > MAX_PLAUSIBLE_LEG_MILES,
+      "service-area radius must stay looser than the per-leg ceiling",
+    );
+  });
+
+  it("serviceAreaFromRow applies the same minimum sample as the pure path", () => {
+    // The SQL and the in-memory derivation are duplicated on purpose; this is
+    // the test that keeps them honest about the one rule they must share.
+    assert.equal(serviceAreaFromRow({ lat: 41.8, lng: -87.7, n: 4 }), null);
+    assert.equal(serviceAreaFromRow(undefined), null);
+    assert.equal(serviceAreaFromRow({ lat: null, lng: null, n: 500 }), null);
+    const ok = serviceAreaFromRow({ lat: 41.8, lng: -87.7, n: 500 })!;
+    assert.equal(ok.lat, 41.8);
+    assert.equal(ok.radius_miles, SERVICE_AREA_RADIUS_MILES);
   });
 });
