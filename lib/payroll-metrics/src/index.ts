@@ -222,3 +222,101 @@ export function hasMeaningfulPriorYear(
   const covered = weeks.filter(w => (w.prior_revenue || 0) > 0).length;
   return covered / weeks.length >= MIN_PRIOR_YEAR_COVERAGE;
 }
+
+// ── What someone is making per hour ──────────────────────────────────────────
+
+/**
+ * `additional_pay.type` values that pay for time NOT worked. They belong in
+ * take-home pay but never in the numerator of a $/hr figure: a week with 8
+ * hours of holiday pay and 10 hours clocked would otherwise report a rate
+ * nobody earned. Mirrors the exclusion list the overtime engine already uses
+ * for the FLSA regular rate (paid-leave-not-worked is not "hours worked").
+ */
+export const TIME_OFF_PAY_TYPES: readonly string[] = [
+  "sick", "sick_pay", "vacation", "vacation_pay", "holiday", "holiday_pay", "pto",
+];
+
+/**
+ * Which numerator a $/hr figure used.
+ *
+ *   earned     — commission + tips + bonuses. What the person actually took
+ *                home for working, per hour they worked. This is the answer to
+ *                "what is Hilda making per hour" and the default everywhere the
+ *                office reads payroll.
+ *   commission — commission alone. The pay-rule view: what the fee splits and
+ *                commercial hourly rate produced, ignoring everything added on
+ *                top. Useful next to Efficiency, not as a take-home figure.
+ *
+ * NOT a basis here: the FLSA **regular rate** in `lib/overtime.ts`. That one is
+ * legally defined — it excludes tips (pass-through, 29 CFR 531.55), includes
+ * nondiscretionary bonuses, and divides by hours worked INCLUDING between-jobs
+ * drive. It answers a different question (what premium is owed) and must not be
+ * unified with these. It is labelled "regular rate", never "$/hr".
+ */
+export type HourlyRateBasis = "earned" | "commission";
+
+export type HourlyRate = {
+  /**
+   * Dollars per hour, 2dp. `null` when no hours were clocked — never $0.00/hr,
+   * which would read as "she earned nothing an hour" rather than "we don't
+   * know".
+   */
+  rate: number | null;
+  basis: HourlyRateBasis;
+  /** Exactly what went into the numerator, so any surface can show its inputs. */
+  numerator: number;
+  /** Hours worked — clocked job time only. */
+  hours: number;
+  /**
+   * Pay inside `numerator` that came from jobs with NO clocked hours. Those
+   * jobs contribute dollars to the top and zero hours to the bottom, so the
+   * rate is overstated by exactly this much. Surfaced rather than hidden: an
+   * unclocked job is a data gap the office can go fix, and a $/hr that quietly
+   * absorbs it is the kind of number nobody can reconcile later.
+   */
+  unclocked_pay: number;
+};
+
+/**
+ * The ONE definition of "$/hr" on every payroll surface.
+ *
+ * Before this existed the payroll page could show four different per-hour
+ * numbers for the same person in the same week — grand_total ÷ hours on the
+ * Summary tab (mileage reimbursement and holiday pay inflating the top),
+ * commission ÷ hours in the expanded panel, a per-day commission rate on the
+ * day band, and the FLSA regular rate in the overtime banner. All four were
+ * internally correct and mutually contradictory, which is the MaidCentral
+ * three-denominator confusion CLAUDE.md says never to repeat.
+ *
+ * Excluded from every basis: mileage (a reimbursement, not wages — 29 CFR
+ * 778.217, the same exclusion the overtime engine makes) and time-off pay
+ * (paid for hours not worked, so it has no place over hours worked).
+ */
+export function hourlyRate(input: {
+  commission: number;
+  /** `additional_pay` totals keyed by type. Mileage and time-off are filtered out. */
+  additionalByType?: Record<string, number> | null;
+  /** Clocked hours worked in the same window as the pay. */
+  hoursWorked: number;
+  /** Pay in the numerator from jobs with no clock entry. Reported, not removed. */
+  unclockedPay?: number;
+  basis?: HourlyRateBasis;
+}): HourlyRate {
+  const basis: HourlyRateBasis = input.basis ?? "earned";
+  const commission = Number(input.commission) || 0;
+  let earnedExtras = 0;
+  for (const [type, raw] of Object.entries(input.additionalByType || {})) {
+    const key = String(type).toLowerCase();
+    if (MILEAGE_PAY_TYPES.includes(key) || TIME_OFF_PAY_TYPES.includes(key)) continue;
+    earnedExtras += Number(raw) || 0;
+  }
+  const numerator = round2(basis === "commission" ? commission : commission + earnedExtras);
+  const hours = round2(Number(input.hoursWorked) || 0);
+  return {
+    rate: hours > 0 ? round2(numerator / hours) : null,
+    basis,
+    numerator,
+    hours,
+    unclocked_pay: round2(Number(input.unclockedPay) || 0),
+  };
+}

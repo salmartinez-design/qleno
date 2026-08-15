@@ -10,7 +10,7 @@ import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, Al
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 // Canonical metric definitions — the SAME module the api-server computes with,
 // so a component can't quietly redefine what "payroll" or "labor %" means.
-import { addPay, totalPay, laborRatio, makeRevenue, EMPTY_PAY, type PayComponents } from "@workspace/payroll-metrics";
+import { addPay, totalPay, laborRatio, makeRevenue, hourlyRate, EMPTY_PAY, type PayComponents, type HourlyRate } from "@workspace/payroll-metrics";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -57,6 +57,38 @@ const mdy = (s: string) => {
 };
 
 const labelType = (t: string) => PAY_TYPE_LABELS[t] || String(t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+// [hourly-rate 2026-08-15] "What is Hilda making per hour" had four answers on
+// this one page: grand_total ÷ hours in the Summary table (mileage and holiday
+// pay inflating the top), commission ÷ hours in the expanded panel, a per-day
+// commission rate on the day band, and the FLSA regular rate in the overtime
+// banner. Every surface now reads ONE number from the server's canonical
+// `totals.earned_rate`, and the fallback below recomputes it with the SAME
+// shared function — never a second local formula — so an older API response
+// still renders the same figure mid-deploy.
+function earnedRateOf(emp: any): HourlyRate {
+  const server = emp?.totals?.earned_rate;
+  if (server && typeof server === 'object' && 'numerator' in server) return server as HourlyRate;
+  const jobs: any[] = Array.isArray(emp?.jobs) ? emp.jobs : [];
+  return hourlyRate({
+    commission: Number(emp?.totals?.commission || 0),
+    additionalByType: emp?.additional_pay || {},
+    hoursWorked: Number(emp?.totals?.hrs_worked || 0),
+    unclockedPay: jobs.reduce((s, j) => s + (Number(j.hrs_worked || 0) > 0 ? 0 : Number(j.commission || 0)), 0),
+  });
+}
+
+// One phrasing of the math, used by every $/hr tooltip on the page.
+function rateTitle(r: HourlyRate): string {
+  const m = (n: number) => `$${Number(n).toFixed(2)}`;
+  if (r.rate == null) {
+    return 'No clocked hours in this period, so there is no hourly figure to show. Hours come from the per-house clock.';
+  }
+  const base = `${m(r.numerator)} earned ÷ ${r.hours.toFixed(1)} clocked hours. Commission plus tips and bonuses — excludes mileage (a reimbursement) and time-off pay (hours not worked).`;
+  return r.unclocked_pay > 0
+    ? `${base}\n\nOverstated: ${m(r.unclocked_pay)} of that pay came from jobs with no clock-in, so it adds dollars on top with no hours underneath. Fix the missing clocks to get a true rate.`
+    : base;
+}
 
 // [pay-cadence 2026-06-08] The default pay-period window is sized by the
 // tenant's pay cadence (companies.pay_cadence) — weekly = 7 days, bi-weekly =
@@ -556,7 +588,10 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
         const allowedHrs = Number(emp.totals?.hrs_scheduled ?? 0);
         const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const eff = Number(emp.totals?.hrs_worked) > 0 ? Math.round((Number(emp.totals?.hrs_scheduled || 0) / Number(emp.totals.hrs_worked)) * 100) : null;
-        const effRate = emp.totals?.effective_rate;
+        // [hourly-rate 2026-08-15] The canonical take-home rate. Replaces the
+        // panel's old "Commission $/hr", which answered a narrower question
+        // than the one the office is asking when it looks here.
+        const earnedRate = earnedRateOf(emp);
         const billedTotal = Number(emp.totals?.job_total ?? 0);
         const laborPct = billedTotal > 0 ? Math.round((emp.totals.commission / billedTotal) * 100) : null;
         const rollup: any[] = [
@@ -566,6 +601,16 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
           { label: 'Allowed', value: allowedHrs.toFixed(1) },
           { label: 'Worked', value: hoursWorked.toFixed(1) },
           ...(eff != null ? [{ label: 'Eff', value: `${eff}%` }] : []),
+          // [hourly-rate 2026-08-15] On the COLLAPSED row, because "what is she
+          // making an hour" is a scan-the-list question — it should not require
+          // expanding each person one at a time. `~` marks a rate inflated by
+          // pay from unclocked jobs; the tooltip says by how much.
+          {
+            label: '$/hr',
+            value: earnedRate.rate != null ? `${earnedRate.unclocked_pay > 0 ? '~' : ''}${money(earnedRate.rate)}` : '—',
+            title: rateTitle(earnedRate),
+            color: earnedRate.unclocked_pay > 0 ? '#B45309' : undefined,
+          },
           { label: 'Billed', value: money(billedTotal) },
           // [payroll-mileage 2026-07-23] Per-employee mileage on the collapsed row
           // (Sal: "can't see the mileage on the payroll breakdown per employee").
@@ -595,7 +640,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
               </div>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {rollup.map((s: any) => (
-                  <div key={s.label} style={{ textAlign: 'right', minWidth: 64 }}>
+                  <div key={s.label} title={s.title} style={{ textAlign: 'right', minWidth: 64 }}>
                     <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p>
                     <p style={{ fontSize: 14, fontWeight: s.strong ? 800 : 700, color: s.accent ? 'var(--brand)' : (s.color ?? '#1A1917'), margin: 0 }}>{s.value}</p>
                   </div>
@@ -678,7 +723,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       { k: 'Billed to clients', v: money(billedTotal) },
                       ...(laborPct != null ? [{ k: 'Labor %', v: `${laborPct}%` }] : []),
                       ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
-                      ...(effRate != null ? [{ k: 'Commission $/hr', v: money(effRate) }] : []),
+                      // [hourly-rate 2026-08-15] Take-home per hour, with the
+                      // math in the tooltip so it never becomes another number
+                      // that can't be reconciled from what's on screen.
+                      {
+                        k: 'Earned $/hr',
+                        v: earnedRate.rate != null ? `${earnedRate.unclocked_pay > 0 ? '~' : ''}${money(earnedRate.rate)}` : '—',
+                        title: rateTitle(earnedRate),
+                        color: earnedRate.unclocked_pay > 0 ? '#B45309' : undefined,
+                      },
                       // [payroll-mileage 2026-07-23] Accrued driving reimbursement
                       // for the period, in the expanded breakdown too (Sal: cascade
                       // to their employee pay breakdown). The Total-Pay chip above
@@ -687,7 +740,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       // reimbursement, not commission.
                       ...(Number(emp.totals?.mileage || 0) > 0 ? [{ k: 'Mileage', v: money(Number(emp.totals.mileage)), color: '#0A6E8A' }] : []),
                     ].map((s: any) => (
-                      <div key={s.k}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: s.color ?? '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
+                      <div key={s.k} title={s.title}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: s.color ?? '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
                     ))}
                   </div>
                 </div>
@@ -716,7 +769,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                 </div>
                 )}
 
-                <div style={{ fontSize: 11, color: '#9E9B94', marginTop: 6 }}>Hours shown for records — paid on commission + mileage, not hourly.</div>
+                <div style={{ fontSize: 11, color: '#9E9B94', marginTop: 6 }}>Hours shown for records — paid on commission + mileage, not hourly. $/hr is derived from those hours, not a pay rate.</div>
 
                 {/* Per-client breakdown */}
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 2px' }}>Per-client breakdown</p>
@@ -1429,8 +1482,17 @@ export default function PayrollPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #EEECE7' }}>
-                {['Employee', 'Role', 'Hours', 'Gross $/hr', 'Gross Pay', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                {/* [hourly-rate 2026-08-15] Was "Gross $/hr" = gross ÷ hours,
+                    which put mileage reimbursement and holiday pay over hours
+                    worked and disagreed with the $/hr on the By Employee tab
+                    for the same person and week. Now the same canonical
+                    earned rate, named for what it measures. */}
+                {[
+                  { h: 'Employee' }, { h: 'Role' }, { h: 'Hours' },
+                  { h: 'Earned $/hr', t: 'Commission + tips and bonuses ÷ clocked hours. Excludes mileage (a reimbursement) and time-off pay, so it does not equal Gross Pay ÷ Hours.' },
+                  { h: 'Gross Pay' }, { h: 'Status' },
+                ].map(c => (
+                  <th key={c.h} title={c.t} style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{c.h}</th>
                 ))}
               </tr>
             </thead>
@@ -1439,8 +1501,8 @@ export default function PayrollPage() {
                 <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>Loading payroll data...</td></tr>
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
                 const pay = payMap[emp.id] || { hours: 0, gross: 0 };
-                const effRate = pay.hours > 0 ? pay.gross / pay.hours : null;
                 const detail = payDetailMap[emp.id];
+                const rate = earnedRateOf(detail);
                 const jobs: any[] = detail?.jobs || [];
                 const addl = Object.entries(detail?.additional_pay || {}).filter(([, v]) => (v as number) !== 0);
                 const canOpen = jobs.length > 0 || addl.length > 0;
@@ -1471,7 +1533,9 @@ export default function PayrollPage() {
                       </span>
                     </td>
                     <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#1A1917' }}>{pay.hours.toFixed(1)}</td>
-                    <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#6B6860' }}>{effRate != null ? `$${effRate.toFixed(2)}/hr` : '—'}</td>
+                    <td title={rateTitle(rate)} style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: rate.unclocked_pay > 0 ? '#B45309' : '#6B6860' }}>
+                      {rate.rate != null ? `${rate.unclocked_pay > 0 ? '~' : ''}$${rate.rate.toFixed(2)}/hr` : '—'}
+                    </td>
                     <td style={{ padding: '14px 20px', fontSize: '22px', fontWeight: 700, color: '#1A1917' }}>${pay.gross.toFixed(2)}</td>
                     <td style={{ padding: '14px 20px' }}>
                       {pay.gross > 0
