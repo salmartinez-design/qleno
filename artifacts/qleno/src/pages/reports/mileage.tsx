@@ -25,11 +25,32 @@ function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); 
 interface Leg {
   id: number; user_id: number; leg_date: string; miles: number; minutes: number;
   amount: number; rate_per_mile: number; status: string;
+  split_group_size: number | null; amount_before_split: number | null;
   measurement_source: string | null; measurement_is_estimated: boolean;
   from_job_id: number | null; to_job_id: number | null;
   tech_name: string; from_label: string; to_label: string;
 }
 interface FlaggedLeg extends Leg { flag: string; flag_detail: string }
+// [shared-drive-split 2026-08-15] One entry per DRIVE, not per tech — the
+// office is deciding about a single drive and the techs on it, so the two legs
+// have to be visible side by side.
+interface SharedDriveLeg {
+  id: number; user_id: number; tech_name: string;
+  amount: number; amount_before_split: number | null; status: string;
+}
+interface SharedDrive {
+  key: string; leg_date: string;
+  from_job_id: number | null; to_job_id: number | null;
+  from_label: string; to_label: string; miles: number;
+  is_split: boolean;
+  /** What the drive costs once. */
+  full_amount: number;
+  /** What it costs as it stands — full_amount × techs until it's split. */
+  current_total: number;
+  overpay: number;
+  tech_count: number;
+  legs: SharedDriveLeg[];
+}
 interface WeekRow { week_start: string; legs: number; miles: number; amount: number; applied_amount: number; pending_amount: number }
 interface TechRow { user_id: number; tech_name: string; legs: number; miles: number; amount: number; applied_amount: number; pending_amount: number; flagged_legs: number }
 interface MileageData {
@@ -40,7 +61,8 @@ interface MileageData {
     discarded_amount: number; discarded_legs: number;
     total_legs: number; clean_pending_amount: number;
   };
-  by_week: WeekRow[]; by_tech: TechRow[]; flagged: FlaggedLeg[]; legs: Leg[];
+  by_week: WeekRow[]; by_tech: TechRow[]; flagged: FlaggedLeg[];
+  shared_drives: SharedDrive[]; legs: Leg[];
 }
 
 const FLAG_META: Record<string, { label: string; color: string; bg: string; blurb: string }> = {
@@ -74,8 +96,13 @@ export default function MileageReportPage() {
 
   // Hard errors vs judgement calls. Only the former block a bulk approve.
   const hardErrors = useMemo(() => flagged.filter(f => f.flag !== "carpool_candidate"), [flagged]);
-  const judgementCalls = useMemo(() => flagged.filter(f => f.flag === "carpool_candidate"), [flagged]);
   const hardErrorIds = useMemo(() => new Set(hardErrors.map(f => f.id)), [hardErrors]);
+  // Grouped by drive, so both techs appear on one row. Already-split drives stay
+  // in the list — the decision is visible and reversible, not hidden once made.
+  const sharedDrives = data?.shared_drives ?? [];
+  const openDrives = useMemo(() => sharedDrives.filter(d => !d.is_split), [sharedDrives]);
+  const splitDrives = useMemo(() => sharedDrives.filter(d => d.is_split), [sharedDrives]);
+  const totalOverpay = useMemo(() => openDrives.reduce((a, d) => a + d.overpay, 0), [openDrives]);
   const cleanPendingLegs = useMemo(
     () => (data?.legs ?? []).filter(l => (l.status === "computed" || l.status === "reviewed") && l.amount > 0 && !hardErrorIds.has(l.id)),
     [data, hardErrorIds],
@@ -119,13 +146,55 @@ export default function MileageReportPage() {
     }
   }
 
-  async function discard(leg: Leg, presetReason: string) {
+  // Takes the minimum it needs rather than a full Leg — the shared-drive rows
+  // carry miles on the drive, not on each tech's line.
+  async function discard(leg: { id: number; miles: number; amount: number }, presetReason: string) {
     const reason = prompt(`Discard this drive (${leg.miles.toFixed(1)} mi, ${fmt$c(leg.amount)})?\n\nIt will never be paid. Reason:`, presetReason);
     if (!reason?.trim()) return;
     setBusy(b => [...b, leg.id]);
     try {
       await post(`/pay/mileage-legs/${leg.id}/discard`, { reason: reason.trim() });
       toast({ title: `Discarded — ${fmt$c(leg.amount)} will not be paid` });
+    } catch (e: any) {
+      toast({ title: e.message, variant: "destructive" });
+    } finally {
+      setBusy([]); reload();
+    }
+  }
+
+  // [shared-drive-split 2026-08-15] Sal: "in cases where more than one tech is
+  // driving this should show on the approval screen, and let me split it
+  // amongst both."
+  //
+  // Splitting changes no status — the legs stay pending and still go through
+  // the normal approve. All that changes is what each tech carries, so the
+  // drive gets paid once across the two of them instead of once each.
+  async function splitDrive(d: SharedDrive) {
+    const each = d.full_amount / d.tech_count;
+    const names = d.legs.map(l => l.tech_name).join(" and ");
+    if (!confirm(
+      `Split this drive between ${names}?\n\n` +
+      `${d.miles.toFixed(1)} mi · ${fmt$c(d.full_amount)} for the drive\n` +
+      `Each gets about ${fmt$c(each)} instead of ${fmt$c(d.full_amount)}.\n\n` +
+      `Total drops from ${fmt$c(d.current_total)} to ${fmt$c(d.full_amount)}. ` +
+      `Nothing is paid yet — you still approve it below.`
+    )) return;
+    setBusy(b => [...b, ...d.legs.map(l => l.id)]);
+    try {
+      await post(`/pay/mileage-legs/split`, { leg_ids: d.legs.map(l => l.id) });
+      toast({ title: `Split ${d.tech_count} ways — this drive now costs ${fmt$c(d.full_amount)}` });
+    } catch (e: any) {
+      toast({ title: e.message, variant: "destructive" });
+    } finally {
+      setBusy([]); reload();
+    }
+  }
+
+  async function unsplitDrive(d: SharedDrive) {
+    setBusy(b => [...b, ...d.legs.map(l => l.id)]);
+    try {
+      await post(`/pay/mileage-legs/unsplit`, { leg_ids: d.legs.map(l => l.id) });
+      toast({ title: "Split undone — each cleaner is back to the full amount" });
     } catch (e: any) {
       toast({ title: e.message, variant: "destructive" });
     } finally {
@@ -190,18 +259,82 @@ export default function MileageReportPage() {
           </div>
         )}
 
-        {/* Judgement calls — surfaced, never auto-resolved. */}
-        {!loading && judgementCalls.length > 0 && (
+        {/* Judgement calls — surfaced, never auto-resolved. Grouped by DRIVE:
+            one card per drive with every tech on it, because the decision is
+            about the drive, not about either tech separately. */}
+        {!loading && openDrives.length > 0 && (
           <div style={card}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr.text, marginBottom: 3 }}>Your call: {judgementCalls.length} drive{judgementCalls.length === 1 ? "" : "s"} shared by two techs</div>
-            <div style={{ fontSize: 12, color: clr.secondary, marginBottom: 14 }}>{FLAG_META.carpool_candidate!.blurb}</div>
-            {judgementCalls.map(f => (
-              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "9px 0", borderTop: `1px solid ${clr.border}`, fontSize: 13 }}>
-                <span style={{ fontWeight: 600, color: clr.text, minWidth: 130 }}>{f.tech_name}</span>
-                <span style={{ color: clr.secondary }}>{fmtDate(f.leg_date)}</span>
-                <span style={{ color: clr.secondary }}>{f.from_label} → {f.to_label}</span>
-                <span style={{ marginLeft: "auto", fontWeight: 700 }}>{f.miles.toFixed(1)} mi · {fmt$c(f.amount)}</span>
-                <button disabled={isBusy(f.id)} onClick={() => discard(f, "Rode with another tech")} style={{ ...btn("#6B6860"), opacity: isBusy(f.id) ? 0.5 : 1 }}>Discard</button>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr.text, marginBottom: 3 }}>
+              Your call: {openDrives.length} drive{openDrives.length === 1 ? "" : "s"} with more than one cleaner
+            </div>
+            <div style={{ fontSize: 12, color: clr.secondary, marginBottom: 4 }}>{FLAG_META.carpool_candidate!.blurb}</div>
+            {totalOverpay > 0 && (
+              <div style={{ fontSize: 12, color: clr.secondary, marginBottom: 14 }}>
+                Each cleaner currently carries the full amount, so approving as-is pays{" "}
+                <strong style={{ color: clr.text }}>{fmt$c(totalOverpay)}</strong> more than the drives cost.
+                Split the ones where they rode together.
+              </div>
+            )}
+            {openDrives.map(d => (
+              <div key={d.key} style={{ padding: "13px 0", borderTop: `1px solid ${clr.border}` }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: clr.text }}>{fmtDate(d.leg_date)}</span>
+                  <span style={{ fontSize: 12, color: clr.secondary }}>{d.from_label} → {d.to_label}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: clr.text }}>
+                    {d.miles.toFixed(1)} mi · {fmt$c(d.full_amount)} the drive
+                  </span>
+                </div>
+                {d.legs.map(l => (
+                  <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "5px 0 5px 14px", fontSize: 13 }}>
+                    <span style={{ fontWeight: 600, color: clr.text, minWidth: 150 }}>{l.tech_name}</span>
+                    <span style={{ marginLeft: "auto", fontWeight: 700 }}>{fmt$c(l.amount)}</span>
+                    <button
+                      disabled={isBusy(l.id)}
+                      onClick={() => discard({ id: l.id, miles: d.miles, amount: l.amount }, "Rode with another cleaner")}
+                      style={{ ...btn("#6B6860"), opacity: isBusy(l.id) ? 0.5 : 1 }}>
+                      Discard this one
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 9, paddingLeft: 14 }}>
+                  <button
+                    disabled={busy.length > 0}
+                    onClick={() => splitDrive(d)}
+                    style={{ ...btn("#00A383"), opacity: busy.length ? 0.5 : 1 }}>
+                    Split it — {fmt$c(d.full_amount / d.tech_count)} each
+                  </button>
+                  <span style={{ fontSize: 12, color: clr.secondary }}>
+                    They rode together. Or leave it alone and both get {fmt$c(d.full_amount)} for driving separately.
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Drives already split. Kept visible so the decision is auditable and
+            a misclick is one click to undo. */}
+        {!loading && splitDrives.length > 0 && (
+          <div style={card}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr.text, marginBottom: 3 }}>
+              {splitDrives.length} shared drive{splitDrives.length === 1 ? "" : "s"} split
+            </div>
+            <div style={{ fontSize: 12, color: clr.secondary, marginBottom: 14 }}>
+              Each of these is paid once, divided between the cleaners who shared it. They're ready to approve with everything else below.
+            </div>
+            {splitDrives.map(d => (
+              <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 0", borderTop: `1px solid ${clr.border}`, fontSize: 13 }}>
+                <span style={{ color: clr.secondary, minWidth: 92 }}>{fmtDate(d.leg_date)}</span>
+                <span style={{ fontWeight: 600, color: clr.text }}>
+                  {d.legs.map(l => `${l.tech_name} ${fmt$c(l.amount)}`).join("  ·  ")}
+                </span>
+                <span style={{ marginLeft: "auto", fontWeight: 700 }}>{d.miles.toFixed(1)} mi · {fmt$c(d.full_amount)}</span>
+                <button
+                  disabled={busy.length > 0}
+                  onClick={() => unsplitDrive(d)}
+                  style={{ ...btn("#6B6860"), opacity: busy.length ? 0.5 : 1 }}>
+                  Undo split
+                </button>
               </div>
             ))}
           </div>

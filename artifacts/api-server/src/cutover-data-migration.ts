@@ -142,6 +142,14 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await ensureMileageSplitColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] mileage split columns failed (non-fatal):",
+      err,
+    );
+  }
 }
 
 /**
@@ -230,6 +238,36 @@ async function ensureScheduledMileageFallback(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS mileage_legs_scheduled_uq
         ON mileage_legs (company_id, user_id, from_job_id, to_job_id)
         WHERE leg_source = 'scheduled'
+    `),
+  );
+}
+
+/**
+ * [shared-drive-split 2026-08-15] Two columns that let the office split one
+ * shared drive between the techs who rode in it.
+ *
+ * The engine writes one leg per tech. When two techs ride together it writes
+ * two legs at the FULL amount each, so approving both pays the same drive
+ * twice. The office can now split it — each leg's `amount` becomes that tech's
+ * share.
+ *
+ *   split_group_size    how many techs shared the drive (NULL = not split)
+ *   amount_before_split what the leg carried before the split
+ *
+ * The second column is what makes the split reversible and idempotent: a
+ * second click sees split_group_size already set and refuses, instead of
+ * quietly halving the half. It's also the audit trail — 2B's whole premise is
+ * that every mileage dollar traces back to what the office decided.
+ *
+ * Both nullable with no default, so every existing row reads "not split" and
+ * nothing recomputes.
+ */
+async function ensureMileageSplitColumns(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+      ALTER TABLE mileage_legs
+        ADD COLUMN IF NOT EXISTS split_group_size INTEGER,
+        ADD COLUMN IF NOT EXISTS amount_before_split NUMERIC(10,2)
     `),
   );
 }
