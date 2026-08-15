@@ -44,6 +44,9 @@ import {
 import {
   detectCarpoolCandidates,
   refusalForTransition,
+  planEvenSplit,
+  refusalForSplit,
+  refusalForUnsplit,
   MILEAGE_REIMBURSEMENT_ADJUSTMENT_TYPE,
   type MileageLegStatus,
 } from "../lib/mileage-approval.js";
@@ -2055,6 +2058,167 @@ router.post(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// [shared-drive-split 2026-08-15] Split one drive between its riders
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// When two techs ride together the engine still writes one FULL-amount leg per
+// tech, so approving both pays the same drive twice. These two endpoints let
+// the office split it instead of having to discard one tech's leg outright.
+//
+// No lifecycle transition happens here — a split leg stays `computed` and still
+// has to go through review + apply like any other. All that changes is the
+// amount each tech carries. That keeps the 2B rule intact: nothing is money
+// until the office applies it.
+//
+// Not gated to adminWriteGate, matching /review and /discard: this adjusts a
+// proposal, it doesn't move money. The apply step stays admin-only.
+
+/** Load a set of legs by id, company-scoped, ordered by id so the
+ *  leftover-penny assignment is deterministic across calls. */
+async function loadLegsByIds(
+  companyId: number,
+  legIds: number[],
+): Promise<Array<typeof mileageLegsTable.$inferSelect>> {
+  return db
+    .select()
+    .from(mileageLegsTable)
+    .where(
+      and(
+        eq(mileageLegsTable.company_id, companyId),
+        inArray(mileageLegsTable.id, legIds),
+      ),
+    )
+    .orderBy(asc(mileageLegsTable.id));
+}
+
+/** Parse + validate a `{ leg_ids: number[] }` body. Returns the deduped
+ *  ids, or a message describing what's wrong with the body. */
+function parseLegIds(body: unknown): { ids: number[] } | { error: string } {
+  const raw = (body as { leg_ids?: unknown })?.leg_ids;
+  if (!Array.isArray(raw)) return { error: "leg_ids must be an array" };
+  const ids = [...new Set(raw.map(Number))];
+  if (ids.some((n) => !Number.isFinite(n))) {
+    return { error: "leg_ids must all be numbers" };
+  }
+  if (ids.length < 2) return { error: "leg_ids must contain at least two legs" };
+  return { ids };
+}
+
+router.post("/mileage-legs/split", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const parsed = parseLegIds(req.body);
+  if ("error" in parsed) return badRequest(res, parsed.error);
+
+  const legs = await loadLegsByIds(companyId, parsed.ids);
+  if (legs.length !== parsed.ids.length) {
+    return notFound(res, "One or more mileage legs not found");
+  }
+
+  const refusal = refusalForSplit(
+    legs.map((l) => ({
+      id: l.id,
+      user_id: l.user_id,
+      leg_date: String(l.leg_date),
+      from_job_id: l.from_job_id,
+      to_job_id: l.to_job_id,
+      status: l.status as MileageLegStatus,
+      split_group_size: l.split_group_size,
+    })),
+  );
+  if (refusal) {
+    return res.status(409).json({
+      error: "Conflict",
+      message: refusal,
+      code: "split_invalid",
+    });
+  }
+
+  const plan = planEvenSplit(legs.map((l) => ({ id: l.id, amount: l.amount })));
+  const now = new Date();
+  // One UPDATE per leg — the group is two or three rows, and each row gets a
+  // different share, so a single statement would need a CASE ladder for no gain.
+  for (const share of plan.shares) {
+    await db
+      .update(mileageLegsTable)
+      .set({
+        amount: share.amount_after,
+        amount_before_split: share.amount_before,
+        split_group_size: legs.length,
+        updated_at: now,
+      })
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.id, share.leg_id),
+        ),
+      );
+  }
+
+  return res.json({
+    data: {
+      split_group_size: legs.length,
+      full_amount: plan.full_amount,
+      previous_total: plan.current_total,
+      legs: plan.shares.map((s) => ({
+        id: s.leg_id,
+        amount: s.amount_after,
+        amount_before_split: s.amount_before,
+      })),
+    },
+  });
+});
+
+router.post("/mileage-legs/unsplit", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const parsed = parseLegIds(req.body);
+  if ("error" in parsed) return badRequest(res, parsed.error);
+
+  const legs = await loadLegsByIds(companyId, parsed.ids);
+  if (legs.length !== parsed.ids.length) {
+    return notFound(res, "One or more mileage legs not found");
+  }
+
+  const refusal = refusalForUnsplit(
+    legs.map((l) => ({
+      status: l.status as MileageLegStatus,
+      split_group_size: l.split_group_size,
+      amount_before_split: l.amount_before_split,
+    })),
+  );
+  if (refusal) {
+    return res.status(409).json({
+      error: "Conflict",
+      message: refusal,
+      code: "split_invalid",
+    });
+  }
+
+  const now = new Date();
+  for (const leg of legs) {
+    await db
+      .update(mileageLegsTable)
+      .set({
+        amount: leg.amount_before_split!,
+        amount_before_split: null,
+        split_group_size: null,
+        updated_at: now,
+      })
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.id, leg.id),
+        ),
+      );
+  }
+
+  return res.json({
+    data: {
+      legs: legs.map((l) => ({ id: l.id, amount: l.amount_before_split })),
+    },
+  });
+});
+
 /** Promote ONE reviewed leg to a pay_adjustments row. Atomic at the
  *  app level: INSERT the adjustment, then UPDATE the leg with the
  *  bridge id + applied state. The leg's status='reviewed' precondition
@@ -2073,7 +2237,11 @@ async function applyLegInternal(
       user_id: leg.user_id,
       adjustment_type: MILEAGE_REIMBURSEMENT_ADJUSTMENT_TYPE,
       amount: leg.amount, // already numeric(10,2) string from 2A
-      note: `mileage_leg #${leg.id}: ${leg.miles} mi × $${leg.rate_per_mile}/mi`,
+      // A split leg's amount is a share, so miles × rate no longer equals it.
+      // Say so in the note or the payroll line reads like an arithmetic error.
+      note: leg.split_group_size
+        ? `mileage_leg #${leg.id}: ${leg.miles} mi × $${leg.rate_per_mile}/mi, split ${leg.split_group_size} ways`
+        : `mileage_leg #${leg.id}: ${leg.miles} mi × $${leg.rate_per_mile}/mi`,
       created_by_user_id: actingUserId,
     })
     .returning({ id: payAdjustmentsTable.id });

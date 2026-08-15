@@ -1466,6 +1466,7 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
       SELECT
         ml.id, ml.user_id, to_char(ml.leg_date, 'YYYY-MM-DD') AS leg_date, ml.miles, ml.minutes,
         ml.amount, ml.rate_per_mile, ml.status,
+        ml.split_group_size, ml.amount_before_split,
         ml.measurement_source, ml.measurement_is_estimated,
         ml.from_job_id, ml.to_job_id,
         u.first_name, u.last_name,
@@ -1488,6 +1489,7 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
     type Leg = {
       id: number; user_id: number; leg_date: string; miles: number; minutes: number;
       amount: number; rate_per_mile: number; status: string;
+      split_group_size: number | null; amount_before_split: number | null;
       measurement_source: string | null; measurement_is_estimated: boolean;
       from_job_id: number | null; to_job_id: number | null;
       tech_name: string; from_label: string; to_label: string;
@@ -1507,6 +1509,8 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
       amount: parseF(r.amount),
       rate_per_mile: parseF(r.rate_per_mile),
       status: String(r.status),
+      split_group_size: r.split_group_size == null ? null : Number(r.split_group_size),
+      amount_before_split: r.amount_before_split == null ? null : parseF(r.amount_before_split),
       measurement_source: r.measurement_source ?? null,
       measurement_is_estimated: !!r.measurement_is_estimated,
       from_job_id: r.from_job_id ? Number(r.from_job_id) : null,
@@ -1574,7 +1578,15 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
       } else if (dupExtraIds.has(l.id)) {
         flag = "duplicate";
         detail = "A second copy of a drive already counted once today. The original stays payable — discard this one.";
-      } else if ((poolTechs.get(poolKey(l))?.size ?? 0) > 1 && l.amount > 0) {
+      } else if (
+        (poolTechs.get(poolKey(l))?.size ?? 0) > 1 &&
+        l.amount > 0 &&
+        // An already-split leg is a decided drive, not an open question. Leaving
+        // it flagged would park it in the judgement queue forever and keep it
+        // out of "approve all clean" — the exact opposite of what splitting is
+        // for. It carries its share now and is ready to approve like any leg.
+        l.split_group_size == null
+      ) {
         // A $0 leg (same address, or two units at one building) is nothing to
         // decide — keep it out of the office's judgement queue.
         flag = "carpool_candidate";
@@ -1596,6 +1608,64 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
     const cleanPending = legs
       .filter(l => isPending(l.status) && !hardErrorIds.has(l.id))
       .reduce((s, l) => s + l.amount, 0);
+
+    // ── shared drives, grouped ─────────────────────────────────────────────
+    // [shared-drive-split 2026-08-15] The flat `flagged` list shows one row per
+    // tech, which is exactly the wrong shape for this decision: the office is
+    // looking at ONE drive and deciding what to do about the techs on it. Group
+    // by drive so the screen can show both names together, and carry the split
+    // state so it can offer "split between them" or undo a split it already did.
+    //
+    // Includes drives already split — they're no longer flagged, but the office
+    // still needs to see what it decided and be able to reverse a misclick.
+    const sharedDrivesMap = new Map<string, any>();
+    for (const l of legs) {
+      if (!isPending(l.status)) continue;
+      if ((poolTechs.get(poolKey(l))?.size ?? 0) <= 1) continue;
+      const isSplit = l.split_group_size != null;
+      // The drive's full cost: the pre-split amount when split, else the leg's
+      // own amount. Both are the same number, just before vs after the rewrite.
+      const fullAmount = isSplit ? (l.amount_before_split ?? l.amount) : l.amount;
+      if (fullAmount <= 0 && !isSplit) continue; // $0 drive — nothing to decide
+      const k = poolKey(l);
+      if (!sharedDrivesMap.has(k)) {
+        sharedDrivesMap.set(k, {
+          key: k,
+          leg_date: l.leg_date,
+          from_job_id: l.from_job_id,
+          to_job_id: l.to_job_id,
+          from_label: l.from_label,
+          to_label: l.to_label,
+          miles: l.miles,
+          is_split: isSplit,
+          // What one drive actually costs — what the group pays if split.
+          full_amount: fullAmount,
+          // What the group pays as it stands. Equals full_amount once split;
+          // full_amount × tech-count while it isn't.
+          current_total: 0,
+          legs: [],
+        });
+      }
+      const g = sharedDrivesMap.get(k)!;
+      g.current_total += l.amount;
+      g.legs.push({
+        id: l.id,
+        user_id: l.user_id,
+        tech_name: l.tech_name,
+        amount: l.amount,
+        amount_before_split: l.amount_before_split,
+        status: l.status,
+      });
+    }
+    const shared_drives = [...sharedDrivesMap.values()]
+      .map(g => ({
+        ...g,
+        legs: g.legs.sort((a: any, b: any) => a.id - b.id),
+        tech_count: g.legs.length,
+        // What the office saves by splitting this drive. Zero once split.
+        overpay: g.is_split ? 0 : g.current_total - g.full_amount,
+      }))
+      .sort((a, b) => b.overpay - a.overpay || a.leg_date.localeCompare(b.leg_date));
 
     // ── rollups ────────────────────────────────────────────────────────────
     const byWeekMap = new Map<string, any>();
@@ -1640,6 +1710,7 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
       by_week,
       by_tech,
       flagged,
+      shared_drives,
       legs,
     });
   } catch (err) {

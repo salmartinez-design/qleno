@@ -147,6 +147,23 @@ export const mileageLegsTable = pgTable(
     amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
     measurement_source: text("measurement_source").notNull(),
     measurement_is_estimated: boolean("measurement_is_estimated").notNull(),
+    // [shared-drive-split 2026-08-15] When two techs ride together, the engine
+    // still writes one FULL-amount leg per tech — so one drive pays twice. The
+    // office can split it: each leg's amount becomes its share and these two
+    // columns record that it happened.
+    //
+    //   split_group_size    how many techs shared the drive (NULL = not split)
+    //   amount_before_split the full amount this leg carried beforehand
+    //
+    // Both exist for the same reason the discard reason does: every mileage
+    // dollar has to stay traceable to what the office decided and why. They
+    // also make the split idempotent — a second click sees split_group_size
+    // already set and refuses, instead of quietly halving the half.
+    split_group_size: integer("split_group_size"),
+    amount_before_split: numeric("amount_before_split", {
+      precision: 10,
+      scale: 2,
+    }),
     // Lifecycle.
     status: mileageLegStatusEnum("status").notNull().default("computed"),
     reviewed_at: timestamp("reviewed_at", { withTimezone: true }),

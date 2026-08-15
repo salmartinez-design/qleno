@@ -32,6 +32,9 @@ import path from "node:path";
 import {
   refusalForTransition,
   detectCarpoolCandidates,
+  planEvenSplit,
+  refusalForSplit,
+  refusalForUnsplit,
   MILEAGE_REIMBURSEMENT_ADJUSTMENT_TYPE,
   type LegForCarpoolCheck,
 } from "../lib/mileage-approval.js";
@@ -342,6 +345,154 @@ describe("Cutover 2B — auth gating", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // G. Provider neutrality — 2B files
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H. Shared-drive split
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The engine writes one FULL-amount leg per tech, so a shared drive pays twice.
+// Splitting rewrites each leg's amount to a share. The load-bearing property is
+// that the shares sum to the drive EXACTLY — a rounding leak here shows up as
+// payroll that doesn't tie out.
+
+describe("Cutover 2B — shared-drive split math", () => {
+  const leg = (id: number, amount: string) => ({ id, amount });
+
+  it("splits an even amount in half", () => {
+    const plan = planEvenSplit([leg(1, "10.00"), leg(2, "10.00")]);
+    assert.equal(plan.full_amount, "10.00");
+    assert.equal(plan.current_total, "20.00");
+    assert.deepEqual(plan.shares.map((s) => s.amount_after), ["5.00", "5.00"]);
+  });
+
+  it("gives the leftover penny to the first leg on an odd amount", () => {
+    // $7.29 is the real Alejandra Cuervo leg. 729 cents / 2 = 364.5.
+    const plan = planEvenSplit([leg(1, "7.29"), leg(2, "7.29")]);
+    assert.deepEqual(plan.shares.map((s) => s.amount_after), ["3.65", "3.64"]);
+  });
+
+  it("shares always sum to the full amount, never to more or less", () => {
+    for (let cents = 1; cents <= 500; cents++) {
+      for (const n of [2, 3, 4]) {
+        const amount = (cents / 100).toFixed(2);
+        const legs = Array.from({ length: n }, (_, i) => leg(i + 1, amount));
+        const plan = planEvenSplit(legs);
+        const summed = plan.shares.reduce(
+          (s, x) => s + Math.round(Number(x.amount_after) * 100),
+          0,
+        );
+        assert.equal(
+          summed,
+          cents,
+          `${n}-way split of ${amount} summed to ${summed} cents, not ${cents}`,
+        );
+      }
+    }
+  });
+
+  it("takes the full cost as the MAX leg, so a low outlier can't short the drive", () => {
+    const plan = planEvenSplit([leg(1, "10.00"), leg(2, "6.00")]);
+    assert.equal(plan.full_amount, "10.00");
+    assert.deepEqual(plan.shares.map((s) => s.amount_after), ["5.00", "5.00"]);
+  });
+
+  it("records what each leg carried before the split", () => {
+    const plan = planEvenSplit([leg(1, "7.29"), leg(2, "7.29")]);
+    assert.deepEqual(plan.shares.map((s) => s.amount_before), ["7.29", "7.29"]);
+  });
+});
+
+describe("Cutover 2B — split refusals", () => {
+  const base = {
+    id: 1,
+    user_id: 10,
+    leg_date: "2026-07-14",
+    from_job_id: 100,
+    to_job_id: 200,
+    status: "computed" as const,
+    split_group_size: null as number | null,
+  };
+
+  it("allows a clean two-tech group", () => {
+    assert.equal(
+      refusalForSplit([base, { ...base, id: 2, user_id: 11 }]),
+      null,
+    );
+  });
+
+  it("refuses a single leg — there is nothing to split it with", () => {
+    assert.match(refusalForSplit([base])!, /at least two/i);
+  });
+
+  it("refuses legs from different drives", () => {
+    const other = { ...base, id: 2, user_id: 11, to_job_id: 999 };
+    assert.match(refusalForSplit([base, other])!, /not the same drive/i);
+  });
+
+  it("refuses when a leg is already applied — that money moved", () => {
+    const applied = { ...base, id: 2, user_id: 11, status: "applied" as const };
+    assert.match(refusalForSplit([base, applied])!, /already applied/i);
+  });
+
+  it("refuses a second split — the guard that stops quartering the payment", () => {
+    const split = { ...base, id: 2, user_id: 11, split_group_size: 2 };
+    assert.match(refusalForSplit([base, split])!, /already split/i);
+  });
+
+  it("refuses the same tech twice — that's a duplicate leg, not a shared drive", () => {
+    assert.match(refusalForSplit([base, { ...base, id: 2 }])!, /twice/i);
+  });
+});
+
+describe("Cutover 2B — unsplit refusals", () => {
+  it("allows undoing a split leg", () => {
+    assert.equal(
+      refusalForUnsplit([
+        { status: "computed", split_group_size: 2, amount_before_split: "7.29" },
+      ]),
+      null,
+    );
+  });
+
+  it("refuses to undo a leg that was never split", () => {
+    assert.match(
+      refusalForUnsplit([
+        { status: "computed", split_group_size: null, amount_before_split: null },
+      ])!,
+      /not split/i,
+    );
+  });
+
+  it("refuses to undo an applied leg — reverse the pay adjustment instead", () => {
+    assert.match(
+      refusalForUnsplit([
+        { status: "applied", split_group_size: 2, amount_before_split: "7.29" },
+      ])!,
+      /already applied/i,
+    );
+  });
+});
+
+describe("Cutover 2B — split moves no money", () => {
+  it("the split + unsplit routes never touch pay_adjustments or status", () => {
+    const src = readFileSync(
+      path.resolve(process.cwd(), "src/routes/pay.ts"),
+      "utf8",
+    );
+    const start = src.indexOf('router.post("/mileage-legs/split"');
+    const end = src.indexOf("async function applyLegInternal");
+    assert.ok(start > 0 && end > start, "split routes not found in pay.ts");
+    const block = src.slice(start, end);
+    assert.ok(
+      !block.includes("payAdjustmentsTable"),
+      "split must never insert a pay adjustment — nothing is money until apply",
+    );
+    assert.ok(
+      !/status:\s*"(reviewed|applied|discarded)"/.test(block),
+      "split must not transition a leg's status",
+    );
+  });
+});
 
 describe("Cutover 2B — provider neutrality", () => {
   const PAYROLL_VENDOR_BLOCKLIST = [
