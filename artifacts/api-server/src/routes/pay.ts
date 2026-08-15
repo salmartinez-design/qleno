@@ -97,6 +97,7 @@ import {
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import { additionalPayTable } from "@workspace/db/schema";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -255,11 +256,12 @@ async function recomputeMileageForPeriod(
     sent_at: l.sent_at,
   }));
 
-  // Phes is America/Chicago. Long-term this becomes a per-tenant
-  // setting. Using Intl avoids dragging in a TZ library for one
-  // format call.
+  // [company-timezone 2026-08-15] The tenant's own zone — this used to be a
+  // hardcoded Chicago with a "long-term this becomes a per-tenant setting"
+  // note on it. It is now that setting. Using Intl avoids dragging in a TZ
+  // library for one format call.
   const phesTzFormatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Chicago",
+    timeZone: tzOf(companyId),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -874,7 +876,7 @@ async function deriveClockSequenceLegs(
   // wins over it. See lib/job-coords.ts for the full rule and why.
   const rows = (await db.execute(sql`
     SELECT t.user_id, t.job_id,
-           (t.clock_in_at AT TIME ZONE 'America/Chicago')::date::text AS leg_day,
+           (t.clock_in_at AT TIME ZONE ${tzOf(companyId)})::date::text AS leg_day,
            ${JOB_COORD_LAT} AS lat,
            ${JOB_COORD_LNG} AS lng
       FROM timeclock t
@@ -883,7 +885,7 @@ async function deriveClockSequenceLegs(
       LEFT JOIN account_properties ap ON ap.id = j.account_property_id
      WHERE t.company_id = ${companyId}
        AND t.clock_in_at IS NOT NULL
-       AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date BETWEEN ${startDate} AND ${endDate}
+       AND (t.clock_in_at AT TIME ZONE ${tzOf(companyId)})::date BETWEEN ${startDate} AND ${endDate}
      ORDER BY t.user_id, t.clock_in_at ASC
   `)).rows as any[];
 
@@ -978,7 +980,7 @@ async function deriveScheduledLegsForPeriod(
        AND j.status = 'complete'
        AND j.assigned_user_id IS NOT NULL
        AND j.scheduled_date BETWEEN ${startDate} AND ${endDate}
-       AND j.scheduled_date < (now() AT TIME ZONE 'America/Chicago')::date
+       AND j.scheduled_date < (now() AT TIME ZONE ${tzOf(companyId)})::date
        -- Defer to the clock-sequence path only when a PUNCHED (GPS) clock
        -- exists — that's the only kind it builds legs from. A day with only
        -- office-entered (manual/estimated) clocks otherwise falls in a dead
@@ -991,13 +993,13 @@ async function deriveScheduledLegsForPeriod(
               WHERE t.company_id = j.company_id
                 AND t.user_id = j.assigned_user_id
                 AND t.source = 'punched'
-                AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date = j.scheduled_date
+                AND (t.clock_in_at AT TIME ZONE ${tzOf(companyId)})::date = j.scheduled_date
        )
        AND NOT EXISTS (
              SELECT 1 FROM on_my_way_events o
               WHERE o.company_id = j.company_id
                 AND o.user_id = j.assigned_user_id
-                AND (o.sent_at AT TIME ZONE 'America/Chicago')::date = j.scheduled_date
+                AND (o.sent_at AT TIME ZONE ${tzOf(companyId)})::date = j.scheduled_date
        )
      ORDER BY j.assigned_user_id, j.scheduled_date, j.scheduled_time NULLS LAST, j.id ASC
   `)).rows as any[];

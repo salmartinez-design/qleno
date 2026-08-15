@@ -10,6 +10,7 @@ import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
 import { ctDateStr } from "../lib/ct-day.js";
+import { tzOf } from "../lib/company-tz.js";
 import { inIntList } from "../lib/sql-lists.js";
 
 const router = Router();
@@ -546,7 +547,7 @@ async function buildDispatchPayload(
     // Both dots describe RIGHT NOW, so they only apply while the board shows
     // today — paging back to last Tuesday must not paint live presence onto a
     // historical day.
-    const isToday = date === ctDateStr();
+    const isToday = date === ctDateStr(new Date(), tzOf(companyId));
     const openEventPunch = isToday
       ? await db.execute(sql`
           SELECT DISTINCT user_id
@@ -1504,10 +1505,10 @@ async function buildDispatchPayload(
       const [h, m] = String(t).split(":").map(Number);
       return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
     };
-    // Wall-clock minutes in Central — the board's own timeline is Central, so
-    // "which job is happening now" has to be asked in the same zone.
+    // Wall-clock minutes locally — the board's own timeline is the tenant's
+    // local day, so "which job is happening now" has to be asked in that zone.
     const [ctH, ctM] = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago", hour12: false, hour: "2-digit", minute: "2-digit",
+      timeZone: tzOf(companyId), hour12: false, hour: "2-digit", minute: "2-digit",
     }).format(new Date()).replace(/^24/, "00").split(":").map(Number);
     const nowMins = ctH * 60 + ctM;
 

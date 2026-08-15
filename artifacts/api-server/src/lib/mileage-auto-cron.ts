@@ -20,11 +20,12 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { computeAllMileageForPeriod } from "../routes/pay.js";
+import { tzOf, DEFAULT_TZ } from "./company-tz.js";
 
-/** Today's date in America/Chicago as YYYY-MM-DD. */
-function ctToday(): string {
+/** Today's date in the company's local zone as YYYY-MM-DD. */
+function ctToday(tz: string = DEFAULT_TZ): string {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Chicago",
+    timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -96,11 +97,6 @@ async function ensureOpenPeriodForToday(companyId: number, today: string): Promi
 export async function runMileageAutoCompute(
   companyId?: number,
 ): Promise<{ companies: number; periods: number; inserted: number }> {
-  const today = ctToday();
-  const cutoff = new Date(`${today}T12:00:00Z`);
-  cutoff.setUTCDate(cutoff.getUTCDate() - 10);
-  const recentSince = cutoff.toISOString().slice(0, 10);
-
   // Mileage-enabled tenants = those with at least one dated rate row.
   const companyRows = (await db.execute(
     companyId != null
@@ -113,6 +109,13 @@ export async function runMileageAutoCompute(
   for (const row of companyRows) {
     const cid = Number(row.company_id);
     try {
+      // [company-timezone 2026-08-15] "Today" is resolved per tenant, inside
+      // the loop — a company in Denver rolls to the next day an hour after a
+      // Chicago one, and this cron runs near midnight.
+      const today = ctToday(tzOf(cid));
+      const cutoff = new Date(`${today}T12:00:00Z`);
+      cutoff.setUTCDate(cutoff.getUTCDate() - 10);
+      const recentSince = cutoff.toISOString().slice(0, 10);
       await ensureOpenPeriodForToday(cid, today);
       // Every open period whose window is recent — includes the one we just
       // ensured plus any prior week still open.

@@ -27,6 +27,7 @@ import {
 } from "../lib/overtime.js";
 import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
 import { inIntList } from "../lib/sql-lists.js";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -1352,7 +1353,7 @@ router.get("/reconciliation-audit", requireAuth, requireRole("owner", "admin", "
          WHERE j.company_id = ${companyId}
            AND j.status IN ('scheduled', 'in_progress')
            AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
-           AND j.scheduled_date <= (now() AT TIME ZONE 'America/Chicago')::date
+           AND j.scheduled_date <= (now() AT TIME ZONE ${tzOf(companyId)})::date
          ORDER BY j.scheduled_date, j.id
          LIMIT 50
       `),
@@ -1361,7 +1362,7 @@ router.get("/reconciliation-audit", requireAuth, requireRole("owner", "admin", "
          WHERE j.company_id = ${companyId}
            AND j.status IN ('scheduled', 'in_progress')
            AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
-           AND j.scheduled_date <= (now() AT TIME ZONE 'America/Chicago')::date
+           AND j.scheduled_date <= (now() AT TIME ZONE ${tzOf(companyId)})::date
       `),
       db.execute(sql`
         SELECT tc.user_id,

@@ -5,6 +5,7 @@ import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, in
 import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { ctDate } from "../lib/ct-day.js";
+import { tzOf } from "../lib/company-tz.js";
 import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
@@ -4407,7 +4408,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             (completedJob.allowed_hours != null && parseFloat(String(completedJob.allowed_hours)) > 0)
               ? Math.round(parseFloat(String(completedJob.allowed_hours)) * 60)
               : 120;
-          // [BUG 2026-06-04] scheduled_time is a Central (America/Chicago) wall
+          // [BUG 2026-06-04] scheduled_time is a local (tenant time zone) wall
           // time. Building the stamp as a naive `date + time` and letting it
           // land in a `timestamp` column treats that wall time as UTC, so the
           // round-trip renders it shifted by the Chicago offset (a 6:00 AM job
@@ -4415,7 +4416,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
           // express it in UTC for storage — session-timezone independent and
           // consistent with the AT TIME ZONE pattern used elsewhere. Single-tz
           // tenant (Phes); multi-tenant later should derive the zone per branch.
-          const clockIn = sql`(((${schedDate}::date + ${schedTime}::time) AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC')`;
+          const clockIn = sql`(((${schedDate}::date + ${schedTime}::time) AT TIME ZONE ${tzOf(req.auth!.companyId)}) AT TIME ZONE 'UTC')`;
           for (const uid of techIds) {
             await db.execute(sql`
               INSERT INTO timeclock (
@@ -4533,7 +4534,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
           notes: d.notes,
           beforePhotoCount: beforeCount[0]?.count ?? 0,
           afterPhotoCount: afterPhotos[0].count,
-          completedAt: new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }),
+          completedAt: new Date().toLocaleString("en-US", { timeZone: tzOf(req.auth!.companyId) }),
         });
 
         await db
@@ -6689,6 +6690,7 @@ const JOBS_V2_DERIVED_STATUS = sql`CASE
 END`;
 
 function buildJobWhereClause(query: any, companyId: number, cursorId?: number | null) {
+  const tz = tzOf(companyId);
   const parts: ReturnType<typeof sql>[] = [sql`j.company_id = ${companyId}`];
   // [status-derived 2026-07-28] Filter on the DERIVED status (same CASE the
   // list SELECT displays), not the raw column — otherwise a clocked-in job
@@ -6709,7 +6711,7 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   // If you change one, change the other — a tile whose count doesn't match the
   // list it opens is worse than no link at all.
   if (query.booked_on && DATE_RE.test(query.booked_on)) {
-    parts.push(sql`${ctDate(sql`j.created_at`)} = ${query.booked_on}::date`);
+    parts.push(sql`${ctDate(sql`j.created_at`, tz)} = ${query.booked_on}::date`);
     parts.push(sql`j.recurring_schedule_id IS NULL`);
     parts.push(sql`j.status != 'cancelled'`);
   }
@@ -6755,6 +6757,7 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
 // a pipeline count (branch, zone) are honored; row-level filters (status/payment/
 // flagged) are intentionally NOT — the booked count is a clean sales figure.
 function buildBookedWhere(query: any, companyId: number) {
+  const tz = tzOf(companyId);
   const parts: ReturnType<typeof sql>[] = [
     sql`j.company_id = ${companyId}`,
     sql`j.recurring_schedule_id IS NULL`,
@@ -6763,10 +6766,10 @@ function buildBookedWhere(query: any, companyId: number) {
   if (query.branch_id && query.branch_id !== "all") { const v = parseInt(query.branch_id); if (!isNaN(v)) parts.push(sql`j.branch_id = ${v}`); }
   if (query.zone_id) { const v = parseInt(query.zone_id); if (!isNaN(v)) parts.push(sql`j.zone_id = ${v}`); }
   if (query.booked_on && DATE_RE.test(query.booked_on)) {
-    parts.push(sql`${ctDate(sql`j.created_at`)} = ${query.booked_on}::date`);
+    parts.push(sql`${ctDate(sql`j.created_at`, tz)} = ${query.booked_on}::date`);
   } else {
-    if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`${ctDate(sql`j.created_at`)} >= ${query.date_from}::date`);
-    if (query.date_to && DATE_RE.test(query.date_to)) parts.push(sql`${ctDate(sql`j.created_at`)} <= ${query.date_to}::date`);
+    if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`${ctDate(sql`j.created_at`, tz)} >= ${query.date_from}::date`);
+    if (query.date_to && DATE_RE.test(query.date_to)) parts.push(sql`${ctDate(sql`j.created_at`, tz)} <= ${query.date_to}::date`);
   }
   return sql.join(parts, sql` AND `);
 }
@@ -7865,7 +7868,7 @@ router.post("/:id/note", requireAuth, async (req, res) => {
   const note = String(req.body?.note ?? "").trim();
   if (!note) return res.status(400).json({ error: "note required" });
   const stamp = new Date().toLocaleString("en-US", {
-    timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    timeZone: tzOf(req.auth!.companyId), month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   });
   const line = `[${stamp}] ${note}`;
   try {

@@ -20,34 +20,48 @@ import {
   type ScheduledAssignment,
 } from "./attendance-discrepancy.js";
 import { recordUnexcusedEntryAndDriveLadder } from "./unexcused-ladder-writer.js";
+import { DEFAULT_TZ } from "./company-tz.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chicago wall-clock helpers (pure)
+// Local wall-clock helpers (pure)
+//
+// [company-timezone 2026-08-15] These were fixed to America/Chicago. They now
+// take the zone as an argument — callers pass `tzOf(companyId)`. The default
+// keeps the old Central behavior so a missed caller is stale, never broken.
+// The formatters are memoized per zone: constructing an Intl.DateTimeFormat is
+// not cheap and these run once per attendance event.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const chicagoDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Chicago",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+const timeFormatters = new Map<string, Intl.DateTimeFormat>();
 
-const chicagoTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
-  hour12: false,
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-export function toChicagoDate(d: Date): string {
-  // en-CA + 2-digit gives YYYY-MM-DD.
-  return chicagoDateFormatter.format(d);
+function dateFormatter(tz: string): Intl.DateTimeFormat {
+  let f = dateFormatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+    dateFormatters.set(tz, f);
+  }
+  return f;
 }
 
-export function toChicagoMinutesOfDay(d: Date): number {
+function timeFormatter(tz: string): Intl.DateTimeFormat {
+  let f = timeFormatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, hour: "2-digit", minute: "2-digit" });
+    timeFormatters.set(tz, f);
+  }
+  return f;
+}
+
+export function toChicagoDate(d: Date, tz: string = DEFAULT_TZ): string {
+  // en-CA + 2-digit gives YYYY-MM-DD.
+  return dateFormatter(tz).format(d);
+}
+
+export function toChicagoMinutesOfDay(d: Date, tz: string = DEFAULT_TZ): number {
   // en-US 24h "HH:MM". Chrome ICU sometimes emits "24:MM" at the day
   // boundary — normalize.
-  const s = chicagoTimeFormatter.format(d);
+  const s = timeFormatter(tz).format(d);
   const [hStr, mStr] = s.split(":");
   let h = parseInt(hStr, 10);
   const m = parseInt(mStr, 10);

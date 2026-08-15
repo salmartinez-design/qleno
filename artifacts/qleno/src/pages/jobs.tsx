@@ -26,6 +26,7 @@ import { computePriceDelta } from "@/lib/price-delta";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import LegendPopover from "@/components/legend-popover";
 import MobileDateSheet from "@/components/mobile-date-sheet";
+import { companyTz, todayInCompanyTz } from "@/lib/company-tz";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -410,7 +411,7 @@ function wallStampMs(iso: string | null | undefined): number {
 }
 function centralWallNowMs(): number {
   const p = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone: companyTz(), year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).formatToParts(new Date()).reduce((a, x) => { a[x.type] = x.value; return a; }, {} as Record<string, string>);
   const hh = p.hour === "24" ? "00" : p.hour; // hour12:false can emit "24" at midnight
@@ -2709,7 +2710,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     if (!t) return null;
     try {
       const d = new Date(t);
-      return d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      return d.toLocaleString("en-US", { timeZone: companyTz(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     } catch { return null; }
   })();
 
@@ -4108,8 +4109,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         ) : (
                           <>
                             {(clockHistory[entry.id]?.events ?? []).map((ev: any, i: number) => {
-                              const when = ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
-                              const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+                              const when = ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: companyTz(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+                              const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: companyTz(), hour: "numeric", minute: "2-digit" }) : "—";
                               let line: string;
                               if (ev.kind === "created") line = ev.detail;
                               else if (ev.kind === "office_in") line = `Clocked in from the office at ${t12(ev.new_value?.clock_in_at)}`;
@@ -4505,8 +4506,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     // commission split picks the late addition up from
                     // job_technicians, which is exactly the missing-split-
                     // partner fix path.
-                    const nowChi = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
-                    const todayYmd = `${nowChi.getFullYear()}-${String(nowChi.getMonth() + 1).padStart(2, "0")}-${String(nowChi.getDate()).padStart(2, "0")}`;
+                    const todayYmd = todayInCompanyTz();
                     const isPastJob = !!job.scheduled_date && job.scheduled_date < todayYmd;
                     if (isPastJob) {
                       return (

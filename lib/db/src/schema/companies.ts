@@ -41,6 +41,12 @@ export const companiesTable = pgTable("companies", {
   // no GPS coordinates ("GPS unavailable"). Office can turn it off here.
   flag_missing_gps: boolean("flag_missing_gps").notNull().default(true),
   brand_color: text("brand_color").notNull().default("#00C9A7"),
+  // [company-timezone 2026-08-15] The tenant's IANA zone — the one place the
+  // whole product reads "what day/time is it for this company". Nullable and
+  // seeded from `state` by the boot migration; a null falls back to
+  // America/Chicago everywhere (lib/company-tz.ts), which is the behavior the
+  // hardcoded literals had before this existed.
+  timezone: text("timezone"),
   sms_on_my_way_enabled: boolean("sms_on_my_way_enabled").notNull().default(true),
   sms_arrived_enabled: boolean("sms_arrived_enabled").notNull().default(false),
   sms_paused_enabled: boolean("sms_paused_enabled").notNull().default(false),

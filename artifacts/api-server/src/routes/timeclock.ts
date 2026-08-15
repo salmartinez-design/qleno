@@ -54,6 +54,7 @@ async function raiseGeofenceTicket(
   }
 }
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
+import { tzOf, DEFAULT_TZ } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -62,15 +63,18 @@ const router = Router();
 // design note). Office-typed naive strings already round-trip correctly on a
 // UTC server. But FIELD-app punches use `new Date()` (a real UTC instant), so a
 // 4:24 PM Central punch was stored as 21:24 and the time-clock screen sliced it
-// to "9:24 PM" (+5h). This converts a real instant to the America/Chicago
+// to "9:24 PM" (+5h). This converts a real instant to the tenant's local
 // wall-clock and returns a Date whose UTC components equal those wall digits —
-// so it stores into the `timestamp` column as the Central wall-clock, matching
-// the office convention. Phes is single-timezone; when multi-tz lands this
-// takes the tenant's zone instead of the hardcoded America/Chicago.
-const CLOCK_TZ = "America/Chicago";
-function centralWallClock(instant: Date): Date {
+// so it stores into the `timestamp` column as the tenant's local wall-clock,
+// matching the office convention.
+//
+// [company-timezone 2026-08-15] The zone is no longer hardcoded — the caller
+// passes `tzOf(companyId)`. A tenant in Denver now stores a 4:24 PM punch as
+// 16:24 the same way a Chicago tenant does. Omitting the argument keeps the
+// old Central behavior, so nothing regresses if a call site is missed.
+function centralWallClock(instant: Date, tz: string = DEFAULT_TZ): Date {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: CLOCK_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).formatToParts(instant);
   const g = (t: string) => parts.find(p => p.type === t)!.value;
@@ -298,7 +302,7 @@ router.get("/open", requireAuth, requireRole("owner", "admin", "office"), async 
              -- Orphan/undated jobs fall back to the punch's own date.
              COALESCE(j.scheduled_date::text, to_char(tc.clock_in_at, 'YYYY-MM-DD')) AS day,
              GREATEST(0, ROUND(EXTRACT(EPOCH FROM
-               ((now() AT TIME ZONE 'America/Chicago') - tc.clock_in_at)) / 60))::int AS open_minutes
+               ((now() AT TIME ZONE ${tzOf(companyId)}) - tc.clock_in_at)) / 60))::int AS open_minutes
         FROM timeclock tc
         JOIN users u ON u.id = tc.user_id
         LEFT JOIN jobs j ON j.id = tc.job_id
@@ -342,12 +346,12 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     // Always set the stamp to the Central wall-clock of the real instant (the
     // DB default now() would store a UTC instant → the +5h bug). Default = now;
     // offline replay overrides with the queued on-site instant.
-    let clockInAt: Date = centralWallClock(new Date());
+    let clockInAt: Date = centralWallClock(new Date(), tzOf(req.auth!.companyId));
     if (req.body?.client_clock_in_at) {
       const d = new Date(req.body.client_clock_in_at);
       const now = Date.now();
       if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
-        clockInAt = centralWallClock(d);
+        clockInAt = centralWallClock(d, tzOf(req.auth!.companyId));
       }
     }
 
@@ -606,12 +610,12 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
     // Store the Central wall-clock of the real instant (matches office-typed
     // times + the time-clock screen's wall-clock display; raw new Date() would
     // store a UTC instant → the +5h bug).
-    let clockOutAt = centralWallClock(new Date());
+    let clockOutAt = centralWallClock(new Date(), tzOf(req.auth!.companyId));
     if (req.body?.client_clock_out_at) {
       const d = new Date(req.body.client_clock_out_at);
       const now = Date.now();
       if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
-        clockOutAt = centralWallClock(d);
+        clockOutAt = centralWallClock(d, tzOf(req.auth!.companyId));
       }
     }
 
@@ -889,7 +893,7 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     // Typed time = naive wall-clock string, stored as-is (round-trips on a UTC
     // server). No time given → stamp the Central wall-clock of now (not a raw
     // UTC instant).
-    const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : centralWallClock(new Date());
+    const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : centralWallClock(new Date(), tzOf(req.auth!.companyId));
     if (isNaN(clockInAt.getTime())) return res.status(400).json({ error: "Invalid clock_in_at" });
 
     const [jobRow] = await db.select({ id: jobsTable.id, branch_id: jobsTable.branch_id })
@@ -1021,7 +1025,7 @@ router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "off
     // normalized row gets a wall-clock stamp, a legacy row gets the raw instant,
     // and the pair is internally consistent either way. The backfill at
     // /clock-tz-backfill still converts legacy rows properly when it runs.
-    const nowInRowFrame = open.tz_normalized ? centralWallClock(new Date()) : new Date();
+    const nowInRowFrame = open.tz_normalized ? centralWallClock(new Date(), tzOf(req.auth!.companyId)) : new Date();
     const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : nowInRowFrame;
     if (isNaN(clockOutAt.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
 
@@ -1073,9 +1077,9 @@ router.get("/tz-audit", requireAuth, requireRole("owner"), async (req, res) => {
       SELECT tc.id, tc.user_id,
              TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS tech,
              to_char(tc.clock_in_at, 'YYYY-MM-DD HH24:MI') AS in_before,
-             to_char((tc.clock_in_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI') AS in_after,
+             to_char((tc.clock_in_at AT TIME ZONE 'UTC') AT TIME ZONE ${tzOf(companyId)}, 'YYYY-MM-DD HH24:MI') AS in_after,
              to_char(tc.clock_out_at, 'YYYY-MM-DD HH24:MI') AS out_before,
-             to_char((tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI') AS out_after,
+             to_char((tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE ${tzOf(companyId)}, 'YYYY-MM-DD HH24:MI') AS out_after,
              (tc.clock_out_at IS NOT NULL AND tc.clock_out_lat IS NULL) AS mixed
         FROM timeclock tc
         LEFT JOIN users u ON u.id = tc.user_id
@@ -1109,9 +1113,9 @@ router.post("/tz-backfill", requireAuth, requireRole("owner"), async (req, res) 
     // double-shift on re-run.
     const result = await db.execute(sql`
       UPDATE timeclock tc
-         SET clock_in_at  = (tc.clock_in_at  AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago',
+         SET clock_in_at  = (tc.clock_in_at  AT TIME ZONE 'UTC') AT TIME ZONE ${tzOf(companyId)},
              clock_out_at = CASE WHEN tc.clock_out_at IS NOT NULL
-                                 THEN (tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago'
+                                 THEN (tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE ${tzOf(companyId)}
                                  ELSE NULL END,
              tz_normalized = true
        WHERE ${tzCandidateWhere(companyId, from, to)}

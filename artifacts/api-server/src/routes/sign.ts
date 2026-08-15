@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { tzOf } from "../lib/company-tz.js";
 import { db } from "@workspace/db";
 import { formSubmissionsTable, formTemplatesTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -160,7 +161,7 @@ router.post("/:token", async (req, res) => {
         termsBody: (submission as any).terms_body_override || submission.terms_body || "",
         responses: responses || {},
         signatureName: signature_name,
-        signedAt: signedAt.toLocaleString("en-US", { timeZone: "America/Chicago" }),
+        signedAt: signedAt.toLocaleString("en-US", { timeZone: tzOf(companyId) }),
         ipAddress: ip,
         contentHash,
       });

@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { DEFAULT_TZ } from "./company-tz.js";
 
 /**
  * [ct-day 2026-07-23] Central-day bucketing for our naive timestamp columns.
@@ -24,21 +25,26 @@ import { sql, type SQL } from "drizzle-orm";
  *
  * Date columns (`jobs.scheduled_date`) need neither; they're calendar dates
  * with no instant behind them. Compare them to `ctToday()` directly.
+ *
+ * [company-timezone 2026-08-15] "Central" is now the DEFAULT, not the law. Every
+ * helper takes an optional zone; pass `tzOf(req.auth!.companyId)` and the same
+ * bucketing happens in the tenant's own local day. Omitting it keeps the exact
+ * prior behavior, so an un-updated call site is stale, never broken.
  */
-export const ctDate = (col: SQL | unknown): SQL =>
-  sql`((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date`;
+export const ctDate = (col: SQL | unknown, tz: string = DEFAULT_TZ): SQL =>
+  sql`((${col}) AT TIME ZONE 'UTC' AT TIME ZONE ${tz})::date`;
 
-/** Today's calendar date in Central. `now()` is timestamptz — single step. */
-export const ctToday = (): SQL => sql`(now() AT TIME ZONE 'America/Chicago')::date`;
+/** Today's calendar date locally. `now()` is timestamptz — single step. */
+export const ctToday = (tz: string = DEFAULT_TZ): SQL => sql`(now() AT TIME ZONE ${tz})::date`;
 
 /**
- * The Central calendar date, as `YYYY-MM-DD`, for JS-side window building.
+ * The local calendar date, as `YYYY-MM-DD`, for JS-side window building.
  *
  * `new Date().toISOString().split("T")[0]` is the wrong tool: it yields the UTC
  * date, which rolls over at 7:00 PM Central. A dashboard opened at 8 PM would
  * quietly start reporting tomorrow's board.
  */
-export function ctDateStr(at: Date = new Date()): string {
+export function ctDateStr(at: Date = new Date(), tz: string = DEFAULT_TZ): string {
   // en-CA formats as YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(at);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at);
 }

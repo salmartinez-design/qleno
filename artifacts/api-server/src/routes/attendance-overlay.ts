@@ -78,6 +78,7 @@ import {
   type RunScanInsertLoopOutput,
 } from "../lib/attendance-overlay-handlers.js";
 import { validateScanWindow } from "../lib/scan-window.js";
+import { tzOf } from "../lib/company-tz.js";
 
 export {
   confirmProposalWithTx,
@@ -118,7 +119,7 @@ router.post("/scan", async (req, res) => {
     from_date: req.body?.from_date,
     to_date: req.body?.to_date,
     user_id: req.body?.user_id,
-    today: toChicagoDate(new Date()),
+    today: toChicagoDate(new Date(), tzOf(companyId)),
   });
   if (!v.ok) return res.status(v.status).json({ error: "Bad Request", message: v.message, code: v.code });
 
@@ -240,8 +241,8 @@ router.post("/scan", async (req, res) => {
       user_id: e.user_id,
       event_type: e.event_type as "clock_in" | "clock_out",
       event_at: at,
-      event_date: toChicagoDate(at),
-      event_minutes_of_day: toChicagoMinutesOfDay(at),
+      event_date: toChicagoDate(at, tzOf(companyId)),
+      event_minutes_of_day: toChicagoMinutesOfDay(at, tzOf(companyId)),
       is_correction: !!e.is_correction,
       correction_of_event_id: e.correction_of_event_id ?? null,
       gps_status: e.gps_status,
@@ -284,8 +285,8 @@ router.post("/scan", async (req, res) => {
 
   // 4) Classify + insert. Per-assignment small txn (ON CONFLICT DO NOTHING).
   const now = new Date();
-  const nowDate = toChicagoDate(now);
-  const nowMinutes = toChicagoMinutesOfDay(now);
+  const nowDate = toChicagoDate(now, tzOf(companyId));
+  const nowMinutes = toChicagoMinutesOfDay(now, tzOf(companyId));
 
   const counts = await runScanInsertLoop(db, {
     companyId,

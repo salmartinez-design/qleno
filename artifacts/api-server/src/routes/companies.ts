@@ -7,6 +7,7 @@ import path from "path";
 import { mkdirSync } from "fs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { renderW9 } from "../lib/w9-pdf.js";
+import { isValidTimeZone, refreshCompanyTz } from "../lib/company-tz.js";
 import { logAudit } from "../lib/audit.js";
 
 function getLogosDir(): string {
@@ -137,10 +138,20 @@ router.put("/me", requireAuth, async (req, res) => {
     const {
       name, logo_url, pay_cadence, geo_fence_threshold_ft, brand_color,
       payment_terms_days, dispatch_start_hour, dispatch_end_hour,
-      review_link, overhead_rate_pct,
+      review_link, overhead_rate_pct, timezone,
     } = req.body;
 
     const setObj: Record<string, unknown> = {};
+    // [company-timezone 2026-08-15] The tenant's local zone — what every date in
+    // the app is bucketed and displayed in. Validated against Intl because an
+    // unresolvable zone would throw at format time, in a render path, on every
+    // page. Rejected outright rather than saved and discovered later.
+    if (timezone !== undefined) {
+      if (!isValidTimeZone(timezone)) {
+        return res.status(400).json({ error: "Bad Request", message: "Unknown time zone" });
+      }
+      setObj.timezone = timezone;
+    }
     if (name !== undefined) setObj.name = name;
     if (logo_url !== undefined) setObj.logo_url = logo_url;
     if (pay_cadence !== undefined) setObj.pay_cadence = pay_cadence;
@@ -157,6 +168,11 @@ router.put("/me", requireAuth, async (req, res) => {
       .set(setObj as any)
       .where(eq(companiesTable.id, req.auth!.companyId))
       .returning();
+
+    // Repoint the in-process cache immediately — otherwise the owner changes
+    // the zone, the page reloads, and the server keeps bucketing in the old one
+    // until the next deploy.
+    if (setObj.timezone !== undefined) await refreshCompanyTz(req.auth!.companyId);
 
     return res.json(updated[0]);
   } catch (err) {
