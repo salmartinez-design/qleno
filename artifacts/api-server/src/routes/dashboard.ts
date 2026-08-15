@@ -1156,7 +1156,6 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
         FROM job_history
         WHERE company_id = ${companyId}
           AND job_date >= ${d(lwStart)} AND job_date <= ${d(lwEnd)}
-          AND EXTRACT(DOW FROM job_date) NOT IN (0,6)
         GROUP BY job_date
       `),
 
@@ -1168,7 +1167,6 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
         FROM job_history
         WHERE company_id = ${companyId}
           AND job_date >= ${d(cwStart)} AND job_date < ${todayStr}
-          AND EXTRACT(DOW FROM job_date) NOT IN (0,6)
         GROUP BY job_date
       `),
 
@@ -1183,7 +1181,6 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
           AND scheduled_date >= ${todayStr}
           AND scheduled_date <= ${d(cwEnd)}
           AND status != 'cancelled'
-          AND EXTRACT(DOW FROM scheduled_date) NOT IN (0,6)
         GROUP BY scheduled_date
       `),
 
@@ -1197,11 +1194,14 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
         WHERE company_id = ${companyId}
           AND scheduled_date >= ${d(nwStart)} AND scheduled_date <= ${d(nwEnd)}
           AND status != 'cancelled'
-          AND EXTRACT(DOW FROM scheduled_date) NOT IN (0,6)
         GROUP BY scheduled_date
       `),
 
-      // 8-week daily avg (revenue + jobs)
+      // 8-week daily avg (revenue + jobs). Deliberately Mon–Fri only: this is
+      // the baseline a weekday gets graded against, and Phes books a handful of
+      // weekend jobs, so folding Sat/Sun in would drag the bar down and paint
+      // healthy weekdays red. Weekend days show their real numbers but are
+      // never graded against this number (see dayStyle in dashboard.tsx).
       db.execute(sql`
         SELECT AVG(daily_rev)::numeric AS daily_avg,
                AVG(daily_jobs)::numeric AS daily_avg_jobs
@@ -1251,14 +1251,17 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
         const isPast    = dateStr < todayStr;
         const isToday   = dateStr === todayStr;
 
-        if (isWeekend) return { date: dateStr, day_name: DAY_NAMES[dayIdx], revenue: 0, job_count: 0, unassigned_count: 0, is_weekend: true, is_past: isPast, is_today: false, entry_type: weekType };
-
+        // Weekends carry their real numbers. Phes does book Saturdays and
+        // Sundays — zeroing them out of the card hid live jobs and understated
+        // the week total by however much weekend work was on the board.
+        // is_weekend only tells the frontend not to grade the day against the
+        // Mon–Fri average.
         let data = { revenue: 0, job_count: 0, unassigned_count: 0 };
         if (weekType === "last")       data = lwMap.get(dateStr)  || data;
         else if (weekType === "current") data = (isPast ? cwHMap : cwJMap).get(dateStr) || data;
         else                             data = nwMap.get(dateStr) || data;
 
-        return { date: dateStr, day_name: DAY_NAMES[dayIdx], ...data, is_weekend: false, is_past: isPast, is_today: isToday, entry_type: weekType };
+        return { date: dateStr, day_name: DAY_NAMES[dayIdx], ...data, is_weekend: isWeekend, is_past: isPast, is_today: isToday, entry_type: weekType };
       });
     };
 
@@ -1266,12 +1269,14 @@ router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
     const cwDays = buildDays(cwStart, "current");
     const nwDays = buildDays(nwStart, "projected");
 
-    const wdSum = (days: ReturnType<typeof buildDays>) =>
-      days.filter(d => !d.is_weekend).reduce((a, d) => ({ rev: a.rev + d.revenue, jobs: a.jobs + d.job_count, ua: a.ua + d.unassigned_count }), { rev: 0, jobs: 0, ua: 0 });
+    // Every day counts toward the week total, weekends included — a Saturday
+    // job is revenue the office is owed and a cleaner is being paid for.
+    const weekSum = (days: ReturnType<typeof buildDays>) =>
+      days.reduce((a, d) => ({ rev: a.rev + d.revenue, jobs: a.jobs + d.job_count, ua: a.ua + d.unassigned_count }), { rev: 0, jobs: 0, ua: 0 });
 
-    const lwTot = wdSum(lwDays);
-    const cwTot = wdSum(cwDays);
-    const nwTot = wdSum(nwDays);
+    const lwTot = weekSum(lwDays);
+    const cwTot = weekSum(cwDays);
+    const nwTot = weekSum(nwDays);
 
     const result = {
       daily_avg,
