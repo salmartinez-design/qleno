@@ -1,0 +1,63 @@
+{
+  "takenAt": "2026-08-15T16:24:23.313Z",
+  "rows": [
+    {
+      "id": 20309,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 19915,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 19356,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 19354,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 18466,
+      "company_id": 1,
+      "billed_amount": "170.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 18467,
+      "company_id": 1,
+      "billed_amount": "170.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 13538,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    },
+    {
+      "id": 13535,
+      "company_id": 1,
+      "billed_amount": "150.00",
+      "commission_base": "60.00"
+    }
+  ],
+  "rollback": [
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 20309;",
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 19915;",
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 19356;",
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 19354;",
+    "UPDATE jobs SET billed_amount = 170.00, commission_base = 60.00 WHERE id = 18466;",
+    "UPDATE jobs SET billed_amount = 170.00, commission_base = 60.00 WHERE id = 18467;",
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 13538;",
+    "UPDATE jobs SET billed_amount = 150.00, commission_base = 60.00 WHERE id = 13535;"
+  ]
+}
