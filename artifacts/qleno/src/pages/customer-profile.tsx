@@ -23,6 +23,7 @@ import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from 
 import { JobWizard } from "@/components/job-wizard";
 import { SquareCardForm } from "@/components/square-card-form";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
+import { RemindersPanel } from "@/components/reminders-panel";
 import { ActivityFeed } from "@/components/activity-feed";
 import { PhotoLightbox, downloadPhotosZip, deletePhoto, canManagePhotos, type GalleryPhoto } from "@/components/photo-gallery";
 // [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
@@ -6876,6 +6877,13 @@ export default function CustomerProfilePage() {
 
           {/* Right column */}
           <div>
+            {/* [client-lead-reminders 2026-08-15] Francisco: "creating them from
+                the client or lead profile." Sits above the comm log because the
+                follow-up it holds is usually the reason you opened the profile. */}
+            <div style={{ marginBottom: 14 }}>
+              <RemindersPanel clientId={clientId} />
+            </div>
+
             {/* [comm-log-first 2026-07-08] Communication Log leads the column —
                 the office reaches for it far more than Invoices (Sal). */}
             <CommLog2 clientId={clientId} />

@@ -13,8 +13,9 @@ import {
   Phone, Mail, MapPin, Loader2,
   MessageSquare, Briefcase, Activity, Eye, ChevronDown, ChevronRight,
   Send, AlertCircle, CheckCircle2, TrendingUp, Zap,
-  PauseCircle, StopCircle, SkipForward,
+  PauseCircle, StopCircle, SkipForward, Bell,
 } from "lucide-react";
+import { RemindersPanel } from "@/components/reminders-panel";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePickerSources } from "@/lib/acquisition-sources";
@@ -988,6 +989,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
     { key: "messages", label: "Messages", Icon: MessageSquare },
     { key: "activity", label: "Activity", Icon: Activity },
     { key: "jobs",     label: "Jobs",     Icon: Briefcase },
+    { key: "notes",    label: "Notes",    Icon: Bell },
   ];
 
   return (
@@ -1186,6 +1188,13 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
         {tab === "messages" && <MessagesTab lead={lead} />}
         {tab === "activity" && <ActivityTab lead={lead} />}
         {tab === "jobs"     && <JobsTab lead={lead} />}
+        {/* [client-lead-reminders 2026-08-15] Francisco asked for internal notes
+            with reminders on leads too — "leads that need additional contact." */}
+        {tab === "notes"    && (
+          <div style={{ padding: 20, overflow: "auto" }}>
+            <RemindersPanel leadId={lead.id} subjectLabel="this lead" />
+          </div>
+        )}
       </div>
     </div>
   );

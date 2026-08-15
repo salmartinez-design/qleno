@@ -318,6 +318,18 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     ` },
+    // [client-lead-reminders 2026-08-15] Francisco: "I mean creating them from
+    // the client or lead profile." The dashboard reminder list already existed
+    // but a reminder could not be ATTACHED to anyone, so "follow up with this
+    // client about recurring service" had no home on the client's record and
+    // nobody owned it. Three additive columns: who it's about (client OR lead)
+    // and who owes the follow-up. All nullable — an unattached reminder is
+    // still a plain office reminder and the dashboard keeps showing it.
+    { label: "office_reminders.client_id", stmt: "ALTER TABLE office_reminders ADD COLUMN IF NOT EXISTS client_id INTEGER" },
+    { label: "office_reminders.lead_id", stmt: "ALTER TABLE office_reminders ADD COLUMN IF NOT EXISTS lead_id INTEGER" },
+    { label: "office_reminders.assigned_to", stmt: "ALTER TABLE office_reminders ADD COLUMN IF NOT EXISTS assigned_to INTEGER" },
+    { label: "office_reminders client idx", stmt: "CREATE INDEX IF NOT EXISTS idx_office_reminders_client ON office_reminders (company_id, client_id) WHERE client_id IS NOT NULL" },
+    { label: "office_reminders lead idx", stmt: "CREATE INDEX IF NOT EXISTS idx_office_reminders_lead ON office_reminders (company_id, lead_id) WHERE lead_id IS NOT NULL" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
     // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.
