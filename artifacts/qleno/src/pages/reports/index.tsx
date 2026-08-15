@@ -5,7 +5,7 @@ import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
   AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
-  Briefcase, Percent, History,
+  Briefcase, Percent, History, Car,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -28,6 +28,9 @@ const REPORT_GROUPS = [
     reports: [
       { title: "Job Log",              desc: "All jobs with filters, KPIs, and export.",               url: "/reports/jobs",             icon: Briefcase },
       { title: "Payroll Summary",      desc: "Employee earnings, hours, tips, and additional pay.",    url: "/reports/payroll",          icon: Banknote },
+      // [mileage-report 2026-08-15] Also the approval surface — pending mileage
+      // gets approved or discarded here, not just counted.
+      { title: "Mileage Reimbursement", desc: "Drives between jobs, what we reimburse, and an accuracy check. Approve or discard pending mileage here.", url: "/reports/mileage", icon: Car, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Schedule Efficiency",  desc: "Allowed vs actual hours — time utilization by day.",    url: "/reports/efficiency",       icon: Calendar },
       { title: "Week in Review",       desc: "This week vs last week across all key metrics.",         url: "/reports/week-review",      icon: LayoutList },
       { title: "Hot Sheet",            desc: "Today's jobs with client notes and first-time flags.",  url: "/reports/hot-sheet",        icon: Home },

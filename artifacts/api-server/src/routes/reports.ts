@@ -1416,4 +1416,236 @@ router.get("/upsell-conversion", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ── GET /api/reports/mileage ────────────────────────────────────────────────
+// [mileage-report 2026-08-15] Sal: "I need a report where i can see how much in
+// mileage we are rembursing. Check the accuracy as well please."
+//
+// Two jobs in one surface:
+//   1. HOW MUCH — split applied (money that actually moved) from pending (money
+//      still at the review gate). These must never be added together into one
+//      headline: "no money until reviewed" (CLAUDE.md) means pending is a
+//      forecast, not a liability.
+//   2. IS IT RIGHT — every leg is checked and anything suspicious is returned in
+//      `flagged` with a reason. This exists because leg #56057 (9,668.57 mi /
+//      $7,009.71 for a ~12-mile Chicago trip) sat in the pending pool for weeks
+//      with nothing surfacing it. Both jobs on that leg had no address, so the
+//      measurement fell through to haversine_fallback and produced a number
+//      a third of the way around the planet — and nothing checked it.
+//
+// Flag reasons, most severe first:
+//   implausible_distance — over MAX_PLAUSIBLE_MILES. A service business does not
+//                          drive 200 miles between two houses. Always a data bug.
+//   estimated            — measurement_is_estimated / haversine_fallback: the
+//                          mapping API never measured this, so the miles are a
+//                          guess off coordinates. Root cause is a missing address.
+//   duplicate            — same tech, same day, same job pair, more than one row.
+//                          A true double-count; pay one, discard the rest.
+//   carpool_candidate    — same day + same job pair, MULTIPLE techs. NOT proof of
+//                          a shared car: two techs assigned to both houses each
+//                          legitimately drive it in their own vehicle and are each
+//                          owed. Nothing in the schema records who rode with whom,
+//                          so this is surfaced for a human to judge and is
+//                          deliberately reported separately from the real errors
+//                          above. Matches detectCarpoolCandidates() in
+//                          lib/mileage-approval.ts, which likewise never
+//                          auto-resolves.
+const MAX_PLAUSIBLE_MILES = 200;
+
+router.get("/mileage", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 90 * 86400000));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+    const userId  = req.query.user_id ? Number(req.query.user_id) : null;
+    const userFilter = userId ? sql`AND ml.user_id = ${userId}` : sql``;
+
+    // leg_date is timestamptz — always cast to ::date before comparing or
+    // bucketing, or `leg_date + 1` style arithmetic throws.
+    const legRows = await db.execute(sql`
+      SELECT
+        ml.id, ml.user_id, to_char(ml.leg_date, 'YYYY-MM-DD') AS leg_date, ml.miles, ml.minutes,
+        ml.amount, ml.rate_per_mile, ml.status,
+        ml.measurement_source, ml.measurement_is_estimated,
+        ml.from_job_id, ml.to_job_id,
+        u.first_name, u.last_name,
+        fj.address_zip  AS from_zip,
+        tj.address_zip  AS to_zip,
+        fc.first_name   AS from_client_first, fc.last_name AS from_client_last,
+        tc.first_name   AS to_client_first,   tc.last_name AS to_client_last
+      FROM mileage_legs ml
+      JOIN users u        ON u.id  = ml.user_id
+      LEFT JOIN jobs fj   ON fj.id = ml.from_job_id
+      LEFT JOIN jobs tj   ON tj.id = ml.to_job_id
+      LEFT JOIN clients fc ON fc.id = fj.client_id
+      LEFT JOIN clients tc ON tc.id = tj.client_id
+      WHERE ml.company_id = ${companyId}
+        AND ml.leg_date::date BETWEEN ${fromStr}::date AND ${toStr}::date
+        ${userFilter}
+      ORDER BY ml.leg_date DESC, ml.id
+    `);
+
+    type Leg = {
+      id: number; user_id: number; leg_date: string; miles: number; minutes: number;
+      amount: number; rate_per_mile: number; status: string;
+      measurement_source: string | null; measurement_is_estimated: boolean;
+      from_job_id: number | null; to_job_id: number | null;
+      tech_name: string; from_label: string; to_label: string;
+    };
+
+    const nameOf = (f: any, l: any, zip: any, jobId: any) =>
+      f ? `${f} ${l ?? ""}`.trim() : (zip ? `Job #${jobId} (${zip})` : `Job #${jobId ?? "?"}`);
+
+    const legs: Leg[] = (legRows.rows as any[]).map(r => ({
+      id: Number(r.id),
+      user_id: Number(r.user_id),
+      // Already a bare YYYY-MM-DD string via to_char — pg hands DATE back as a
+      // JS Date otherwise and the day shifts by timezone on the way out.
+      leg_date: String(r.leg_date),
+      miles: parseF(r.miles),
+      minutes: parseN(r.minutes),
+      amount: parseF(r.amount),
+      rate_per_mile: parseF(r.rate_per_mile),
+      status: String(r.status),
+      measurement_source: r.measurement_source ?? null,
+      measurement_is_estimated: !!r.measurement_is_estimated,
+      from_job_id: r.from_job_id ? Number(r.from_job_id) : null,
+      to_job_id: r.to_job_id ? Number(r.to_job_id) : null,
+      tech_name: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
+      from_label: nameOf(r.from_client_first, r.from_client_last, r.from_zip, r.from_job_id),
+      to_label:   nameOf(r.to_client_first,   r.to_client_last,   r.to_zip,   r.to_job_id),
+    }));
+
+    const isPending = (s: string) => s === "computed" || s === "reviewed";
+    const isLive    = (s: string) => s !== "discarded"; // discarded legs are decided; they owe nothing
+
+    const summary = {
+      applied_amount:   legs.filter(l => l.status === "applied").reduce((s, l) => s + l.amount, 0),
+      applied_miles:    legs.filter(l => l.status === "applied").reduce((s, l) => s + l.miles, 0),
+      applied_legs:     legs.filter(l => l.status === "applied").length,
+      pending_amount:   legs.filter(l => isPending(l.status)).reduce((s, l) => s + l.amount, 0),
+      pending_miles:    legs.filter(l => isPending(l.status)).reduce((s, l) => s + l.miles, 0),
+      pending_legs:     legs.filter(l => isPending(l.status)).length,
+      discarded_amount: legs.filter(l => l.status === "discarded").reduce((s, l) => s + l.amount, 0),
+      discarded_legs:   legs.filter(l => l.status === "discarded").length,
+      total_legs:       legs.length,
+    };
+
+    // ── accuracy pass ──────────────────────────────────────────────────────
+    // Duplicates: same tech + day + job pair appearing more than once. Only
+    // pre-apply rows — an applied row is already decided and re-flagging it
+    // would invite double-discarding real history.
+    //
+    // Only the EXTRA copies get flagged — the first row of each group stays
+    // clean. One of those drives really happened and is really owed, so
+    // flagging every copy would quietly under-pay the tech the moment the
+    // office used "approve all clean". Flag the surplus, keep the original.
+    const dupKey = (l: Leg) => `${l.user_id}|${l.leg_date}|${l.from_job_id}|${l.to_job_id}`;
+    const dupSeen = new Set<string>();
+    const dupExtraIds = new Set<number>();
+    for (const l of legs) {
+      if (!isPending(l.status)) continue;
+      const k = dupKey(l);
+      if (dupSeen.has(k)) dupExtraIds.add(l.id);
+      else dupSeen.add(k);
+    }
+
+    // Carpool candidates: same day + job pair, >1 DISTINCT tech.
+    const poolKey = (l: Leg) => `${l.leg_date}|${l.from_job_id}|${l.to_job_id}`;
+    const poolTechs = new Map<string, Set<number>>();
+    for (const l of legs) {
+      if (!isPending(l.status)) continue;
+      const k = poolKey(l);
+      if (!poolTechs.has(k)) poolTechs.set(k, new Set());
+      poolTechs.get(k)!.add(l.user_id);
+    }
+
+    const flagged: Array<Leg & { flag: string; flag_detail: string }> = [];
+    for (const l of legs) {
+      if (!isLive(l.status)) continue;
+      let flag: string | null = null;
+      let detail = "";
+      if (l.miles > MAX_PLAUSIBLE_MILES) {
+        flag = "implausible_distance";
+        detail = `${l.miles.toFixed(1)} mi between two jobs on the same day — impossible. Almost always a missing address on one end.`;
+      } else if (l.measurement_is_estimated || l.measurement_source === "haversine_fallback") {
+        flag = "estimated";
+        detail = "Never measured by the mapping API — straight-line estimate from coordinates because an address was missing.";
+      } else if (dupExtraIds.has(l.id)) {
+        flag = "duplicate";
+        detail = "A second copy of a drive already counted once today. The original stays payable — discard this one.";
+      } else if ((poolTechs.get(poolKey(l))?.size ?? 0) > 1 && l.amount > 0) {
+        // A $0 leg (same address, or two units at one building) is nothing to
+        // decide — keep it out of the office's judgement queue.
+        flag = "carpool_candidate";
+        detail = `${poolTechs.get(poolKey(l))!.size} techs have this same drive. If they rode together only one should be paid — if they drove separately both are owed. Nothing in the data can tell you which; your call.`;
+      }
+      if (flag) flagged.push({ ...l, flag, flag_detail: detail });
+    }
+    const severity: Record<string, number> = {
+      implausible_distance: 0, estimated: 1, duplicate: 2, carpool_candidate: 3,
+    };
+    flagged.sort((a, b) => (severity[a.flag]! - severity[b.flag]!) || (b.amount - a.amount));
+
+    // "Clean pending" = what you'd owe if you approved everything EXCEPT the
+    // hard errors. Carpool candidates count as clean here: they are a judgement
+    // call, not a defect, and most of them are legitimately owed.
+    const hardErrorIds = new Set(
+      flagged.filter(f => f.flag !== "carpool_candidate").map(f => f.id),
+    );
+    const cleanPending = legs
+      .filter(l => isPending(l.status) && !hardErrorIds.has(l.id))
+      .reduce((s, l) => s + l.amount, 0);
+
+    // ── rollups ────────────────────────────────────────────────────────────
+    const byWeekMap = new Map<string, any>();
+    for (const l of legs) {
+      if (!isLive(l.status)) continue;
+      // Sun-anchored week to match the dispatch/payroll week everywhere else.
+      const d = new Date(`${l.leg_date}T00:00:00`);
+      d.setDate(d.getDate() - d.getDay());
+      const wk = dateStr(d);
+      if (!byWeekMap.has(wk)) byWeekMap.set(wk, { week_start: wk, legs: 0, miles: 0, amount: 0, applied_amount: 0, pending_amount: 0 });
+      const w = byWeekMap.get(wk)!;
+      w.legs += 1; w.miles += l.miles; w.amount += l.amount;
+      if (l.status === "applied") w.applied_amount += l.amount;
+      if (isPending(l.status)) w.pending_amount += l.amount;
+    }
+    const by_week = [...byWeekMap.values()].sort((a, b) => a.week_start.localeCompare(b.week_start));
+
+    const byTechMap = new Map<number, any>();
+    for (const l of legs) {
+      if (!isLive(l.status)) continue;
+      if (!byTechMap.has(l.user_id)) byTechMap.set(l.user_id, { user_id: l.user_id, tech_name: l.tech_name, legs: 0, miles: 0, amount: 0, applied_amount: 0, pending_amount: 0, flagged_legs: 0 });
+      const t = byTechMap.get(l.user_id)!;
+      t.legs += 1; t.miles += l.miles; t.amount += l.amount;
+      if (l.status === "applied") t.applied_amount += l.amount;
+      if (isPending(l.status)) t.pending_amount += l.amount;
+    }
+    for (const f of flagged) { const t = byTechMap.get(f.user_id); if (t) t.flagged_legs += 1; }
+    const by_tech = [...byTechMap.values()].sort((a, b) => b.amount - a.amount);
+
+    // Current rate, for the header. Latest effective_date on or before `to`.
+    const rateRow = await db.execute(sql`
+      SELECT rate FROM mileage_rates
+      WHERE company_id = ${companyId} AND effective_date <= ${toStr}::date
+      ORDER BY effective_date DESC LIMIT 1
+    `);
+
+    return res.json({
+      from: fromStr,
+      to: toStr,
+      rate_per_mile: rateRow.rows[0] ? parseF((rateRow.rows[0] as any).rate) : null,
+      summary: { ...summary, clean_pending_amount: cleanPending },
+      by_week,
+      by_tech,
+      flagged,
+      legs,
+    });
+  } catch (err) {
+    console.error("Mileage report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
