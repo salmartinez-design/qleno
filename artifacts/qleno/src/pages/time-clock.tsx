@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, Calenda
 import { PunchMapModal } from "@/components/punch-map-modal";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { Link } from "wouter";
+import { companyTz } from "@/lib/company-tz";
 
 // [time-clock-portal 2026-06-05] Office Time Clock portal. The office reconciles
 // Qleno's per-job clock times against MaidCentral so commission (proportional by
@@ -403,7 +404,7 @@ function PayNote({ row, userId, onChanged, toastFn }: {
   }
 
   const when = row.pay_note_at
-    ? new Date(row.pay_note_at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    ? new Date(row.pay_note_at).toLocaleString("en-US", { timeZone: companyTz(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : null;
   const hover = [row.pay_note, [row.pay_note_by_name, when].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
   return (
@@ -437,7 +438,7 @@ function ClockHistory({ entryId }: { entryId: number }) {
     finally { setLoading(false); }
   }
 
-  const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+  const t12 = (v: any) => v ? new Date(v).toLocaleTimeString("en-US", { timeZone: companyTz(), hour: "numeric", minute: "2-digit" }) : "—";
   const line = (ev: any) => {
     if (ev.kind === "created") return ev.detail;
     if (ev.kind === "office_in") return `Clocked in from the office at ${t12(ev.new_value?.clock_in_at)}`;
@@ -468,7 +469,7 @@ function ClockHistory({ entryId }: { entryId: number }) {
               <div key={i} style={{ fontSize: 11.5, color: "#1A1917", padding: "4px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
                 {line(ev)}
                 <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 1 }}>
-                  {ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                  {ev.at ? new Date(ev.at).toLocaleString("en-US", { timeZone: companyTz(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
                   {ev.actor_name ? ` · ${ev.actor_name}` : ""}
                 </div>
               </div>

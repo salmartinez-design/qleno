@@ -16,6 +16,7 @@ import {
   type CancellationTechPayMode,
 } from "../lib/cancellation-tech-pay.js";
 import { tombstoneJobOccurrence } from "../lib/recurring-tombstone.js";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -808,7 +809,7 @@ router.post("/undo", requireAuth, requireRole("owner", "admin", "office"), async
 
     const ctx = await db.execute(sql`
       SELECT j.id,
-             (j.scheduled_date < (now() AT TIME ZONE 'America/Chicago')::date) AS is_past
+             (j.scheduled_date < (now() AT TIME ZONE ${tzOf(companyId)})::date) AS is_past
         FROM jobs j
        WHERE j.id = ${jobId} AND j.company_id = ${companyId}
     `);

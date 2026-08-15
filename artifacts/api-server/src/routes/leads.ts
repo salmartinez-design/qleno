@@ -7,6 +7,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { ctDate, ctToday } from "../lib/ct-day.js";
+import { tzOf } from "../lib/company-tz.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { referralAliasPairs } from "../lib/referral-source.js";
@@ -402,8 +403,10 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
     // [ct-day 2026-07-23] Two-step UTC→Central via ctDate — the one-step form
     // these used to carry shifted the naive stamps +5h, so anything after 2 PM
     // Central landed on tomorrow's count. See lib/ct-day.ts.
-    const isToday = sql`${ctDate(sql`created_at`)} = ${ctToday()}`;
-    const bookedToday = sql`${ctDate(sql`COALESCE(booked_at, updated_at)`)} = ${ctToday()}`;
+    // [company-timezone 2026-08-15] "Today" is the tenant's today, not Chicago's.
+    const tz = tzOf(companyId);
+    const isToday = sql`${ctDate(sql`created_at`, tz)} = ${ctToday(tz)}`;
+    const bookedToday = sql`${ctDate(sql`COALESCE(booked_at, updated_at)`, tz)} = ${ctToday(tz)}`;
     const r = await db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE status IN ('new','needs_contacted'))            AS needs_contact,
@@ -414,10 +417,10 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
         COUNT(*) FILTER (WHERE ${isToday} AND ${online})                      AS today_online,
         COUNT(*) FILTER (WHERE ${isToday} AND NOT ${online})                  AS today_office,
         COUNT(*) FILTER (WHERE status = 'booked' AND ${bookedToday})          AS today_booked,
-        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')))                          AS month_total,
-        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')) AND ${online})            AS month_online,
-        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')) AND NOT ${online})        AS month_office,
-        COUNT(*) FILTER (WHERE status = 'booked' AND date_trunc('month', COALESCE(booked_at, updated_at)) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago'))) AS month_booked
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE ${tz})))                          AS month_total,
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE ${tz})) AND ${online})            AS month_online,
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE ${tz})) AND NOT ${online})        AS month_office,
+        COUNT(*) FILTER (WHERE status = 'booked' AND date_trunc('month', COALESCE(booked_at, updated_at)) = date_trunc('month', (now() AT TIME ZONE ${tz}))) AS month_booked
       FROM leads WHERE company_id = ${companyId}`);
     const row = (r.rows[0] as any) || {};
     const n = (k: string) => parseInt(row[k] ?? "0") || 0;

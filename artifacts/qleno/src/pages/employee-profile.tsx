@@ -21,6 +21,7 @@ import { EarningsPanel } from "@/components/earnings-panel";
 import { OneOnOnesPanel } from "@/components/one-on-ones-panel";
 import { DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
+import { todayInCompanyTz } from "@/lib/company-tz";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -49,12 +50,12 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return r.json();
 }
 
-// [ct-day 2026-08-10] Today in America/Chicago. `new Date().toISOString()`
+// [ct-day 2026-08-10] Today in the company's zone. `new Date().toISOString()`
 // rolls over at 7 PM Central, so a UTC "today" is tomorrow's date all evening
 // — which the server's future-attendance guard then rejects. The API measures
 // the same way (lib/ct-day.ts ctDateStr); these two must agree.
 function ctToday(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+  return todayInCompanyTz();
 }
 
 // Avatar upload now goes through AvatarCropModal (drag-to-reposition + zoom),

@@ -330,6 +330,49 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "office_reminders.assigned_to", stmt: "ALTER TABLE office_reminders ADD COLUMN IF NOT EXISTS assigned_to INTEGER" },
     { label: "office_reminders client idx", stmt: "CREATE INDEX IF NOT EXISTS idx_office_reminders_client ON office_reminders (company_id, client_id) WHERE client_id IS NOT NULL" },
     { label: "office_reminders lead idx", stmt: "CREATE INDEX IF NOT EXISTS idx_office_reminders_lead ON office_reminders (company_id, lead_id) WHERE lead_id IS NOT NULL" },
+    // [company-timezone 2026-08-15] Maribel: dates should follow the company's
+    // local time. "America/Chicago" was hardcoded in ~70 places — fine for two
+    // Illinois branches, wrong the moment a tenant is anywhere else, and there
+    // was no per-tenant value to read even if you wanted to. This column is that
+    // value. It seeds from companies.state so nobody has to set it, and
+    // everything reads it through lib/company-tz.ts rather than a literal.
+    { label: "companies.timezone", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS timezone TEXT" },
+    // Seed once from the company's state. Only fills NULL, so an owner who has
+    // already picked a zone in Settings is never overwritten. States that span
+    // two zones map to the one holding the population (e.g. FL → New_York, TX →
+    // Chicago); those owners can correct it in Settings and it sticks.
+    { label: "seed companies.timezone from state", stmt: `
+      UPDATE companies SET timezone = CASE UPPER(COALESCE(state, ''))
+        WHEN 'CT' THEN 'America/New_York'    WHEN 'DE' THEN 'America/New_York'
+        WHEN 'FL' THEN 'America/New_York'    WHEN 'GA' THEN 'America/New_York'
+        WHEN 'IN' THEN 'America/Indiana/Indianapolis'
+        WHEN 'ME' THEN 'America/New_York'    WHEN 'MD' THEN 'America/New_York'
+        WHEN 'MA' THEN 'America/New_York'    WHEN 'MI' THEN 'America/New_York'
+        WHEN 'NH' THEN 'America/New_York'    WHEN 'NJ' THEN 'America/New_York'
+        WHEN 'NY' THEN 'America/New_York'    WHEN 'NC' THEN 'America/New_York'
+        WHEN 'OH' THEN 'America/New_York'    WHEN 'PA' THEN 'America/New_York'
+        WHEN 'RI' THEN 'America/New_York'    WHEN 'SC' THEN 'America/New_York'
+        WHEN 'VT' THEN 'America/New_York'    WHEN 'VA' THEN 'America/New_York'
+        WHEN 'WV' THEN 'America/New_York'    WHEN 'DC' THEN 'America/New_York'
+        WHEN 'AL' THEN 'America/Chicago'     WHEN 'AR' THEN 'America/Chicago'
+        WHEN 'IL' THEN 'America/Chicago'     WHEN 'IA' THEN 'America/Chicago'
+        WHEN 'KS' THEN 'America/Chicago'     WHEN 'KY' THEN 'America/New_York'
+        WHEN 'LA' THEN 'America/Chicago'     WHEN 'MN' THEN 'America/Chicago'
+        WHEN 'MS' THEN 'America/Chicago'     WHEN 'MO' THEN 'America/Chicago'
+        WHEN 'NE' THEN 'America/Chicago'     WHEN 'ND' THEN 'America/Chicago'
+        WHEN 'OK' THEN 'America/Chicago'     WHEN 'SD' THEN 'America/Chicago'
+        WHEN 'TN' THEN 'America/Chicago'     WHEN 'TX' THEN 'America/Chicago'
+        WHEN 'WI' THEN 'America/Chicago'
+        WHEN 'AZ' THEN 'America/Phoenix'     WHEN 'CO' THEN 'America/Denver'
+        WHEN 'ID' THEN 'America/Boise'       WHEN 'MT' THEN 'America/Denver'
+        WHEN 'NM' THEN 'America/Denver'      WHEN 'UT' THEN 'America/Denver'
+        WHEN 'WY' THEN 'America/Denver'
+        WHEN 'CA' THEN 'America/Los_Angeles' WHEN 'NV' THEN 'America/Los_Angeles'
+        WHEN 'OR' THEN 'America/Los_Angeles' WHEN 'WA' THEN 'America/Los_Angeles'
+        WHEN 'AK' THEN 'America/Anchorage'   WHEN 'HI' THEN 'Pacific/Honolulu'
+        ELSE 'America/Chicago' END
+       WHERE timezone IS NULL
+    ` },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
     // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.

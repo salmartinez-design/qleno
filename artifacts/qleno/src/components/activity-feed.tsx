@@ -6,7 +6,7 @@
 // log"). The endpoint decides the scope; this component only renders.
 //
 // Timestamps: the API returns explicit-UTC ISO strings; render pinned to
-// America/Chicago (single-market tenant) so the office never sees the raw UTC
+// the company's own time zone so the office never sees the raw UTC
 // wall clock (the "cancelled at 12:08 PM" that actually happened at 7:08 AM).
 //
 // Job tags: when the event carries related_job_id + related_job_date it links
@@ -14,6 +14,7 @@
 // open the actual job card from the feed ("Can't see the job card from here").
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
+import { companyTz } from "@/lib/company-tz";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF2 = "'Plus Jakarta Sans', sans-serif";
@@ -32,7 +33,7 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
     },
   });
   const events: any[] = data?.events || [];
-  const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
+  const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { timeZone: companyTz(), month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
   const META: Record<string, { label: string; color: string; bg: string }> = {
     // [job-created-audit 2026-08-08] "Booked", not "Job created" — this is the
     // moment the visit was put on the calendar, which is what the office is

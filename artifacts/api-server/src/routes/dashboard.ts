@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { ctDate, ctToday, ctDateStr } from "../lib/ct-day.js";
+import { tzOf } from "../lib/company-tz.js";
 import { scheduledTimeToMins, clockInMinsLocal } from "../lib/auto-tardy.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
@@ -176,8 +177,10 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
     const now = new Date();
     // Central, not UTC — `toISOString()` rolls the day over at 7 PM Central and
     // would swap this board to tomorrow's jobs mid-evening. See lib/ct-day.ts.
-    const todayStr = ctDateStr(now);
-    const tomorrowStr = ctDateStr(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+    // [company-timezone 2026-08-15] The tenant's local day, not Chicago's.
+    const tz = tzOf(companyId);
+    const todayStr = ctDateStr(now, tz);
+    const tomorrowStr = ctDateStr(new Date(now.getTime() + 24 * 60 * 60 * 1000), tz);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const { branch_id } = req.query;
     const todayBranchCond = branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id as string))] : [];
@@ -276,7 +279,7 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
     // different timezones, so the gap was off by the UTC offset — the board
     // warned that Diana hadn't clocked in for a 9:00 AM job at 7:49 AM,
     // claiming it started "in 10 min" when it was still an hour out.
-    const nowMinsCT = clockInMinsLocal(now);
+    const nowMinsCT = clockInMinsLocal(now, tz);
     const minsUntil = (t: string | null | undefined): number | null => {
       const mins = scheduledTimeToMins(t);
       return mins == null ? null : mins - nowMinsCT;
@@ -607,7 +610,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
           // shifting it +5h, so every job sold after 2 PM Central counted
           // toward tomorrow. At 7:44 AM on a day with zero bookings the tile
           // read 5: the previous afternoon's 4:10–5:29 PM sales.
-          sql`${ctDate(jobsTable.created_at)} = ${ctToday()}`,
+          sql`${ctDate(jobsTable.created_at, tzOf(companyId))} = ${ctToday(tzOf(companyId))}`,
           isNull(jobsTable.recurring_schedule_id),
           sql`${jobsTable.status} != 'cancelled'`,
         )),
@@ -944,15 +947,15 @@ router.get("/revenue-chart", requireAuth, officeGate, async (req, res) => {
 // until midnight the RIGHT NOW cards were quietly showing TOMORROW.
 // computeLastWeekPayrollPct further down already did this correctly; these
 // two endpoints did not.
-function companyTodayStr(): string {
-  const ct = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+function companyTodayStr(companyId: number | null | undefined): string {
+  const ct = new Date(new Date().toLocaleString("en-US", { timeZone: tzOf(companyId) }));
   return `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, "0")}-${String(ct.getDate()).padStart(2, "0")}`;
 }
 
 router.get("/techs-today", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const todayStr = companyTodayStr();
+    const todayStr = companyTodayStr(companyId);
 
     const techs = await db
       .select({
@@ -1012,7 +1015,7 @@ router.get("/techs-today", requireAuth, officeGate, async (req, res) => {
 router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const todayStr = companyTodayStr();
+    const todayStr = companyTodayStr(companyId);
 
     const [chargeFailedJobs, noCardAccounts, hoursVarianceJobs] = await Promise.all([
       db.select({
@@ -1381,7 +1384,7 @@ async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct:
 }
 
 // [revenue-connect 2026-06-12] Payroll % — LAST COMPLETED WEEK (Sun–Sat,
-// America/Chicago), replacing the April-2026 pin now that the job_history
+// the tenant's local zone), replacing the April-2026 pin now that the job_history
 // live bridge keeps the revenue ledger current past the MC cutover.
 // Numerator: commission via the shared engine (computeCommissionRows +
 // job_technicians.final_pay overrides) — the same formula behind the
@@ -1390,7 +1393,7 @@ async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct:
 // to the pinned April calc when the week has no ledger revenue (bridge not
 // yet run on this deploy / fresh tenant) so the card never blanks.
 async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_pct: number; payroll_window: string }> {
-  const nowCt = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const nowCt = new Date(new Date().toLocaleString("en-US", { timeZone: tzOf(companyId) }));
   const start = new Date(nowCt);
   start.setDate(nowCt.getDate() - nowCt.getDay() - 7); // previous Sunday
   const end = new Date(start);
@@ -1512,15 +1515,16 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
 
 type PeriodKey = "today" | "week" | "month";
 
-const ctNow = () => new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+const ctNow = (companyId?: number | null) =>
+  new Date(new Date().toLocaleString("en-US", { timeZone: tzOf(companyId) }));
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-// Sun–Sat weeks, calendar months, both in America/Chicago — the same tz the
+// Sun–Sat weeks, calendar months, both in the tenant's zone — the same tz the
 // "booked today" KPI counts in. `prev` is the immediately preceding window of
 // the same shape, which is what the delta chips compare against.
-function resolvePeriod(period: PeriodKey): { from: string; to: string; prevFrom: string; prevTo: string; label: string } {
-  const now = ctNow();
+function resolvePeriod(period: PeriodKey, companyId?: number | null): { from: string; to: string; prevFrom: string; prevTo: string; label: string } {
+  const now = ctNow(companyId);
   const d = (base: Date, days: number) => { const x = new Date(base); x.setDate(base.getDate() + days); return x; };
 
   if (period === "today") {
@@ -1540,8 +1544,8 @@ function resolvePeriod(period: PeriodKey): { from: string; to: string; prevFrom:
 
 // The last COMPLETED Sun–Sat week. Independent of the page's period selector —
 // see the payroll note above.
-function lastCompletedWeek(): { from: string; to: string } {
-  const now = ctNow();
+function lastCompletedWeek(companyId?: number | null): { from: string; to: string } {
+  const now = ctNow(companyId);
   const d = (base: Date, days: number) => { const x = new Date(base); x.setDate(base.getDate() + days); return x; };
   const thisSun = d(now, -now.getDay());
   return { from: ymd(d(thisSun, -7)), to: ymd(d(thisSun, -1)) };
@@ -1627,7 +1631,7 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
     const period: PeriodKey = raw === "today" || raw === "month" ? raw : "week";
     const branchId = req.query.branch_id && req.query.branch_id !== "all"
       ? parseInt(String(req.query.branch_id), 10) : null;
-    const w = resolvePeriod(period);
+    const w = resolvePeriod(period, companyId);
 
     const revSql = (from: string, to: string) => db.execute(sql`
       SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total,
@@ -1651,7 +1655,7 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
          AND created_at < (${to}::date + interval '1 day')
     `);
 
-    const pw = lastCompletedWeek();
+    const pw = lastCompletedWeek(companyId);
 
     const [curRev, prevRev, curPaid, prevPaid, payRev, payCost] = await Promise.all([
       revSql(w.from, w.to),
@@ -1740,7 +1744,7 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
     const period: PeriodKey = raw === "today" || raw === "month" ? raw : "week";
     const branchId = req.query.branch_id && req.query.branch_id !== "all"
       ? parseInt(String(req.query.branch_id), 10) : null;
-    const w = resolvePeriod(period);
+    const w = resolvePeriod(period, companyId);
 
     const rows = await db.execute(sql`
       SELECT (j.recurring_schedule_id IS NOT NULL) AS from_schedule,
@@ -1760,8 +1764,8 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
         LEFT JOIN clients c ON c.id = j.client_id
        WHERE j.company_id = ${companyId}
          AND j.status != 'cancelled'
-         AND ${ctDate(sql`j.created_at`)} >= ${w.from}::date
-         AND ${ctDate(sql`j.created_at`)} <= ${w.to}::date
+         AND ${ctDate(sql`j.created_at`, tzOf(companyId))} >= ${w.from}::date
+         AND ${ctDate(sql`j.created_at`, tzOf(companyId))} <= ${w.to}::date
          ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
        GROUP BY 1, 2, 3, 4
     `);
@@ -1848,10 +1852,11 @@ router.get("/mobile-cards", requireAuth, officeGate, async (req, res) => {
     const branchId = branchRaw && branchRaw !== "all" ? parseInt(branchRaw as string) : null;
     const jb = branchId ? sql`AND j.branch_id = ${branchId}` : sql``;
     const cb = branchId ? sql`AND branch_id = ${branchId}` : sql``;
-    // "Today" / month boundaries in Central time (Phes), not UTC.
-    const today = sql`(now() AT TIME ZONE 'America/Chicago')::date`;
-    const monthStart = sql`date_trunc('month', (now() AT TIME ZONE 'America/Chicago'))`;
-    const todayStart = sql`date_trunc('day', (now() AT TIME ZONE 'America/Chicago'))`;
+    // "Today" / month boundaries in the tenant's local time, not UTC.
+    const tz = tzOf(companyId);
+    const today = sql`(now() AT TIME ZONE ${tz})::date`;
+    const monthStart = sql`date_trunc('month', (now() AT TIME ZONE ${tz}))`;
+    const todayStart = sql`date_trunc('day', (now() AT TIME ZONE ${tz}))`;
     // Revenue: completed/booked use base_fee; rollups use billed_amount fallback.
     const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
     const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
@@ -1907,7 +1912,7 @@ router.get("/mobile-cards", requireAuth, officeGate, async (req, res) => {
         WHERE j.company_id = ${companyId} AND j.scheduled_date = ${today}
           AND j.status = 'scheduled' AND j.assigned_user_id IS NOT NULL
           AND j.scheduled_time IS NOT NULL
-          AND (now() AT TIME ZONE 'America/Chicago')::time >= (j.scheduled_time::time + INTERVAL '20 minutes')
+          AND (now() AT TIME ZONE ${tz})::time >= (j.scheduled_time::time + INTERVAL '20 minutes')
           AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id AND tc.company_id = ${companyId})
           ${jb}
       `),

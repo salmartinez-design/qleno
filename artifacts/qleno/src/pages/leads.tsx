@@ -19,6 +19,7 @@ import { RemindersPanel } from "@/components/reminders-panel";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePickerSources } from "@/lib/acquisition-sources";
+import { todayInCompanyTz } from "@/lib/company-tz";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "Plus Jakarta Sans, system-ui, sans-serif";
@@ -2296,11 +2297,11 @@ function lastActivity(l: any): number {
   return max;
 }
 
-// Today's calendar date (America/Chicago) as YYYY-MM-DD — matches the tz the
+// Today's calendar date in the company's zone as YYYY-MM-DD — matches the tz the
 // Dashboard's today tiles count in, so a "Today" deep-link filters to the same
 // set. en-CA renders ISO order.
 function ctToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  return todayInCompanyTz();
 }
 
 // [leads-default-today 2026-07-22] "today" / "Jul 21" for the empty state. Split

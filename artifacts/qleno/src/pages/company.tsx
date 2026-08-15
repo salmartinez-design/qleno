@@ -15,6 +15,7 @@ import { EasyMessageEditor } from "@/components/easy-message-editor";
 import { MessagePreview } from "@/components/message-preview";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
+import { setCompanyTimeZone } from "@/lib/company-tz";
 
 type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'office-alerts' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
 
@@ -604,6 +605,18 @@ function BranchCommsCard({ branchId }: { branchId: number }) {
   );
 }
 
+// The zones a US cleaning business actually operates in. Anything else already
+// seeded from `companies.state` still renders (see the fallback <option>).
+const TIME_ZONES = [
+  { id: 'America/New_York', label: 'Eastern (New York)' },
+  { id: 'America/Chicago', label: 'Central (Chicago)' },
+  { id: 'America/Denver', label: 'Mountain (Denver)' },
+  { id: 'America/Phoenix', label: 'Arizona (no DST)' },
+  { id: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { id: 'America/Anchorage', label: 'Alaska (Anchorage)' },
+  { id: 'Pacific/Honolulu', label: 'Hawaii (Honolulu)' },
+];
+
 function GeneralTab() {
   const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
   const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
@@ -616,6 +629,11 @@ function GeneralTab() {
   const [dispatchStartHour, setDispatchStartHour] = useState(8);
   const [dispatchEndHour, setDispatchEndHour] = useState(18);
   const [reviewLink, setReviewLink] = useState('');
+  // [company-timezone 2026-08-15] Maribel: dates were following Chicago rather
+  // than the company's own local time. Everything date-shaped in the app and
+  // the API now reads this one field; a company that never sets it stays on
+  // Central, which is what the old hardcoded literals did.
+  const [timezone, setTimezone] = useState('America/Chicago');
 
   useEffect(() => {
     if (company) {
@@ -629,6 +647,7 @@ function GeneralTab() {
       setDispatchStartHour((company as any).dispatch_start_hour ?? 8);
       setDispatchEndHour((company as any).dispatch_end_hour ?? 18);
       setReviewLink((company as any).review_link || '');
+      setTimezone((company as any).timezone || 'America/Chicago');
     }
   }, [company]);
 
@@ -664,6 +683,31 @@ function GeneralTab() {
           onChange={e => setName(e.target.value)}
           style={{ width: '100%', fontFamily: FF, fontSize: '13px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none' }}
         />
+      </Section>
+      <Section title="Time Zone" desc="Every date and time in Qleno — dispatch, clock punches, invoices, reports — is shown and counted in this zone.">
+        <select
+          value={timezone}
+          onChange={e => {
+            const tz = e.target.value;
+            setTimezone(tz);
+            // Persist on change, same reasoning as Pay Cadence below: this
+            // section's save button is far below the fold. Apply locally in the
+            // same beat so the screens behind this one re-render in the new
+            // zone without a reload.
+            setCompanyTimeZone(tz);
+            updateCompany.mutate({ data: { timezone: tz } as any }, {
+              onSuccess: () => toast({ title: "Time zone saved", description: `Dates now follow ${TIME_ZONES.find(z => z.id === tz)?.label || tz}.` }),
+              onError: () => toast({ variant: "destructive", title: "Error", description: "Failed to save time zone." }),
+            });
+          }}
+          style={selectStyle}
+        >
+          {TIME_ZONES.map(z => <option key={z.id} value={z.id}>{z.label}</option>)}
+          {/* A zone seeded from the company's state that isn't in the common
+              list still has to render, or the select would silently show the
+              first option and a save would overwrite it. */}
+          {!TIME_ZONES.some(z => z.id === timezone) && <option value={timezone}>{timezone}</option>}
+        </select>
       </Section>
       <Section title="Pay Cadence" desc="How often payroll is processed.">
         <div style={{ display: 'flex', gap: '8px' }}>

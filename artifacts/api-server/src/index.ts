@@ -1417,6 +1417,17 @@ async function runPostListenDataTasks() {
   } catch (err: any) {
     recordStartupFailure("healGhostCompletions", err);
   }
+  // [company-timezone 2026-08-15] Warm the tenant timezone cache. Must run AFTER
+  // the boot migration that adds + seeds companies.timezone, or every tenant
+  // reads as the Central default until the next deploy. A failure here is not
+  // fatal: tzOf() falls back to America/Chicago, which is what every one of
+  // these call sites hardcoded before this existed.
+  try {
+    const { loadCompanyTimezones } = await import("./lib/company-tz.js");
+    await loadCompanyTimezones();
+  } catch (err: any) {
+    recordStartupFailure("loadCompanyTimezones", err);
+  }
 }
 
 // Kick off startup. Any unhandled rejection here is fatal — we never

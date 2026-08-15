@@ -12,15 +12,16 @@ import MobileDashboard from "@/components/mobile-dashboard";
 // dashboard. See lib/dashboard-cards.
 import { cardDef } from "@workspace/dashboard-cards";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { todayInCompanyTz } from "@/lib/company-tz";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// [booked-today-drilldown 2026-07-22] Today's calendar date in America/Chicago —
+// [booked-today-drilldown 2026-07-22] Today's calendar date in the company's zone —
 // the tz the "booked today" KPI counts in server-side. Using the browser's local
 // date instead would hand the drill-down a different day than the tile counted
 // for anyone not on Central time.
 function ctToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  return todayInCompanyTz();
 }
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -169,7 +170,7 @@ function OfficeReminders({ isMobile }: { isMobile: boolean }) {
   };
   useEffect(() => { load(); }, []);
 
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const todayStr = todayInCompanyTz();
 
   async function add() {
     if (!title.trim() || !dueDate || busy) return;

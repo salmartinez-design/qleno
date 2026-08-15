@@ -563,6 +563,49 @@ export default function AccountDetailPage() {
     setBillingSaving(false);
   }
 
+  // [account-name-editable 2026-08-15] Francisco: the account name was
+  // read-only in the UI even though PATCH /api/accounts/:id has always accepted
+  // account_name. A misspelled or renamed account (they get renamed — a
+  // management company changes hands, a building is rebranded) had no fix short
+  // of a DB edit, and the name is what every invoice and the accounts list show.
+  // Account type and notes ride along in the same dialog: same PATCH, same
+  // "identity of the account" idea, and nothing else on the page edits them.
+  const [showDetails, setShowDetails] = useState(false);
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsForm, setDetailsForm] = useState<any>({ account_name: "", account_type: "other", notes: "" });
+  function openDetails() {
+    setDetailsForm({
+      account_name: account.account_name ?? "",
+      account_type: account.account_type ?? "other",
+      notes: account.notes ?? "",
+    });
+    setShowDetails(true);
+  }
+  async function saveDetails() {
+    const name = String(detailsForm.account_name ?? "").trim();
+    if (!name) { toast({ title: "Account name is required", variant: "destructive" }); return; }
+    setDetailsSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({
+          account_name: name,
+          account_type: detailsForm.account_type,
+          notes: detailsForm.notes ?? "",
+        }),
+      });
+      if (!r.ok) throw new Error();
+      const updated = await r.json();
+      setAccount((prev: any) => ({ ...prev, ...updated }));
+      toast({ title: "Account updated" });
+      setShowDetails(false);
+    } catch {
+      toast({ title: "Failed to update account", variant: "destructive" });
+    }
+    setDetailsSaving(false);
+  }
+
   // Invoice generation
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   // [account-batch 2026-07-02] Selectable consolidation — pick which visits
@@ -1097,6 +1140,12 @@ export default function AccountDetailPage() {
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-semibold text-[#0A0E1A]">{account.account_name}</h1>
                 {!account.is_active && <Badge variant="secondary" className="text-xs">Inactive</Badge>}
+                {/* [account-name-editable 2026-08-15] Rename the account from
+                    where you read the name, not from a settings page. */}
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-[#1A1917]"
+                  onClick={openDetails} title="Edit account name and type">
+                  <Pencil size={14} />
+                </Button>
               </div>
               <p className="text-sm text-gray-400 mt-0.5">
                 {ACCOUNT_TYPES.find((t) => t.value === account.account_type)?.label ?? account.account_type}
@@ -2163,6 +2212,50 @@ export default function AccountDetailPage() {
             <Button variant="outline" onClick={() => setShowRateCard(false)}>Cancel</Button>
             <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveRateCard} disabled={rcSaving}>
               {rcSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Account Details Dialog ─────────────────────────────────────────── */}
+      <Dialog open={showDetails} onOpenChange={setShowDetails}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Account Name</Label>
+              <Input
+                value={detailsForm.account_name}
+                onChange={(e) => setDetailsForm({ ...detailsForm, account_name: e.target.value })}
+                placeholder="e.g. KMA Property Management"
+              />
+              <p className="text-xs text-gray-400">This is the name on invoices and in the accounts list.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Account Type</Label>
+              <Select value={detailsForm.account_type} onValueChange={(v) => setDetailsForm({ ...detailsForm, account_type: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ACCOUNT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea
+                rows={3}
+                value={detailsForm.notes}
+                onChange={(e) => setDetailsForm({ ...detailsForm, notes: e.target.value })}
+                placeholder="Internal notes about this account"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDetails(false)}>Cancel</Button>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveDetails} disabled={detailsSaving}>
+              {detailsSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

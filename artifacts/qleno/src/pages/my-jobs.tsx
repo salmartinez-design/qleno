@@ -20,6 +20,7 @@ import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
 import { enqueueClock, isOfflineError, flushClockQueue, queueLength } from "@/lib/offline-clock";
 import { shiftForWeekday } from "@/lib/business-hours";
+import { companyTz } from "@/lib/company-tz";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -374,7 +375,7 @@ export type Job = {
 // Maribel: "that clock is always marking like 5 hours more" (CDT = UTC−5).
 // clockInstant() resolves the wall digits back to the real instant via the tz
 // database, so the elapsed math is correct year-round (CST/CDT included).
-const CLOCK_TZ = "America/Chicago";
+
 function wallDigitsAsUtcMs(instant: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
@@ -389,7 +390,7 @@ function clockInstant(ts: string): Date {
   // Find the instant whose Chicago wall digits equal the stored digits. Two
   // passes converge across DST transitions.
   let inst = wallAsUtc;
-  for (let i = 0; i < 2; i++) inst = wallAsUtc - (wallDigitsAsUtcMs(new Date(inst), CLOCK_TZ) - inst);
+  for (let i = 0; i < 2; i++) inst = wallAsUtc - (wallDigitsAsUtcMs(new Date(inst), companyTz()) - inst);
   return new Date(inst);
 }
 // [clockin-date-guard 2026-07-28] Chicago-local calendar date (YYYY-MM-DD) for
@@ -398,7 +399,7 @@ function clockInstant(ts: string): Date {
 // would mis-flag it. Format in the tenant tz to sidestep that date-slip.
 function chicagoYmd(instant: Date): string {
   const p = new Intl.DateTimeFormat("en-CA", {
-    timeZone: CLOCK_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone: companyTz(), year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(instant).reduce<Record<string, string>>((a, x) => { a[x.type] = x.value; return a; }, {});
   return `${p.year}-${p.month}-${p.day}`;
 }

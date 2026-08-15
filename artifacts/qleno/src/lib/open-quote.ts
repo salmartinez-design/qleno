@@ -43,10 +43,19 @@ export function openQuoteBuilder(
     return false;
   }
 
-  const win = window.open(quoteBuilderUrl(routePath), "_blank", "noopener,noreferrer");
+  // [open-quote-double-nav 2026-08-15] Francisco: "clicking Quote opens a new
+  // tab AND navigates the original window." The features string used to be
+  // "noopener,noreferrer" — and per the HTML spec window.open returns NULL
+  // whenever noopener/noreferrer is set, success or not. So the popup-blocked
+  // fallback below fired on every click: the tab opened and the page you were
+  // on navigated away too, which is the exact thing this helper exists to
+  // prevent. Open plainly so null actually means blocked, then sever
+  // window.opener by hand for the same protection (same-origin, so assignable).
+  const win = window.open(quoteBuilderUrl(routePath), "_blank");
   if (!win) {
     navigate(routePath);
     return false;
   }
+  try { win.opener = null; } catch { /* not fatal — the tab is already open */ }
   return true;
 }

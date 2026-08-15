@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useGetMyCompany } from '@workspace/api-client-react';
 import { getAuthHeaders, useAuthStore } from '@/lib/auth';
+import { setCompanyTimeZone } from '@/lib/company-tz';
 
 function hexToRgb(hex: string): string {
   const cleaned = hex.replace('#', '');
@@ -45,6 +46,16 @@ export function useTenantBrand() {
     applyTenantColor(brandColor);
   }, [brandColor]);
 
+  // [company-timezone 2026-08-15] This fetch is already the app's one read of
+  // /api/companies/me, so it's also where the tenant's zone lands. Everything
+  // date-formatting in the app reads it through `companyTz()`; until this
+  // resolves (and for a company with no zone set) that stays Central, which is
+  // exactly the behavior the hardcoded literals had.
+  const companyTimezone: string | null = (company as any)?.timezone ?? null;
+  useEffect(() => {
+    setCompanyTimeZone(companyTimezone);
+  }, [companyTimezone]);
+
   const rawName: string | null =
     (company as any)?.name ?? (company as any)?.company_name ?? null;
 
@@ -53,6 +64,7 @@ export function useTenantBrand() {
     isLoading,
     brandColor,
     logoUrl: (company as any)?.logo_url || null,
+    timezone: companyTimezone,
     companyName: rawName,
   };
 }

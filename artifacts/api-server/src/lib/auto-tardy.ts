@@ -34,9 +34,9 @@ import { db } from "@workspace/db";
 import { jobsTable, timeclockTable, employeeAttendanceLogTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { recordUnexcusedEntryAndDriveLadder } from "./unexcused-ladder-writer.js";
+import { tzOf, DEFAULT_TZ } from "./company-tz.js";
 
 const GRACE_MINUTES = 20;
-const TZ = "America/Chicago";
 
 /** "HH:MM" / "H:MM" / "H:MM AM|PM" → minutes since midnight, or null. */
 export function scheduledTimeToMins(t: string | null | undefined): number | null {
@@ -51,10 +51,16 @@ export function scheduledTimeToMins(t: string | null | undefined): number | null
   return h * 60 + min;
 }
 
-/** A UTC timestamp → minutes since midnight in Chicago local time. */
-export function clockInMinsLocal(at: Date): number {
+/**
+ * A UTC timestamp → minutes since midnight in the company's local time.
+ *
+ * [company-timezone 2026-08-15] The zone used to be a module-level Chicago
+ * constant. It's a parameter now; omitting it keeps the prior behavior, so an
+ * un-updated caller is stale rather than wrong.
+ */
+export function clockInMinsLocal(at: Date, tz: string = DEFAULT_TZ): number {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
+    timeZone: tz,
     hour12: false,
     hour: "2-digit",
     minute: "2-digit",
@@ -113,7 +119,7 @@ export async function runAutoTardySweep(ymd: string): Promise<AutoTardySummary> 
     if (!job) continue;
     const schedMins = scheduledTimeToMins(job.scheduled_time);
     if (schedMins == null) continue;
-    const clockMins = clockInMinsLocal(new Date(c.clock_in_at));
+    const clockMins = clockInMinsLocal(new Date(c.clock_in_at), tzOf(job.company_id));
     const prev = firstJob.get(c.user_id);
     if (!prev || schedMins < prev.schedMins || (schedMins === prev.schedMins && clockMins < prev.clockMins)) {
       firstJob.set(c.user_id, { schedMins, clockMins, job_id: c.job_id, company_id: job.company_id });
