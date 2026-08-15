@@ -12,8 +12,18 @@ export const BOOKING_SMS =
   "Hi {{first_name}}! {{company_name}} has your cleaning confirmed for {{appointment_date}} at {{appointment_time}}. View details: {{appointment_link}}";
 
 // Post-job satisfaction survey (companies.survey_message_template + fallback).
+//
+// [survey-sms-reply 2026-08-15] The options are IN the message now. Only 42 of
+// 401 surveys sent had ever been answered (10.5%) — the text asked "how did we
+// do?" and then made the customer open a link to say so. Replying to a text is
+// one tap; opening a page is five. The digits map to the same 0-4 scale the
+// survey page shows, and an inbound reply is parsed and recorded against the
+// open survey (lib/survey-sms-reply.ts) — so both routes now land in the same
+// place. "0 Very Unhappy" is the SMS-length wording of the page's "Considering
+// Another Company"; it stores the same 0. Kept GSM-7 (plain hyphen) and short
+// enough to stay one segment with a shortened link.
 export const SURVEY_SMS =
-  "{{company_name}}: thanks for letting us clean for you. How did we do? {{survey_link}}";
+  "{{company_name}}: how did we do? Reply 4 Thrilled, 3 Happy, 2 A Few Concerns, 1 Major Concerns, 0 Very Unhappy - or rate here: {{survey_link}}";
 
 // Quote follow-up cadence (quote_followup SMS steps).
 // {{quote_summary}} cascades the SAME options as the quote email: single-option
@@ -38,6 +48,10 @@ const OLD = {
     "{{company_name}}: your cleaning is confirmed for {{appointment_date}} at {{appointment_time}}. Details: {{appointment_link}}",
   survey:
     "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
+  // The link-only copy every tenant is sitting on today (verified in prod on
+  // all four company rows). Upgraded to the reply-by-text version below.
+  surveyV2:
+    "{{company_name}}: thanks for letting us clean for you. How did we do? {{survey_link}}",
   quote:
     "Hi {{first_name}}, your {{company_name}} quote is ready - ${{quote_total}}. View and book: {{estimate_link}} or reply with questions.",
   // Prior QUOTE_SMS default (single {{quote_total}}); rewritten to the
@@ -116,7 +130,7 @@ export async function upgradeCustomerSmsCopy(): Promise<void> {
       WHERE trigger = 'job_scheduled' AND channel = 'sms' AND body_text = ${OLD.bookingV2}`);
     await db.execute(sql`
       UPDATE companies SET survey_message_template = ${SURVEY_SMS}
-      WHERE survey_message_template = ${OLD.survey}`);
+      WHERE survey_message_template IN (${OLD.survey}, ${OLD.surveyV2})`);
     await db.execute(sql`
       UPDATE follow_up_steps st SET message_template = ${QUOTE_SMS}
       FROM follow_up_sequences s
