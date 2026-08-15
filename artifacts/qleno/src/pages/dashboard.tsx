@@ -241,7 +241,15 @@ function OfficeReminders({ isMobile }: { isMobile: boolean }) {
                   <p style={{ margin: 0, fontSize: 13, color: "#1A1917", fontFamily: FF, wordBreak: "break-word" }}>{r.title}</p>
                   <p style={{ margin: "1px 0 0", fontSize: 11, fontWeight: 600, fontFamily: FF, color: overdue ? "#B3261E" : isToday ? "#0A6E5A" : "#9E9B94" }}>
                     {overdue ? `Overdue — ${fmtDue(r.due_date)}` : isToday ? "Today" : fmtDue(r.due_date)}
-                    {r.created_by_name ? ` · ${r.created_by_name}` : ""}
+                    {/* [client-lead-reminders 2026-08-15] A reminder made on a
+                        profile shows who it's about and links straight back —
+                        otherwise "follow up about recurring" is unactionable
+                        here. Prefer the assignee's name when one is set. */}
+                    {r.subject_name && (r.client_id || r.lead_id) ? (
+                      <> · <a href={r.client_id ? `/customers/${r.client_id}` : `/leads?lead=${r.lead_id}`}
+                        style={{ color: "var(--brand)", textDecoration: "none" }}>{r.subject_name}</a></>
+                    ) : null}
+                    {r.assigned_to_name ? ` · ${r.assigned_to_name}` : r.created_by_name ? ` · ${r.created_by_name}` : ""}
                   </p>
                 </div>
                 <button onClick={() => remove(r.id)} title="Delete"
