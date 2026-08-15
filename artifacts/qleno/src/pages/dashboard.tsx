@@ -501,7 +501,13 @@ type WFWeek = {
 };
 
 function dayStyle(day: WFDay, dailyAvg: number): { bg: string; revColor: string; jobColor: string; bar: string; border: string | undefined } {
-  if (day.is_weekend) return { bg: '#F7F6F3', revColor: '#6B6860', jobColor: '#6B6860', bar: '#E5E2DC', border: undefined };
+  // Weekends show their real numbers but are never graded against the Mon–Fri
+  // average — a Saturday with 7 jobs is a good Saturday, not a red weekday.
+  if (day.is_weekend) {
+    return day.job_count > 0
+      ? { bg: '#F7F6F3', revColor: '#1A1917', jobColor: '#6B6860', bar: '#C5C0B8', border: undefined }
+      : { bg: '#F7F6F3', revColor: '#6B6860', jobColor: '#6B6860', bar: '#E5E2DC', border: undefined };
+  }
 
   const { revenue, is_past, entry_type } = day;
   const isProjected = entry_type === 'projected';
@@ -566,9 +572,16 @@ function WeeklyForecastSection() {
   const redDays = weekdays.filter(d => dayStyle(d, week.daily_avg).revColor === '#791F1F');
   const firstRed = redDays[0];
 
+  const weekendDays = week.days.filter(d => d.is_weekend);
+  const weekendJobs = weekendDays.reduce((a, d) => a + d.job_count, 0);
+  const weekendRev  = weekendDays.reduce((a, d) => a + d.revenue, 0);
+  const weekendNote = weekendJobs > 0
+    ? ` · ${weekendJobs} weekend job${weekendJobs === 1 ? '' : 's'} ${fmtWF(weekendRev)}`
+    : ' · no weekend jobs';
+
   let summaryNote = '';
   if (isLastWeek) {
-    summaryNote = `Daily avg (Mon–Fri): ${fmtWF(week.daily_avg)} · Sun/Sat closed`;
+    summaryNote = `Daily avg (Mon–Fri): ${fmtWF(week.daily_avg)}${weekendNote}`;
   } else if (isCurrentWeek) {
     if (firstRed) {
       summaryNote = `${firstRed.day_name} is thin — ${firstRed.job_count} jobs vs ${week.daily_avg_jobs} avg`;
@@ -582,6 +595,9 @@ function WeeklyForecastSection() {
       ? `${firstRed.day_name} critically thin — ${firstRed.job_count} jobs vs ${week.daily_avg_jobs} avg. Fill now.`
       : `${week.total_jobs} jobs projected. Looks healthy.`;
   }
+  // On the live weeks the weekend line only earns space when there's weekend
+  // work on the board.
+  if (!isLastWeek && weekendJobs > 0) summaryNote += weekendNote;
 
   const summaryParts: JSX.Element[] = [
     <span key="rev">{fmtWF(week.total_revenue)} {isLastWeek ? 'actual' : isCurrentWeek ? 'booked' : 'projected'}</span>,
@@ -650,10 +666,10 @@ function WeeklyForecastSection() {
               <div key={day.date} style={{ background: s.bg, border: cellBorder, borderRadius: cellRadius, padding: '12px 10px', minHeight: 100 }}>
                 <p style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#4A4845', margin: '0 0 2px', fontFamily: FF }}>{day.day_name}</p>
                 <p style={{ fontSize: 12, color: '#6B6860', margin: '0 0 8px', fontFamily: FF }}>{displayDate}</p>
-                {day.is_weekend ? (
+                {day.is_weekend && day.job_count === 0 ? (
                   <>
                     <p style={{ fontSize: 16, fontWeight: 500, color: '#6B6860', margin: '0 0 2px', fontFamily: FF }}>—</p>
-                    <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>Closed</p>
+                    <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>No jobs</p>
                   </>
                 ) : (
                   <>
@@ -678,7 +694,8 @@ function WeeklyForecastSection() {
             { label: 'Above avg', bg: '#639922', border: undefined },
             { label: 'Below avg', bg: '#EF9F27', border: undefined },
             { label: 'Low',       bg: '#E24B4A', border: undefined },
-            { label: 'Closed',    bg: '#E5E2DC', border: undefined },
+            { label: 'No jobs',   bg: '#E5E2DC', border: undefined },
+            { label: 'Weekend',   bg: '#C5C0B8', border: undefined },
             { label: 'Projected', bg: '#F7F6F3', border: '1px dashed #C5C0B8' },
             { label: 'Today',     bg: 'transparent', border: '1.5px solid var(--brand)' },
           ].map(sw => (
