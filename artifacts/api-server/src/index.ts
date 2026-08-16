@@ -1186,6 +1186,22 @@ async function runStartupMigrations() {
   } catch (err: any) {
     recordStartupFailure("ensureApiKeysSchema", err);
   }
+
+  // [ai-access-oauth 2026-08-16] oauth_clients + oauth_authorization_codes +
+  // oauth_grants + api_request_log.oauth_grant_id. Empty tables and one nullable
+  // column, so a failure here cannot affect existing behavior — but it is
+  // recorded rather than swallowed, because the failure mode is quiet and
+  // expensive: with no tables, discovery answers fine and every tenant's
+  // connector dies at "Connect" with a generic error, which reads as the
+  // feature being broken rather than as a migration that did not run.
+  try {
+    await withBootTimeout("ensureOAuthSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureOAuthSchema } = await import("./lib/oauth-migrate.js");
+      await ensureOAuthSchema();
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureOAuthSchema", err);
+  }
 }
 
 // [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration

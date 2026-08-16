@@ -104,6 +104,14 @@ export const apiRequestLogTable = pgTable("api_request_log", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   api_key_id: integer("api_key_id").references(() => apiKeysTable.id),
+  // [ai-access-oauth 2026-08-16] The other credential type. A call arrives with
+  // EITHER a minted key or an approved OAuth grant, so exactly one of these two
+  // columns is set and the other is null. Deliberately not a FK reference here:
+  // oauth_grants is created by the boot migration in lib/oauth-migrate.ts rather
+  // than declared in this schema package, and pointing a Drizzle reference at a
+  // table this file cannot see would not compile. The database-level foreign key
+  // is added there, where the table exists.
+  oauth_grant_id: integer("oauth_grant_id"),
   user_id: integer("user_id"),
 
   // 'rest' | 'mcp' — the two front doors share this table so per-company rate

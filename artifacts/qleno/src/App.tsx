@@ -46,6 +46,7 @@ const PortalDashboardPage = lazy(() => import("@/pages/portal/dashboard"));
 const PortalSetPasswordPage = lazy(() => import("@/pages/portal/set-password"));
 const PortalAccountPage = lazy(() => import("@/pages/portal/account"));
 const PortalEnterPage = lazy(() => import("@/pages/portal/enter"));
+const OAuthConsentPage    = lazy(() => import("@/pages/oauth-consent"));
 const InsightsPage        = lazy(() => import("@/pages/reports/insights"));
 const ReportsIndexPage    = lazy(() => import("@/pages/reports/index"));
 const RevenueReportPage   = lazy(() => import("@/pages/reports/revenue"));
@@ -175,6 +176,12 @@ const TECH_ALLOWED_PREFIXES = [
   "/book/",       // token-based booking
   "/survey/",     // token-based survey
   "/portal/",     // public client portal
+  // [ai-access-oauth 2026-08-16] Reachable by every role on purpose. A cleaner
+  // who lands here cannot approve anything — the server refuses the role and
+  // the screen says so in plain words. Bouncing them to /my-jobs instead would
+  // dead-end the flow with no explanation, and the cleaner would report it as
+  // the app being broken rather than as a permission they don't have.
+  "/oauth/consent",
 ];
 
 function isTechAllowedPath(pathname: string): boolean {
@@ -251,6 +258,12 @@ function Router() {
         <Route path="/" component={RootIndex} />
         <Route path="/login" component={Login} />
         <Route path="/accept-invite" component={AcceptInvitePage} />
+        {/* [ai-access-oauth 2026-08-16] Where the tenant approves a chat app's
+            request to read their business. Reached by a 302 from the server's
+            /oauth/authorize, which has already validated the client and the
+            redirect target — this page never trusts the query string on its
+            own; it re-asks the server what the request actually is. */}
+        <Route path="/oauth/consent" component={OAuthConsentPage} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/dispatch" component={JobsPage} />
         {!import.meta.env.PROD && <Route path="/jobs/visual-test" component={JobsVisualTestPage} />}

@@ -7,6 +7,7 @@ import rateLimit from "express-rate-limit";
 import router from "./routes";
 import stripeWebhookRouter from "./routes/stripe-webhook.js";
 import squareWebhookRouter from "./routes/square-webhook.js";
+import { publicOAuthRouter } from "./routes/oauth.js";
 import { resolveShortLink } from "./lib/short-link.js";
 import { isAppReady } from "./lib/readiness.js";
 
@@ -170,7 +171,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // Chrome caches the failed favicon per tab, which is how the Qleno logo
   // vanished from Sal's tab on a 7-deploy day. Static files don't touch
   // the DB, so they're safe to serve while migrations run.
-  if (!req.path.startsWith("/api")) return next();
+  // [ai-access-oauth 2026-08-16] /oauth and /.well-known live at the origin
+  // ROOT, not under /api, so the prefix test above would wave them through
+  // while the tables they read are still being created. They are gated
+  // explicitly instead: a discovery document served during warm-up would be
+  // cached by the client (max-age 3600) and a token exchange against a missing
+  // oauth_grants table would fail the flow at its very last step.
+  // Named endpoints, not the whole /oauth prefix: /oauth/consent is a FRONTEND
+  // page served by the SPA catch-all, and holding it back during warm-up would
+  // answer a tenant mid-approval with a JSON error where the approve screen
+  // should be. The four below are the ones that actually read the new tables.
+  const isOAuthPath = ["/oauth/register", "/oauth/authorize", "/oauth/token", "/oauth/revoke"].includes(req.path)
+    || req.path.startsWith("/.well-known/oauth")
+    || req.path === "/.well-known/openid-configuration";
+  if (!req.path.startsWith("/api") && !isOAuthPath) return next();
   if (req.path === "/api/health" || req.path === "/api/healthz") return next();
   res.set("Retry-After", "5");
   return res.status(503).json({
@@ -179,6 +193,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   });
 });
 app.use("/api", router);
+
+// ── OAuth authorization server ───────────────────────────────────────────────
+// [ai-access-oauth 2026-08-16] Mounted at the ORIGIN ROOT and ABOVE the SPA
+// catch-all — both halves are load-bearing.
+//
+// Root, because RFC 9728 and RFC 8414 put discovery documents at the root of
+// the origin; a client that cannot find them there concludes this server does
+// not speak OAuth and shows the tenant no way to connect.
+//
+// Above the catch-all, because the catch-all answers every unmatched path with
+// index.html. A discovery request would get 200 text/html, the client would
+// fail to parse it, and the symptom is the confusing one: the MCP server logs
+// the first request and the authorization server logs nothing at all.
+app.use(publicOAuthRouter);
 
 // ── Short-link redirect ───────────────────────────────────────────────────────
 // [sms Pass3] GET /s/:code → 302 to the stored target (the token page). Lets
