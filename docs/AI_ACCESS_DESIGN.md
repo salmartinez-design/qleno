@@ -83,7 +83,24 @@ confirmation in the UI that names what it allows in plain language.
 
 **Technicians and trainees cannot mint keys, and no key may carry a tech role.**
 Their in-app data isolation already works; an API key on a field phone is pure
-downside. Owner, admin, and office only.
+downside.
+
+**Only an owner or admin may mint (decided 2026-08-15).** An office user can
+*use* a key minted for them; they cannot create one. Deliberately not
+`requireRole("admin")` — that helper grants `office` parity everywhere it
+appears, and minting machine credentials is precisely the capability we don't
+want to hand the whole office by inheritance. Enforced at the route *and* inside
+`mintApiKey`, so neither layer is load-bearing alone.
+
+### Decisions taken 2026-08-15
+
+| Question | Decision | Consequence |
+|---|---|---|
+| Availability | Pro plan only (`plan = 'enterprise'`) | Gated by `companies.api_access_enabled`, which billing sets — see §2 |
+| Write access in v1 | Yes, full read/write | Raises the stakes on §5; write scopes still default OFF per key |
+| Usage metering | Count from day one, bill nobody | `api_request_log` is the counter; a counter added later cannot reconstruct history |
+| Sandbox tenant | No | Tenants connect to live data; safety comes from read-default scopes + confirm-before-destructive. `qlno_test_` stays reserved, unimplemented |
+| Who may mint | Owner + admin | Office can use a key, not create one |
 
 ### Why not simply reuse the login token
 
