@@ -2963,7 +2963,25 @@ async function runPhesPasswordResetChicago23(): Promise<void> {
   if (ids.length === 0) {
     return; // Already reset every eligible user.
   }
-  const hash = await bcrypt.hash("Chicago23", 10);
+
+  // [seed-password-reset 2026-08-15] The password was a literal in a public
+  // repo, applied to EVERY Phes technician and office user. Now env-sourced.
+  //
+  // Skipped rather than randomised when unset: a random value here would reset
+  // a real cleaner's password to something nobody knows and lock them out of
+  // their own schedule mid-week. The guard column means an unset variable just
+  // leaves the remaining users on whatever they already have, which is safe.
+  // NOTE: this does not un-publish anything — every user already reset by this
+  // task is still on the old published password until they change it.
+  const bulkPassword = process.env.PHES_BULK_RESET_PASSWORD;
+  if (!bulkPassword) {
+    console.warn(
+      `[phes-migration] chicago23-password-reset: ${ids.length} user(s) pending but ` +
+        `PHES_BULK_RESET_PASSWORD is unset — skipped, no passwords changed.`,
+    );
+    return;
+  }
+  const hash = await bcrypt.hash(bulkPassword, 10);
   // [ANY(array) trap 2026-08-12] `= ANY(${jsArray}::int[])` throws through
   // Drizzle at any length (see lib/invoice-billing.ts). This one is a cold-start
   // task, so the throw meant the password reset it performs has never actually

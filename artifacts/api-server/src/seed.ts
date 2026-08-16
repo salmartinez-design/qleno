@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { companiesTable, usersTable, branchesTable, jobsTable, clientsTable, invoicesTable, scorecardsTable, timeclockTable, contactTicketsTable, mileageRequestsTable, accountsTable } from "@workspace/db/schema";
 import { eq, sql, isNull, and, gt, count, inArray, or } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { seedDemoData } from "./seed-demo.js";
 import phesClientsData from "./phes-clients-seed.json";
 import phesEmployeesData from "./phes-employees-seed.json";
@@ -138,12 +139,118 @@ async function cleanupDemoData(companyId: number) {
   console.log(`[seed] Demo cleanup done — removed: ${d.emps} employees, ${d.clients} clients, ${d.jobs} jobs, ${d.inv} invoices, ${d.sc} scorecards, ${d.tc} clock entries, ${d.ct} contact tickets`);
 }
 
-// TODO(post-rename): Update super-admin credentials to admin@qleno.com.
-// Requires DB migration to update existing prod row. Carved out of the
-// cleanops→qleno rename to avoid locking out the existing super admin.
-const SUPER_ADMINS = [
-  { email: "admin@cleanopspro.com", password: "AdminCleanOps2026!", first_name: "Admin", last_name: "CleanOps" },
-];
+// ── Super admin ───────────────────────────────────────────────────────────────
+// [super-admin-credentials 2026-08-15] This block used to hold a hardcoded email
+// and plaintext password, and the apply loop below used to re-hash and re-write
+// that password on EVERY boot. Three facts made that combination serious rather
+// than untidy: the repo is public, so the password was published; the account is
+// role 'super_admin' with company_id NULL, so it is above the company scoping
+// every other query in the codebase respects; and because the boot path rewrote
+// it unconditionally, rotating the password by hand was silently undone by the
+// next deploy. Production logs confirmed it running ("[seed] Super admin
+// ensured: …" on every container start).
+//
+// The credential now comes from the environment and is NEVER written to an
+// account that already exists. Consequences worth knowing:
+//   - With SUPER_ADMIN_PASSWORD unset, this block creates nothing. That is the
+//     intended default: a missing env var must not silently mint a cross-tenant
+//     account, and it cannot fall back to a shared constant without recreating
+//     exactly the problem above.
+//   - A rotated password now STAYS rotated. Recovering a lost one means setting
+//     SUPER_ADMIN_PASSWORD and running the documented reset, not redeploying.
+/**
+ * A password for an account this seed CREATES: from the environment, or random.
+ *
+ * The random fallback is the point. Every alternative is worse: a literal is
+ * published the moment it is committed, and an empty password_hash creates an
+ * account nobody can use but everybody can see. A random one means a
+ * freshly-seeded account is unreachable until someone deliberately sets a
+ * password — which is the correct default for an account no one has asked for
+ * yet. The value is logged (not the hash) so a genuine first-run bootstrap can
+ * still get in from the deploy log.
+ */
+function seedPassword(envVar: string, label: string): string {
+  const fromEnv = process.env[envVar];
+  if (fromEnv) return fromEnv;
+  const generated = randomBytes(18).toString("base64url");
+  console.warn(`[seed] ${envVar} unset — generated a random password for ${label}: ${generated}`);
+  return generated;
+}
+
+// The last surviving cleanops reference, and it has to survive: it is the
+// literal address of a row that exists in production right now, so it is the
+// only handle the rename below has. Delete it once that rename has run on prod
+// — after that the constant matches nothing and the branch is dead code.
+const LEGACY_SUPER_ADMIN_EMAIL = "admin@cleanopspro.com";
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "admin@qleno.com").trim().toLowerCase();
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
+
+/**
+ * Move the pre-rename super admin onto the current address, create the account
+ * when the environment supplies a password, and never touch an existing one.
+ *
+ * The rename is an UPDATE rather than a create-and-delete so the row keeps its
+ * id: audit_log, app_audit_log and every other actor reference point at that id,
+ * and a new row would orphan all of it while leaving a second cross-tenant
+ * account behind.
+ */
+async function ensureSuperAdmin() {
+  const [legacy] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(eq(usersTable.email, LEGACY_SUPER_ADMIN_EMAIL)).limit(1);
+  const [current] = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable)
+    .where(eq(usersTable.email, SUPER_ADMIN_EMAIL)).limit(1);
+
+  // The target address is occupied by an ordinary user. Every branch below is
+  // wrong in that case — renaming onto it violates the unique index, and
+  // deactivating the legacy row would strip super-admin access while leaving a
+  // normal account standing in its place. Do nothing and say so loudly.
+  if (current && current.role !== "super_admin") {
+    console.error(
+      `[seed] ${SUPER_ADMIN_EMAIL} exists but is role '${current.role}', not super_admin. ` +
+        `Leaving both accounts untouched — set SUPER_ADMIN_EMAIL to a free address.`,
+    );
+    return;
+  }
+
+  if (legacy && !current) {
+    await db.update(usersTable)
+      .set({ email: SUPER_ADMIN_EMAIL, first_name: "Admin", last_name: "Qleno" })
+      .where(eq(usersTable.id, legacy.id));
+    console.log(`[seed] Super admin renamed to ${SUPER_ADMIN_EMAIL} (id ${legacy.id}) — password unchanged, rotate it`);
+    return;
+  }
+
+  // Both rows exist: the rename already ran and something recreated the old
+  // address. Deactivated rather than deleted — a live account on a published
+  // password is the actual hazard, and deleting a super_admin outright is not a
+  // thing a boot path should do unprompted.
+  if (legacy && current) {
+    await db.update(usersTable).set({ is_active: false }).where(eq(usersTable.id, legacy.id));
+    console.warn(`[seed] Legacy super admin ${LEGACY_SUPER_ADMIN_EMAIL} deactivated — ${SUPER_ADMIN_EMAIL} is the live account`);
+    return;
+  }
+
+  if (current) return; // Never rewrite an existing account's password.
+
+  if (!SUPER_ADMIN_PASSWORD) {
+    console.warn(
+      `[seed] No super admin present and SUPER_ADMIN_PASSWORD is unset — none created. ` +
+        `Set SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD in the environment to provision one.`,
+    );
+    return;
+  }
+
+  await db.insert(usersTable).values({
+    company_id: null as any,
+    email: SUPER_ADMIN_EMAIL,
+    password_hash: await bcrypt.hash(SUPER_ADMIN_PASSWORD, 12),
+    role: "super_admin",
+    first_name: "Admin",
+    last_name: "Qleno",
+    is_active: true,
+  });
+  console.log(`[seed] Super admin created: ${SUPER_ADMIN_EMAIL}`);
+}
 
 export async function seedIfNeeded() {
   try {
@@ -162,34 +269,8 @@ export async function seedIfNeeded() {
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_zone BOOLEAN NOT NULL DEFAULT true`);
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_available_techs BOOLEAN NOT NULL DEFAULT true`);
 
-    // ── Super admin accounts ────────────────────────────────────────────────
-    for (const sa of SUPER_ADMINS) {
-      const hash = await bcrypt.hash(sa.password, 12);
-      const existing = await db
-        .select({ id: usersTable.id })
-        .from(usersTable)
-        .where(eq(usersTable.email, sa.email))
-        .limit(1);
-
-      if (existing.length === 0) {
-        await db.insert(usersTable).values({
-          company_id: null as any,
-          email: sa.email,
-          password_hash: hash,
-          role: "super_admin",
-          first_name: sa.first_name,
-          last_name: sa.last_name,
-          is_active: true,
-        });
-        console.log(`[seed] Super admin created: ${sa.email}`);
-      } else {
-        await db
-          .update(usersTable)
-          .set({ password_hash: hash, is_active: true })
-          .where(eq(usersTable.email, sa.email));
-        console.log(`[seed] Super admin ensured: ${sa.email}`);
-      }
-    }
+    // ── Super admin account ─────────────────────────────────────────────────
+    await ensureSuperAdmin();
 
     // ── Phes ────────────────────────────────────────────────────────────────
     const existingCompany = await db
@@ -254,7 +335,7 @@ export async function seedIfNeeded() {
 
       companyId = company.id;
 
-      const ownerHash = await bcrypt.hash("Avaseb2024$", 12);
+      const ownerHash = await bcrypt.hash(seedPassword("SEED_OWNER_PASSWORD", "salmartinez@phes.io (owner)"), 12);
       const [ownerRow] = await db.insert(usersTable).values({
         company_id: companyId,
         email: "salmartinez@phes.io",
@@ -435,7 +516,7 @@ export async function seedIfNeeded() {
     // realEmpCount already fetched above — reuse it here.
     if (realEmpCount < phesEmployeesData.length) {
       console.log(`[seed] Only ${realEmpCount} real PHES employees found — importing ${phesEmployeesData.length} from bundle...`);
-      const placeholder = await bcrypt.hash("ChangeMe2026!", 10);
+      const placeholder = await bcrypt.hash(seedPassword("SEED_EMPLOYEE_PASSWORD", "imported PHES employees"), 10);
       const empBatch = (phesEmployeesData as any[]).map((e: any) => ({
         id: e.id,
         company_id: companyId,
@@ -615,21 +696,47 @@ export async function seedIfNeeded() {
       WHERE company_id = ${companyId} AND first_name = 'Francisco'
       AND email = 'franciscojestevezs@gmail.com'
     `);
-    const officeHash = await bcrypt.hash("phes1234", 10);
-    await db.update(usersTable)
-      .set({ password_hash: officeHash, role: "office" } as any)
+    // The office ROLE is still ensured on every boot — that is an authorization
+    // fact this seed owns, it is not a secret, and losing it locks Maribel and
+    // Francisco out of their own screens. Only the password moved behind the
+    // gate below.
+    await db.update(usersTable).set({ role: "office" } as any)
       .where(eq(usersTable.email, "maribel@phes.io"));
-    await db.update(usersTable)
-      .set({ password_hash: officeHash, role: "office" } as any)
+    await db.update(usersTable).set({ role: "office" } as any)
       .where(eq(usersTable.email, "festevez@phes.io"));
-    console.log("[seed] Office user credentials ensured (info@phes.io → office, phes1234)");
 
-    // ── Ensure Sal (owner) credentials (always runs) ───────────────────────────
-    const salHash = await bcrypt.hash("phes1234", 10);
-    await db.update(usersTable)
-      .set({ password_hash: salHash } as any)
-      .where(eq(usersTable.email, "salmartinez@phes.io"));
-    console.log("[seed] Sal owner credentials ensured (salmartinez@phes.io → phes1234)");
+    // ── Password recovery, opt-in ───────────────────────────────────────────
+    // [seed-password-reset 2026-08-15] These three lines used to reset Sal's
+    // OWNER account and both office accounts to a password written literally in
+    // this public repo, on every boot, unconditionally — the block was even
+    // labelled "always runs". Anyone reading the repo could sign in as the owner
+    // of Phes, and changing the password did not help because the next deploy
+    // put it back.
+    //
+    // Kept as an escape hatch rather than deleted, because it exists for a real
+    // reason: it is how the owner gets back in after a forgotten password, and
+    // removing it outright would trade a security hole for a lockout. It is now
+    // opt-in and single-use by convention — set SEED_RESET_PASSWORDS=true and
+    // SEED_RECOVERY_PASSWORD in Railway, deploy, sign in, then UNSET both. While
+    // unset (the normal state) the boot path cannot touch anyone's password.
+    if (process.env.SEED_RESET_PASSWORDS === "true") {
+      const recovery = process.env.SEED_RECOVERY_PASSWORD;
+      if (!recovery) {
+        console.error("[seed] SEED_RESET_PASSWORDS=true but SEED_RECOVERY_PASSWORD is unset — no passwords changed.");
+      } else {
+        const hash = await bcrypt.hash(recovery, 12);
+        const emails = ["salmartinez@phes.io", "maribel@phes.io", "festevez@phes.io"];
+        for (const email of emails) {
+          await db.update(usersTable).set({ password_hash: hash } as any)
+            .where(eq(usersTable.email, email));
+        }
+        console.warn(
+          `[seed] RECOVERY RESET applied to ${emails.length} account(s). ` +
+            `Unset SEED_RESET_PASSWORDS and SEED_RECOVERY_PASSWORD now — leaving them set ` +
+            `re-applies this password on every future deploy.`,
+        );
+      }
+    }
 
   } catch (err) {
     console.error("[seed] Seed error (non-fatal):", err);

@@ -13,7 +13,20 @@ import {
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 
+// [demo-seed-credentials 2026-08-15] The demo password was a literal in a public
+// repo, and this script mints an OWNER account with it. The existing "already
+// seeded, skipping" check below is a convenience guard, not a safety one — it
+// only holds while the phes-cleaning row happens to exist. These two make the
+// protection explicit: production is refused outright, and the password comes
+// from the environment so the published value stops being a working credential.
+const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD || "demo1234";
+
 async function seed() {
+  if (process.env.RAILWAY_ENVIRONMENT === "production" || process.env.NODE_ENV === "production") {
+    console.error("Refusing to run the demo seeder against production.");
+    process.exit(1);
+  }
+
   console.log("Seeding database...");
 
   const existing = await db.select().from(companiesTable).where(eq(companiesTable.slug, "phes-cleaning")).limit(1);
@@ -34,7 +47,7 @@ async function seed() {
 
   console.log("Created company:", company.name);
 
-  const passwordHash = await bcrypt.hash("demo1234", 10);
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
   const [owner] = await db.insert(usersTable).values({
     company_id: company.id,
@@ -403,9 +416,9 @@ async function seed() {
 
   console.log("\n✓ Seed complete!");
   console.log("\nLogin credentials:");
-  console.log("  Owner:  owner@phescleaning.com / demo1234");
-  console.log("  Admin:  admin@phescleaning.com / demo1234");
-  console.log("  Tech:   jessica@phescleaning.com / demo1234");
+  console.log(`  Owner:  owner@phescleaning.com / ${DEMO_PASSWORD}`);
+  console.log(`  Admin:  admin@phescleaning.com / ${DEMO_PASSWORD}`);
+  console.log(`  Tech:   jessica@phescleaning.com / ${DEMO_PASSWORD}`);
   process.exit(0);
 }
 

@@ -61,3 +61,8 @@ migration/
 # Ad-hoc investigation scripts — one-off queries and void/rollback SQL that
 # run against the production DATABASE_URL. Never belongs in the repo.
 scratchpad/
+
+# Pasted session transcripts — local working notes, not source.
+# Untracked 2026-08-15: 313 files / 75MB were published in a public repo and
+# contained working login credentials. Files remain on disk.
+attached_assets/
