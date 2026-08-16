@@ -5,11 +5,20 @@ import {
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 
 export async function seedDemoData(companyId: number, ownerId: number) {
   console.log("[demo-seed] Starting PHES demo data seed...");
 
-  const pwHash = await bcrypt.hash("phes1234", 10);
+  // [seed-password 2026-08-15] Was a literal in a public repo, applied to ten
+  // fabricated employee accounts that are nonetheless real, loginable rows.
+  // The random fallback is deliberate: a demo account nobody can sign into is
+  // a working demo, whereas one with a published password is a way in.
+  const demoPassword = process.env.SEED_DEMO_PASSWORD || randomBytes(18).toString("base64url");
+  if (!process.env.SEED_DEMO_PASSWORD) {
+    console.warn("[demo-seed] SEED_DEMO_PASSWORD unset — demo accounts get a random password nobody holds.");
+  }
+  const pwHash = await bcrypt.hash(demoPassword, 10);
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
 

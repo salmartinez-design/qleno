@@ -5,7 +5,7 @@
 - **Company:** Phes
 - **Live app:** https://workspaceapi-server-production-b9d4.up.railway.app
 - **GitHub:** salmartinez-design/qleno, branch main
-- **Replit:** clean-ops-pro.replit.app — backup only, do not deploy from here
+- **Replit:** retired pre-rename backup — do not deploy from it, do not link to it
 
 ## Design docs
 - `docs/COMMERCIAL_BILLING_DESIGN.md` — multi-day scheduling + weekly invoicing
