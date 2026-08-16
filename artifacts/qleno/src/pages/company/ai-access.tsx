@@ -632,7 +632,7 @@ function ConnectedAppsPanel() {
 
       {!q.isLoading && rows.length === 0 && (
         <p style={{ ...sub, marginTop: 14 }}>
-          Nothing connected yet. Paste the MCP address below into Claude, ChatGPT, Gemini, or Grok
+          Nothing connected yet. Paste the MCP address below into Claude, ChatGPT, or Grok
           and approve the request — no key needed.
         </p>
       )}
@@ -700,9 +700,10 @@ function ConnectPanel() {
           key" was the old copy, and it sent tenants into a connector dialog
           that has no field to paste it into. */}
       <p style={sub}>
-        Chat apps — Claude, ChatGPT, Gemini, Grok — connect by signing in to Qleno. Paste the
+        Chat apps — Claude, ChatGPT, Grok — connect by signing in to Qleno. Paste the
         MCP address into the app and approve the request; no key changes hands. Developer tools
-        use the same address with a key as a bearer token.
+        use the same address with a key as a bearer token. Gemini is the exception: its chat app
+        does not take custom connectors, so Gemini reaches Qleno a different way — see below.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
@@ -728,9 +729,8 @@ function ConnectPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
         {[
           { name: "Claude", steps: "Settings → Connectors → Add custom connector. Paste the MCP address, then approve the request on the Qleno screen. Works the same on the phone app, the desktop app, and claude.ai." },
-          { name: "ChatGPT", steps: "Settings → Connectors → Create. Paste the MCP address and choose OAuth when asked how it authenticates, then approve on the Qleno screen." },
-          { name: "Gemini", steps: "Add the MCP address as a custom connector. Gemini registers itself with Qleno, then sends you to the Qleno screen to approve." },
-          { name: "Grok", steps: "Settings → Connectors → Bring your own. Paste the MCP address; Grok follows whatever sign-in the server asks for and lands on the Qleno approval screen." },
+          { name: "ChatGPT", steps: "Settings → Plugins, turn on Developer mode (OpenAI's warning is about unverified connectors in general, and it applies account-wide). Then Browse plugins → +, paste the MCP address, leave authentication on OAuth, and approve on the Qleno screen. If the tool list looks empty afterwards, press Refresh." },
+          { name: "Grok", steps: "grok.com/connectors → New Connector → Custom. Paste the MCP address; Grok follows whatever sign-in the server asks for and lands on the Qleno approval screen." },
         ].map((a) => (
           <div key={a.name} style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 12 }}>
             <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{a.name}</span>
@@ -743,7 +743,7 @@ function ConnectPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
         {[
           { name: "Claude Code", steps: "Run: claude mcp add --transport http qleno <MCP address> --header \"Authorization: Bearer <your key>\". Then ask it about your schedule." },
-          { name: "Gemini CLI", steps: "Add the MCP address and key to the mcpServers block in your Gemini CLI settings file, then run /mcp to confirm the Qleno tools loaded." },
+          { name: "Gemini", steps: "The Gemini chat app does not accept custom connectors. Gemini CLI does: add the MCP address and key to the mcpServers block in its settings file, then run /mcp to confirm the Qleno tools loaded. Gemini Enterprise and Gemini Spark also take the address directly, on their own plans." },
           { name: "Any other software", steps: "Use the REST address with the key in an Authorization header. Standard JSON over HTTPS — no MCP client needed." },
         ].map((a) => (
           <div key={a.name} style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 12 }}>

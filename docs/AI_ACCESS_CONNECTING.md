@@ -17,10 +17,14 @@ step.
 
 ## Two ways in, and the difference matters
 
-**Chat apps sign in.** Claude, ChatGPT, Gemini, and Grok never see a key. You
-paste one address, the app sends you to a Qleno screen, and you approve it while
-signed in as yourself. That is the path for anyone using AI in a chat window —
-including on a phone, where there is no config file to edit.
+**Chat apps sign in.** Claude, ChatGPT, and Grok never see a key. You paste one
+address, the app sends you to a Qleno screen, and you approve it while signed in
+as yourself. That is the path for anyone using AI in a chat window — including on
+a phone, where there is no config file to edit.
+
+Gemini is the one exception, and it is a limitation on Google's side rather than
+ours: the Gemini chat app does not accept custom connectors at all. Gemini
+reaches Qleno through Gemini CLI, Gemini Enterprise, or Gemini Spark instead.
 
 **Developer tools paste a key.** Command-line tools and anything you write
 yourself use the same address with an API key as a bearer token.
@@ -65,24 +69,41 @@ answer to first; today's schedule is a good check.
 
 ## ChatGPT
 
-1. Open **Settings → Connectors → Create**.
-2. Paste the MCP address, and choose **OAuth** when it asks how the server
-   authenticates. ChatGPT does not accept a pasted key for a custom connector.
-3. Approve on the Qleno screen, then enable the connector in a conversation.
+ChatGPT calls these **Plugins**, and a custom one is behind a developer setting.
 
-## Gemini
-
-1. Add the MCP address as a custom connector.
-2. Gemini registers itself with Qleno automatically, then sends you to the Qleno
-   screen to approve.
-
-Gemini CLI is a developer tool and still uses a key — see below.
+1. Open **Settings → Plugins** and turn on **Developer mode**. OpenAI labels this
+   elevated risk, because it lets you add unverified connectors — the warning is
+   about that category, not about Qleno, and the setting applies to your whole
+   account. Read it and decide before flipping it.
+2. **Browse plugins → +** and fill in the New Plugin dialog: name it `Qleno`,
+   paste the MCP address as the server URL, and leave authentication on **OAuth**.
+   ChatGPT does not accept a pasted key for a custom connector. It discovers the
+   rest of the OAuth settings from the address itself.
+3. Tick the risk acknowledgement, press **Create**, then **Sign in with Qleno**
+   and approve on the Qleno screen.
+4. If the plugin's Actions list reads "No app actions available yet", press
+   **Refresh** under Information — the tool list arrives on the first refresh.
 
 ## Grok
 
-1. Open **Settings → Connectors → Bring your own**.
+1. Go to **grok.com/connectors → New Connector → Custom**.
 2. Paste the MCP address. Grok follows whatever sign-in the server asks for and
    lands on the same Qleno approval screen.
+
+## Gemini — not the chat app
+
+The Gemini app at gemini.google.com does not accept custom MCP servers on a
+personal account. There is no menu to find; do not go looking for one. Three
+surfaces do work, each on its own plan:
+
+- **Gemini CLI** — a developer tool, uses a key. See below.
+- **Gemini Enterprise** — the MCP address is registered as a custom MCP data
+  store through the Google Cloud console, not pasted into a chat window.
+- **Gemini Spark** — takes a custom connected app by MCP URL, and only inside
+  Spark tasks.
+
+If someone needs a Gemini chat window specifically, that is a wait-on-Google
+item, not something Qleno can open from this side.
 
 ## Developer tools
 
