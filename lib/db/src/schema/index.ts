@@ -190,3 +190,7 @@ export * from "./sales_commissions";
 // reconciler; populated by lib/square-customer-map.ts (idempotent re-runnable).
 export * from "./square_customer_map";
 export * from "./square_payment_events";
+
+// [ai-access 2026-08-15] Machine credentials + request log behind Qleno Connect
+// (REST /api/v1) and Qleno Agent (MCP). Design: docs/AI_ACCESS_DESIGN.md.
+export * from "./api_keys";

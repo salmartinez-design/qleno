@@ -62,6 +62,26 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 
   const token = authHeader.substring(7);
+
+  // [ai-access 2026-08-15] An API key must NEVER authenticate an internal
+  // route. It would be less code to resolve keys here — they'd land in req.auth
+  // and all 954 internal endpoints would accept them for free — and that is
+  // precisely the outcome to avoid: those endpoints are internal plumbing whose
+  // shapes change weekly, and admitting keys would freeze every one into a
+  // permanent public contract while making the blast radius of any auth mistake
+  // 954 routes instead of the ~25 we deliberately publish.
+  //
+  // Keys authenticate ONLY routes mounted behind requireApiKey (lib/api-auth.ts):
+  // /api/v1 and /mcp. The message names the right door rather than a bare 401,
+  // because "invalid token" on a perfectly valid key is a support ticket.
+  if (token.startsWith("qlno_")) {
+    res.status(401).json({
+      error: "Unauthorized",
+      message: "API keys are not accepted on internal endpoints. Use the versioned API at /api/v1 or the MCP endpoint at /mcp.",
+    });
+    return;
+  }
+
   try {
     const payload = verifyToken(token);
     // [portal-token-isolation 2026-08-05] A CUSTOMER portal token must never

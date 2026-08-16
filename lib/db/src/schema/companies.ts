@@ -24,6 +24,20 @@ export const companiesTable = pgTable("companies", {
   square_oauth_token: text("square_oauth_token"),
   subscription_status: subscriptionStatusEnum("subscription_status").notNull().default("trialing"),
   plan: planEnum("plan").notNull().default("starter"),
+  // [ai-access 2026-08-15] Master switch for Qleno Connect (REST API) and
+  // Qleno Agent (MCP). AI access is a Pro-plan feature and Pro maps to the
+  // 'enterprise' enum value — but the plan alone is NOT the gate. This column
+  // is, so the feature can be turned on for a specific tenant (design partner,
+  // early access, support escalation) without editing their billing plan, and
+  // turned OFF instantly during an incident without cancelling anyone's
+  // subscription.
+  //
+  // THIS COLUMN IS THE GATE — the plan is what normally SETS it. Billing flips
+  // it true when a company moves to Pro and false when they leave. Reading the
+  // plan enum directly at the auth check would make both the design-partner
+  // grant and the incident kill switch impossible without a billing change.
+  // See docs/AI_ACCESS_DESIGN.md §2.
+  api_access_enabled: boolean("api_access_enabled").notNull().default(false),
   employee_count: integer("employee_count").notNull().default(0),
   pay_cadence: payCadenceEnum("pay_cadence").notNull().default("weekly"),
   geo_fence_threshold_ft: integer("geo_fence_threshold_ft").notNull().default(500),
