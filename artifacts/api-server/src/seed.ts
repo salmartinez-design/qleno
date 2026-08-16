@@ -173,8 +173,20 @@ const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 async function ensureSuperAdmin() {
   const [legacy] = await db.select({ id: usersTable.id }).from(usersTable)
     .where(eq(usersTable.email, LEGACY_SUPER_ADMIN_EMAIL)).limit(1);
-  const [current] = await db.select({ id: usersTable.id }).from(usersTable)
+  const [current] = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable)
     .where(eq(usersTable.email, SUPER_ADMIN_EMAIL)).limit(1);
+
+  // The target address is occupied by an ordinary user. Every branch below is
+  // wrong in that case — renaming onto it violates the unique index, and
+  // deactivating the legacy row would strip super-admin access while leaving a
+  // normal account standing in its place. Do nothing and say so loudly.
+  if (current && current.role !== "super_admin") {
+    console.error(
+      `[seed] ${SUPER_ADMIN_EMAIL} exists but is role '${current.role}', not super_admin. ` +
+        `Leaving both accounts untouched — set SUPER_ADMIN_EMAIL to a free address.`,
+    );
+    return;
+  }
 
   if (legacy && !current) {
     await db.update(usersTable)
