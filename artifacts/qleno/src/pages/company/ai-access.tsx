@@ -593,6 +593,11 @@ interface GrantRow {
   last_used_at: string | null;
   last_used_ip: string | null;
   expires_at: string | null;
+  // [ai-access-superadmin 2026-08-16] The LIVE answer, not the stored flag: the
+  // server ANDs what was approved with the approver's current super-admin
+  // status. A connection whose approver lost the flag shows as ordinary here
+  // because that is what it now is.
+  all_companies?: boolean;
 }
 
 function ConnectedAppsPanel() {
@@ -641,6 +646,14 @@ function ConnectedAppsPanel() {
                 <span style={{ fontSize: 13.5, fontWeight: 600, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                   {g.client_name}
                 </span>
+                {/* Amber, not mint: this connection reads further than this
+                    company, and an operator scanning the list should be able to
+                    see that without reading the line under it. */}
+                {g.all_companies && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#8A5A11", background: "#FBF3E4", border: "1px solid #EBD9B8", borderRadius: 6, padding: "3px 8px", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    All companies
+                  </span>
+                )}
               </div>
               <div style={{ ...sub, marginTop: 6 }}>
                 Approved by {g.approved_by || "an unnamed user"} · Connected {when(g.created_at)} · Last used {when(g.last_used_at)}

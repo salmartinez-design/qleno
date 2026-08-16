@@ -10,6 +10,7 @@ import {
   filterGrantableScopes, OAUTH_GRANTABLE_SCOPES,
 } from "../lib/oauth.js";
 import { canMintApiKeys } from "../lib/api-keys.js";
+import { isSuperAdminRow, readableCompanies } from "../lib/tenant-scope.js";
 
 // [ai-access-oauth 2026-08-16] OAuth 2.1 authorization server for Qleno Agent.
 // Design: docs/AI_ACCESS_OAUTH_DESIGN.md §6.
@@ -362,6 +363,24 @@ function companyOf(req: Request, res: Response): number | null {
 }
 
 /**
+ * Is the signed-in user a super-admin RIGHT NOW?
+ *
+ * [ai-access-superadmin 2026-08-16] Read from the users table rather than from
+ * req.auth, which is populated from a session that may predate the flag being
+ * granted or taken away. This decides whether the consent screen offers
+ * platform-wide reach at all, and offering it to someone who no longer has it
+ * would produce a grant that narrows to one company on its first request —
+ * approved for something it cannot do.
+ */
+async function isLiveSuperAdmin(userId: number): Promise<boolean> {
+  const rows: any = await db.execute(sql`
+    SELECT role, is_super_admin FROM users WHERE id = ${userId} LIMIT 1
+  `);
+  const row = (rows.rows ?? rows)[0];
+  return row ? isSuperAdminRow(row) : false;
+}
+
+/**
  * What the consent screen needs to render.
  *
  * Returns the plan gate result too, so a tenant who is not switched on is told
@@ -388,6 +407,13 @@ oauthAdminRouter.get("/consent-details", async (req: Request, res: Response) => 
   let host = redirectUri;
   try { host = new URL(redirectUri).host; } catch { /* shown raw if unparseable */ }
 
+  // The platform-wide option is offered only to a live super-admin, and only
+  // ever as an option — the screen must not preselect it. A connector that
+  // reaches every tenant is a different thing from one that reaches this
+  // business, and the person approving it should have to say so.
+  const superAdmin = await isLiveSuperAdmin(req.auth!.userId);
+  const reachable = superAdmin ? await readableCompanies(companyId, true) : [];
+
   res.json({
     client_name: client.client_name,
     client_uri: client.client_uri,
@@ -404,6 +430,12 @@ oauthAdminRouter.get("/consent-details", async (req: Request, res: Response) => 
     can_approve: canApproveGrant(req.auth!.role),
     company_enabled: !!co?.api_access_enabled,
     plan: co?.plan ?? null,
+    // May this user offer the connection more than their own company?
+    can_grant_all_companies: superAdmin,
+    // What "all companies" would actually mean today, named. A count alone
+    // ("14 companies") is not consent — the approver should see the list, and
+    // it is short because each tenant's own switch already filtered it.
+    all_companies: reachable,
   });
 });
 
@@ -442,8 +474,16 @@ oauthAdminRouter.post("/approve", async (req: Request, res: Response) => {
     Array.isArray(b.scopes) ? b.scopes : String(b.scope ?? "").split(/[\s,]+/).filter(Boolean)
   );
 
+  // Platform-wide reach is asked for explicitly and granted only if the live
+  // user still has the flag. A request for it from someone who does not is
+  // narrowed to their own company rather than refused: the connection they were
+  // trying to make is legitimate, and failing the whole approval would leave
+  // them staring at an error with no idea which checkbox caused it.
+  const askedAllCompanies = b.all_companies === true || b.all_companies === "true";
+  const allCompanies = askedAllCompanies && (await isLiveSuperAdmin(req.auth!.userId));
+
   const code = await issueAuthorizationCode({
-    clientId, companyId, userId: req.auth!.userId, scopes,
+    clientId, companyId, userId: req.auth!.userId, scopes, allCompanies,
     redirectUri, codeChallenge, resource: b.resource ? String(b.resource) : null,
   });
 
@@ -453,6 +493,9 @@ oauthAdminRouter.post("/approve", async (req: Request, res: Response) => {
 
   await logAudit(req, "oauth_grant_approved", "oauth_client", clientId, null, {
     client_name: client.client_name, scopes, redirect_host: target.host,
+    // Recorded even when false, so the audit row answers the question rather
+    // than leaving its absence to be interpreted.
+    all_companies: allCompanies,
   }).catch(() => { /* audit must never block the flow */ });
 
   res.json({ redirect_to: target.toString() });

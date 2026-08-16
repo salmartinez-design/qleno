@@ -27,7 +27,8 @@
     "test:portal-view-as": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-view-as.test.ts",
     "test:v1-isolation": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/v1-tenant-isolation.test.ts",
     "test:v1-ceiling": "tsx --test src/tests/api-company-ceiling.test.ts",
-    "test:mcp-tools": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/mcp-tools.test.ts"
+    "test:mcp-tools": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/mcp-tools.test.ts",
+    "test:tenant-scope": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/tenant-scope.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

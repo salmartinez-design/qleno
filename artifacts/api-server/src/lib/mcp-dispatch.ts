@@ -29,14 +29,19 @@ export type DispatchResult = { status: number; body: any };
  * Run one GET against the v1 router as the already-authenticated caller.
  *
  * `auth` and `apiKey` are copied from the live MCP request rather than rebuilt,
- * so the company, user, role, and scopes are exactly the ones requireApiKey
- * resolved. Nothing here can widen them: this function never accepts a company
- * id, and the handlers downstream read it only from req.auth.
+ * so the user, role, and scopes are exactly the ones requireApiKey resolved.
+ *
+ * `companyId` overrides which tenant this one call reads. It is NOT caller input:
+ * routes/mcp.ts resolves it through lib/tenant-scope.ts against a list computed
+ * from the credential, so the only values that can arrive here are companies the
+ * grant was already entitled to. It is a single scalar by design — the handlers
+ * downstream still run one `WHERE company_id = …` and have no notion of a set.
  */
 export function dispatchV1(
   source: Request,
   path: string,
   query: Record<string, string | undefined>,
+  companyId?: number,
 ): Promise<DispatchResult> {
   return new Promise((resolve) => {
     // Undefined values are dropped rather than passed as the string
@@ -69,7 +74,12 @@ export function dispatchV1(
       // is not. The v1 routes still run requireApiKey, which sees the mark set
       // below, skips the database round-trip it already made at the MCP door,
       // and enforces the endpoint's scope against these same scopes.
-      auth: source.auth,
+      // A COPY, so retargeting one call cannot leak into the outer request or
+      // into the next tool call on the same connection.
+      auth:
+        companyId !== undefined && source.auth
+          ? { ...source.auth, companyId }
+          : source.auth,
       apiKey: source.apiKey,
       ip: source.ip,
       get(name: string) { return this.headers[name.toLowerCase()]; },

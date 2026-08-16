@@ -130,11 +130,44 @@ to answer "I want the assistant to help with dispatch but never see payroll":
 create it with `jobs:read` and `clients:read` only, and the payroll tools do not
 appear at all.
 
+## More than one company
+
+Almost every connection covers exactly one business, and that is the end of it.
+The exception is a Qleno platform administrator, who may be responsible for
+several separate companies at once.
+
+When such a person approves a connection, the consent screen offers a second
+choice: **this company only**, or **all the companies they administer**. It is
+never preselected, and the wider option names every company it would cover so
+the choice is made against a list rather than a number.
+
+If the wider option is taken, the connection gains one extra tool,
+`list_companies`, and an optional `company` argument on every other tool. Ask
+"how did Schaumburg do last week" and the assistant passes that name through;
+leave it out and every answer is about the home company.
+
+Three things stay true no matter who approved it:
+
+- **One company per answer.** Every question resolves to exactly one business
+  before any data is read. Comparing two means asking twice, on purpose.
+- **Each company keeps its own switch.** A company that has AI & API access
+  turned off is not readable through any connection, including this one. Turning
+  it off there removes that company from the list.
+- **It narrows the moment the person does.** Platform-wide reach is re-checked
+  against the approver's live account on every single request. If they stop
+  being a platform administrator, the connection quietly falls back to their own
+  company on the very next question — nothing to revoke, nothing to clean up.
+
+Ordinary connections never see any of this: no `company` argument is offered, and
+sending one is refused rather than quietly answered for the wrong business.
+
 ## What it cannot see or do
 
 - **Change anything.** Every tool is read-only.
 - **Another company's data.** The key resolves to one company; every query is
-  scoped to it, and a job id from another tenant returns "not found".
+  scoped to it, and a job id from another tenant returns "not found". API keys
+  are single-tenant with no exception — the multi-company case above exists only
+  on the chat-app path, where a person is at a consent screen to approve it.
 - **Pay rates on the roster.** `get_technician_load` answers who is free, not
   what anyone earns. Compensation only comes through the payroll tools, and only
   with `payroll:read`.

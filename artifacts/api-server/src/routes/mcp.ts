@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { requireApiKey, logApiRequest } from "../lib/api-auth.js";
 import { dispatchV1 } from "../lib/mcp-dispatch.js";
 import { TOOLS_BY_NAME, toolsForScopes } from "../lib/mcp-tools.js";
+import { readableCompanies, resolveTargetCompany, type CompanyRef } from "../lib/tenant-scope.js";
 
 // [ai-access 2026-08-15] Qleno Agent — the MCP endpoint, mounted at /api/mcp.
 // Design: docs/AI_ACCESS_DESIGN.md §9-§11.
@@ -138,6 +139,12 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
     ? "Disconnect it under Settings → AI & API Access and connect it again, approving that access."
     : "An owner or admin can add it under Settings → AI & API Access.";
 
+  // [ai-access-superadmin 2026-08-16] May this connection be pointed at another
+  // tenant? Already the AND of the grant's stored consent and the approver's
+  // LIVE super-admin flag — see verifyAccessToken. False for every API key.
+  const crossTenant = req.apiKey?.allCompanies === true;
+  const homeCompanyId = req.auth?.companyId;
+
   switch (method) {
     // ── Handshake ────────────────────────────────────────────────────────────
     case "initialize": {
@@ -152,7 +159,15 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
         serverInfo: SERVER_INFO,
         instructions:
           "Qleno runs a residential and commercial cleaning business: the job schedule, the customer book, invoices, and payroll. " +
-          "Every tool reads live data for this company only and nothing here can change anything. " +
+          (crossTenant
+            // Said here as well as in list_companies because these instructions
+            // are the one piece of text every client puts in front of the model
+            // before it picks a tool. A model that believes it is looking at a
+            // single business will happily total two of them.
+            ? "Every tool reads live data for ONE company at a time and nothing here can change anything. " +
+              "This connection covers several separate companies: call list_companies for the ones it can read, then pass `company` on any tool to ask about one of them. " +
+              "Omit `company` and the answer is about the home company listed first. Never combine figures from two companies unless the question is explicitly about the group. "
+            : "Every tool reads live data for this company only and nothing here can change anything. ") +
           "Money is US dollars, hours are decimal hours, and dates are YYYY-MM-DD in the company's own timezone — omit a date to get today. " +
           "List results are paginated: when a response carries next_cursor there are more rows, so page through before stating any total. " +
           "Read each tool's description before choosing between similar ones; several draw a distinction that matters, such as booked revenue versus money actually owed.",
@@ -176,7 +191,7 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
       // Filtered by the key's scopes: advertising a tool that tools/call would
       // refuse teaches the model to retry something that can never work, and
       // leaks the shape of data this key was deliberately not given.
-      const visible = toolsForScopes(scopes);
+      const visible = toolsForScopes(scopes, crossTenant);
       rpcResult(res, id, {
         tools: visible.map((t) => ({
           name: t.name,
@@ -199,9 +214,12 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
       (req as any).mcpToolName = name;
 
       const tool = TOOLS_BY_NAME.get(name);
-      if (!tool) {
+      // A cross-tenant-only tool is not merely unadvertised on a single-tenant
+      // connection — it does not exist there. Answering "you lack a scope" would
+      // imply a scope could unlock it; nothing about this key can.
+      if (!tool || (tool.crossTenantOnly && !crossTenant)) {
         rpcError(res, id, INVALID_PARAMS, `No such tool: ${name}. Call tools/list for what this ${isChatApp ? "connection" : "key"} can use.`, {
-          available: toolsForScopes(scopes).map((t) => t.name),
+          available: toolsForScopes(scopes, crossTenant).map((t) => t.name),
         });
         return;
       }
@@ -210,14 +228,70 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
       // tool name it learned from a stale list, from another tenant's
       // documentation, or from a prompt injection — the list is a convenience,
       // this is the control.
-      if (!scopes.includes(tool.scope)) {
+      //
+      // A tool with no scope reads no business data (list_companies), so there is
+      // nothing here to withhold. `scopes.includes(undefined)` is false, which
+      // would have refused it outright.
+      if (tool.scope && !scopes.includes(tool.scope)) {
         rpcError(res, id, REQUEST_DENIED,
           `${isChatApp ? "This connection" : "This key"} cannot use ${name}: ` +
           `it is missing the ${tool.scope} scope. ${widenScope}`);
         return;
       }
 
-      const built = tool.build((params.arguments ?? {}) as Record<string, unknown>);
+      // ── Which single tenant does this call read? ────────────────────────────
+      // Exactly one, always. Cross-tenant reach means this value VARIES between
+      // calls; it never becomes a set. See lib/tenant-scope.ts for why.
+      const rawArgs = (params.arguments ?? {}) as Record<string, unknown>;
+      const companyArg = rawArgs.company;
+      let allowed: CompanyRef[] | null = null;
+      let targetCompanyId: number | undefined;
+
+      if (crossTenant && homeCompanyId) {
+        try {
+          allowed = await readableCompanies(homeCompanyId, true);
+        } catch (err) {
+          console.error("[mcp] readableCompanies failed", err);
+          rpcError(res, id, INTERNAL_ERROR, "The request could not be completed.");
+          return;
+        }
+        const picked = resolveTargetCompany(companyArg, allowed, homeCompanyId);
+        if ("error" in picked) {
+          rpcResult(res, id, toolContent({ error: "invalid_argument", message: picked.error }, true));
+          return;
+        }
+        targetCompanyId = picked.companyId;
+        // The activity log should name the tenant whose data was actually read,
+        // not the connection's home company.
+        (res as any).qlenoTargetCompanyId = targetCompanyId;
+      } else if (companyArg !== undefined && companyArg !== null && companyArg !== "") {
+        // Refused rather than ignored. Silently answering for the home company
+        // would hand back real numbers about the wrong business, and nothing in
+        // the response would look wrong.
+        rpcResult(res, id, toolContent({
+          error: "invalid_argument",
+          message: "This connection covers one company, so it cannot be pointed at another. Drop the company argument and ask again.",
+        }, true));
+        return;
+      }
+
+      // Tools that describe the CONNECTION are answered here: there is no
+      // business data to fetch and so no tenant to scope it to.
+      if (tool.local) {
+        if (!allowed) {
+          rpcError(res, id, REQUEST_DENIED, `${name} is only available on a connection that covers more than one company.`);
+          return;
+        }
+        (res as any).qlenoResultCount = allowed.length;
+        rpcResult(res, id, toolContent({
+          home_company_id: homeCompanyId,
+          companies: allowed,
+          note: "Each company is a separate business. Ask about one at a time.",
+        }));
+        return;
+      }
+
+      const built = tool.build(rawArgs);
       if ("error" in built) {
         // A bad argument comes back as a tool error rather than a protocol
         // error, so the model sees it as a result it can correct and retry
@@ -228,7 +302,7 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
 
       let out;
       try {
-        out = await dispatchV1(req, built.path, built.query);
+        out = await dispatchV1(req, built.path, built.query, targetCompanyId);
       } catch (err) {
         console.error(`[mcp] ${name} threw`, err);
         rpcError(res, id, INTERNAL_ERROR, "The request could not be completed.");

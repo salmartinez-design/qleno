@@ -53,12 +53,20 @@ interface ConsentDetails {
   can_approve: boolean;
   company_enabled: boolean;
   plan: string | null;
+  // [ai-access-superadmin 2026-08-16] Only true for a live super-admin. Absent
+  // on every ordinary consent, which is why the reach control below does not
+  // render at all for the tenants who should never see it.
+  can_grant_all_companies?: boolean;
+  all_companies?: { id: number; name: string }[];
 }
 
 export default function OAuthConsentPage() {
   const [details, setDetails] = useState<ConsentDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
+  // Never preselected. Platform-wide reach is a different thing from connecting
+  // a business, and the person approving it has to choose it on purpose.
+  const [allCompanies, setAllCompanies] = useState(false);
 
   const params = new URLSearchParams(window.location.search);
   const clientId = params.get("client_id") ?? "";
@@ -97,6 +105,9 @@ export default function OAuthConsentPage() {
         body: JSON.stringify({
           client_id: clientId, redirect_uri: redirectUri, state,
           code_challenge: codeChallenge, scopes: details?.scopes ?? [], resource,
+          // The server re-reads the super-admin flag before honoring this; the
+          // checkbox is a request, not the authority.
+          all_companies: allCompanies,
         }),
       });
       const body = await r.json();
@@ -181,6 +192,67 @@ export default function OAuthConsentPage() {
             ))}
           </ul>
         </div>
+
+        {/* [ai-access-superadmin 2026-08-16] How far this connection reaches.
+            Rendered only for a live super-admin with more than one readable
+            company, so an ordinary tenant never sees a control that would mean
+            nothing to them. Two explicit choices rather than a checkbox: an
+            unchecked box states no position, and the narrow option here is a
+            real decision that deserves to be visibly made. */}
+        {details.can_grant_all_companies && (details.all_companies?.length ?? 0) > 1 && (
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "13px 14px", marginBottom: 14 }}>
+            <span style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 9 }}>How far it can reach</span>
+            {[
+              { value: false, title: "This company only", note: `${details.all_companies![0].name}. The usual choice.` },
+              {
+                value: true,
+                title: `All ${details.all_companies!.length} companies you administer`,
+                note: "It can ask about any of them, one at a time.",
+              },
+            ].map((opt) => (
+              <label
+                key={String(opt.value)}
+                style={{
+                  display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer",
+                  padding: "9px 10px", borderRadius: 8, marginTop: 2,
+                  border: `1px solid ${allCompanies === opt.value ? NIGHT : "transparent"}`,
+                  background: allCompanies === opt.value ? BG : "transparent",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="reach"
+                  checked={allCompanies === opt.value}
+                  onChange={() => setAllCompanies(opt.value)}
+                  style={{ marginTop: 3, accentColor: NIGHT }}
+                />
+                <span>
+                  <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{opt.title}</span>
+                  <span style={{ display: "block", fontSize: 12.5, lineHeight: 1.45, color: MUTED }}>{opt.note}</span>
+                </span>
+              </label>
+            ))}
+
+            {/* Named, not counted. "All 4 companies" is a number; the list is
+                what a person can actually check before agreeing to it. */}
+            {allCompanies && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}` }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
+                  <AlertTriangle size={15} color="#BA7517" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ fontSize: 12.5, lineHeight: 1.5, color: MUTED }}>
+                    {details.client_name} will be able to read the businesses below, with the same access listed above.
+                    Each company keeps its own switch — turning AI access off there removes it from this list.
+                  </span>
+                </div>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 5 }}>
+                  {details.all_companies!.map((c) => (
+                    <li key={c.id} style={{ fontSize: 12.5, lineHeight: 1.45, color: TEXT }}>{c.name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Stating the limits is not reassurance copy — it is the actual
             contract. OAuth grants are read-only until Phase 5's injection
