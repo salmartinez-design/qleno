@@ -31,39 +31,95 @@ import { readableCompanies, resolveTargetCompany, type CompanyRef } from "../lib
 // Every tool is a stateless read, so there is nothing to keep between calls and
 // nothing for the server to push. Advertising capabilities we do not implement
 // would make clients wait on streams that never arrive.
+//
+// TWO ERAS ON ONE ENDPOINT
+// ------------------------
+// [ai-access-modern 2026-08-16] Revision 2026-07-28 retired the `initialize`
+// handshake and the session header: every request now carries its own protocol
+// version, client identity, and capabilities in `_meta`, and discovery is a
+// plain `server/discover` call. Google's Antigravity client speaks only that
+// era, so a tenant pointing it at this URL got METHOD_NOT_FOUND and had to run
+// an `npx mcp-remote` bridge to connect at all. Claude, ChatGPT and Grok still
+// speak the `initialize` era. The spec explicitly permits serving both on one
+// endpoint, and that is what this does — the era is read off the request, never
+// configured. Note the stateless model this file already had is exactly what
+// 2026-07-28 standardised; only the method names and the version list were
+// wrong.
 
 const router = Router();
 
-// The protocol revisions we can actually satisfy. A client that asks for
+// The `initialize`-era revisions we can satisfy. A client that asks for
 // something else is answered with our newest rather than refused: per the spec
 // it may then continue or disconnect, and refusing outright would break clients
 // that would have worked fine.
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL = SUPPORTED_PROTOCOLS[0];
 
+// The per-request-metadata revisions. Kept separate from the list above because
+// the two eras are answered by different code paths, and a version in the wrong
+// list would route a client into a handshake it does not implement.
+const MODERN_PROTOCOLS = ["2026-07-28"];
+
 const SERVER_INFO = { name: "qleno", title: "Qleno", version: "1.0.0" };
 
-// JSON-RPC 2.0 error codes. The first four are the spec's; -32002 is MCP's
-// convention for "the server understood and refused".
+// JSON-RPC 2.0 error codes. The first four are the spec's; the negative-32xxx
+// remainder are MCP's own: -32002 "understood and refused", -32020 the headers
+// disagree with the body, -32022 we do not speak the version you asked for.
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
 const REQUEST_DENIED = -32002;
+const HEADER_MISMATCH = -32020;
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
 
 type JsonRpcId = string | number | null;
 
-function rpcError(res: Response, id: JsonRpcId, code: number, message: string, data?: unknown): void {
+function rpcError(res: Response, id: JsonRpcId, code: number, message: string, data?: unknown, status = 200): void {
   // HTTP stays 200 for a well-formed JSON-RPC error: the transport succeeded and
   // the error is in the envelope. Clients that see a non-200 tend to retry or
   // surface a connection failure, which would misreport "you lack that scope"
   // as "Qleno is down".
-  res.status(200).json({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
+  //
+  // The exceptions are the three the 2026-07-28 transport pins to specific HTTP
+  // statuses — unsupported version and header mismatch are 400, unknown method
+  // is 404 — because that is how a dual-era client tells a modern server from a
+  // legacy one. Answering those 200 would make it fall back to `initialize`.
+  res.status(status).json({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
 }
 
 function rpcResult(res: Response, id: JsonRpcId, result: unknown): void {
-  res.status(200).json({ jsonrpc: "2.0", id, result });
+  // `resultType` is the 2026-07-28 discriminator between a finished result and
+  // one that is asking for more input. We never ask, so it is always "complete"
+  // — but it has to be present, and only for clients in that era: the older
+  // ones have no such field and their schemas may reject it.
+  const payload =
+    (res as any).mcpModern === true && result && typeof result === "object" && !("resultType" in (result as object))
+      ? { resultType: "complete", ...(result as object) }
+      : result;
+  res.status(200).json({ jsonrpc: "2.0", id, result: payload });
+}
+
+/**
+ * The one piece of text every client puts in front of the model before it picks
+ * a tool. Shared by both eras so the two can never drift — `initialize` returns
+ * it as `instructions`, `server/discover` returns it under the same name.
+ */
+function serverInstructions(crossTenant: boolean): string {
+  return (
+    "Qleno runs a residential and commercial cleaning business: the job schedule, the customer book, invoices, and payroll. " +
+    (crossTenant
+      // Said here as well as in list_companies because a model that believes it
+      // is looking at a single business will happily total two of them.
+      ? "Every tool reads live data for ONE company at a time and nothing here can change anything. " +
+        "This connection covers several separate companies: call list_companies for the ones it can read, then pass `company` on any tool to ask about one of them. " +
+        "Omit `company` and the answer is about the home company listed first. Never combine figures from two companies unless the question is explicitly about the group. "
+      : "Every tool reads live data for this company only and nothing here can change anything. ") +
+    "Money is US dollars, hours are decimal hours, and dates are YYYY-MM-DD in the company's own timezone — omit a date to get today. " +
+    "List results are paginated: when a response carries next_cursor there are more rows, so page through before stating any total. " +
+    "Read each tool's description before choosing between similar ones; several draw a distinction that matters, such as booked revenue versus money actually owed."
+  );
 }
 
 /**
@@ -86,9 +142,11 @@ router.use(logApiRequest("mcp"));
 /**
  * MCP is POST-only here.
  *
- * Streamable HTTP allows a GET that opens an SSE stream for server-initiated
- * messages. We have none to send, so a client that opens one would hold a
- * connection forever waiting. Saying so plainly beats a silent hang.
+ * The 2025-03-26 transport allowed a GET that opened an SSE stream for
+ * server-initiated messages; 2026-07-28 removed it outright and requires 405 in
+ * its place, which is what this already returned. We have nothing to push
+ * either way, so a client that opened one would hold a connection forever
+ * waiting. Saying so plainly beats a silent hang.
  */
 router.get("/", (_req: Request, res: Response) => {
   res.status(405).json({
@@ -123,6 +181,45 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
     return;
   }
 
+  // ── Which era is this client in? ─────────────────────────────────────────
+  // Read off the request, not configured. A 2026-07-28 client states its
+  // version in `params._meta` on every call; an `initialize`-era client never
+  // does — it states one in `initialize` and then nothing. `server/discover`
+  // only exists in the modern era, so it counts on its own.
+  const meta = (params._meta ?? {}) as Record<string, any>;
+  const metaVersion = typeof meta["io.modelcontextprotocol/protocolVersion"] === "string"
+    ? (meta["io.modelcontextprotocol/protocolVersion"] as string)
+    : null;
+  const headerVersion = typeof req.headers["mcp-protocol-version"] === "string"
+    ? (req.headers["mcp-protocol-version"] as string)
+    : null;
+  const modern = method === "server/discover" || metaVersion !== null;
+  (res as any).mcpModern = modern;
+
+  if (modern) {
+    // The header mirrors the body so that load balancers can route without
+    // parsing JSON. If the two disagree, one of them is lying to something —
+    // the spec makes rejecting it mandatory rather than picking a winner.
+    if (metaVersion && headerVersion && metaVersion !== headerVersion) {
+      rpcError(res, id, HEADER_MISMATCH,
+        `Header mismatch: MCP-Protocol-Version header '${headerVersion}' does not match the '${metaVersion}' in params._meta.`,
+        undefined, 400);
+      return;
+    }
+    const asked = metaVersion ?? headerVersion;
+    if (asked && !MODERN_PROTOCOLS.includes(asked)) {
+      // Named versions, not a flat refusal: the client is expected to pick one
+      // from `supported` and retry, which is the only fall-forward path the
+      // modern era has. Both lists go out — a client that can drop back to the
+      // `initialize` handshake can see that option here.
+      rpcError(res, id, UNSUPPORTED_PROTOCOL_VERSION,
+        `This server does not implement protocol version ${asked}.`,
+        { supported: [...MODERN_PROTOCOLS, ...SUPPORTED_PROTOCOLS], requested: asked },
+        400);
+      return;
+    }
+  }
+
   // The name recorded in the tenant's activity log. Overwritten with the actual
   // tool for tools/call, which is the row an operator wants to see.
   (req as any).mcpToolName = method;
@@ -146,7 +243,29 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
   const homeCompanyId = req.auth?.companyId;
 
   switch (method) {
-    // ── Handshake ────────────────────────────────────────────────────────────
+    // ── Handshake, 2026-07-28 era ────────────────────────────────────────────
+    // The whole of it. There is no follow-up notification and nothing to
+    // remember: the client re-states who it is on every later call, which is why
+    // this server needs no session and never did.
+    case "server/discover": {
+      rpcResult(res, id, {
+        resultType: "complete",
+        supportedVersions: MODERN_PROTOCOLS,
+        // `tools` only, and empty rather than `{listChanged: false}` — this era
+        // moved list-change notifications behind `subscriptions/listen`, which
+        // we do not implement because the tool set a credential can reach is
+        // fixed by its scopes for the life of the credential.
+        capabilities: { tools: {} },
+        instructions: serverInstructions(crossTenant),
+        _meta: { "io.modelcontextprotocol/serverInfo": SERVER_INFO },
+        // No ttlMs or cacheScope: both the instructions and the tool list vary
+        // with the caller's scopes and super-admin reach, so this response is
+        // per-credential and must not be cached across them.
+      });
+      return;
+    }
+
+    // ── Handshake, initialize era ────────────────────────────────────────────
     case "initialize": {
       const asked = typeof params.protocolVersion === "string" ? params.protocolVersion : null;
       rpcResult(res, id, {
@@ -157,20 +276,7 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
         // anyway since every call re-verifies.
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions:
-          "Qleno runs a residential and commercial cleaning business: the job schedule, the customer book, invoices, and payroll. " +
-          (crossTenant
-            // Said here as well as in list_companies because these instructions
-            // are the one piece of text every client puts in front of the model
-            // before it picks a tool. A model that believes it is looking at a
-            // single business will happily total two of them.
-            ? "Every tool reads live data for ONE company at a time and nothing here can change anything. " +
-              "This connection covers several separate companies: call list_companies for the ones it can read, then pass `company` on any tool to ask about one of them. " +
-              "Omit `company` and the answer is about the home company listed first. Never combine figures from two companies unless the question is explicitly about the group. "
-            : "Every tool reads live data for this company only and nothing here can change anything. ") +
-          "Money is US dollars, hours are decimal hours, and dates are YYYY-MM-DD in the company's own timezone — omit a date to get today. " +
-          "List results are paginated: when a response carries next_cursor there are more rows, so page through before stating any total. " +
-          "Read each tool's description before choosing between similar ones; several draw a distinction that matters, such as booked revenue versus money actually owed.",
+        instructions: serverInstructions(crossTenant),
       });
       return;
     }
@@ -327,8 +433,16 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
     }
 
     default:
+      // 404 for a modern client, 200 for a legacy one. That status is how a
+      // dual-era client tells "this server is modern and has no such method"
+      // from "this URL is not an MCP endpoint at all" — the JSON-RPC body says
+      // which, and answering 200 here would send it back to `initialize`.
       rpcError(res, id, METHOD_NOT_FOUND,
-        `Unsupported method: ${method}. This server implements initialize, tools/list, tools/call, and ping.`);
+        `Unsupported method: ${method}. This server implements ` +
+        (modern
+          ? "server/discover, tools/list, tools/call, and ping."
+          : "initialize, tools/list, tools/call, and ping."),
+        undefined, modern ? 404 : 200);
       return;
   }
 });
