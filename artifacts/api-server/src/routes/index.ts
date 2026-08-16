@@ -92,6 +92,7 @@ import quickbooksRouter from "./integrations/quickbooks.js";
 import squareRouter from "./square.js";
 import apiKeysRouter from "./api-keys.js";
 import v1Router from "./v1/index.js";
+import mcpRouter from "./mcp.js";
 import bundlesRouter from "./bundles.js";
 import followUpRouter from "./follow-up.js";
 import leadsRouter from "./leads.js";
@@ -264,6 +265,13 @@ router.use("/api-keys", apiKeysRouter);
 // credential. Mounted here rather than at the app so it inherits the same /api
 // prefix: docs/AI_ACCESS_DESIGN.md §3.
 router.use("/v1", v1Router);
+
+// Qleno Agent — the MCP endpoint the tenant's own AI assistant connects to.
+// Same credential and same three gates as /v1; it answers its tools by
+// dispatching into the v1 router in-process, so the two surfaces cannot drift.
+// docs/AI_ACCESS_DESIGN.md §9.
+router.use("/mcp", mcpRouter);
+
 router.use("/follow-up", followUpRouter);
 router.use("/leads", leadsRouter);
 router.use("/referral-partners", referralPartnersRouter);

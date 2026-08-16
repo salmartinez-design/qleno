@@ -47,6 +47,30 @@ const FAILURE_RESPONSE: Record<VerifyFailure, { status: number; message: string 
   company_disabled: { status: 403, message: "API access is not enabled for this company" },
 };
 
+// ── Internal in-process dispatch ─────────────────────────────────────────────
+// The MCP server answers its tools by calling the v1 router directly rather than
+// duplicating its SQL (see lib/mcp-dispatch.ts). Those synthetic requests carry
+// an identity that this very middleware already verified microseconds earlier at
+// the /api/mcp door, on the same real HTTP request.
+//
+// Re-verifying them would cost a database round-trip per tool call and would
+// charge the tenant's rate ceiling twice for one call — the second charge
+// invisible to the operator, who would see a 429 after half the traffic they
+// expected. So the internal path skips the door and checks scopes only.
+//
+// This marker cannot be set from the wire. Express builds `req` from the socket
+// and there is no header, query parameter, or body field that becomes a symbol
+// property; the only writer is markInternalDispatch(), which is only reachable
+// from code that has already been through the door. It is a Symbol rather than a
+// string key specifically so a `req[userSuppliedKey] = true` bug anywhere in the
+// codebase cannot collide with it.
+const INTERNAL_DISPATCH = Symbol("qleno.internalDispatch");
+
+/** Stamp a synthetic request as already-authenticated. Only lib/mcp-dispatch.ts calls this. */
+export function markInternalDispatch(req: Request): void {
+  (req as any)[INTERNAL_DISPATCH] = true;
+}
+
 /**
  * Authenticate an API key and require every listed scope.
  *
@@ -58,6 +82,26 @@ const FAILURE_RESPONSE: Record<VerifyFailure, { status: number; message: string 
  */
 export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Already through the door on this same HTTP request — see INTERNAL_DISPATCH
+    // above. Scopes are still enforced: the MCP layer checks the scope it thinks
+    // a tool needs, and this checks the scope the endpoint actually requires. If
+    // a tool is ever pointed at the wrong path, that mismatch is caught here
+    // rather than silently granting reach the key was not given.
+    if ((req as any)[INTERNAL_DISPATCH] === true && req.apiKey && req.auth) {
+      const short = scopes.filter((s) => !req.apiKey!.scopes.includes(s));
+      if (short.length > 0) {
+        res.status(403).json({
+          error: "insufficient_scope",
+          message: `This key is missing the ${short.join(", ")} scope.`,
+          required: scopes,
+          granted: req.apiKey.scopes,
+        });
+        return;
+      }
+      next();
+      return;
+    }
+
     const header = req.headers.authorization;
     const raw = header?.startsWith("Bearer ") ? header.substring(7) : undefined;
 
