@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { READ_SCOPES, isValidScope, type ApiScope } from "./api-keys.js";
+import { isSuperAdminRow } from "./tenant-scope.js";
 
 // [ai-access-oauth 2026-08-16] The authorization server behind Qleno Agent.
 // Design + rationale: docs/AI_ACCESS_OAUTH_DESIGN.md.
@@ -224,16 +225,18 @@ export async function issueAuthorizationCode(input: {
   redirectUri: string;
   codeChallenge: string;
   resource?: string | null;
+  /** Platform-wide reach, already verified against the live user by the caller. */
+  allCompanies?: boolean;
 }): Promise<string> {
   const code = crypto.randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + CODE_TTL_MS);
 
   await db.execute(sql`
     INSERT INTO oauth_authorization_codes
-      (code_hash, client_id, company_id, user_id, scopes, redirect_uri, code_challenge, resource, expires_at)
+      (code_hash, client_id, company_id, user_id, scopes, redirect_uri, code_challenge, resource, expires_at, all_companies)
     VALUES (${hashToken(code)}, ${input.clientId}, ${input.companyId}, ${input.userId},
             ${sql.raw(pgTextArray(input.scopes))}, ${input.redirectUri}, ${input.codeChallenge},
-            ${input.resource ?? null}, ${expires})
+            ${input.resource ?? null}, ${expires}, ${input.allCompanies === true})
   `);
 
   return code;
@@ -282,7 +285,7 @@ export async function exchangeAuthorizationCode(input: {
 
   const rows: any = await db.execute(sql`
     SELECT code_hash, client_id, company_id, user_id, scopes, redirect_uri,
-           code_challenge, expires_at, consumed_at, issued_grant_id
+           code_challenge, expires_at, consumed_at, issued_grant_id, all_companies
       FROM oauth_authorization_codes WHERE code_hash = ${codeHash} LIMIT 1
   `);
   const row = (rows.rows ?? rows)[0];
@@ -311,6 +314,11 @@ export async function exchangeAuthorizationCode(input: {
     clientName: client?.client_name ?? "Unknown client",
     scopes,
     ip: input.ip,
+    // Carried from the code, which carried it from the consent screen, which
+    // only offered it to a live super-admin. It is re-checked against the live
+    // user on every request regardless — this is a record of what was approved,
+    // not a source of authority.
+    allCompanies: row.all_companies === true,
   });
 
   // Mark consumed AFTER the grant exists, and record which grant it produced so
@@ -331,6 +339,7 @@ async function createGrant(input: {
   clientName: string;
   scopes: ApiScope[];
   ip?: string;
+  allCompanies?: boolean;
 }): Promise<IssuedTokens> {
   const access = randomToken(ACCESS_PREFIX);
   const refresh = randomToken(REFRESH_PREFIX);
@@ -340,10 +349,12 @@ async function createGrant(input: {
   const rows: any = await db.execute(sql`
     INSERT INTO oauth_grants
       (company_id, user_id, client_id, client_name, scopes,
-       access_token_hash, access_expires_at, refresh_token_hash, refresh_expires_at, last_used_ip)
+       access_token_hash, access_expires_at, refresh_token_hash, refresh_expires_at, last_used_ip,
+       all_companies)
     VALUES (${input.companyId}, ${input.userId}, ${input.clientId}, ${input.clientName},
             ${sql.raw(pgTextArray(input.scopes))},
-            ${hashToken(access)}, ${accessExpires}, ${hashToken(refresh)}, ${refreshExpires}, ${input.ip ?? null})
+            ${hashToken(access)}, ${accessExpires}, ${hashToken(refresh)}, ${refreshExpires}, ${input.ip ?? null},
+            ${input.allCompanies === true})
     RETURNING id
   `);
   const grantId = Number((rows.rows ?? rows)[0].id);
@@ -424,6 +435,15 @@ export interface VerifiedGrant {
   first_name?: string;
   clientName: string;
   scopes: ApiScope[];
+  /**
+   * May this connection be pointed at a company other than its home?
+   *
+   * True only when the grant was approved for platform-wide reach AND the
+   * approver is STILL a super-admin. Losing the flag narrows the connection back
+   * to its home company on the next request rather than breaking it — a demoted
+   * platform admin should stop seeing other tenants, not lose their own.
+   */
+  allCompanies: boolean;
 }
 
 export type GrantFailure =
@@ -463,8 +483,8 @@ export async function verifyAccessToken(token: string): Promise<VerifyGrantResul
 
   const rows: any = await db.execute(sql`
     SELECT g.id, g.company_id, g.user_id, g.client_name, g.scopes,
-           g.access_expires_at, g.revoked_at,
-           u.role, u.email, u.first_name, u.is_active AS user_active,
+           g.access_expires_at, g.revoked_at, g.all_companies,
+           u.role, u.email, u.first_name, u.is_active AS user_active, u.is_super_admin,
            c.api_access_enabled
       FROM oauth_grants g
       JOIN users     u ON u.id = g.user_id
@@ -492,6 +512,11 @@ export async function verifyAccessToken(token: string): Promise<VerifyGrantResul
       first_name: row.first_name ?? undefined,
       clientName: String(row.client_name ?? "Connected app"),
       scopes: (row.scopes ?? []).filter(isValidScope) as ApiScope[],
+      // The AND is the whole point. The stored flag records what the tenant
+      // approved; the live column decides whether it still applies. Trusting the
+      // stored flag alone would mean revoking someone's platform authority left
+      // their phone reading every tenant until they happened to disconnect it.
+      allCompanies: row.all_companies === true && isSuperAdminRow(row),
     },
   };
 }
@@ -553,13 +578,21 @@ export interface GrantSummary {
   last_used_at: string | null;
   last_used_ip: string | null;
   expires_at: string | null;
+  /**
+   * Whether this connection can read tenants beyond this one — the LIVE answer,
+   * not the stored flag. A grant approved for platform-wide reach by someone who
+   * has since lost super-admin reads false here, which matches what the door
+   * will actually do on the next request. Showing the stored flag instead would
+   * put a warning on the settings page for reach that no longer exists.
+   */
+  all_companies: boolean;
 }
 
 /** Everything currently connected for this tenant, newest first. */
 export async function listGrants(companyId: number): Promise<GrantSummary[]> {
   const rows: any = await db.execute(sql`
     SELECT g.id, g.client_name, g.scopes, g.created_at, g.last_used_at, g.last_used_ip,
-           g.refresh_expires_at,
+           g.refresh_expires_at, g.all_companies, u.is_super_admin,
            COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS approved_by,
            u.role AS approved_by_role
       FROM oauth_grants g
@@ -577,5 +610,6 @@ export async function listGrants(companyId: number): Promise<GrantSummary[]> {
     last_used_at: r.last_used_at ? new Date(r.last_used_at).toISOString() : null,
     last_used_ip: r.last_used_ip ?? null,
     expires_at: r.refresh_expires_at ? new Date(r.refresh_expires_at).toISOString() : null,
+    all_companies: r.all_companies === true && isSuperAdminRow(r),
   }));
 }

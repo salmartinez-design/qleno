@@ -263,6 +263,17 @@ api_request_log
   + oauth_grant_id  int → oauth_grants(id)       -- nullable; api_key_id becomes nullable
 ```
 
+**[ai-access-superadmin 2026-08-16]** One column added to two of those tables:
+
+```sql
+oauth_authorization_codes
+  + all_companies   boolean not null default false
+oauth_grants
+  + all_companies   boolean not null default false
+```
+
+See §8.1 for why it is a boolean and not a company_id array.
+
 Boot migration is idempotent and gated to `RAILWAY_ENVIRONMENT === "production"`,
 per the rule that closed the June-fill resurrection. **Row counts get checked
 after the first deploy** — the invoice-coverage ledger shipped empty because a
@@ -271,6 +282,71 @@ present as "no client can connect" with no error anywhere.
 
 A reused authorization code revokes the whole grant rather than merely failing.
 Code replay means the code leaked; the leaked-to party may already hold a token.
+
+---
+
+## 8.1 The super-admin axis [ai-access-superadmin 2026-08-16]
+
+Sal runs the platform, not one tenant of it. He asked to be able to point an
+assistant at any business on Qleno, not only Phes Oak Lawn. Everyone else keeps
+exactly the connection they have today.
+
+**The decision that shapes everything else: the company filter never widens.**
+
+Qleno's tenant isolation is one clause — `WHERE company_id = $1` — repeated
+across every handler in the read API, proven correct for a single scalar and
+audited by `v1-tenant-isolation.test.ts`. The obvious implementation of this
+feature turns that scalar into a set and rewrites ~25 handlers to match. Each
+rewrite is a fresh chance to drop the clause, and a dropped clause does not
+throw: it silently returns another business's customers, in a response that
+looks entirely normal. (The `= ANY(${jsArray}::int[])` binding trap makes the
+array version worse still — it has been reintroduced eight times in this repo.)
+
+So cross-tenant reach is implemented by letting the resolved `company_id` **vary
+per request**. Every call still resolves to exactly ONE company before it reaches
+a query. **No handler changes.** An assistant that wants two tenants asks twice.
+
+Secondary benefit: `api_request_log` still records which single tenant was read.
+An array would have collapsed that to "some of them".
+
+**Four gates, all live, all ANDed:**
+
+1. `companies.api_access_enabled` — each tenant's own switch, honored for every
+   company in the list. **Platform authority does not override a tenant's off
+   switch.** A company that has not turned this on is absent from the list
+   entirely, so there is no id a caller could name to reach it.
+2. `users.is_super_admin` (or legacy `role='super_admin'`) — re-read on **every
+   request** in `verifyAccessToken`, never frozen into the token. A grant
+   approved by someone who later loses the flag narrows back to its home company
+   on the next call. Nothing to revoke, nothing to notice.
+3. `oauth_grants.all_companies` — what the approver actually consented to.
+4. The granted scopes — unchanged.
+
+**The grant still pins one home company.** `oauth_grants.company_id` is where the
+connection lives: the tenant whose settings page lists it and whose Disconnect
+button kills it. `all_companies` only says the approver may *also* point it
+elsewhere.
+
+**API keys are single-tenant, full stop.** Cross-tenant reach exists only on the
+OAuth path, because it requires a human at a consent screen who can be shown, by
+name, which businesses they are about to open.
+
+**Surface:** one extra tool, `list_companies` (no scope — it describes the
+credential, not the business), and an optional `company` argument injected into
+every other tool's schema **only on a cross-tenant connection**. An advertised
+argument is an instruction; a single-tenant connection that saw `company` would
+send it, and every one of those calls is a refusal the tenant never needed. On a
+single-tenant connection a `company` argument is **refused, not ignored** —
+answering for the home company would hand back real numbers about the wrong
+business, and nothing in the response would look wrong.
+
+`resolveTargetCompany()` treats the argument as a hint and never as an authority:
+matched against the credential's own list, exact name beats substring, and an
+ambiguous name is **refused rather than guessed** — picking the first match would
+be a coin flip between two real businesses, decided by SQL row order.
+
+**Consent:** the wider option is offered only to a live super-admin, is never
+preselected, and names every company it would cover. A count is not consent.
 
 ---
 

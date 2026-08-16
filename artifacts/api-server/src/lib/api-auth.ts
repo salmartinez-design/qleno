@@ -37,6 +37,13 @@ declare global {
         scopes: ApiScope[];
         kind: "rest" | "mcp";
         credential: "key" | "oauth";
+        // [ai-access-superadmin 2026-08-16] May this credential be pointed at a
+        // company other than req.auth.companyId? False for every API key and for
+        // every ordinary grant, so nothing downstream changes shape. Only the
+        // MCP tools/call path reads it, and only to decide whether a `company`
+        // argument is allowed — the company itself is still resolved
+        // server-side against an allowlist, never taken from the caller.
+        allCompanies: boolean;
       };
     }
   }
@@ -210,6 +217,7 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
         scopes: grant.scopes,
         kind,
         credential: "oauth",
+        allCompanies: grant.allCompanies,
       };
 
       if (enforceCompanyCeiling(req, res)) return;
@@ -270,7 +278,12 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
       email: key.email,
       first_name: key.first_name,
     };
-    req.apiKey = { keyId: key.keyId, name: key.name, scopes: key.scopes, kind, credential: "key" };
+    // An API key is single-tenant, full stop. Cross-tenant reach exists only on
+    // the OAuth path because it requires a human at a consent screen who can be
+    // shown what they are approving — a pasted key has no such moment, and a
+    // long-lived credential that silently spans every business on the platform
+    // is the one shape of this feature worth refusing outright.
+    req.apiKey = { keyId: key.keyId, name: key.name, scopes: key.scopes, kind, credential: "key", allCompanies: false };
 
     // The tenant-wide ceiling, checked AFTER the identity above is attached and
     // BEFORE any handler runs. The order is deliberate in both directions: the
@@ -300,7 +313,12 @@ export function logApiRequest(kind: "rest" | "mcp") {
 
     res.on("finish", () => {
       const key = req.apiKey;
-      const companyId = req.auth?.companyId;
+      // [ai-access-superadmin 2026-08-16] The company actually READ, which is
+      // req.auth.companyId except on a cross-tenant tool call that named another
+      // tenant. Attributing that row to the credential's home company would hide
+      // the read from the tenant whose data it was — the one operator with the
+      // strongest claim to see it in their own activity log.
+      const companyId = (res as any).qlenoTargetCompanyId ?? req.auth?.companyId;
       // No key resolved (401 at the door) means no tenant to attribute this to.
       // Those are rate-limited by IP and don't belong in a tenant's activity view.
       if (!key || !companyId) return;

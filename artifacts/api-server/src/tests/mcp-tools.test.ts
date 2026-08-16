@@ -45,7 +45,10 @@ test("every tool is well-formed and uniquely named", () => {
     assert.ok(!seen.has(t.name), `duplicate tool name: ${t.name}`);
     seen.add(t.name);
 
-    assert.ok((ALL_SCOPES as readonly string[]).includes(t.scope), `${t.name} declares an unknown scope`);
+    // A scope-less tool reads no business data (list_companies) and gates on the
+    // credential alone; anything that DOES declare a scope must declare a real one.
+    assert.ok(t.scope === undefined || (ALL_SCOPES as readonly string[]).includes(t.scope),
+      `${t.name} declares an unknown scope`);
     assert.equal(t.inputSchema.type, "object");
     assert.equal(t.inputSchema.additionalProperties, false,
       `${t.name} must reject unknown arguments — a model that invents a filter should be told, not silently ignored`);
@@ -61,6 +64,7 @@ test("every tool is read-only in Phase 3", () => {
   // being constant and a confirmation gate has to exist. Failing here is the
   // reminder.
   for (const t of MCP_TOOLS) {
+    if (t.scope === undefined) continue;
     assert.ok((READ_SCOPES as readonly string[]).includes(t.scope),
       `${t.name} carries the write scope ${t.scope}; Phase 3 ships reads only`);
   }
@@ -104,7 +108,7 @@ test("every tool that returns money names the currency", () => {
 
   // The other side of the same coin: a tool that returns no money should not be
   // quietly added to the table without someone deciding which list it is on.
-  const accounted = new Set([...RETURNS_MONEY, "get_unassigned_work", "get_technician_load", "find_client", "get_efficiency"]);
+  const accounted = new Set([...RETURNS_MONEY, "get_unassigned_work", "get_technician_load", "find_client", "get_efficiency", "list_companies"]);
   for (const t of MCP_TOOLS) {
     assert.ok(accounted.has(t.name), `${t.name} is new — decide whether it returns money and add it to a list here`);
   }
@@ -123,8 +127,43 @@ test("tools/list only advertises what the key can actually call", () => {
     "a jobs-only key must not be shown payroll tools");
 
   assert.equal(toolsForScopes([]).length, 0, "a key with no scopes sees no tools");
-  assert.equal(toolsForScopes([...READ_SCOPES]).length, MCP_TOOLS.length,
-    "a default read-only key reaches every Phase 3 tool");
+
+  const crossTenantOnly = MCP_TOOLS.filter((t) => t.crossTenantOnly).length;
+  assert.equal(toolsForScopes([...READ_SCOPES]).length, MCP_TOOLS.length - crossTenantOnly,
+    "a default read-only key reaches every Phase 3 tool except the cross-tenant ones");
+});
+
+// ── Cross-tenant ─────────────────────────────────────────────────────────────
+
+test("the company argument exists only on a cross-tenant connection", () => {
+  // An advertised argument is an instruction. A single-tenant connection that
+  // saw `company` would send it, and every one of those calls is a refusal the
+  // tenant never needed — so the common case must be byte-identical to the
+  // schema that shipped before this feature existed.
+  for (const t of toolsForScopes([...READ_SCOPES], false)) {
+    assert.ok(!("company" in t.inputSchema.properties),
+      `${t.name} advertises 'company' on a single-tenant connection`);
+  }
+
+  const cross = toolsForScopes([...READ_SCOPES], true);
+  assert.ok(cross.some((t) => t.name === "list_companies"),
+    "a cross-tenant connection must be able to find out which companies it covers");
+  for (const t of cross) {
+    if (t.crossTenantOnly) continue;
+    assert.ok("company" in t.inputSchema.properties,
+      `${t.name} is unreachable for any company but the home one`);
+  }
+});
+
+test("injecting the company argument does not mutate the shared tool table", () => {
+  // toolsForScopes runs per request. If it edited MCP_TOOLS in place, the first
+  // super-admin connection of the process would leave `company` advertised to
+  // every single-tenant tenant served afterwards — a bug that only appears
+  // under real traffic and never in a fresh test run.
+  toolsForScopes([...READ_SCOPES], true);
+  const after = MCP_TOOLS.find((t) => t.name === "get_schedule")!;
+  assert.ok(!("company" in after.inputSchema.properties),
+    "the cross-tenant argument leaked into the module-level tool table");
 });
 
 test("payroll is reachable only with the payroll scope", () => {

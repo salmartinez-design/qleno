@@ -29,8 +29,22 @@ export type ToolArgs = Record<string, unknown>;
 export type McpTool = {
   name: string;
   description: string;
-  /** The scope the key must hold. Checked against req.apiKey.scopes per call. */
-  scope: ApiScope;
+  /**
+   * The scope the key must hold. Checked against req.apiKey.scopes per call.
+   *
+   * Undefined means the tool reads no business data at all and so gates on
+   * nothing but the credential itself — today that is only list_companies, which
+   * answers "which tenants may I ask about" and would be useless if it required
+   * a scope the caller might not hold.
+   */
+  scope?: ApiScope;
+  /**
+   * Answered inside routes/mcp.ts instead of by dispatching into the v1 router.
+   * Reserved for tools that describe the CONNECTION rather than the business.
+   */
+  local?: true;
+  /** Only advertised on a cross-tenant connection. */
+  crossTenantOnly?: true;
   inputSchema: {
     type: "object";
     properties: Record<string, unknown>;
@@ -97,6 +111,23 @@ const CURSOR = {
 };
 
 export const MCP_TOOLS: McpTool[] = [
+  // ── The connection itself ──────────────────────────────────────────────────
+  {
+    name: "list_companies",
+    description:
+      "The companies this connection is allowed to read, each with a numeric id and a name. " +
+      "Only present when the connection covers more than one company. Pass an id or a name as the `company` argument on any other tool to ask about that company; omit it and every tool answers for the home company shown first here. " +
+      "Each company is a separate business with its own schedule, customers, invoices, and staff — figures from two of them are never comparable line items and must not be added together unless the question is explicitly about the group. " +
+      "A company that has not switched on AI access does not appear here at all.",
+    // No scope: this describes the credential, not the business behind it. A
+    // connection granted only payroll:read still has to be able to find out
+    // which payrolls it may ask about.
+    local: true,
+    crossTenantOnly: true,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    build: () => ({ path: "", query: {} }),
+  },
+
   // ── Schedule ───────────────────────────────────────────────────────────────
   {
     name: "get_schedule",
@@ -425,7 +456,45 @@ export const MCP_TOOLS: McpTool[] = [
 
 export const TOOLS_BY_NAME: ReadonlyMap<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
 
-/** The tools this key's scopes allow. tools/list must not advertise what tools/call would refuse. */
-export function toolsForScopes(scopes: readonly string[]): McpTool[] {
-  return MCP_TOOLS.filter((t) => scopes.includes(t.scope));
+// [ai-access-superadmin 2026-08-16] The cross-tenant argument.
+//
+// It is injected into the schemas at list time rather than written into each
+// tool above, for one reason: on a single-tenant connection it must not appear
+// AT ALL. An advertised argument is an instruction — a model that sees
+// `company` will eventually send it, and every one of those calls is a refusal
+// the tenant never needed to see. Most connections are single-tenant, so the
+// common case stays exactly the schema it was before this feature existed.
+const COMPANY_ARG = {
+  type: "string",
+  description:
+    "Which company to ask about — a numeric id or a name from list_companies. " +
+    "Omit for the home company. Every answer covers exactly one company: to compare two, call the tool twice.",
+};
+
+function withCompanyArg(tool: McpTool): McpTool {
+  if (tool.crossTenantOnly) return tool;
+  return {
+    ...tool,
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: { ...tool.inputSchema.properties, company: COMPANY_ARG },
+    },
+  };
+}
+
+/**
+ * The tools this credential may use.
+ *
+ * tools/list must not advertise what tools/call would refuse — an advertised
+ * tool that always fails teaches the model to keep retrying something that can
+ * never work, and leaks the shape of data this credential was deliberately not
+ * given. Two filters, for the two reasons a tool can be out of reach: the
+ * scopes it lacks, and tenants it cannot cross.
+ */
+export function toolsForScopes(scopes: readonly string[], crossTenant = false): McpTool[] {
+  const visible = MCP_TOOLS.filter((t) => {
+    if (t.crossTenantOnly && !crossTenant) return false;
+    return t.scope === undefined || scopes.includes(t.scope);
+  });
+  return crossTenant ? visible.map(withCompanyArg) : visible;
 }

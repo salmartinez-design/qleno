@@ -119,6 +119,32 @@ export async function ensureOAuthSchema(): Promise<void> {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_api_req_grant_time ON api_request_log (oauth_grant_id, created_at)
   `);
+
+  // ── The super-admin axis ───────────────────────────────────────────────────
+  // [ai-access-superadmin 2026-08-16] A grant still pins exactly ONE company in
+  // company_id — that stays the grant's home, the tenant whose settings page
+  // lists it and whose switch kills it. This flag says the approver may ALSO
+  // point the connection at another tenant, one request at a time.
+  //
+  // It is deliberately not a company_id array. Every read still resolves to a
+  // single company before it reaches a query, so there is exactly one
+  // "WHERE company_id = …" code path in the system and no version of it that
+  // takes a set. Widening the filter is how a tenant-isolation bug gets written;
+  // varying which single value goes into it is not.
+  //
+  // DEFAULT false, and it is only ever half the answer: verifyAccessToken()
+  // re-reads users.is_super_admin live on every request and ANDs the two. A
+  // grant approved by a super-admin who later loses the flag narrows back to its
+  // home company on the very next call — no revoke needed, and nothing to
+  // notice or clean up.
+  await db.execute(sql`
+    ALTER TABLE oauth_authorization_codes
+      ADD COLUMN IF NOT EXISTS all_companies BOOLEAN NOT NULL DEFAULT false
+  `);
+  await db.execute(sql`
+    ALTER TABLE oauth_grants
+      ADD COLUMN IF NOT EXISTS all_companies BOOLEAN NOT NULL DEFAULT false
+  `);
 }
 
 /**
