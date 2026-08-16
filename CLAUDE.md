@@ -331,6 +331,21 @@ commission shop, and the word "Efficiency" meaning three different formulas.)*
   Total Pay. Show hours (job / drive / idle / total-on-clock) underneath,
   clearly labeled "for records — not paid hourly," plus a quiet flag only
   when total hours cross 40 in a week (the one real OT exposure).
+- **ONE canonical $/hr definition.** "What is this person making per hour" =
+  `hourlyRate()` in `lib/payroll-metrics` — commission + tips + bonuses ÷
+  CLOCKED hours, surfaced as **Earned $/hr**. Mileage is excluded (a
+  reimbursement, 29 CFR 778.217 — the same exclusion the overtime engine
+  makes) and so is time-off pay (paid for hours not worked). Never inline
+  `gross ÷ hours` or `commission ÷ hours` at a call site again: the payroll
+  page used to print four different per-hour numbers for the same person in
+  the same week. `basis: 'commission'` is the one alternate (the pay-rule
+  view, what the tech earnings panel labels "Commission rate"), and it is
+  always labelled with its numerator. Pay from jobs with NO clock-in is
+  reported as `unclocked_pay` and rendered with a `~` prefix — it inflates
+  the rate, and the office should see the missing clock rather than a
+  confident number. The FLSA **regular rate** in `lib/overtime.ts` is NOT a
+  $/hr basis and must not be unified with this: it excludes tips, includes
+  nondiscretionary bonuses, and divides by hours worked including drive.
 - **ONE canonical efficiency definition.** Primary metric =
   **`Allowed Hours ÷ Actual Job Hours`** (>100% = under budget = good). If a
   day-level utilization metric is ever shown (job time ÷ paid time), it gets

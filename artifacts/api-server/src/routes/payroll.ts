@@ -10,7 +10,7 @@ import { computeCommissionRows } from "../lib/commission-compute.js";
 import {
   round2, makeRevenue, addRevenue, laborRatio, unattributedPct,
   isUnattributedMaterial, hasMeaningfulPriorYear, splitAdditionalPay,
-  totalPay, EMPTY_PAY, EMPTY_REVENUE, type PayComponents,
+  totalPay, hourlyRate, EMPTY_PAY, EMPTY_REVENUE, type PayComponents,
 } from "@workspace/payroll-metrics";
 // [payroll-P0] per-tech-clocked attribution + 4-cell pay-type + hourly basis.
 import { type ClockEntry } from "../lib/payroll-compute.js";
@@ -1238,6 +1238,18 @@ router.get("/detail", requireAuth, async (req, res) => {
         ? Math.round((scoredJobs.reduce((s, j) => s + (j.quality_score as number), 0) / scoredJobs.length) * 100) / 100
         : null;
       const grandTotal = totalCommission + Object.values(addlByType).reduce((s, v) => s + v, 0);
+      // [hourly-rate 2026-08-15] What this person is making per hour, from the
+      // one canonical definition. `unclocked` is the pay from jobs that were
+      // completed but never clocked — dollars on top with no hours underneath,
+      // which overstates the rate. Reported so the screen can say so instead of
+      // printing a confident number built on a data gap.
+      const unclockedPay = round2(jobRows.reduce((s, j) => s + (j.hrs_worked > 0 ? 0 : j.commission), 0));
+      const earnedRate = hourlyRate({
+        commission: totalCommission,
+        additionalByType: addlByType,
+        hoursWorked: totalHrsWorked,
+        unclockedPay,
+      });
 
       result.push({
         user_id: uid,
@@ -1275,7 +1287,18 @@ router.get("/detail", requireAuth, async (req, res) => {
           hrs_scheduled: round2(totalHrsScheduled),
           hrs_worked: round2(totalHrsWorked),
           mileage: round2(mileageByUser.get(uid) || 0),
-          effective_rate: totalHrsWorked > 0 ? round2(totalCommission / totalHrsWorked) : null,
+          // Commission-only rate. Kept under its existing name (the tech
+          // earnings panel reads it) but now produced by the canonical helper
+          // so it can't drift from `earned_rate` below.
+          effective_rate: hourlyRate({
+            commission: totalCommission, hoursWorked: totalHrsWorked, basis: "commission",
+          }).rate,
+          // [hourly-rate 2026-08-15] The take-home answer to "what is this
+          // person making per hour": commission + tips + bonuses ÷ clocked
+          // hours. Mileage (reimbursement) and time-off pay (hours not worked)
+          // are excluded by the shared definition, and the object carries its
+          // own numerator + hours so every surface can show its inputs.
+          earned_rate: earnedRate,
           quality_avg: qualityAvg,
           quality_count: scoredJobs.length,
           grand_total: round2(grandTotal),
@@ -1338,6 +1361,9 @@ router.get("/detail", requireAuth, async (req, res) => {
           hrs_worked: 0,
           mileage,
           effective_rate: null,
+          // No completed+clocked job in this window, so there is no rate to
+          // report — an explicit "we don't know", not $0.00/hr.
+          earned_rate: hourlyRate({ commission: 0, additionalByType: addlByType, hoursWorked: 0 }),
           quality_avg: null,
           quality_count: 0,
           grand_total: round2(grandTotal),

@@ -27,7 +27,8 @@ import assert from "node:assert/strict";
 import {
   round2, totalPay, addPay, sumPay, splitAdditionalPay, makeRevenue, addRevenue,
   laborRatio, unattributedPct, isUnattributedMaterial, hasMeaningfulPriorYear,
-  MILEAGE_PAY_TYPES, MATERIAL_UNATTRIBUTED_PCT, EMPTY_PAY, EMPTY_REVENUE,
+  hourlyRate, MILEAGE_PAY_TYPES, TIME_OFF_PAY_TYPES,
+  MATERIAL_UNATTRIBUTED_PCT, EMPTY_PAY, EMPTY_REVENUE,
   type PayComponents,
 } from "@workspace/payroll-metrics";
 
@@ -186,4 +187,72 @@ test("the YoY overlay ignores stray backdated rows", () => {
   assert.equal(hasMeaningfulPriorYear(Array.from({ length: 26 }, (_, i) => ({ prior_revenue: i < 13 ? 100 : 0 }))), true);
   assert.equal(hasMeaningfulPriorYear(Array.from({ length: 26 }, (_, i) => ({ prior_revenue: i < 12 ? 100 : 0 }))), false);
   assert.equal(hasMeaningfulPriorYear([]), false);
+});
+
+// ── F. What someone is making per hour ───────────────────────────────────────
+
+test("$/hr excludes mileage reimbursement and time-off pay", () => {
+  // A week with holiday pay and approved mileage in it. Gross ÷ hours — what
+  // the Summary tab used to print — reads $37.50/hr on 20 clocked hours. Only
+  // $560 of that $750 was earned by working, so the honest rate is $28.00.
+  const r = hourlyRate({
+    commission: 500,
+    additionalByType: { tips: 60, holiday_pay: 150, mileage_reimbursement: 40 },
+    hoursWorked: 20,
+  });
+  assert.equal(r.numerator, 560);
+  assert.equal(r.rate, 28);
+  assert.equal(r.basis, "earned");
+
+  // The naive figure this replaced, kept explicit so the gap can't be called a
+  // rounding difference later.
+  const gross = 500 + 60 + 150 + 40;
+  assert.equal(round2(gross / 20), 37.5);
+});
+
+test("the commission basis is commission alone", () => {
+  const r = hourlyRate({
+    commission: 500,
+    additionalByType: { tips: 60, holiday_pay: 150 },
+    hoursWorked: 20,
+    basis: "commission",
+  });
+  assert.equal(r.numerator, 500);
+  assert.equal(r.rate, 25);
+});
+
+test("no clocked hours reports null, never $0.00/hr", () => {
+  // A holiday-only week: real money, no hours. $0.00/hr would read as "she
+  // earned nothing an hour"; the truth is that there is no rate to state.
+  const r = hourlyRate({ commission: 0, additionalByType: { holiday_pay: 150 }, hoursWorked: 0 });
+  assert.equal(r.rate, null);
+  assert.equal(r.hours, 0);
+});
+
+test("pay from unclocked jobs is reported, not silently absorbed", () => {
+  // Three jobs, one never clocked. Its $200 lands in the numerator with no
+  // hours under it, so the printed rate is high by construction. The office
+  // needs to see that it is looking at a missing clock-in, not a fast tech.
+  const r = hourlyRate({ commission: 600, hoursWorked: 12, unclockedPay: 200 });
+  assert.equal(r.rate, 50);
+  assert.ok(r.unclocked_pay > 0, "unclocked pay must survive to the UI");
+  assert.equal(r.unclocked_pay, 200);
+
+  // With every job clocked, nothing to flag.
+  assert.equal(hourlyRate({ commission: 600, hoursWorked: 12 }).unclocked_pay, 0);
+});
+
+test("a rate always carries the numerator and hours it used", () => {
+  // Same property C asserts for labor ratios: a bare "$28.00/hr" is not
+  // checkable, and unreconcilable numbers are what caused this work.
+  const r = hourlyRate({ commission: 480.55, additionalByType: { tips: 25 }, hoursWorked: 18.25 });
+  assert.equal(r.numerator, 505.55);
+  assert.equal(r.hours, 18.25);
+  assert.equal(r.rate, round2(505.55 / 18.25));
+});
+
+test("time-off and mileage type lists do not overlap", () => {
+  // Both lists filter the same map. An overlap would mean a type's exclusion
+  // depended on which list was consulted first.
+  for (const t of TIME_OFF_PAY_TYPES) assert.ok(!MILEAGE_PAY_TYPES.includes(t), `${t} in both lists`);
 });
