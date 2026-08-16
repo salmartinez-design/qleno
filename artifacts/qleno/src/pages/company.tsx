@@ -15,9 +15,10 @@ import { EasyMessageEditor } from "@/components/easy-message-editor";
 import { MessagePreview } from "@/components/message-preview";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
+import { AiAccessTab } from "./company/ai-access";
 import { setCompanyTimeZone } from "@/lib/company-tz";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'office-alerts' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
+type Tab = 'general' | 'branding' | 'integrations' | 'ai-access' | 'payroll' | 'notifications' | 'office-alerts' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
 
 // [settings-nav 2026-05-26] Grouped sidebar replaces the 14-tab flat strip.
 // Groups reflect how the day actually flows: Business (identity), Pricing &
@@ -64,6 +65,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
     label: 'Integrations',
     tabs: [
       { id: 'integrations', label: 'Integrations' },
+      { id: 'ai-access', label: 'AI & API Access' },
     ],
   },
 ];
@@ -137,6 +139,7 @@ export default function CompanyPage() {
             {activeTab === 'clock-inout' && <ClockInOutTab />}
             {activeTab === 'invoicing' && <InvoicingTab />}
             {activeTab === 'integrations' && <IntegrationsTab />}
+            {activeTab === 'ai-access' && <AiAccessTab />}
             {activeTab === 'payroll' && <PayrollOptionsTab />}
             {activeTab === 'pricing' && <PricingTab />}
             {activeTab === 'addons' && <AddonsTab />}
