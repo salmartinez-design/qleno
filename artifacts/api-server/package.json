@@ -24,7 +24,9 @@
     "test:zip": "tsx --test src/tests/zip.test.ts",
     "test:portal-auth": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-auth.test.ts",
     "test:portal-google": "tsx --test src/tests/portal-google.test.ts",
-    "test:portal-view-as": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-view-as.test.ts"
+    "test:portal-view-as": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/portal-view-as.test.ts",
+    "test:v1-isolation": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/v1-tenant-isolation.test.ts",
+    "test:v1-ceiling": "tsx --test src/tests/api-company-ceiling.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
