@@ -90,6 +90,52 @@ router.get("/status", async (req, res) => {
   });
 });
 
+/**
+ * The company-wide on/off switch.
+ *
+ * Deliberately asymmetric: turning access ON requires the qualifying plan,
+ * turning it OFF never does. This is the switch an owner reaches for when a
+ * laptop goes missing and they cannot remember which key was on it — gating
+ * that behind a plan check, a support ticket, or anything else that takes
+ * minutes would make the one control that has to work in an emergency the one
+ * that doesn't. Every key stops on its next request; nothing is deleted, so
+ * flipping it back on restores exactly what was there.
+ */
+router.put("/access", gateMinters, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  if (!companyId) { res.status(400).json({ error: "No company context" }); return; }
+  if (typeof req.body?.enabled !== "boolean") {
+    res.status(400).json({ error: "enabled must be true or false" });
+    return;
+  }
+  const enabled: boolean = req.body.enabled;
+
+  const [co] = await db
+    .select({ plan: companiesTable.plan, enabled: companiesTable.api_access_enabled })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, companyId))
+    .limit(1);
+  if (!co) { res.status(404).json({ error: "Company not found" }); return; }
+
+  if (enabled && co.plan !== "enterprise") {
+    res.status(403).json({
+      error: "plan_required",
+      message: "AI and API access is a Pro plan feature. Turning it off is always available.",
+    });
+    return;
+  }
+
+  await db
+    .update(companiesTable)
+    .set({ api_access_enabled: enabled })
+    .where(eq(companiesTable.id, companyId));
+
+  await logAudit(req, enabled ? "api_access_enabled" : "api_access_disabled", "company", companyId,
+    { api_access_enabled: !!co.enabled }, { api_access_enabled: enabled });
+
+  res.json({ enabled });
+});
+
 router.get("/", gateMinters, async (req, res) => {
   const companyId = req.auth!.companyId;
   if (!companyId) { res.status(400).json({ error: "No company context" }); return; }
