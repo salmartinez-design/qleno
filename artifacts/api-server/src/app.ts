@@ -71,7 +71,37 @@ const authLimiter = rateLimit({
   validate: { keyGeneratorIpFallback: false },
 });
 
+// [ai-access 2026-08-15] Both generators identify the caller by base64-decoding
+// a JWT payload. An API key is NOT a JWT — it has no dots and no payload — so
+// before this fix every keyed request fell through to req.ip. Consequence: all
+// API traffic from one egress IP (a hosted assistant, a Zapier worker, an
+// office NAT) shared a single 300/min bucket, so one busy integration throttled
+// unrelated tenants, and a per-key limit was impossible to express.
+//
+// Keys are resolved from the token PREFIX here rather than from req.apiKey,
+// because rate limiting runs before authentication — deliberately, so an
+// invalid key can't cost a database round-trip per request. The key_id half is
+// public and unforgeable-in-practice for limiting purposes: a caller can only
+// starve a bucket they can already name, i.e. their own.
+const apiKeyBucket = (req: Request, scope: "user" | "company"): string | null => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.substring(7);
+  if (!token.startsWith("qlno_")) return null;
+  // qlno_live_<key_id>_<secret> — take the key_id, never the secret.
+  const parts = token.split("_");
+  const keyId = parts[2];
+  if (!keyId) return "apikey_unparsed";
+  // Company-scoped limits can't be resolved without a DB read, so a key falls
+  // back to its own bucket there. It is still per-KEY rather than per-IP, which
+  // is the bug being fixed; a true per-company API ceiling belongs on the
+  // /api/v1 router where the key is already resolved.
+  return scope === "company" ? `apikey_co_${keyId}` : `apikey_${keyId}`;
+};
+
 const userKeyGenerator = (req: Request): string => {
+  const fromKey = apiKeyBucket(req, "user");
+  if (fromKey) return fromKey;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     try {
@@ -84,6 +114,8 @@ const userKeyGenerator = (req: Request): string => {
 };
 
 const companyKeyGenerator = (req: Request): string => {
+  const fromKey = apiKeyBucket(req, "company");
+  if (fromKey) return fromKey;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     try {

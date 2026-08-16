@@ -1173,6 +1173,19 @@ async function runStartupMigrations() {
       err,
     );
   }
+  // [ai-access 2026-08-15] api_keys + api_request_log + companies.api_access_enabled.
+  // Creates empty tables and an OFF-by-default switch, so a failure here cannot
+  // affect any existing behavior — but it is still recorded, not swallowed. An
+  // API-key table that silently failed to create would surface later as
+  // "invalid API key" on a key that was never actually storable.
+  try {
+    await withBootTimeout("ensureApiKeysSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureApiKeysSchema } = await import("./lib/api-keys-migrate.js");
+      await ensureApiKeysSchema();
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureApiKeysSchema", err);
+  }
 }
 
 // [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration

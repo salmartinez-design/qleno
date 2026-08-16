@@ -90,6 +90,7 @@ import publicRouter from "./public.js";
 import appointmentRouter from "./appointment.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
 import squareRouter from "./square.js";
+import apiKeysRouter from "./api-keys.js";
 import bundlesRouter from "./bundles.js";
 import followUpRouter from "./follow-up.js";
 import leadsRouter from "./leads.js";
@@ -250,6 +251,11 @@ router.use("/integrations/quickbooks", quickbooksRouter);
 // [square 2026-07-22] Customer map + payment reconciliation queues. The raw-body
 // webhook at /api/square/webhook is mounted separately in app.ts, before json().
 router.use("/square", squareRouter);
+// [ai-access 2026-08-15] Tenant-facing management of their own API keys
+// (Settings → AI & API Access). Session-authenticated and owner/admin only —
+// an API key cannot reach these routes, so a credential can never mint another
+// credential or widen its own scopes. Design: docs/AI_ACCESS_DESIGN.md.
+router.use("/api-keys", apiKeysRouter);
 router.use("/follow-up", followUpRouter);
 router.use("/leads", leadsRouter);
 router.use("/referral-partners", referralPartnersRouter);
