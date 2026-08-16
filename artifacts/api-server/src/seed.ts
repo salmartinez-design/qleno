@@ -138,12 +138,83 @@ async function cleanupDemoData(companyId: number) {
   console.log(`[seed] Demo cleanup done — removed: ${d.emps} employees, ${d.clients} clients, ${d.jobs} jobs, ${d.inv} invoices, ${d.sc} scorecards, ${d.tc} clock entries, ${d.ct} contact tickets`);
 }
 
-// TODO(post-rename): Update super-admin credentials to admin@qleno.com.
-// Requires DB migration to update existing prod row. Carved out of the
-// cleanops→qleno rename to avoid locking out the existing super admin.
-const SUPER_ADMINS = [
-  { email: "admin@cleanopspro.com", password: "AdminCleanOps2026!", first_name: "Admin", last_name: "CleanOps" },
-];
+// ── Super admin ───────────────────────────────────────────────────────────────
+// [super-admin-credentials 2026-08-15] This block used to hold a hardcoded email
+// and plaintext password, and the apply loop below used to re-hash and re-write
+// that password on EVERY boot. Three facts made that combination serious rather
+// than untidy: the repo is public, so the password was published; the account is
+// role 'super_admin' with company_id NULL, so it is above the company scoping
+// every other query in the codebase respects; and because the boot path rewrote
+// it unconditionally, rotating the password by hand was silently undone by the
+// next deploy. Production logs confirmed it running ("[seed] Super admin
+// ensured: …" on every container start).
+//
+// The credential now comes from the environment and is NEVER written to an
+// account that already exists. Consequences worth knowing:
+//   - With SUPER_ADMIN_PASSWORD unset, this block creates nothing. That is the
+//     intended default: a missing env var must not silently mint a cross-tenant
+//     account, and it cannot fall back to a shared constant without recreating
+//     exactly the problem above.
+//   - A rotated password now STAYS rotated. Recovering a lost one means setting
+//     SUPER_ADMIN_PASSWORD and running the documented reset, not redeploying.
+const LEGACY_SUPER_ADMIN_EMAIL = "admin@cleanopspro.com";
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "admin@qleno.com").trim().toLowerCase();
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
+
+/**
+ * Move the pre-rename super admin onto the current address, create the account
+ * when the environment supplies a password, and never touch an existing one.
+ *
+ * The rename is an UPDATE rather than a create-and-delete so the row keeps its
+ * id: audit_log, app_audit_log and every other actor reference point at that id,
+ * and a new row would orphan all of it while leaving a second cross-tenant
+ * account behind.
+ */
+async function ensureSuperAdmin() {
+  const [legacy] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(eq(usersTable.email, LEGACY_SUPER_ADMIN_EMAIL)).limit(1);
+  const [current] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(eq(usersTable.email, SUPER_ADMIN_EMAIL)).limit(1);
+
+  if (legacy && !current) {
+    await db.update(usersTable)
+      .set({ email: SUPER_ADMIN_EMAIL, first_name: "Admin", last_name: "Qleno" })
+      .where(eq(usersTable.id, legacy.id));
+    console.log(`[seed] Super admin renamed to ${SUPER_ADMIN_EMAIL} (id ${legacy.id}) — password unchanged, rotate it`);
+    return;
+  }
+
+  // Both rows exist: the rename already ran and something recreated the old
+  // address. Deactivated rather than deleted — a live account on a published
+  // password is the actual hazard, and deleting a super_admin outright is not a
+  // thing a boot path should do unprompted.
+  if (legacy && current) {
+    await db.update(usersTable).set({ is_active: false }).where(eq(usersTable.id, legacy.id));
+    console.warn(`[seed] Legacy super admin ${LEGACY_SUPER_ADMIN_EMAIL} deactivated — ${SUPER_ADMIN_EMAIL} is the live account`);
+    return;
+  }
+
+  if (current) return; // Never rewrite an existing account's password.
+
+  if (!SUPER_ADMIN_PASSWORD) {
+    console.warn(
+      `[seed] No super admin present and SUPER_ADMIN_PASSWORD is unset — none created. ` +
+        `Set SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD in the environment to provision one.`,
+    );
+    return;
+  }
+
+  await db.insert(usersTable).values({
+    company_id: null as any,
+    email: SUPER_ADMIN_EMAIL,
+    password_hash: await bcrypt.hash(SUPER_ADMIN_PASSWORD, 12),
+    role: "super_admin",
+    first_name: "Admin",
+    last_name: "Qleno",
+    is_active: true,
+  });
+  console.log(`[seed] Super admin created: ${SUPER_ADMIN_EMAIL}`);
+}
 
 export async function seedIfNeeded() {
   try {
@@ -162,34 +233,8 @@ export async function seedIfNeeded() {
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_zone BOOLEAN NOT NULL DEFAULT true`);
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_available_techs BOOLEAN NOT NULL DEFAULT true`);
 
-    // ── Super admin accounts ────────────────────────────────────────────────
-    for (const sa of SUPER_ADMINS) {
-      const hash = await bcrypt.hash(sa.password, 12);
-      const existing = await db
-        .select({ id: usersTable.id })
-        .from(usersTable)
-        .where(eq(usersTable.email, sa.email))
-        .limit(1);
-
-      if (existing.length === 0) {
-        await db.insert(usersTable).values({
-          company_id: null as any,
-          email: sa.email,
-          password_hash: hash,
-          role: "super_admin",
-          first_name: sa.first_name,
-          last_name: sa.last_name,
-          is_active: true,
-        });
-        console.log(`[seed] Super admin created: ${sa.email}`);
-      } else {
-        await db
-          .update(usersTable)
-          .set({ password_hash: hash, is_active: true })
-          .where(eq(usersTable.email, sa.email));
-        console.log(`[seed] Super admin ensured: ${sa.email}`);
-      }
-    }
+    // ── Super admin account ─────────────────────────────────────────────────
+    await ensureSuperAdmin();
 
     // ── Phes ────────────────────────────────────────────────────────────────
     const existingCompany = await db

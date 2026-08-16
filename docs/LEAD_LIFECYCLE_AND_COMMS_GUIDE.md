@@ -44,7 +44,7 @@ Two systems fire on `POST /api/quotes/:id/send`:
 - **Email** — subject `Your quote from {{company_name}} — #{{quote_number}}`
   Body: `Hi {{first_name}}, your quote #{{quote_number}} from {{company_name}} is ready — ${{quote_total}} estimated. Review: {{quote_link}} or call {{company_phone}} to book.`
 - **SMS** — same copy.
-- ⚠️ `{{quote_link}}` = `https://clean-ops-pro.replit.app/quote/<id>` → **404** (wrong domain + nonexistent path). SMS goes from the **global** Twilio number, not the tenant's. See Section D.
+- ⚠️ `{{quote_link}}` = `https://<retired-replit-domain>/quote/<id>` → **404** (wrong domain + nonexistent path). SMS goes from the **global** Twilio number, not the tenant's. See Section D.
 
 **(ii) 7-touch quote follow-up cadence** (enrolled on send; processed by the cron / `send-one`). Full content below.
 
@@ -139,9 +139,9 @@ swaps `{{quote_link}}` for the corrected `app.qleno.com/estimate/{{sign_token}}`
 ## D. Deployment Spec (to ship AFTER approval — not yet built)
 
 ### D1. Corrected customer-facing links
-- **Single source of truth:** standardize on `process.env.APP_BASE_URL` (default `https://app.qleno.com`). Retire the hardcoded `clean-ops-pro.replit.app` strings and the buggy `getAppBaseUrl()` (operator-precedence bug returns the Replit domain even when `APP_URL` is set).
+- **Single source of truth:** standardize on `process.env.APP_BASE_URL` (default `https://app.qleno.com`). Retire the hardcoded retired-Replit-domain strings and the buggy `getAppBaseUrl()` (operator-precedence bug returns the Replit domain even when `APP_URL` is set).
 - **Quote link target:** the public, unauthenticated estimate page — `https://app.qleno.com/estimate/{{sign_token}}` (route `/estimate/:token` → `EstimatePublicPage`). Requires populating `quotes.sign_token` on send (the column exists; confirm it's set, else generate on `/send`).
-- **Invoice/pay link:** `https://app.qleno.com/pay/{{pay_token}}` (route `/pay/:token` takes a **token**, not the invoice id — current `clean-ops-pro/pay/<invoiceId>` is wrong twice over).
+- **Invoice/pay link:** `https://app.qleno.com/pay/{{pay_token}}` (route `/pay/:token` takes a **token**, not the invoice id — current `<retired-replit-domain>/pay/<invoiceId>` is wrong twice over).
 - Call sites to fix: `routes/quotes.ts:311`, `routes/invoices.ts:447,503`, `routes/payment-links.ts:14`.
 
 ### D2. Per-tenant SMS from-number (all paths)

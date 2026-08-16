@@ -18,19 +18,38 @@ declare global {
   }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "cleanops-secret-key-change-in-production";
+// [jwt-secret 2026-08-15] The fallback used to be a fixed string committed to a
+// public repo, behind a console.warn. A warning is the wrong control here: the
+// signing secret IS the authentication system, so anyone reading the repo could
+// mint a token for any role in any company, and a line in the boot log is not
+// something anyone reads on a healthy deploy. Production is now refused outright
+// rather than served insecurely.
+//
+// The dev fallback stays fixed on purpose — a per-process random secret would
+// invalidate every token on each restart, which reads as a login bug and trains
+// people to ignore it. It is safe only because production can never reach it.
+const IS_PRODUCTION = process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT === "production";
+const DEV_ONLY_JWT_SECRET = "qleno-local-dev-only-never-valid-in-production";
 
-// Loud boot warning when JWT_SECRET is unset. Running on the fallback default
-// is the single most common cause of "login works, then instantly logs out":
-// if JWT_SECRET is later set (or differs across replicas / mid-rollout), every
-// token signed under one secret fails verification under the other, so /me
-// 401s on a token login just issued. Surfacing this at boot makes the root
-// cause visible instead of silently shipping on the shared default.
+if (!process.env.JWT_SECRET && IS_PRODUCTION) {
+  throw new Error(
+    "[auth] FATAL: JWT_SECRET is not set. Refusing to start in production — " +
+      "without it the server would sign sessions with a publicly-known development key, " +
+      "letting anyone forge a token for any role in any company. " +
+      "Set a single stable JWT_SECRET in the environment, identical across all replicas.",
+  );
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || DEV_ONLY_JWT_SECRET;
+
+// Outside production an unset secret is merely inconvenient, but it is still the
+// most common cause of "login works, then instantly logs out": tokens signed
+// under one secret fail verification under another, so /me 401s on a session
+// just issued.
 if (!process.env.JWT_SECRET) {
   console.warn(
-    "[auth] WARNING: JWT_SECRET is not set — using the insecure built-in default. " +
-      "Set a single stable JWT_SECRET in the environment (identical across all replicas) " +
-      "to avoid token-verification failures and login-loop logouts.",
+    "[auth] WARNING: JWT_SECRET is not set — using the local development key. " +
+      "This is refused in production. Set a stable JWT_SECRET to avoid login-loop logouts.",
   );
 }
 
