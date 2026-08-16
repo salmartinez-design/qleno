@@ -91,6 +91,7 @@ import appointmentRouter from "./appointment.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
 import squareRouter from "./square.js";
 import apiKeysRouter from "./api-keys.js";
+import v1Router from "./v1/index.js";
 import bundlesRouter from "./bundles.js";
 import followUpRouter from "./follow-up.js";
 import leadsRouter from "./leads.js";
@@ -256,6 +257,13 @@ router.use("/square", squareRouter);
 // an API key cannot reach these routes, so a credential can never mint another
 // credential or widen its own scopes. Design: docs/AI_ACCESS_DESIGN.md.
 router.use("/api-keys", apiKeysRouter);
+
+// Qleno Connect — the tenant-facing REST API. Authenticated by API key ONLY;
+// requireAuth rejects qlno_ tokens and requireApiKey rejects login JWTs, so the
+// published surface and the internal one can never be reached with each other's
+// credential. Mounted here rather than at the app so it inherits the same /api
+// prefix: docs/AI_ACCESS_DESIGN.md §3.
+router.use("/v1", v1Router);
 router.use("/follow-up", followUpRouter);
 router.use("/leads", leadsRouter);
 router.use("/referral-partners", referralPartnersRouter);
