@@ -21,7 +21,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Key, Copy, Check, AlertTriangle, X, RefreshCw, Activity, Plus } from "lucide-react";
+import { Key, Copy, Check, AlertTriangle, X, RefreshCw, Activity, Plus, Link2 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -247,7 +247,7 @@ export function AiAccessTab() {
           <div style={{ maxWidth: 620 }}>
             <h2 style={h2}>AI &amp; API Access</h2>
             <p style={sub}>
-              Connect Claude, ChatGPT, or Gemini to your Qleno data and ask questions in plain
+              Connect an AI assistant to your Qleno data and ask questions in plain
               English — who is unassigned tomorrow, what a customer has been billed, how a cleaner
               is tracking against budget. The same key also works as a standard API for
               dashboards and other software.
@@ -350,7 +350,7 @@ export function AiAccessTab() {
 
         {live.length === 0 && (
           <p style={{ ...sub, marginTop: 16 }}>
-            No keys yet. Create one, then paste it into Claude, ChatGPT, or Gemini using the steps below.
+            No keys yet. Create one, then connect it using the steps below.
           </p>
         )}
 
@@ -414,6 +414,8 @@ export function AiAccessTab() {
           </div>
         )}
       </div>
+
+      <ConnectedAppsPanel />
 
       <ConnectPanel />
 
@@ -573,6 +575,101 @@ function CreateKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
+// ── Connected apps ───────────────────────────────────────────────────────────
+
+// [ai-access-oauth 2026-08-16] The other half of the sign-in flow. A tenant who
+// approves a connector on their phone needs one place that answers "what is
+// attached to my business right now, and how do I cut it off" — otherwise the
+// only record of the approval is a screen they tapped once and a token they
+// never see. Disconnect is immediate: tokens are looked up by hash on every
+// request, so revoking here stops the next call, not the next hour's.
+interface GrantRow {
+  id: number;
+  client_name: string;
+  scopes: string[];
+  approved_by: string;
+  approved_by_role: string;
+  created_at: string;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  expires_at: string | null;
+}
+
+function ConnectedAppsPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const q = useQuery<GrantRow[]>({
+    queryKey: ["oauth", "grants"],
+    queryFn: async () => (await apiFetch("/api/oauth/grants")).grants ?? [],
+  });
+
+  const disconnect = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/oauth/grants/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oauth", "grants"] });
+      toast({ title: "Disconnected", description: "It stopped working immediately." });
+    },
+    onError: (e: Error) => toast({ title: "Could not disconnect", description: e.message, variant: "destructive" }),
+  });
+
+  const rows = q.data ?? [];
+
+  return (
+    <div style={card}>
+      <h2 style={h2}>Connected apps</h2>
+      <p style={sub}>
+        Chat apps someone signed in and approved. Each one reads as the person who approved it,
+        and only what they could already see.
+      </p>
+
+      {q.isLoading && <p style={{ ...sub, marginTop: 14 }}>Loading…</p>}
+
+      {!q.isLoading && rows.length === 0 && (
+        <p style={{ ...sub, marginTop: 14 }}>
+          Nothing connected yet. Paste the MCP address below into Claude, ChatGPT, Gemini, or Grok
+          and approve the request — no key needed.
+        </p>
+      )}
+
+      {rows.map((g) => (
+        <div key={g.id} style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5E2DC" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Link2 size={14} color="#6B6860" />
+                <span style={{ fontSize: 13.5, fontWeight: 600, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  {g.client_name}
+                </span>
+              </div>
+              <div style={{ ...sub, marginTop: 6 }}>
+                Approved by {g.approved_by || "an unnamed user"} · Connected {when(g.created_at)} · Last used {when(g.last_used_at)}
+                {g.last_used_ip ? ` from ${g.last_used_ip}` : ""}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                {g.scopes.map((sc) => (
+                  <span key={sc} style={{ fontSize: 11, fontWeight: 600, color: "#0F7A63", background: "#EAF9F4", border: "1px solid #CBEDE3", borderRadius: 6, padding: "3px 8px", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    {SCOPE_COPY[sc]?.label ?? sc}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Disconnect ${g.client_name}? It stops reading your data immediately. Whoever uses it will have to connect and approve again.`)) disconnect.mutate(g.id);
+              }}
+              style={{ ...btnSecondary, borderColor: "#E6C9C4", color: "#8C2F22" }}
+            >
+              Disconnect
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Connect ──────────────────────────────────────────────────────────────────
 
 function ConnectPanel() {
@@ -583,11 +680,21 @@ function ConnectPanel() {
   return (
     <div style={card}>
       <h2 style={h2}>Connect your assistant</h2>
-      <p style={sub}>The same key works everywhere. Paste it as a bearer token.</p>
+      {/* [ai-access-oauth 2026-08-16] Two ways in, and the difference matters to
+          the person reading this. The chat apps sign in — they never see a key,
+          and what they get is approved on a Qleno screen and revoked from the
+          list above. Developer tools paste a key. Describing both as "paste the
+          key" was the old copy, and it sent tenants into a connector dialog
+          that has no field to paste it into. */}
+      <p style={sub}>
+        Chat apps — Claude, ChatGPT, Gemini, Grok — connect by signing in to Qleno. Paste the
+        MCP address into the app and approve the request; no key changes hands. Developer tools
+        use the same address with a key as a bearer token.
+      </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
         {[
-          { label: "For AI assistants (MCP)", url: mcpUrl, note: "Claude, ChatGPT, Gemini" },
+          { label: "For AI assistants (MCP)", url: mcpUrl, note: "Chat apps and command-line tools" },
           { label: "For software and dashboards (REST)", url: restUrl, note: "Standard JSON over HTTPS" },
         ].map((row) => (
           <div key={row.url} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px" }}>
@@ -601,11 +708,30 @@ function ConnectPanel() {
         ))}
       </div>
 
-      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
+      {/* Chat apps first — they are what most people mean by "connect my AI",
+          and they need no key at all. Every one of these dialogs asks only for
+          the address; the sign-in and the approval happen after. */}
+      <span style={{ ...label, marginTop: 20 }}>Chat apps — sign in, no key</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
         {[
-          { name: "Claude", steps: "Settings → Connectors → Add custom connector. Paste the MCP address, set the key as a bearer token, then enable it in a chat." },
-          { name: "ChatGPT", steps: "Settings → Connectors → Create. Choose an MCP server, paste the MCP address, set the key as a bearer token." },
-          { name: "Gemini", steps: "Add the MCP address and key to the mcpServers block in your Gemini CLI settings file, then run /mcp to confirm the Qleno tools loaded." },
+          { name: "Claude", steps: "Settings → Connectors → Add custom connector. Paste the MCP address, then approve the request on the Qleno screen. Works the same on the phone app, the desktop app, and claude.ai." },
+          { name: "ChatGPT", steps: "Settings → Connectors → Create. Paste the MCP address and choose OAuth when asked how it authenticates, then approve on the Qleno screen." },
+          { name: "Gemini", steps: "Add the MCP address as a custom connector. Gemini registers itself with Qleno, then sends you to the Qleno screen to approve." },
+          { name: "Grok", steps: "Settings → Connectors → Bring your own. Paste the MCP address; Grok follows whatever sign-in the server asks for and lands on the Qleno approval screen." },
+        ].map((a) => (
+          <div key={a.name} style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 12 }}>
+            <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{a.name}</span>
+            <p style={{ ...sub, marginTop: 5 }}>{a.steps}</p>
+          </div>
+        ))}
+      </div>
+
+      <span style={{ ...label, marginTop: 20 }}>Developer tools — use a key</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
+        {[
+          { name: "Claude Code", steps: "Run: claude mcp add --transport http qleno <MCP address> --header \"Authorization: Bearer <your key>\". Then ask it about your schedule." },
+          { name: "Gemini CLI", steps: "Add the MCP address and key to the mcpServers block in your Gemini CLI settings file, then run /mcp to confirm the Qleno tools loaded." },
+          { name: "Any other software", steps: "Use the REST address with the key in an Authorization header. Standard JSON over HTTPS — no MCP client needed." },
         ].map((a) => (
           <div key={a.name} style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 12 }}>
             <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{a.name}</span>
@@ -615,9 +741,8 @@ function ConnectPanel() {
       </div>
 
       <p style={{ ...sub, marginTop: 16 }}>
-        Each assistant moves its own menus around. If the steps have drifted, the three things that
-        matter are unchanged: the address above, that it speaks MCP over HTTP, and the key as a
-        bearer token.
+        Each app moves its own menus around. If the steps have drifted, the two things that
+        matter are unchanged: the address above, and that it speaks MCP over HTTP.
       </p>
     </div>
   );

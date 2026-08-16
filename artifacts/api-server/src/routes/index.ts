@@ -91,6 +91,7 @@ import appointmentRouter from "./appointment.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
 import squareRouter from "./square.js";
 import apiKeysRouter from "./api-keys.js";
+import { oauthAdminRouter } from "./oauth.js";
 import v1Router from "./v1/index.js";
 import mcpRouter from "./mcp.js";
 import bundlesRouter from "./bundles.js";
@@ -258,6 +259,11 @@ router.use("/square", squareRouter);
 // an API key cannot reach these routes, so a credential can never mint another
 // credential or widen its own scopes. Design: docs/AI_ACCESS_DESIGN.md.
 router.use("/api-keys", apiKeysRouter);
+// [ai-access-oauth 2026-08-16] Tenant-facing half of the OAuth flow: the consent
+// screen's data, approve/deny, and the list of connected apps. Login session
+// required — an API key or an access token can NOT reach these, deliberately, so
+// no credential can ever approve another credential or widen its own scopes.
+router.use("/oauth", oauthAdminRouter);
 
 // Qleno Connect — the tenant-facing REST API. Authenticated by API key ONLY;
 // requireAuth rejects qlno_ tokens and requireApiKey rejects login JWTs, so the

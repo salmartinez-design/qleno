@@ -70,8 +70,22 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
   },
 ];
 
+// [ai-access-oauth 2026-08-16] Settings tabs are component state, so until now
+// nothing outside this page could point at one. That mattered the moment the
+// OAuth discovery documents started advertising a documentation URL: a chat app
+// that fails to connect shows the tenant that link, and it has to land on the
+// AI & API Access tab rather than dumping them on Branding to hunt for it.
+// Deep-links are read once on mount and validated against the real tab list, so
+// a stale or hand-edited ?tab= falls back to the normal landing tab.
+const VALID_TABS = new Set<string>(TAB_GROUPS.flatMap(g => g.tabs.map(t => t.id)));
+
+function initialTab(): Tab {
+  const requested = new URLSearchParams(window.location.search).get('tab');
+  return requested && VALID_TABS.has(requested) ? (requested as Tab) : 'branding';
+}
+
 export default function CompanyPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('branding');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const { activeBranchId, activeBranch } = useBranch();
   const isMobile = useIsMobile();
 

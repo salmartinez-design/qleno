@@ -6,6 +6,10 @@ import {
   type ApiScope, type VerifyFailure,
 } from "./api-keys.js";
 import { enforceCompanyCeiling } from "./api-rate-limit.js";
+import {
+  verifyAccessToken, touchGrant, looksLikeAccessToken,
+  type GrantFailure,
+} from "./oauth.js";
 
 // [ai-access 2026-08-15] The front door for Qleno Connect (/api/v1) and Qleno
 // Agent (/mcp). Design: docs/AI_ACCESS_DESIGN.md §2–§3.
@@ -24,10 +28,15 @@ declare global {
   namespace Express {
     interface Request {
       apiKey?: {
+        // The credential's own row id: an api_keys id when credential is "key",
+        // an oauth_grants id when it is "oauth". Kept as one field so every
+        // downstream reader — scope checks, rate limiting, the activity log —
+        // works unchanged for both credential types.
         keyId: number;
         name: string;
         scopes: ApiScope[];
         kind: "rest" | "mcp";
+        credential: "key" | "oauth";
       };
     }
   }
@@ -46,6 +55,43 @@ const FAILURE_RESPONSE: Record<VerifyFailure, { status: number; message: string 
   role_forbidden: { status: 403, message: "This user's role cannot hold an API key" },
   company_disabled: { status: 403, message: "API access is not enabled for this company" },
 };
+
+const GRANT_FAILURE_RESPONSE: Record<GrantFailure, { status: number; message: string }> = {
+  malformed: { status: 401, message: "Malformed access token" },
+  not_found: { status: 401, message: "Invalid access token" },
+  // Expired and revoked BOTH answer 401 rather than 403, and that matters: a
+  // client treats 401 as "re-authenticate" (Claude refreshes on exactly this)
+  // and 403 as "you will never be allowed, stop trying". A 403 on an expired
+  // token is how a working connection turns into a dead one that the tenant has
+  // to notice and reconnect by hand.
+  expired: { status: 401, message: "This access token has expired" },
+  revoked: { status: 401, message: "This connection has been revoked" },
+  user_inactive: { status: 403, message: "The user who approved this connection is no longer active" },
+  role_forbidden: { status: 403, message: "This user's role cannot hold a connection" },
+  company_disabled: { status: 403, message: "AI and API access is not enabled for this company" },
+};
+
+// ── The OAuth challenge ──────────────────────────────────────────────────────
+// [ai-access-oauth 2026-08-16] This header is what makes a chat app offer the
+// tenant a "Connect" button instead of an error. The client calls the MCP
+// address with no token, reads resource_metadata off the 401, follows it to the
+// discovery documents, and runs the flow.
+//
+// TWO THINGS BREAK THIS SILENTLY, both learned the expensive way:
+//   1. The status MUST be 401. The header is ignored on a 200 — and routes/mcp.ts
+//      deliberately answers 200 for JSON-RPC envelope errors, so it is a short
+//      step from here to a server that looks fine and offers no way to connect.
+//   2. The URL in resource_metadata must resolve to a document whose `resource`
+//      field equals the address the tenant typed, exactly. Both are built from
+//      the same request here so they cannot drift apart.
+function challenge(req: Request, res: Response): void {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim();
+  const host = String(req.headers["x-forwarded-host"] || req.get("host") || "app.qleno.com").split(",")[0].trim();
+  res.set(
+    "WWW-Authenticate",
+    `Bearer realm="Qleno", resource_metadata="${proto}://${host}/.well-known/oauth-protected-resource"`,
+  );
+}
 
 // ── Internal in-process dispatch ─────────────────────────────────────────────
 // The MCP server answers its tools by calling the v1 router directly rather than
@@ -106,7 +152,70 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
     const raw = header?.startsWith("Bearer ") ? header.substring(7) : undefined;
 
     if (!raw) {
-      res.status(401).json({ error: "unauthorized", message: "Provide an API key as: Authorization: Bearer qlno_live_…" });
+      challenge(req, res);
+      res.status(401).json({
+        error: "unauthorized",
+        message: "Provide an API key as: Authorization: Bearer qlno_live_… — or connect this app with your Qleno sign-in.",
+      });
+      return;
+    }
+
+    // ── OAuth access token ───────────────────────────────────────────────────
+    // The chat apps and phones arrive here. Everything below resolves into the
+    // SAME req.auth / req.apiKey shape an API key produces, so no handler,
+    // scope check, rate limit, or log line downstream knows or cares which
+    // credential type it is looking at.
+    if (looksLikeAccessToken(raw)) {
+      let g;
+      try {
+        g = await verifyAccessToken(raw);
+      } catch (err) {
+        console.error("[api-auth] grant verify failed", err);
+        res.status(503).json({ error: "unavailable", message: "Could not verify credentials" });
+        return;
+      }
+
+      if (!g.ok) {
+        const { status, message } = GRANT_FAILURE_RESPONSE[g.reason];
+        // A 401 must carry the challenge so the client knows to re-run the
+        // flow rather than surfacing a dead connector to the tenant. Claude
+        // refreshes reactively on exactly this signal.
+        if (status === 401) challenge(req, res);
+        res.status(status).json({ error: status === 401 ? "unauthorized" : "forbidden", message });
+        return;
+      }
+
+      const grant = g.grant;
+      const shortG = scopes.filter((s) => !grant.scopes.includes(s));
+      if (shortG.length > 0) {
+        res.status(403).json({
+          error: "insufficient_scope",
+          message: `This connection is missing the ${shortG.join(", ")} scope.`,
+          required: scopes,
+          granted: grant.scopes,
+        });
+        return;
+      }
+
+      req.auth = {
+        userId: grant.userId,
+        companyId: grant.companyId,
+        role: grant.role,
+        email: grant.email,
+        first_name: grant.first_name,
+      };
+      req.apiKey = {
+        keyId: grant.grantId,
+        name: grant.clientName,
+        scopes: grant.scopes,
+        kind,
+        credential: "oauth",
+      };
+
+      if (enforceCompanyCeiling(req, res)) return;
+
+      touchGrant(grant.grantId, req.ip);
+      next();
       return;
     }
 
@@ -114,9 +223,10 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
     // of requireAuth rejecting qlno_ tokens: each front door accepts exactly one
     // credential type, so neither can be reached by accident with the other.
     if (!looksLikeApiKey(raw)) {
+      challenge(req, res);
       res.status(401).json({
         error: "unauthorized",
-        message: "This endpoint requires an API key, not a login session. Create one under Settings → AI & API Access.",
+        message: "This endpoint requires an API key or a connected app, not a login session. See Settings → AI & API Access.",
       });
       return;
     }
@@ -132,6 +242,7 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
 
     if (!result.ok) {
       const { status, message } = FAILURE_RESPONSE[result.reason];
+      if (status === 401) challenge(req, res);
       res.status(status).json({ error: status === 401 ? "unauthorized" : "forbidden", message });
       return;
     }
@@ -159,7 +270,7 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
       email: key.email,
       first_name: key.first_name,
     };
-    req.apiKey = { keyId: key.keyId, name: key.name, scopes: key.scopes, kind };
+    req.apiKey = { keyId: key.keyId, name: key.name, scopes: key.scopes, kind, credential: "key" };
 
     // The tenant-wide ceiling, checked AFTER the identity above is attached and
     // BEFORE any handler runs. The order is deliberate in both directions: the
@@ -201,9 +312,19 @@ export function logApiRequest(kind: "rest" | "mcp") {
         ? String((req as any).mcpToolName ?? "unknown")
         : `${req.baseUrl}${req.route?.path ?? ""}` || req.path;
 
+      // Both credential types log to the SAME table — the tenant should not
+      // have to know which door a call came through to find it in their
+      // activity view. But the id goes in the matching column: api_key_id is a
+      // foreign key to api_keys, so writing a grant id there is a constraint
+      // violation, and the failure would be invisible (this insert is
+      // fire-and-forget) until someone noticed the log had quietly stopped
+      // recording every chat-app call.
+      const isOAuth = key.credential === "oauth";
+
       db.insert(apiRequestLogTable).values({
         company_id: companyId,
-        api_key_id: key.keyId,
+        api_key_id: isOAuth ? null : key.keyId,
+        oauth_grant_id: isOAuth ? key.keyId : null,
         user_id: req.auth?.userId ?? null,
         kind,
         route,

@@ -15,55 +15,90 @@ The assistant reads. In this phase it cannot change anything — not a job, not 
 price, not a message to a customer. Write access is a later, separately gated
 step.
 
+## Two ways in, and the difference matters
+
+**Chat apps sign in.** Claude, ChatGPT, Gemini, and Grok never see a key. You
+paste one address, the app sends you to a Qleno screen, and you approve it while
+signed in as yourself. That is the path for anyone using AI in a chat window —
+including on a phone, where there is no config file to edit.
+
+**Developer tools paste a key.** Command-line tools and anything you write
+yourself use the same address with an API key as a bearer token.
+
+Earlier versions of this page told chat users to paste a key into their
+connector dialog. There is no field to paste it into — that instruction sent
+people to a dead end, and it is why the sign-in path was built.
+
 ## What you need
 
 1. **A Pro plan.** API and AI access is a Pro feature.
-2. **An owner or admin account.** Office users can use a key someone made for
-   them; they cannot create one. Technicians cannot hold one at all.
-3. **An API key**, from Settings → AI & API Access. The key is shown once, at
-   creation. Copy it then; it cannot be retrieved later, only replaced.
-
-A key looks like `qlno_live_XXXXXXXXXXXX_...`. Treat it like a password to your
-whole office: anyone holding it sees everything your role can see.
+2. **An owner, admin, or office account** to approve a connection. Technicians,
+   trainees, and accountants cannot — the approval screen tells them so rather
+   than failing silently.
+3. **Nothing else, for a chat app.** For a developer tool, an API key from
+   Settings → AI & API Access — shown once at creation, replaceable but never
+   retrievable.
 
 ## The connection details
 
 | | |
 |---|---|
-| **Server URL** | `https://workspaceapi-server-production-b9d4.up.railway.app/api/mcp` |
+| **MCP address** | `https://app.qleno.com/api/mcp` |
 | **Transport** | Streamable HTTP |
-| **Authentication** | Bearer token — the API key |
+| **Chat apps** | Sign in and approve — no key |
+| **Developer tools** | Bearer token — the API key |
 
 ---
 
-## Claude
+## Claude — phone, desktop, or claude.ai
 
 1. Open **Settings → Connectors → Add custom connector**.
-2. Name it `Qleno`.
-3. Paste the server URL above.
-4. Under authentication, choose a bearer token and paste your API key.
-5. Save, then enable the connector in a chat.
+2. Name it `Qleno` and paste the MCP address.
+3. Save, then press **Connect**. Claude sends you to Qleno.
+4. Sign in if you are not already, read what the app is asking for, and press
+   **Connect**.
+5. Enable the connector in a chat.
 
-Claude will list the Qleno tools it can use. Ask it something you already know
-the answer to first — today's schedule is a good check.
+The same connector appears on the phone app, the desktop app, and claude.ai —
+approve it once and it is on all three. Ask it something you already know the
+answer to first; today's schedule is a good check.
 
 ## ChatGPT
 
-1. Open **Settings → Connectors → Create** (available on Plus, Pro, Team, and
-   Enterprise; the exact menu name moves around).
-2. Choose an MCP server, paste the URL, and set the bearer token to your API key.
-3. Enable the connector in a conversation.
+1. Open **Settings → Connectors → Create**.
+2. Paste the MCP address, and choose **OAuth** when it asks how the server
+   authenticates. ChatGPT does not accept a pasted key for a custom connector.
+3. Approve on the Qleno screen, then enable the connector in a conversation.
 
 ## Gemini
 
-Gemini reaches MCP servers through Gemini CLI and the extensions/`settings.json`
-mechanism rather than a web settings page. Add to `~/.gemini/settings.json`:
+1. Add the MCP address as a custom connector.
+2. Gemini registers itself with Qleno automatically, then sends you to the Qleno
+   screen to approve.
+
+Gemini CLI is a developer tool and still uses a key — see below.
+
+## Grok
+
+1. Open **Settings → Connectors → Bring your own**.
+2. Paste the MCP address. Grok follows whatever sign-in the server asks for and
+   lands on the same Qleno approval screen.
+
+## Developer tools
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http qleno https://app.qleno.com/api/mcp --header "Authorization: Bearer <your key>"
+```
+
+**Gemini CLI** — add to `~/.gemini/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "qleno": {
-      "httpUrl": "https://workspaceapi-server-production-b9d4.up.railway.app/api/mcp",
+      "httpUrl": "https://app.qleno.com/api/mcp",
       "headers": { "Authorization": "Bearer qlno_live_YOUR_KEY_HERE" }
     }
   }
@@ -73,8 +108,8 @@ mechanism rather than a web settings page. Add to `~/.gemini/settings.json`:
 Then run `/mcp` inside Gemini CLI to confirm the Qleno tools loaded.
 
 > Each assistant's own connector UI changes faster than this document. If the
-> steps have drifted, the three facts that matter are unchanged: the URL above,
-> streamable HTTP, and the key as a bearer token.
+> steps have drifted, the facts that matter are unchanged: the address above,
+> streamable HTTP, sign-in for chat apps, and a bearer key for developer tools.
 
 ---
 
@@ -108,13 +143,20 @@ appear at all.
 
 ## Turning it off
 
-Three switches, all immediate — no waiting for a token to expire:
+Four switches, all immediate — no waiting for a token to expire:
 
-- **Revoke the key** (Settings → AI & API Access). That key stops working on its
-  next request; its activity history is kept.
-- **Deactivate the user** the key belongs to. Their keys die with their account.
-- **Turn off API access for the company.** Every key stops at once. This is the
-  switch to use if a laptop goes missing and you are not sure which key was on it.
+- **Disconnect the app** (Settings → AI & API Access → Connected apps). The chat
+  app stops working on its very next question. Its history is kept.
+- **Revoke the key** (same page). That key stops working on its next request;
+  its activity history is kept.
+- **Deactivate the user** who owns it. Their keys and their approved connections
+  die with their account.
+- **Turn off API access for the company.** Everything stops at once — keys and
+  connected apps alike. This is the switch to use if a laptop or phone goes
+  missing and you are not sure what was on it.
+
+The Connected apps list is also the record of who approved what: the app's name,
+the person who approved it, when it was last used, and from what address.
 
 ## Limits
 

@@ -127,6 +127,16 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
   (req as any).mcpToolName = method;
 
   const scopes = req.apiKey?.scopes ?? [];
+  // [ai-access-oauth 2026-08-16] Two credential shapes reach this router now,
+  // and they are fixed in different places. A key's scopes are edited on the
+  // settings page; a chat app's are frozen at the moment the tenant approved
+  // it, so the only way to widen them is to connect the app again and approve
+  // the larger set. Telling a Claude user to "add the scope under Settings"
+  // sends them to a screen with no control that does it.
+  const isChatApp = req.apiKey?.credential === "oauth";
+  const widenScope = isChatApp
+    ? "Disconnect it under Settings → AI & API Access and connect it again, approving that access."
+    : "An owner or admin can add it under Settings → AI & API Access.";
 
   switch (method) {
     // ── Handshake ────────────────────────────────────────────────────────────
@@ -190,7 +200,7 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
 
       const tool = TOOLS_BY_NAME.get(name);
       if (!tool) {
-        rpcError(res, id, INVALID_PARAMS, `No such tool: ${name}. Call tools/list for what this key can use.`, {
+        rpcError(res, id, INVALID_PARAMS, `No such tool: ${name}. Call tools/list for what this ${isChatApp ? "connection" : "key"} can use.`, {
           available: toolsForScopes(scopes).map((t) => t.name),
         });
         return;
@@ -202,8 +212,8 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
       // this is the control.
       if (!scopes.includes(tool.scope)) {
         rpcError(res, id, REQUEST_DENIED,
-          `This key cannot use ${name}: it is missing the ${tool.scope} scope. ` +
-          `An owner or admin can add it under Settings → AI & API Access.`);
+          `${isChatApp ? "This connection" : "This key"} cannot use ${name}: ` +
+          `it is missing the ${tool.scope} scope. ${widenScope}`);
         return;
       }
 
