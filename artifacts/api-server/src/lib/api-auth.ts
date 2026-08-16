@@ -5,6 +5,7 @@ import {
   verifyApiKey, touchApiKey, looksLikeApiKey,
   type ApiScope, type VerifyFailure,
 } from "./api-keys.js";
+import { enforceCompanyCeiling } from "./api-rate-limit.js";
 
 // [ai-access 2026-08-15] The front door for Qleno Connect (/api/v1) and Qleno
 // Agent (/mcp). Design: docs/AI_ACCESS_DESIGN.md §2–§3.
@@ -115,6 +116,14 @@ export function requireApiKey(kind: "rest" | "mcp", ...scopes: ApiScope[]) {
       first_name: key.first_name,
     };
     req.apiKey = { keyId: key.keyId, name: key.name, scopes: key.scopes, kind };
+
+    // The tenant-wide ceiling, checked AFTER the identity above is attached and
+    // BEFORE any handler runs. The order is deliberate in both directions: the
+    // limiter needs the company, which only exists once the key has resolved,
+    // and attaching identity first means a throttled request still lands in the
+    // tenant's own activity log. A 429 that is invisible to the operator being
+    // throttled is the one thing worse than the throttle.
+    if (enforceCompanyCeiling(req, res)) return;
 
     touchApiKey(key.keyId, req.ip);
     next();
