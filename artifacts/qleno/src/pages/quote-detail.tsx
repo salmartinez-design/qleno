@@ -12,6 +12,7 @@ import {
 import { ArrowLeft, Pencil, SendHorizonal, Briefcase, CheckCircle, Trash2, User, MapPin, FileText, ChevronDown, ChevronUp, X, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -179,10 +180,47 @@ export default function QuoteDetailPage() {
     onError: () => toast.error("Failed to mark accepted"),
   });
 
+  // [convert-schedule-prompt 2026-08-17] Convert used to POST an empty body.
+  // The endpoint accepts scheduled_date / scheduled_time / assigned_user_id /
+  // team_user_ids — the quote BUILDER passes all of them, but this page never
+  // did, so the server fell back to `new Date()` with a null time and every
+  // conversion landed today, unassigned, and texted the client automatically.
+  // Maribel: "Right now when we do it schedules it for the same day at 9 am."
+  // Ask for the same things the builder asks for, before converting.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [convDate, setConvDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [convTime, setConvTime] = useState("09:00");
+  const [convTechIds, setConvTechIds] = useState<number[]>([]);
+  const [convNotify, setConvNotify] = useState<"none" | "sms" | "email" | "both">("both");
+
+  const { data: convTechs = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["quote-convert-techs"],
+    queryFn: () => apiFetch("/api/users/techs-with-status").then((r: any) => (Array.isArray(r?.data) ? r.data : [])),
+    staleTime: 5 * 60 * 1000,
+    enabled: scheduleOpen,
+  });
+
   const convertMutation = useMutation({
-    mutationFn: () => apiFetch(`/api/quotes/${id}/convert`, { method: "POST" }),
+    mutationFn: () => apiFetch(`/api/quotes/${id}/convert`, {
+      method: "POST",
+      body: {
+        scheduled_date: convDate || undefined,
+        scheduled_time: convTime || undefined,
+        // Primary = first selected (mirrored onto jobs.assigned_user_id);
+        // team_user_ids carries the full crew so convert writes a
+        // job_technicians row per cleaner. Matches the builder's payload.
+        assigned_user_id: convTechIds[0] || undefined,
+        team_user_ids: convTechIds,
+        notify_client_via: convNotify,
+      },
+    }),
     onSuccess: () => {
-      toast.success("Quote converted. Go to Jobs to complete setup.");
+      setScheduleOpen(false);
+      toast.success(
+        convTechIds.length
+          ? `Job created for ${format(new Date(`${convDate}T00:00:00`), "EEE, MMM d")}.`
+          : `Job created for ${format(new Date(`${convDate}T00:00:00`), "EEE, MMM d")} — still unassigned.`
+      );
       qc.invalidateQueries({ queryKey: ["quote", id] });
       qc.invalidateQueries({ queryKey: ["quotes"] });
       navigate("/jobs");
@@ -233,6 +271,96 @@ export default function QuoteDetailPage() {
   const discountAmt = parseFloat(quote.discount_amount || "0");
 
   // ── Mobile layout ──────────────────────────────────────────────────────────
+  // [convert-schedule-prompt 2026-08-17] Built once and rendered in BOTH the
+  // mobile and desktop branches — the page returns early for mobile, so a modal
+  // declared only in the desktop tree would leave the mobile Convert button
+  // opening nothing.
+  // Schedule & assign before the job is created — the same questions the quote
+  // builder asks on its Review step.
+  const scheduleModal = !scheduleOpen ? null : (
+          <div
+            onClick={() => !convertMutation.isPending && setScheduleOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 80, fontFamily: FF }}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ background: "#FFF", borderRadius: 16, padding: 22, width: "100%", maxWidth: 460, maxHeight: "88vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Schedule this job</span>
+                <button onClick={() => setScheduleOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={16} /></button>
+              </div>
+              <div style={{ fontSize: 12.5, color: "#6B6860", marginBottom: 16 }}>
+                Quote #{quote?.id} · {quote?.client_name || quote?.lead_name || "Client"}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Date</div>
+                  <CalendarPopover value={convDate} onChange={setConvDate} block ariaLabel="Scheduled date" />
+                </div>
+                <div style={{ width: 148 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Start time</div>
+                  <select value={convTime} onChange={e => setConvTime(e.target.value)}
+                    style={{ width: "100%", height: 38, border: "1px solid #E5E2DC", borderRadius: 9, padding: "0 8px", fontSize: 13.5, fontFamily: FF, background: "#FFF", cursor: "pointer", color: "#1A1917" }}>
+                    {["7:00 AM","7:30 AM","8:00 AM","8:30 AM","9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM","12:00 PM","12:30 PM","1:00 PM","1:30 PM","2:00 PM","2:30 PM","3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM"].map(t => {
+                      const [time, ampm] = t.split(" ");
+                      const [h, m] = time.split(":");
+                      const h24 = ampm === "PM" && h !== "12" ? parseInt(h) + 12 : ampm === "AM" && h === "12" ? 0 : parseInt(h);
+                      return <option key={`${h24}:${m}`} value={`${String(h24).padStart(2, "0")}:${m}`}>{t}</option>;
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                  Cleaners <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9E9B94" }}>— optional, can assign later</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {convTechs.length === 0 && <span style={{ fontSize: 12.5, color: "#9E9B94" }}>Loading cleaners…</span>}
+                  {convTechs.map(t => {
+                    const on = convTechIds.includes(t.id);
+                    return (
+                      <button key={t.id}
+                        onClick={() => setConvTechIds(ids => on ? ids.filter(x => x !== t.id) : [...ids, t.id])}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 14, fontSize: 12.5,
+                          fontWeight: on ? 700 : 500, border: on ? "1.5px solid var(--brand)" : "1px solid #E5E2DC",
+                          background: on ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
+                        <span style={{ width: 18, height: 18, borderRadius: "50%", background: on ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{(t.name || "?").charAt(0)}</span>
+                        {t.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {convTechIds.length > 1 && (
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 6 }}>
+                    {convTechs.find(t => t.id === convTechIds[0])?.name} is the primary cleaner.
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Tell the client?</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {([["none", "Don't send"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([v, label]) => (
+                    <button key={v} onClick={() => setConvNotify(v)}
+                      style={{ flex: 1, padding: "8px 6px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF,
+                        border: convNotify === v ? "1.5px solid var(--brand)" : "1px solid #E5E2DC",
+                        background: convNotify === v ? "#EAF9F4" : "#FFF", color: "#1A1917" }}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setScheduleOpen(false)} disabled={convertMutation.isPending}
+                  style={{ padding: "9px 16px", borderRadius: 9, border: "1px solid #E5E2DC", background: "#FFF", color: "#1A1917", fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                <button onClick={() => convertMutation.mutate()} disabled={convertMutation.isPending}
+                  style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: "#1A1917", color: "#FFF", fontSize: 13.5, fontWeight: 700, cursor: convertMutation.isPending ? "default" : "pointer", fontFamily: FF, opacity: convertMutation.isPending ? 0.6 : 1 }}>
+                  {convertMutation.isPending ? "Creating…" : "Create job"}
+                </button>
+              </div>
+            </div>
+          </div>
+  );
+
   if (isMobile) {
     const inpStyle: React.CSSProperties = {
       width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8,
@@ -359,7 +487,7 @@ export default function QuoteDetailPage() {
               )}
               {(quote.status === "accepted" || quote.status === "sent" || quote.status === "viewed") && (
                 <button
-                  onClick={() => convertMutation.mutate()}
+                  onClick={() => setScheduleOpen(true)}
                   disabled={convertMutation.isPending}
                   style={{ width: "100%", height: 52, background: "#FFF", color: "#1A1917", border: "2px solid #1A1917", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
                 >
@@ -513,6 +641,7 @@ export default function QuoteDetailPage() {
             </div>
           </div>
         )}
+        {scheduleModal}
       </DashboardLayout>
     );
   }
@@ -565,7 +694,7 @@ export default function QuoteDetailPage() {
               </Button>
             )}
             {(quote.status === "accepted" || quote.status === "sent" || quote.status === "viewed") && (
-              <Button size="sm" className="gap-1.5 bg-[#1A1917] hover:bg-[#333] text-white" onClick={() => convertMutation.mutate()} disabled={convertMutation.isPending}>
+              <Button size="sm" className="gap-1.5 bg-[#1A1917] hover:bg-[#333] text-white" onClick={() => setScheduleOpen(true)} disabled={convertMutation.isPending}>
                 <Briefcase className="w-3.5 h-3.5" /> Convert to Job
               </Button>
             )}
@@ -712,6 +841,8 @@ export default function QuoteDetailPage() {
             </div>
           </div>
         )}
+
+        {scheduleModal}
       </div>
     </DashboardLayout>
   );
