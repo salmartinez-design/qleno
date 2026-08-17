@@ -276,12 +276,27 @@ function useKpis() {
   return data;
 }
 
+// [dashboard-parity 2026-08-17] `revenue` and `jobs` are nullable now. Months
+// before the MaidCentral cutover come from a month total with no job detail
+// behind it, so `jobs` is null there; a pre-cutover month MaidCentral never
+// handed over comes back with `revenue` null too. Null means "we do not have
+// this figure" and must render as a gap — a zero would read as a month in which
+// the company did no work.
+type RevenueMonth = { month: string; revenue: number | null; jobs: number | null; source?: string };
 function useRevenueChart() {
-  const [data, setData] = useState<{ data: { month: string; revenue: number; jobs: number }[]; prior_year: { month: string; revenue: number }[] }>({ data: [], prior_year: [] });
+  const [data, setData] = useState<{
+    data: RevenueMonth[];
+    prior_year: { month: string; revenue: number | null }[];
+    cutover: string | null;
+    through: string | null;
+  }>({ data: [], prior_year: [], cutover: null, through: null });
   useEffect(() => {
     let alive = true;
     fetchJsonWithRetry('/api/dashboard/revenue-chart').then((json) => {
-      if (alive && json) setData({ data: json.data || [], prior_year: json.prior_year || [] });
+      if (alive && json) setData({
+        data: json.data || [], prior_year: json.prior_year || [],
+        cutover: json.cutover ?? null, through: json.through ?? null,
+      });
     });
     return () => { alive = false; };
   }, []);
@@ -1551,18 +1566,25 @@ export default function Dashboard() {
   ];
   const allIntelDashes = intelligenceValues.every(v => v == null);
 
-  // Merged chart data — align prior_year by month label (already aligned server-side)
+  // Merged chart data — align prior_year by month label (already aligned
+  // server-side). Nulls stay null: Recharts breaks the line at a null point,
+  // which is what a month we have no figure for should look like. Coercing to
+  // 0 would draw the line down to the axis and invent a dead month.
   const chartData = revenueChart.data.map((d, i) => ({
     month: d.month,
     revenue: d.revenue,
-    prior_revenue: revenueChart.prior_year[i]?.revenue ?? 0,
+    prior_revenue: revenueChart.prior_year[i]?.revenue ?? null,
   }));
 
-  // YTD = current calendar year only (months whose label ends in current year)
+  // YTD = current calendar year only (months whose label ends in current year).
+  // Months sourced from MaidCentral count — it is the same company's revenue,
+  // just recorded elsewhere before the July cutover. Months with no figure at
+  // all are skipped rather than added as zero.
   const currentYearSuffix = `'${String(new Date().getFullYear()).slice(2)}`;
-  const ytdTotal = revenueChart.data
-    .filter(r => r.month.endsWith(currentYearSuffix))
-    .reduce((s, r) => s + r.revenue, 0);
+  const ytdMonths = revenueChart.data.filter(r => r.month.endsWith(currentYearSuffix));
+  const ytdTotal = ytdMonths.reduce((s, r) => s + (r.revenue ?? 0), 0);
+  const ytdMissing = ytdMonths.filter(r => r.revenue == null).length;
+  const ytdFromMaidCentral = ytdMonths.some(r => r.source === 'maidcentral');
 
   // Mobile gets the role-based, user-customizable card dashboard. Desktop
   // (below) is unchanged. All hooks above run in both paths, so this early
@@ -1728,7 +1750,7 @@ export default function Dashboard() {
             ) : (
               <>
                 {/* Title + YTD */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                   <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
                     Revenue — Last 12 Months
                   </p>
@@ -1738,6 +1760,20 @@ export default function Dashboard() {
                       : `$${(ytdTotal / 1000).toFixed(1)}k`}
                   </p>
                 </div>
+                {/* Say where the early months came from. The line is one
+                    company's revenue either side of the cutover, but the months
+                    before it are MaidCentral month totals with no job detail —
+                    an operator clicking through to job-level reporting for
+                    those months should know why there is nothing there. */}
+                {(ytdFromMaidCentral || ytdMissing > 0 || revenueChart.through) && (
+                  <p style={{ fontSize: 11, color: '#9E9B94', margin: '0 0 12px', fontFamily: FF }}>
+                    {ytdFromMaidCentral && `Months before ${revenueChart.cutover ? new Date(revenueChart.cutover + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'the cutover'} come from MaidCentral month totals — no job detail behind them.`}
+                    {ytdMissing > 0 && ` ${ytdMissing} month${ytdMissing > 1 ? 's have' : ' has'} no figure on record and ${ytdMissing > 1 ? 'are' : 'is'} left out of the YTD total.`}
+                    {/* The last bar is short because the month is not over, not
+                        because work fell off. Say so. */}
+                    {revenueChart.through && ` This month counts work through ${new Date(revenueChart.through + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`}
+                  </p>
+                )}
                 {/* Legend — above chart canvas */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1768,8 +1804,10 @@ export default function Dashboard() {
                     />
                     <Tooltip
                       contentStyle={{ fontFamily: FF, fontSize: 12, borderRadius: 8, border: '1px solid #E5E2DC', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                      formatter={(value: number, name: string) => [
-                        `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+                      formatter={(value: any, name: string) => [
+                        value == null
+                          ? 'No figure on record'
+                          : `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
                         name === 'revenue' ? 'This year' : 'Prior year',
                       ]}
                       labelStyle={{ fontWeight: 600, color: '#1A1917' }}
