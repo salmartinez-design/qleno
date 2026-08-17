@@ -56,7 +56,21 @@ const SCOPE_LABELS: Record<string, string> = {
 // Listed by what it does, not by what it is called. "jobs:write" is a scope
 // string; "move a visit to a different day" is the thing the owner is actually
 // agreeing to, and it is the only version of the sentence they can refuse.
-const WRITE_SCOPES = ["jobs:write", "clients:write"] as const;
+//
+// Two lists, because they answer different questions. Anything ending in
+// `:write` is a write scope and must never be rendered under "It will be able
+// to read" — that classification is by suffix so a scope added later cannot
+// quietly land on the wrong side of the screen. OFFERED is the shorter list
+// this screen can actually describe in a sentence, and nothing outside it is
+// ever granted: a permission the consent screen did not name is a permission
+// nobody agreed to, whether or not anything is built behind it yet.
+//
+// `invoices:write` is the live example. Claude requests every scope the server
+// advertises, so it arrives on real connections, and before this it was
+// classified as a read scope, displayed to the tenant under "read", and granted
+// without a box. It reaches nothing today. That is luck, not design.
+const isWriteScope = (s: string) => s.endsWith(":write");
+const OFFERED_WRITE_SCOPES = ["jobs:write", "clients:write"] as const;
 
 const WRITE_LABELS: Record<string, { title: string; note: string }> = {
   "jobs:write": {
@@ -124,7 +138,7 @@ export default function OAuthConsentPage() {
         if (!r.ok) throw new Error(body?.message || "Could not load this request");
         setDetails(body);
         setWriteScopes(
-          (body.scopes ?? []).filter((s: string) => (WRITE_SCOPES as readonly string[]).includes(s))
+          (body.scopes ?? []).filter((s: string) => (OFFERED_WRITE_SCOPES as readonly string[]).includes(s))
         );
       })
       .catch((e) => setError(e.message));
@@ -132,9 +146,7 @@ export default function OAuthConsentPage() {
 
   // Split for display and for sending. The read rows and the write rows are
   // different promises and must not be listed together under one heading.
-  const readScopes = (details?.scopes ?? []).filter(
-    (s) => !(WRITE_SCOPES as readonly string[]).includes(s)
-  );
+  const readScopes = (details?.scopes ?? []).filter((s) => !isWriteScope(s));
   const chosenWrites = writeScopes ?? [];
   const grantedScopes = Array.from(new Set([...readScopes, ...chosenWrites]));
 
@@ -262,7 +274,7 @@ export default function OAuthConsentPage() {
             Optional. Every change is recorded under your name in the customer's history and can be
             undone from Settings.
           </span>
-          {WRITE_SCOPES.map((s) => (
+          {OFFERED_WRITE_SCOPES.map((s) => (
             <label
               key={s}
               style={{
