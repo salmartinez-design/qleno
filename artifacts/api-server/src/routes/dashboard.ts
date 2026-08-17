@@ -10,6 +10,7 @@ import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { computeCommissionRows, type CommissionInputJob } from "../lib/commission-compute.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { inIntList } from "../lib/sql-lists.js";
+import { reportingFloor, hasHistoricalRevenue, historicalMonthMap } from "../lib/reporting-floor.js";
 
 const router = Router();
 
@@ -870,70 +871,124 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
   }
 });
 
+// [dashboard-parity 2026-08-17] The front page's 12-month revenue chart — and
+// the YTD figure the page derives from it — used to read `job_history`. That
+// table is not a revenue ledger: its MaidCentral half stops at 2026-04-25, and
+// after that the live bridge only mirrors jobs whose status is 'complete'. So
+// the chart cut April off mid-month, collapsed May 2026 to 8 jobs / $1,535
+// against MaidCentral's real $74,236.42, showed June completes-only, and drew
+// the current month short by everything still scheduled. Measured against co1
+// on 2026-08-17 the twelve months were $125,010.77 light, and the Revenue
+// Summary report — already fixed — disagreed with the front page about the
+// same year.
+//
+// This now applies the report's rule, from the same lib/reporting-floor.ts, so
+// the two screens cannot drift apart again:
+//   • months BEFORE companies.invoice_cutover_date → MaidCentral's month total
+//     (`mc_revenue_history`, revenue_type='actual' only). Those are month
+//     totals with no job detail behind them, so `jobs` comes back NULL and the
+//     chart renders an em-dash — never a zero, which would read as a month
+//     with no work in it.
+//   • the cutover month and after → the live book, non-cancelled, by
+//     scheduled_date, valued the same way the Revenue Summary values it.
+//   • a tenant with no MaidCentral history at all (any company that started on
+//     Qleno) → live jobs for the whole span. The cutover date is not a revenue
+//     boundary for them; their own jobs table is the entire record.
+//   • a pre-cutover month with no MaidCentral row → revenue NULL. Unavailable
+//     is the honest answer; zero is a fabricated one.
 router.get("/revenue-chart", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
 
-    // Build a fixed 12-month label set using month_date as key (YYYY-MM format)
-    // Current year: last 12 months; prior year: same months shifted -1 year
-    const [currentRows, priorRows] = await Promise.all([
+    // The twelve months ending with the current one, oldest first. Built in JS
+    // so the month list is fixed regardless of which months have rows — a month
+    // with nothing in either source still gets a column.
+    const now = new Date();
+    const monthsBack = (n: number) => {
+      const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - n, 1));
+      return { key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`, date: d };
+    };
+    const LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    // Matches the old TO_CHAR(..., 'Mon ''YY') exactly — dashboard.tsx derives
+    // YTD by matching the year suffix on this label, so the format is load-bearing.
+    const label = (d: Date) => `${LABEL[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`;
+
+    const window12 = Array.from({ length: 12 }, (_, i) => monthsBack(11 - i));
+    const priorWindow = Array.from({ length: 12 }, (_, i) => monthsBack(23 - i));
+    const firstKey = priorWindow[0]!.key;          // 24 months back — covers both series
+    const lastKey  = window12[11]!.key;
+
+    // The live half stops at TODAY, in the company's own timezone. The old
+    // chart did this too (`job_date <= NOW()`), and it is what makes the YTD
+    // figure on this page mean "what we have made so far" rather than "what
+    // the rest of the month is booked to bring in". Without the cap co1's
+    // August column reads $64,982.58 booked against $43,211.84 worked, and the
+    // front page stops tying to the Revenue Summary by exactly the difference.
+    // Only the current month is affected — every other month in the window is
+    // already fully in the past.
+    const today = companyTodayStr(companyId);
+
+    const floor = await reportingFloor(companyId);
+    const hasMc = floor ? await hasHistoricalRevenue(companyId) : false;
+    // Only merge MaidCentral when the tenant actually has it. Without it the
+    // cutover date says nothing about revenue and live jobs are the whole story.
+    const mcBoundary = hasMc && floor ? floor.slice(0, 7) : null;
+
+    const [mcMonths, liveRows] = await Promise.all([
+      mcBoundary
+        ? historicalMonthMap(companyId, firstKey, lastKey, floor!)
+        : Promise.resolve(new Map<string, number>()),
       db.execute(sql`
-        SELECT
-          TO_CHAR(DATE_TRUNC('month', job_date), 'Mon ''YY') AS month,
-          TO_CHAR(DATE_TRUNC('month', job_date), 'YYYY-MM') AS month_key,
-          DATE_TRUNC('month', job_date) AS month_date,
-          COALESCE(SUM(revenue), 0)::numeric AS revenue,
-          COUNT(*)::int AS jobs
-        FROM job_history
-        WHERE company_id = ${companyId}
-          AND job_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-          AND job_date <= NOW()
-        GROUP BY DATE_TRUNC('month', job_date)
-        ORDER BY month_date ASC
-      `),
-      // Prior year: historical job_history shifted back 1 year
-      // Key by month_date + 1 year so we can match it to the current month
-      db.execute(sql`
-        SELECT
-          TO_CHAR(DATE_TRUNC('month', job_date) + INTERVAL '1 year', 'YYYY-MM') AS month_key,
-          COALESCE(SUM(revenue), 0)::numeric AS revenue,
-          COUNT(*)::int AS jobs
-        FROM job_history
-        WHERE company_id = ${companyId}
-          AND job_date >= DATE_TRUNC('month', NOW()) - INTERVAL '23 months'
-          AND job_date < DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-        GROUP BY DATE_TRUNC('month', job_date)
-        ORDER BY month_key ASC
+        SELECT to_char(date_trunc('month', j.scheduled_date::date), 'YYYY-MM') AS month_key,
+               COALESCE(SUM(COALESCE(j.billed_amount, j.base_fee)), 0)::numeric AS revenue,
+               COUNT(*)::int AS jobs
+          FROM jobs j
+         WHERE j.company_id = ${companyId}
+           AND j.status <> 'cancelled'
+           AND to_char(date_trunc('month', j.scheduled_date::date), 'YYYY-MM') >= ${firstKey}
+           AND j.scheduled_date <= ${today}
+         GROUP BY 1
       `),
     ]);
 
-    const currentData = currentRows.rows.map((r) => ({
-      month: String(r['month'] ?? ''),
-      month_key: String(r['month_key'] ?? ''),
-      revenue: parseFloat(String(r['revenue'] ?? '0')),
-      jobs: Number(r['jobs'] ?? 0),
+    // Same waterfall the Revenue Summary sums (coalesce(billed_amount,
+    // base_fee)) so the two screens tie month for month. Cancelled work is
+    // excluded from booked revenue, per the reporting rules.
+    const live = new Map<string, { revenue: number; jobs: number }>(
+      (liveRows.rows as any[]).map(r => [
+        String(r.month_key),
+        { revenue: parseFloat(String(r.revenue ?? "0")), jobs: Number(r.jobs ?? 0) },
+      ]),
+    );
+
+    // One month, resolved against whichever source owns it. `null` means we do
+    // not have the figure — the chart shows a gap, not a zero.
+    const resolve = (key: string): { revenue: number | null; jobs: number | null; source: string } => {
+      if (mcBoundary && key < mcBoundary) {
+        const rev = mcMonths.get(key);
+        return { revenue: rev ?? null, jobs: null, source: "maidcentral" };
+      }
+      const l = live.get(key);
+      return { revenue: l?.revenue ?? 0, jobs: l?.jobs ?? 0, source: "qleno" };
+    };
+
+    const data = window12.map(({ key, date }) => ({ month: label(date), ...resolve(key) }));
+    // Prior year aligned onto the current labels, so the two series line up in
+    // the chart even though they are twelve months apart.
+    const priorYear = priorWindow.map(({ key }, i) => ({
+      month: data[i]!.month,
+      revenue: resolve(key).revenue,
     }));
-
-    // Build prior-year lookup by month_key (shifted +1 year to match current month)
-    const priorByKey: Record<string, number> = {};
-    priorRows.rows.forEach((r) => {
-      const key = String(r['month_key'] ?? '');
-      const rev = parseFloat(String(r['revenue'] ?? '0'));
-      if (key) priorByKey[key] = rev;
-    });
-
-    // Align prior year revenue to the same month labels using month_key
-    const priorYear = currentData.map((d) => ({
-      month: d.month,
-      revenue: priorByKey[d.month_key] ?? 0,
-    }));
-
-    // Strip month_key from the public response
-    const data = currentData.map(({ month_key: _mk, ...rest }) => rest);
 
     return res.json({
       data,
       prior_year: priorYear,
+      // So the front page can say where a month came from without guessing.
+      cutover: mcBoundary ? floor : null,
+      // The last column counts work up to and including this date, not the
+      // whole month. The page says so rather than letting the short bar read
+      // as a downturn.
+      through: today,
     });
   } catch (err) {
     console.error("Revenue chart error:", err);
