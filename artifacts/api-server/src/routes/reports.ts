@@ -119,6 +119,70 @@ async function clampFrom(companyId: number, fromStr: string, toStr: string):
   };
 }
 
+// [mc-revenue-history 2026-08-17] The floor above stops Qleno reporting revenue
+// it doesn't have. This fills the hole it leaves: MaidCentral's month totals for
+// the period before the cutover, so asking for the year returns the year.
+//
+// Sal, 2026-08-17: "for May and June we have to follow MaidCentral and add the
+// revenue into Qleno, we were still using MaidCentral then." MaidCentral is the
+// authoritative record for everything before 2026-07-01 — including the months
+// where Qleno's own tables happen to hold something, because what they hold is
+// partial (May is 98% absent, June is ~$17,900 short).
+//
+// MONTH TOTALS ONLY. There is no job, client or employee detail behind these
+// figures, so they belong to revenue history and nothing else. Job costing,
+// client profitability, payroll and commission all stay floored — a margin or a
+// commission split cannot be computed from a monthly number, and inventing one
+// would be exactly the fabrication the reporting rules forbid.
+export interface HistoricalMonth {
+  month: string;          // YYYY-MM
+  revenue: number;
+  source: string;         // 'maidcentral'
+}
+
+export interface HistoricalRevenue {
+  months: HistoricalMonth[];
+  total: number;
+  source: string;
+  /** Last day this historical series covers — the day before the cutover. */
+  through: string;
+}
+
+// Months from `fromStr` up to (not including) the cutover, for a company that
+// has one. Only 'actual' rows count: MaidCentral's own 'partial' July overlaps
+// Qleno's live July, and its 'projected' months were never delivered.
+//
+// A month is included only when it sits ENTIRELY inside the requested window.
+// These are month totals with no day detail, so a half-requested month cannot
+// be apportioned; counting it whole would overstate the range the operator
+// actually asked for. Real queries start on a month boundary, so this is the
+// same answer in practice — it just refuses to guess when they don't.
+async function historicalRevenue(
+  companyId: number, fromStr: string, toStr: string, floor: string,
+): Promise<HistoricalRevenue | null> {
+  const end = toStr < floor ? toStr : floor;   // never past the cutover
+  const r = await db.execute(sql`
+    SELECT to_char(month, 'YYYY-MM') AS month,
+           total_revenue AS revenue,
+           source
+      FROM mc_revenue_history
+     WHERE company_id = ${companyId}
+       AND revenue_type = 'actual'
+       AND month >= ${fromStr}::date
+       AND (month + interval '1 month') <= ${end}::date
+     ORDER BY month`);
+  const months = (r.rows as any[]).map(m => ({
+    month: m.month as string, revenue: parseF(m.revenue), source: m.source as string,
+  }));
+  if (!months.length) return null;
+  return {
+    months,
+    total: Math.round(months.reduce((s, m) => s + m.revenue, 0) * 100) / 100,
+    source: months[0].source,
+    through: end,
+  };
+}
+
 // ─── INSIGHTS (existing) ──────────────────────────────────────────────────────
 router.get("/insights", requireAuth, ROLE, async (req, res) => {
   try {
@@ -254,6 +318,14 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
     const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
     fromStr = floorFrom;
+    // [mc-revenue-history 2026-08-17] ...and where that record exists, hand it
+    // back so the operator gets the whole period they asked for instead of a
+    // hole. Kept as its own block on the response, never folded into `summary`
+    // or `trend`: those are Qleno's job-level numbers and are divided by job
+    // counts and hours that do not exist for the MaidCentral months.
+    const historical = rangeClamp
+      ? await historicalRevenue(companyId, rangeClamp.requested_from, toStr, rangeClamp.floor)
+      : null;
     const groupBy = (req.query.group_by as string) || "day";
 
     const groupExpr = groupBy === "month" ? sql`to_char(${jobsTable.scheduled_date}::date, 'YYYY-MM')`
@@ -370,6 +442,14 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const cancelFeeRev = parseF(cb.cancellation_fee_revenue);
     return res.json({
       range_clamped: rangeClamp,
+      // Pre-cutover months from MaidCentral, and the two added together — the
+      // true revenue for the window the operator asked for. `combined_revenue`
+      // is the only figure that spans the cutover; everything under `summary`
+      // remains strictly Qleno's own.
+      historical,
+      combined_revenue: historical
+        ? Math.round((totalRev + historical.total) * 100) / 100
+        : null,
       from: fromStr, to: toStr, group_by: groupBy,
       summary: {
         total_revenue: totalRev,
@@ -401,6 +481,61 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     });
   } catch (err) {
     console.error("Revenue report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── REVENUE HISTORY (pre-Qleno, from MaidCentral) ───────────────────────────
+// [mc-revenue-history 2026-08-17] Was a hardcoded array in the page component.
+// Moved to the database so it is one source of truth with the revenue report,
+// and so a figure can be corrected without a deploy.
+router.get("/revenue-history", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const floor = await reportingFloor(companyId);
+    const rows = await db.execute(sql`
+      SELECT to_char(month, 'MM/YYYY') AS month,
+             to_char(month, 'YYYY-MM') AS month_key,
+             phes_revenue, schaumburg_revenue, total_revenue,
+             revenue_type, source, to_char(captured_at, 'YYYY-MM-DD') AS captured_at
+        FROM mc_revenue_history
+       WHERE company_id = ${companyId}
+       ORDER BY month`);
+
+    const data = (rows.rows as any[]).map(r => ({
+      month: r.month as string,
+      month_key: r.month_key as string,
+      phes: parseF(r.phes_revenue),
+      schaumburg: parseF(r.schaumburg_revenue),
+      total: parseF(r.total_revenue),
+      type: r.revenue_type as string,
+      source: r.source as string,
+    }));
+
+    const sumOf = (t: string) => Math.round(
+      data.filter(d => d.type === t).reduce((s, d) => s + d.total, 0) * 100) / 100;
+    const actual = sumOf("actual");
+    const full = Math.round(data.reduce((s, d) => s + d.total, 0) * 100) / 100;
+
+    return res.json({
+      data,
+      summary: {
+        actual_total: actual,
+        // Everything MaidCentral had not yet delivered when the figures were
+        // captured — its own forecast, never collected. Reported separately so
+        // it can never be mistaken for revenue.
+        projected_total: Math.round((full - actual) * 100) / 100,
+        full_total: full,
+        actual_months: data.filter(d => d.type === "actual").length,
+        first_month: data[0]?.month ?? null,
+        last_actual_month: [...data].reverse().find(d => d.type === "actual")?.month ?? null,
+      },
+      captured_at: (rows.rows[0] as any)?.captured_at ?? null,
+      // Where Qleno's own records take over.
+      cutover_date: floor,
+    });
+  } catch (err) {
+    console.error("Revenue history report error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

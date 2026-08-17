@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc, RangeClampNotice, type RangeClamp } from "./_shared";
+import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc, RangeClampNotice, HistoricalRevenueBand, type RangeClamp, type HistoricalRevenue } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
@@ -12,6 +12,11 @@ function useIsMobile() {
 
 interface RevData {
   range_clamped?: RangeClamp | null;
+  // [mc-revenue-history 2026-08-17] MaidCentral's month totals for the part of
+  // the requested window that predates the cutover, and the two systems added
+  // together. Present only when the operator asked to go back that far.
+  historical?: HistoricalRevenue | null;
+  combined_revenue?: number | null;
   from: string; to: string; group_by: string;
   summary: {
     total_revenue: number; avg_job_value: number; job_count: number; projected_month_end: number;
@@ -80,10 +85,22 @@ export default function RevenueReportPage() {
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
 
-        <RangeClampNotice clamp={data?.range_clamped} />
+        {/* [mc-revenue-history 2026-08-17] Where MaidCentral has the earlier
+            months, show them and add them up rather than reporting a hole.
+            Falls back to the plain notice when there is no history on record
+            for the period asked for. */}
+        {data?.historical
+          ? <HistoricalRevenueBand
+              historical={data.historical}
+              qlenoRevenue={s?.total_revenue ?? 0}
+              combined={data.combined_revenue}
+              clamp={data.range_clamped}
+            />
+          : <RangeClampNotice clamp={data?.range_clamped} />}
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
-          <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)} sub="Visits + cancellation fees" />
+          <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)}
+            sub={data?.historical ? `Qleno · ${fmtDate(data.range_clamped!.floor)} onward` : "Visits + cancellation fees"} />
           <KpiCard label="Avg Job Value" value={fmt$(s?.avg_job_value ?? 0)} color={clr.green} />
           <KpiCard label="Jobs Completed" value={String(s?.job_count ?? 0)} color={clr.secondary} />
           <KpiCard label="Month Projected" value={fmt$(s?.projected_month_end ?? 0)} color={clr.amber} sub="All scheduled + completed this month" />

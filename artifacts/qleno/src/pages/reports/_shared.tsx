@@ -176,6 +176,99 @@ export function RangeClampNotice({ clamp }: { clamp?: RangeClamp | null }) {
   );
 }
 
+// [mc-revenue-history 2026-08-17] When the operator asks for a period that
+// reaches back before the cutover, the revenue report no longer shows a hole —
+// it shows MaidCentral's month totals for that stretch and adds them to
+// Qleno's. This band is where that happens, and it replaces RangeClampNotice on
+// the revenue report (the notice still belongs on the reports that genuinely
+// cannot go back — payroll, margins, per-customer figures — because MaidCentral
+// gave us month totals only, with no job detail underneath).
+//
+// The split is kept visible rather than merged into one number. Both halves are
+// real revenue, but they come from different systems with different levels of
+// detail, and an operator reading a full-year figure should be able to see
+// which part of it Qleno can drill into.
+export interface HistoricalMonth { month: string; revenue: number; source: string; }
+export interface HistoricalRevenue {
+  months: HistoricalMonth[]; total: number; source: string; through: string;
+}
+
+const SOURCE_LABEL: Record<string, string> = { maidcentral: "MaidCentral" };
+
+function monthLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+export function HistoricalRevenueBand({
+  historical, qlenoRevenue, combined, clamp,
+}: {
+  historical?: HistoricalRevenue | null;
+  qlenoRevenue: number;
+  combined?: number | null;
+  clamp?: RangeClamp | null;
+}) {
+  if (!historical || !clamp) return null;
+  const src = SOURCE_LABEL[historical.source] ?? historical.source;
+  const first = monthLabel(historical.months[0].month);
+  const last = monthLabel(historical.months[historical.months.length - 1].month);
+  const span = first === last ? first : `${first} – ${last}`;
+
+  return (
+    <div style={{ backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 10, padding: "18px 20px", marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: clr.text }}>
+          Full period requested — {fmtDate(clamp.requested_from)} onward
+        </p>
+        <p style={{ margin: 0, fontSize: 11, color: clr.muted }}>
+          Qleno's own records begin {fmtDate(clamp.floor)}
+        </p>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "stretch", gap: 0, flexWrap: "wrap" }}>
+        <div style={{ paddingRight: 22 }}>
+          <p style={{ margin: "0 0 5px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{src}</p>
+          <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: clr.secondary, fontVariantNumeric: "tabular-nums" }}>{fmt$(historical.total)}</p>
+          <p style={{ margin: "3px 0 0", fontSize: 11, color: clr.muted }}>{span}</p>
+        </div>
+        <div style={{ width: 1, backgroundColor: clr.border, margin: "2px 0" }} />
+        <div style={{ padding: "0 22px" }}>
+          <p style={{ margin: "0 0 5px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Qleno</p>
+          <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: clr.text, fontVariantNumeric: "tabular-nums" }}>{fmt$(qlenoRevenue)}</p>
+          <p style={{ margin: "3px 0 0", fontSize: 11, color: clr.muted }}>{fmtDate(clamp.floor)} onward</p>
+        </div>
+        <div style={{ width: 1, backgroundColor: clr.border, margin: "2px 0" }} />
+        <div style={{ padding: "0 22px" }}>
+          <p style={{ margin: "0 0 5px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Total</p>
+          <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: clr.brand, fontVariantNumeric: "tabular-nums" }}>
+            {fmt$(combined ?? historical.total + qlenoRevenue)}
+          </p>
+          <p style={{ margin: "3px 0 0", fontSize: 11, color: clr.muted }}>Both systems</p>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${clr.border}` }}>
+        {historical.months.map(m => (
+          <div key={m.month} style={{ backgroundColor: clr.base, border: `1px solid ${clr.border}`, borderRadius: 7, padding: "7px 11px", minWidth: 96 }}>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: clr.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{monthLabel(m.month)}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, color: clr.text, fontVariantNumeric: "tabular-nums" }}>{fmt$(m.revenue)}</p>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ margin: "13px 0 0", fontSize: 12, lineHeight: 1.55, color: clr.secondary }}>
+        Phes ran on {src} until {fmtDate(clamp.floor)}, so those months come from {src}'s own
+        records rather than from Qleno, which holds only part of that work. They are month
+        totals with no job detail behind them, so they count toward revenue and nothing else —
+        the charts, job counts and averages below cover {fmtDate(clamp.floor)} onward.{" "}
+        <Link href="/reports/revenue-history">
+          <span style={{ color: clr.brand, fontWeight: 600, cursor: "pointer" }}>Full history</span>
+        </Link>.
+      </p>
+    </div>
+  );
+}
+
 export function ScoreBadge({ score }: { score: number }) {
   const colors: Record<number, string> = { 4: "#10B981", 3: "#2F3646", 2: "#F59E0B", 1: "#B3261E", 0: "#9E9B94" };
   const labels: Record<number, string> = { 4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor", 0: "N/A" };
