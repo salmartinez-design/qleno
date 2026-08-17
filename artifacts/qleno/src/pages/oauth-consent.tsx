@@ -4,9 +4,10 @@
 // The tenant arrives here from /oauth/authorize, having pasted the Qleno MCP
 // address into Claude, ChatGPT, Gemini, or Grok. What they approve is standing
 // read access to their schedule, their customers, their invoices, and their
-// payroll, granted to a piece of software that reached them through a link.
-// So the screen has one job: make WHO is asking and WHAT they get plain enough
-// to refuse, before the button is pressed.
+// payroll — and, if they tick for it, the power to change the schedule —
+// granted to a piece of software that reached them through a link. So the
+// screen has one job: make WHO is asking and WHAT they get plain enough to
+// refuse, before the button is pressed.
 //
 // Approve and Deny carry equal visual weight, deliberately. A consent screen
 // that styles Approve as the obvious choice trains people to click through the
@@ -43,6 +44,31 @@ const SCOPE_LABELS: Record<string, string> = {
   "reports:read": "Revenue, efficiency, and business reports",
 };
 
+// [ai-access-write 2026-08-16] The write half, offered here and nowhere else.
+//
+// The server's default for a connector that asks for nothing in particular is
+// READ ONLY, on purpose (OAUTH_DEFAULT_SCOPES). No assistant asks for
+// `jobs:write` by name — Claude, ChatGPT, and Grok all send an empty scope and
+// take whatever they are given. So without this section the write engine ships
+// complete and is permanently unreachable: the tenant has no way to say yes,
+// and reconnecting produces another read-only grant every time.
+//
+// Listed by what it does, not by what it is called. "jobs:write" is a scope
+// string; "move a visit to a different day" is the thing the owner is actually
+// agreeing to, and it is the only version of the sentence they can refuse.
+const WRITE_SCOPES = ["jobs:write", "clients:write"] as const;
+
+const WRITE_LABELS: Record<string, { title: string; note: string }> = {
+  "jobs:write": {
+    title: "Change the schedule",
+    note: "Move a visit to a different day or time, assign a cleaner to it, and add notes to a job.",
+  },
+  "clients:write": {
+    title: "Update customer contact details",
+    note: "Change a customer's phone number or email address.",
+  },
+};
+
 interface ConsentDetails {
   client_name: string;
   client_uri: string | null;
@@ -67,6 +93,11 @@ export default function OAuthConsentPage() {
   // Never preselected. Platform-wide reach is a different thing from connecting
   // a business, and the person approving it has to choose it on purpose.
   const [allCompanies, setAllCompanies] = useState(false);
+  // Same rule for write. Seeded once from what the connector explicitly asked
+  // for — a scope the client named is a real request and hiding it would make
+  // the connector break for reasons the tenant never saw — and unticked for
+  // everything it did not ask for, which today is all of it.
+  const [writeScopes, setWriteScopes] = useState<string[] | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const clientId = params.get("client_id") ?? "";
@@ -92,9 +123,25 @@ export default function OAuthConsentPage() {
         const body = await r.json();
         if (!r.ok) throw new Error(body?.message || "Could not load this request");
         setDetails(body);
+        setWriteScopes(
+          (body.scopes ?? []).filter((s: string) => (WRITE_SCOPES as readonly string[]).includes(s))
+        );
       })
       .catch((e) => setError(e.message));
   }, [clientId, redirectUri, scope]);
+
+  // Split for display and for sending. The read rows and the write rows are
+  // different promises and must not be listed together under one heading.
+  const readScopes = (details?.scopes ?? []).filter(
+    (s) => !(WRITE_SCOPES as readonly string[]).includes(s)
+  );
+  const chosenWrites = writeScopes ?? [];
+  const grantedScopes = Array.from(new Set([...readScopes, ...chosenWrites]));
+
+  const toggleWrite = (scope: string) =>
+    setWriteScopes((prev) =>
+      (prev ?? []).includes(scope) ? (prev ?? []).filter((s) => s !== scope) : [...(prev ?? []), scope]
+    );
 
   async function decide(kind: "approve" | "deny") {
     setBusy(kind);
@@ -104,7 +151,11 @@ export default function OAuthConsentPage() {
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: clientId, redirect_uri: redirectUri, state,
-          code_challenge: codeChallenge, scopes: details?.scopes ?? [], resource,
+          // The read set the connector was offered, plus exactly the write
+          // boxes ticked above. The server re-filters this against
+          // OAUTH_GRANTABLE_SCOPES, so this list is a request, not the
+          // authority — same posture as the all_companies checkbox.
+          code_challenge: codeChallenge, scopes: grantedScopes, resource,
           // The server re-reads the super-admin flag before honoring this; the
           // checkbox is a request, not the authority.
           all_companies: allCompanies,
@@ -162,9 +213,11 @@ export default function OAuthConsentPage() {
           Connect {details.client_name} to your Qleno data?
         </h1>
         <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.6, color: MUTED }}>
-          It will read your business as <strong style={{ color: TEXT }}>{details.user.name}</strong> ({details.user.role}),
-          so it sees exactly what you see and nothing more. It returns to{" "}
-          <strong style={{ color: TEXT }}>{details.redirect_host}</strong>.
+          It will {chosenWrites.length > 0 ? "act as" : "read your business as"}{" "}
+          <strong style={{ color: TEXT }}>{details.user.name}</strong> ({details.user.role}),
+          so it sees exactly what you see and nothing more
+          {chosenWrites.length > 0 ? ", and anything it changes is recorded under that name" : ""}.
+          It returns to <strong style={{ color: TEXT }}>{details.redirect_host}</strong>.
         </p>
 
         {/* Any process on the machine can listen on a loopback port, so the
@@ -184,13 +237,55 @@ export default function OAuthConsentPage() {
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "13px 14px", marginBottom: 14 }}>
           <span style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 9 }}>It will be able to read</span>
           <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 7 }}>
-            {details.scopes.map((s) => (
+            {readScopes.map((s) => (
               <li key={s} style={{ display: "flex", gap: 8, fontSize: 13, lineHeight: 1.45, color: MUTED }}>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: MINT, flexShrink: 0, marginTop: 6 }} />
                 {SCOPE_LABELS[s] ?? s}
               </li>
             ))}
           </ul>
+        </div>
+
+        {/* [ai-access-write 2026-08-16] The one place a tenant can hand an
+            assistant the power to change something. Off unless ticked.
+
+            The reassurance under the heading is not copy — it is the reason
+            this is offerable at all. Every change is attributed to the person
+            whose connection made it, lands in the customer's own history, and
+            can be put back from Settings. If any of those three ever stops
+            being true, this sentence has to come down with it. */}
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "13px 14px", marginBottom: 14 }}>
+          <span style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+            Let it also make changes
+          </span>
+          <span style={{ display: "block", fontSize: 12.5, lineHeight: 1.5, color: MUTED, marginBottom: 9 }}>
+            Optional. Every change is recorded under your name in the customer's history and can be
+            undone from Settings.
+          </span>
+          {WRITE_SCOPES.map((s) => (
+            <label
+              key={s}
+              style={{
+                display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer",
+                padding: "9px 10px", borderRadius: 8, marginTop: 2,
+                border: `1px solid ${chosenWrites.includes(s) ? NIGHT : "transparent"}`,
+                background: chosenWrites.includes(s) ? BG : "transparent",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={chosenWrites.includes(s)}
+                onChange={() => toggleWrite(s)}
+                style={{ marginTop: 3, accentColor: NIGHT }}
+              />
+              <span>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{WRITE_LABELS[s].title}</span>
+                <span style={{ display: "block", fontSize: 12.5, lineHeight: 1.45, color: MUTED }}>
+                  {WRITE_LABELS[s].note}
+                </span>
+              </span>
+            </label>
+          ))}
         </div>
 
         {/* [ai-access-superadmin 2026-08-16] How far this connection reaches.
@@ -255,13 +350,22 @@ export default function OAuthConsentPage() {
         )}
 
         {/* Stating the limits is not reassurance copy — it is the actual
-            contract. OAuth grants are read-only until Phase 5's injection
-            defenses ship, and a tenant who knows that will notice if it ever
-            silently changes. */}
+            contract, and a tenant who reads it will notice if it ever silently
+            changes. So it tracks the boxes above rather than being written once.
+
+            MAINTENANCE: these lines name what the granted scopes genuinely
+            cannot reach TODAY. `cancel_job` is planned under jobs:write; the
+            day it ships, the first line below stops being true and has to move.
+            Sending and charging are not scopes at all — they are built as
+            proposals a person approves inside Qleno — so those two lines hold
+            regardless of what is ticked. */}
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "13px 14px", marginBottom: 18, background: BG }}>
           <span style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 9 }}>It will not be able to</span>
           <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
-            {["Change, cancel, or create anything", "Send any message to a customer", "Charge a card or move money"].map((t) => (
+            {(chosenWrites.length === 0
+              ? ["Change, cancel, or create anything"]
+              : ["Cancel a visit or create a new one", "Change pricing, payroll, or employee records"]
+            ).concat(["Send any message to a customer", "Charge a card or move money"]).map((t) => (
               <li key={t} style={{ fontSize: 13, lineHeight: 1.45, color: MUTED }}>{t}</li>
             ))}
           </ul>
