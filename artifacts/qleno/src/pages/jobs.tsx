@@ -2082,7 +2082,6 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [rateBusy, setRateBusy] = useState(false);
   // [job-card-redesign 2026-06-25] Bug #6: edit commission straight from the top
   // tile (Maribel) instead of hunting for the buried Commission section.
-  const [tileCommEdit, setTileCommEdit] = useState(false);
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
 
@@ -3300,20 +3299,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             const overridden = primaryTech?.pay_override != null;
             return (
               <>
-                <div style={{ display: "flex", gap: 8, marginBottom: tileCommEdit ? 8 : 16 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                   <Tile label="Billed" value={fmtUSD(billed)} />
-                  {/* Commission tile is now an edit control (Bug #6). */}
-                  <div
-                    onClick={canEditComm ? () => { setTileCommEdit(e => !e); if (primaryTech) setOverrideVal(v => ({ ...v, [primaryTech.user_id]: primaryTech.pay_override != null ? String(primaryTech.pay_override) : "" })); } : undefined}
-                    title={canEditComm ? "Edit commission" : undefined}
-                    style={{ flex: 1, minWidth: 0, background: canEditComm ? "#EAF9F4" : "#F7F6F3", border: `1px solid ${canEditComm ? "#BDEBDD" : "#E5E2DC"}`, borderRadius: 10, padding: "10px 11px", cursor: canEditComm ? "pointer" : "default" }}
-                  >
-                    <div style={{ fontSize: 10, fontWeight: 700, color: canEditComm ? "#06715C" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 4 }}>
-                      Commission {canEditComm && <Pencil size={10} />}
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#0F7A63", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hasComm ? fmtUSD(commTotal) : "—"}</div>
-                    {overridden && <div style={{ fontSize: 10, color: "#B45309", marginTop: 1, fontWeight: 700 }}>override</div>}
-                  </div>
+                  {/* [job-card-restructure 2026-08-17] Commission tile removed.
+                      Maribel: "Never liked the override commission thing, we do
+                      not assign commissions just because, we have every system
+                      set up in time clock. I don't think we need it there too."
+                      The number was also a second reading of what the per-cleaner
+                      rows below already show. Billed and Hours are what dispatch
+                      actually scans for. */}
                   {/* [rebook-preserve 2026-06-20] Lead with the time ON THE CLOCK
                       (allowed ÷ techs) like MaidCentral, not the summed person-
                       hours — otherwise a 2-tech job reads "5.0h" and looks like
@@ -3332,38 +3326,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     for THIS job, via the same payroll-safe pay_override path the
                     Commission section uses. The basis toggle (commission ↔
                     hourly) lands with the pay-basis-switch backend work. */}
-                {tileCommEdit && canEditComm && primaryTech && (
-                  <div style={{ marginBottom: 16, background: "#FBFAF8", border: "1px solid #ECE8E1", borderRadius: 10, padding: "11px 12px" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 7 }}>
-                      Set commission for {primaryTech.name}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
-                      <input
-                        type="number" step="0.01" min="0"
-                        value={overrideVal[primaryTech.user_id] ?? ""}
-                        onChange={e => setOverrideVal(v => ({ ...v, [primaryTech.user_id]: e.target.value }))}
-                        placeholder={String((primaryTech.calc_pay ?? 0).toFixed(2))}
-                        autoFocus
-                        style={{ width: 104, height: 32, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none" }}
-                      />
-                      <button onClick={() => { saveOverride(primaryTech.user_id); setTileCommEdit(false); }} disabled={overrideBusy}
-                        style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 8, padding: "7px 14px", cursor: overrideBusy ? "wait" : "pointer", fontFamily: FF }}>
-                        {overrideBusy ? "Saving…" : "Save"}
-                      </button>
-                      {overridden && (
-                        <button onClick={() => { setOverrideVal(v => ({ ...v, [primaryTech.user_id]: "" })); saveOverride(primaryTech.user_id); setTileCommEdit(false); }} disabled={overrideBusy}
-                          style={{ fontSize: 12, color: "#B3261E", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>
-                          Reset to calculated
-                        </button>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 7, lineHeight: 1.4 }}>
-                      Calculated: ${(primaryTech.calc_pay ?? 0).toFixed(2)}
-                      {primaryTech.pay_type && primaryTech.pay_rate != null ? ` · ${primaryTech.pay_type === "hourly" ? `$${primaryTech.pay_rate.toFixed(2)}/hr` : `${(primaryTech.pay_rate * 100).toFixed(0)}%`}` : ""}. Overrides this tech's pay for this job only — flows straight to payroll.
-                    </div>
-                  </div>
-                )}
+                {/* [job-card-restructure 2026-08-17] Commission-tile editor removed with the tile. */}
               </>
             );
           })()}
@@ -3463,27 +3426,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </div>
               );
             })()}
-            <InlinePriceEdit
-              jobId={job.id}
-              price={job.amount ?? job.billed_amount ?? 0}
-              billingMethod={job.billing_method}
-              hourlyRate={job.hourly_rate}
-              estimatedHours={job.estimated_hours}
-              allowedHours={(job as any).allowed_hours ?? null}
-              rateDriven={
-                (job.account_id != null || job.client_type === "commercial")
-                && !job.manual_rate_override
-                && job.hourly_rate != null && job.hourly_rate > 0
-                && (job as any).allowed_hours != null && (job as any).allowed_hours > 0
-              }
-              /* [job-card-redesign 2026-06-25] Maribel: "that Change price
-                 shouldn't even exist." It set a FLAT total that overwrote the
-                 base+add-ons breakdown. Price now DISPLAYS read-only here; all
-                 editing goes through "Edit base rate and add-ons" below (the
-                 itemized editor), the only safe path. */
-              canEdit={false}
-              onUpdated={onUpdate}
-            />
+            {/* [job-card-restructure 2026-08-17] The read-only "$ 300.00" line
+                that sat here is removed. Maribel: "we dont need the price arriba."
+                It restated the Total in the Service & pricing block directly
+                below it — same number, twice, two lines apart. */}
           </div>
 
           {/* [job-card-redesign 2026-06-25] Itemized service & pricing — now an
@@ -3771,7 +3717,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             // Per-tech split: allowed ÷ #techs (two techs on a 6h job = 3h each).
             const hrTechCount = Math.max(1, (job.technicians?.length ?? 0) || (job.assigned_user_id != null ? 1 : 1));
             return (
-              <PS label="Hours & Time Clock">
+              <PS
+                label="Hours & Time Clock"
+                summary={[
+                  ce?.clock_in_at ? `in ${fmtClock(ce.clock_in_at)}` : null,
+                  ce?.clock_out_at ? `out ${fmtClock(ce.clock_out_at)}` : null,
+                  allowed != null ? `${allowed.toFixed(1)}h allowed` : null,
+                  actual != null ? `${actual.toFixed(1)}h actual` : null,
+                ].filter(Boolean).join(" · ") || "not clocked in"}
+                /* Opened by default when something is off — a variance worth
+                   noticing, a punch outside the geofence, or no GPS at all.
+                   A clean job stays collapsed. */
+                defaultOpen={(variance != null && Math.abs(variance) > 0.25) || !!ce?.clock_in_outside_geofence || !!ce?.gps_missing}
+              >
                 {allowed != null && <KV label="Allowed" value={hrTechCount > 1 ? `${allowed.toFixed(1)}h · ${(allowed / hrTechCount).toFixed(1)}h/tech` : `${allowed.toFixed(1)}h`} />}
                 {actual != null && <KV label="Actual" value={`${actual.toFixed(1)}h`} />}
                 {variance != null && (
@@ -3796,7 +3754,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           })()}
 
           {(job.before_photo_count > 0 || job.after_photo_count > 0) && (
-            <PS label="Photos">
+            <PS label="Photos" summary={`${job.before_photo_count ?? 0} before, ${job.after_photo_count ?? 0} after`}>
               <div onClick={() => setPhotosOpen(true)} title="View photos" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 {job.before_photo_count > 0 && <PBadge count={job.before_photo_count} label="before" color="#0284C7" bg="#F0F9FF" border="#BAE6FD" />}
                 {job.after_photo_count > 0 && <PBadge count={job.after_photo_count} label="after" color="#0F7A63" bg="#F0FDF4" border="#C7E7DE" />}
@@ -5877,8 +5835,30 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 function IR({ icon, label, bold }: { icon: React.ReactNode; label: string; bold?: boolean }) {
   return <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}>{icon}</span><span style={{ fontSize: 13, color: "#1A1917", fontWeight: bold ? 700 : 400, lineHeight: 1.5 }}>{label}</span></div>;
 }
-function PS({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 16 }}><div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9E9B94", marginBottom: 8 }}>{label}</div>{children}</div>;
+// [job-card-restructure 2026-08-17] Sections can now summarise themselves.
+// Pass `summary` and the section collapses to a single line that already answers
+// the question ("Photos · 37 before, 16 after"), so the panel is readable without
+// scrolling through four open blocks. Sal: "is there a way that we can make sure
+// we can easily digest everything on the screen and act accordingly?"
+// Without `summary` the behaviour is exactly as before, so existing call sites
+// are untouched. `defaultOpen` forces a section open when it needs attention.
+function PS({ label, children, summary, defaultOpen }: {
+  label: string; children: React.ReactNode; summary?: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const head = { fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" };
+  if (summary === undefined) {
+    return <div style={{ marginBottom: 16 }}><div style={{ ...head, marginBottom: 8 }}>{label}</div>{children}</div>;
+  }
+  return (
+    <details open={defaultOpen} style={{ marginBottom: 10, border: "1px solid #EEECE7", borderRadius: 10, overflow: "hidden" }}>
+      <summary style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 11px", cursor: "pointer", background: "#FCFCFB", listStyle: "none" }}>
+        <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
+        <span style={{ ...head, flexShrink: 0 }}>{label}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#6B6860", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</span>
+      </summary>
+      <div style={{ padding: "10px 11px", borderTop: "1px solid #EEECE7" }}>{children}</div>
+    </details>
+  );
 }
 function KV({ label, value, color }: { label: string; value: string; color?: string }) {
   return <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: "#6B6860" }}>{label}</span><span style={{ color: color || "#1A1917", fontWeight: 600 }}>{value}</span></div>;
