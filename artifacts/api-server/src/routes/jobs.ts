@@ -57,7 +57,12 @@ const router = Router();
 // [2026-06-27] Extended with opts:
 //   cancel:true  → voids the draft instead of syncing (job cancelled)
 //   newDate      → recalculates due_date when the job is rescheduled
-async function syncJobInvoiceDraft(
+// [ai-access-write 2026-08-16] Exported so the v1 write surface (routes/v1/
+// writes.ts) syncs the invoice on an assistant reschedule exactly as the office
+// paths do. Re-implementing it there would give an assistant-moved job a due
+// date that disagrees with its own invoice — a divergence nobody would spot
+// until a customer queried the date on a bill.
+export async function syncJobInvoiceDraft(
   jobId: number,
   companyId: number,
   opts: { cancel?: boolean; newDate?: string } = {},

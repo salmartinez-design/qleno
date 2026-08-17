@@ -1,5 +1,10 @@
 import type { Request, Response } from "express";
 import { companyDateStr } from "../../lib/company-tz.js";
+import { assistantActor, type AssistantActor } from "../../lib/audit.js";
+import {
+  checkWriteBudget, findIdempotent, recordIdempotent,
+  recordAssistantWrite, idempotencyKeyOf, writeResult,
+} from "../../lib/ai-write.js";
 
 // [ai-access 2026-08-15] Shared conventions for the public v1 API (Qleno
 // Connect). Design: docs/AI_ACCESS_DESIGN.md §3.
@@ -227,3 +232,141 @@ export const UNTRUSTED_TEXT_FIELDS = [
   "notes", "office_notes", "home_access_notes", "pets",
   "special_instructions", "description", "body", "message",
 ] as const;
+
+// ── Writes ───────────────────────────────────────────────────────────────────
+// [ai-access-write 2026-08-16] Design: docs/AI_ACCESS_WRITE_DESIGN.md §4, §7.
+//
+// Every v1 write is bracketed by beginWrite() and finishWrite(). The bracket is
+// not ceremony — it is where the four things that make a write reversible and
+// bounded happen, and every one of them is a server-side fact rather than a
+// question put to the model:
+//
+//   beginWrite : is this credential inside its budget, and have I already done
+//                exactly this?
+//   finishWrite: record what the row looked like before, and remember the
+//                answer in case the same call arrives again.
+//
+// Writing a handler that skips the bracket produces a change nobody can see in
+// the Recent-changes list and nobody can revert. If you are adding a write
+// endpoint, start by copying the shape of an existing one.
+
+export type WriteContext = {
+  actor: AssistantActor;
+  companyId: number;
+  userId: number | null;
+  tool: string;
+  idempotencyKey: string | null;
+};
+
+/**
+ * Open a write. Returns null when the response has ALREADY been sent — a replay,
+ * a budget refusal, or a browser session that reached a machine-only endpoint.
+ *
+ * `if (!ctx) return;` is the whole calling convention. Continuing after a null
+ * would double-send and, worse, would perform the write whose refusal was just
+ * reported.
+ */
+export async function beginWrite(req: Request, res: Response, tool: string): Promise<WriteContext | null> {
+  const actor = assistantActor(req);
+  if (!actor) {
+    // v1 is a machine surface; requireApiKey sets req.apiKey on every route
+    // mounted here. Reaching this line means the middleware order changed, and
+    // the safe reading of "I cannot tell who is asking" is to do nothing.
+    fail(res, 401, "unauthenticated", "This endpoint requires an API key or a connected app.");
+    return null;
+  }
+
+  const key = idempotencyKeyOf(req) ?? null;
+  if (key) {
+    const hit = await findIdempotent(actor, key);
+    if (hit) {
+      // Replayed verbatim, including the status. Answering a retry with a
+      // different message is how a model concludes the world moved underneath
+      // it and starts compensating for a problem that does not exist.
+      res.status(hit.status).json(hit.body);
+      return null;
+    }
+  }
+
+  const budget = await checkWriteBudget(actor);
+  if (!budget.ok) {
+    fail(res, 429, "write_budget_exceeded", budget.message, {
+      writes_last_hour: budget.hourUsed,
+      writes_today: budget.dayUsed,
+    });
+    return null;
+  }
+
+  return {
+    actor,
+    companyId: companyOf(req),
+    userId: req.auth?.userId ?? null,
+    tool,
+    idempotencyKey: key,
+  };
+}
+
+/**
+ * Close a write: record it in the undo ledger, remember the response, answer.
+ *
+ * `priorValues` must contain ONLY the columns this handler changed. A full
+ * snapshot would let a later Revert clobber a column somebody else corrected in
+ * between — an undo that silently reverses an unrelated fix is worse than no
+ * undo, because nobody is looking for it.
+ */
+export async function finishWrite(
+  ctx: WriteContext,
+  res: Response,
+  opts: {
+    targetTable: string;
+    targetId: string | number;
+    priorValues: Record<string, unknown> | null;
+    newValues: Record<string, unknown> | null;
+    /** One plain line, as the office will read it in the changes list. */
+    summary: string;
+    /** Extra fields for the caller — ids it will need for a follow-up call. */
+    extra?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const writeId = await recordAssistantWrite({
+    companyId: ctx.companyId,
+    userId: ctx.userId,
+    actor: ctx.actor,
+    tool: ctx.tool,
+    targetTable: opts.targetTable,
+    targetId: opts.targetId,
+    priorValues: opts.priorValues,
+    newValues: opts.newValues,
+    summary: opts.summary,
+    idempotencyKey: ctx.idempotencyKey ?? undefined,
+  });
+
+  const body = {
+    ...writeResult({ summary: opts.summary, changed: opts.newValues ?? {}, writeId }),
+    ...(opts.extra ?? {}),
+    write_id: writeId,
+  };
+
+  if (ctx.idempotencyKey) {
+    await recordIdempotent(ctx.actor, ctx.idempotencyKey, ctx.tool, 200, body);
+  }
+  res.status(200).json(body);
+}
+
+/**
+ * Refuse a write the caller asked for but should not get, and remember the
+ * refusal under its idempotency key.
+ *
+ * Remembering matters: without it, a refused call that the model retries runs
+ * the budget check again each time, and a model stuck in a retry loop on a
+ * refusal would exhaust the day's allowance on writes that never happened.
+ */
+export async function refuseWriteAndRemember(
+  ctx: WriteContext, res: Response, status: number, error: string, message: string,
+): Promise<void> {
+  const body = { error, message };
+  if (ctx.idempotencyKey) {
+    await recordIdempotent(ctx.actor, ctx.idempotencyKey, ctx.tool, status, body);
+  }
+  res.status(status).json(body);
+}

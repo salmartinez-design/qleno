@@ -25,24 +25,46 @@ import { markInternalDispatch } from "./api-auth.js";
 
 export type DispatchResult = { status: number; body: any };
 
+export type DispatchOptions = {
+  /**
+   * Which tenant this one call touches. NOT caller input: routes/mcp.ts resolves
+   * it through lib/tenant-scope.ts against a list computed from the credential,
+   * so the only values that can arrive here are companies the grant was already
+   * entitled to. A single scalar by design — the handlers downstream still run
+   * one `WHERE company_id = …` and have no notion of a set.
+   */
+  companyId?: number;
+  /** Defaults to GET. Write tools pass POST or PATCH. */
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  /** JSON body for a write. Ignored on GET. */
+  body?: Record<string, unknown>;
+  /**
+   * [ai-access-write 2026-08-16] Passed through as the Idempotency-Key header so
+   * the v1 write handlers can replay a duplicate instead of acting twice. A tool
+   * call that times out on the wire has still run; without this, the model's
+   * retry books the job a second time.
+   */
+  idempotencyKey?: string;
+};
+
 /**
- * Run one GET against the v1 router as the already-authenticated caller.
+ * Run one request against the v1 router as the already-authenticated caller.
  *
  * `auth` and `apiKey` are copied from the live MCP request rather than rebuilt,
  * so the user, role, and scopes are exactly the ones requireApiKey resolved.
  *
- * `companyId` overrides which tenant this one call reads. It is NOT caller input:
- * routes/mcp.ts resolves it through lib/tenant-scope.ts against a list computed
- * from the credential, so the only values that can arrive here are companies the
- * grant was already entitled to. It is a single scalar by design — the handlers
- * downstream still run one `WHERE company_id = …` and have no notion of a set.
+ * Writes go through this same door for the reasons in the header above, and
+ * those reasons get MORE important, not less: a second implementation of "move
+ * this job" would be a second place that has to remember the assignment mirror,
+ * the audit row, and the `WHERE company_id` clause.
  */
 export function dispatchV1(
   source: Request,
   path: string,
   query: Record<string, string | undefined>,
-  companyId?: number,
+  opts: DispatchOptions = {},
 ): Promise<DispatchResult> {
+  const { companyId, method = "GET", body, idempotencyKey } = opts;
   return new Promise((resolve) => {
     // Undefined values are dropped rather than passed as the string
     // "undefined", which is what a naive object spread would send and which the
@@ -60,24 +82,34 @@ export function dispatchV1(
     };
 
     const headers: Record<string, string> = {};
+    // Request headers, as lowercase keys — Express normalizes them and the
+    // handlers read them through req.get(), which lowercases too.
+    const reqHeaders: Record<string, string> = {};
+    if (idempotencyKey) reqHeaders["idempotency-key"] = idempotencyKey;
+
     const req: any = {
-      method: "GET",
+      method,
       url: path,
       originalUrl: `/api/v1${path}`,
       baseUrl: "/api/v1",
       path,
       query: cleanQuery,
       params: {},
-      body: {},
-      headers: {},
+      body: method === "GET" ? {} : (body ?? {}),
+      headers: reqHeaders,
       // The verified identity is carried across; the raw credential deliberately
       // is not. The v1 routes still run requireApiKey, which sees the mark set
       // below, skips the database round-trip it already made at the MCP door,
       // and enforces the endpoint's scope against these same scopes.
       // A COPY, so retargeting one call cannot leak into the outer request or
       // into the next tool call on the same connection.
+      // [ai-access-write 2026-08-16] Retargeting applies to READS only. The tool
+      // layer already refuses a company argument on a write, and this is the
+      // second lock on the same door: even a tool table bug that let one
+      // through cannot make a write land in another tenant's data, because the
+      // override is dropped here rather than trusted.
       auth:
-        companyId !== undefined && source.auth
+        companyId !== undefined && method === "GET" && source.auth
           ? { ...source.auth, companyId }
           : source.auth,
       apiKey: source.apiKey,

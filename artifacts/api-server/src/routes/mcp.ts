@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { requireApiKey, logApiRequest } from "../lib/api-auth.js";
 import { dispatchV1 } from "../lib/mcp-dispatch.js";
+import { writeIdempotencyKey } from "../lib/ai-write.js";
 import { TOOLS_BY_NAME, toolsForScopes } from "../lib/mcp-tools.js";
 import { readableCompanies, resolveTargetCompany, type CompanyRef } from "../lib/tenant-scope.js";
 
@@ -361,6 +362,23 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
           rpcError(res, id, INTERNAL_ERROR, "The request could not be completed.");
           return;
         }
+        // [ai-access-write 2026-08-16] A write tool never accepts a company
+        // argument, even on a connection entitled to read several.
+        //
+        // The asymmetry is the point. Reading the wrong tenant produces a wrong
+        // answer that a person can question; writing to the wrong tenant moves a
+        // real job at a business that never asked for an assistant, and the
+        // first sign of it is a crew arriving somewhere nobody scheduled. Read
+        // broadly, write narrowly.
+        if (tool.writes && companyArg !== undefined && companyArg !== null && companyArg !== "") {
+          rpcResult(res, id, toolContent({
+            error: "invalid_argument",
+            message:
+              "Changes can only be made to this connection's own company, so this tool does not take a company argument. " +
+              "Drop it and ask again, or make the change in Qleno for the other company directly.",
+          }, true));
+          return;
+        }
         const picked = resolveTargetCompany(companyArg, allowed, homeCompanyId);
         if ("error" in picked) {
           rpcResult(res, id, toolContent({ error: "invalid_argument", message: picked.error }, true));
@@ -408,7 +426,19 @@ router.post("/", requireApiKey("mcp"), async (req: Request, res: Response) => {
 
       let out;
       try {
-        out = await dispatchV1(req, built.path, built.query, targetCompanyId);
+        out = await dispatchV1(req, built.path, built.query, {
+          companyId: targetCompanyId,
+          method: built.method,
+          body: built.body,
+          // [ai-access-write 2026-08-16] The model does not supply this and must
+          // not: an idempotency key it chose would be a key it could vary on a
+          // retry, which is the same as having none. It is derived server-side
+          // from the credential, the tool, and the exact arguments, so the same
+          // call repeated inside the window replays instead of acting twice.
+          idempotencyKey: built.method && built.method !== "GET"
+            ? writeIdempotencyKey(req, name, rawArgs)
+            : undefined,
+        });
       } catch (err) {
         console.error(`[mcp] ${name} threw`, err);
         rpcError(res, id, INTERNAL_ERROR, "The request could not be completed.");
