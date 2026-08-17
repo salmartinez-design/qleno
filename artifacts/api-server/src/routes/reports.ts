@@ -1116,20 +1116,27 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
           FROM jc GROUP BY job_id
       )`;
 
-    // A job nobody clocked has no measurable efficiency. Its budget is still
-    // real, so it stays in `allowed_hours` (the day's budget), but it is kept
-    // out of the ratio via `allowed_hours_clocked` — otherwise a day with half
-    // its jobs unclocked shows the full budget over half the hours and reads as
-    // spectacular efficiency.
+    // [efficiency-matched-pair 2026-08-17] Efficiency is a RATIO, so both halves
+    // have to describe the same jobs. A job missing either half cannot be in it:
+    //   - no clock  → its budget over no hours, which inflates the ratio
+    //   - no budget → its hours under no budget, which deflates the ratio
+    // Both were happening. `MEASURED` is the one definition of a job that can be
+    // scored, and it is the only filter the ratio is ever built from — here and
+    // in /reports/commercial-accounts, so the two reports cannot disagree.
+    // Total budget and total hours are still reported in full; they just aren't
+    // what the percentage is made of.
+    const MEASURED = sql`(j.allowed_hours IS NOT NULL AND crew.job_id IS NOT NULL)`;
+
     const byDay = await db.execute(sql`
       WITH ${CLOCK_CTE}
       SELECT
         to_char(j.scheduled_date, 'YYYY-MM-DD') AS date,
         count(j.id) AS jobs,
-        count(crew.job_id) AS jobs_clocked,
+        count(j.id) FILTER (WHERE ${MEASURED}) AS jobs_measured,
         coalesce(sum(j.allowed_hours), 0) AS allowed_hours,
-        coalesce(sum(j.allowed_hours) FILTER (WHERE crew.job_id IS NOT NULL), 0) AS allowed_hours_clocked,
-        coalesce(sum(crew.crew_hours), 0) AS clock_hours
+        coalesce(sum(crew.crew_hours), 0) AS clock_hours,
+        coalesce(sum(j.allowed_hours)  FILTER (WHERE ${MEASURED}), 0) AS measured_allowed,
+        coalesce(sum(crew.crew_hours)  FILTER (WHERE ${MEASURED}), 0) AS measured_clock
       FROM jobs j
       LEFT JOIN crew ON crew.job_id = j.id
       WHERE j.company_id=${companyId} AND j.status='complete'
@@ -1147,14 +1154,19 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
     //
     // Only jobs a person actually clocked count here. Attributing a whole job's
     // budget to someone with no clock record produced a 0% efficiency row that
-    // described missing data, not slow work.
+    // described missing data, not slow work. Their percentage is built from the
+    // same MEASURED pair as everything else: budget share and hours, over the
+    // jobs that carry both.
     const byEmployee = await db.execute(sql`
       WITH ${CLOCK_CTE}
       SELECT
         u.id, u.first_name, u.last_name,
         count(DISTINCT j.id) AS jobs,
+        count(DISTINCT j.id) FILTER (WHERE ${MEASURED}) AS jobs_measured,
         coalesce(sum(j.allowed_hours / crew.crew_size), 0) AS allowed_hours,
-        coalesce(sum(jc.hours), 0) AS clock_hours
+        coalesce(sum(jc.hours), 0) AS clock_hours,
+        coalesce(sum(j.allowed_hours / crew.crew_size) FILTER (WHERE ${MEASURED}), 0) AS measured_allowed,
+        coalesce(sum(jc.hours) FILTER (WHERE ${MEASURED}), 0) AS measured_clock
       FROM jobs j
       JOIN jc   ON jc.job_id = j.id
       JOIN crew ON crew.job_id = j.id
@@ -1167,40 +1179,37 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
 
     const totals = (byDay.rows as any[]).reduce((acc, r) => ({
       jobs: acc.jobs + parseN(r.jobs),
-      jobsClocked: acc.jobsClocked + parseN(r.jobs_clocked),
+      jobsMeasured: acc.jobsMeasured + parseN(r.jobs_measured),
       allowed: acc.allowed + parseF(r.allowed_hours),
-      allowedClocked: acc.allowedClocked + parseF(r.allowed_hours_clocked),
       clock: acc.clock + parseF(r.clock_hours),
-    }), { jobs: 0, jobsClocked: 0, allowed: 0, allowedClocked: 0, clock: 0 });
+      mAllowed: acc.mAllowed + parseF(r.measured_allowed),
+      mClock: acc.mClock + parseF(r.measured_clock),
+    }), { jobs: 0, jobsMeasured: 0, allowed: 0, clock: 0, mAllowed: 0, mClock: 0 });
 
-    // null, not 0 — "nobody clocked anything in this range" is not 0% efficient.
-    const overallEff = totals.clock > 0 ? (totals.allowedClocked / totals.clock) * 100 : null;
+    // null, not 0 — "no job in this range can be scored" is not 0% efficient.
+    const eff = (allowed: number, clock: number) => (clock > 0 ? (allowed / clock) * 100 : null);
 
     return res.json({
       range_clamped: rangeClamp,
       from: fromStr, to: toStr,
-      overall_efficiency: overallEff,
+      overall_efficiency: eff(totals.mAllowed, totals.mClock),
       total_jobs: totals.jobs,
-      total_jobs_clocked: totals.jobsClocked,
+      total_jobs_measured: totals.jobsMeasured,
       total_allowed_hours: totals.allowed,
-      total_allowed_hours_clocked: totals.allowedClocked,
       total_clock_hours: totals.clock,
-      by_day: (byDay.rows as any[]).map(r => {
-        const clock = parseF(r.clock_hours);
-        return {
-          date: r.date, jobs: parseN(r.jobs), jobs_clocked: parseN(r.jobs_clocked),
-          allowed_hours: parseF(r.allowed_hours), clock_hours: clock,
-          efficiency_pct: clock > 0 ? (parseF(r.allowed_hours_clocked) / clock) * 100 : null,
-        };
-      }),
-      by_employee: (byEmployee.rows as any[]).map(r => {
-        const clock = parseF(r.clock_hours);
-        return {
-          id: r.id, name: `${r.first_name} ${r.last_name}`, jobs: parseN(r.jobs),
-          allowed_hours: parseF(r.allowed_hours), clock_hours: clock,
-          efficiency_pct: clock > 0 ? (parseF(r.allowed_hours) / clock) * 100 : null,
-        };
-      }),
+      measured_allowed_hours: totals.mAllowed,
+      measured_clock_hours: totals.mClock,
+      by_day: (byDay.rows as any[]).map(r => ({
+        date: r.date, jobs: parseN(r.jobs), jobs_measured: parseN(r.jobs_measured),
+        allowed_hours: parseF(r.allowed_hours), clock_hours: parseF(r.clock_hours),
+        efficiency_pct: eff(parseF(r.measured_allowed), parseF(r.measured_clock)),
+      })),
+      by_employee: (byEmployee.rows as any[]).map(r => ({
+        id: r.id, name: `${r.first_name} ${r.last_name}`,
+        jobs: parseN(r.jobs), jobs_measured: parseN(r.jobs_measured),
+        allowed_hours: parseF(r.allowed_hours), clock_hours: parseF(r.clock_hours),
+        efficiency_pct: eff(parseF(r.measured_allowed), parseF(r.measured_clock)),
+      })),
     });
   } catch (err) {
     console.error("Efficiency error:", err);
