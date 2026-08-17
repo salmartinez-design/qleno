@@ -1264,90 +1264,134 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
   );
 }
 
+// [payroll-settings-one-store 2026-08-17] Every control on this screen writes a
+// column a pay engine actually reads, through ONE endpoint, and the screen only
+// says "saved" when the server says so.
+//
+// It used to do the opposite. It saved to a `payroll_settings` table that exists
+// in no environment, ignored the resulting 500, and reported success. Ten of the
+// fourteen fields — re-clean rate, weekly pay floor, unavailable-reclassification
+// rate, the three quality-probation fields, minimum job pay hours and the rest —
+// reached no calculation anywhere in the codebase; they have been removed rather
+// than repaired, because a control that does nothing is worse than no control.
+// The four that did work only survived via a second, quieter PATCH to
+// /api/companies/me, where the commission number had to be divided by 100 first:
+// this screen counted in percent, the database counts in fractions, and whichever
+// write landed last decided what a cleaner earned.
+//
+// Three live settings that no screen had ever exposed are now here: the deep-clean
+// and move-in/out commission rates (lib/commission-rates.ts picks one of the three
+// per job from its service type, so editing only the standard rate quietly left
+// those two on their own number), and the paid-hours basis for hourly techs.
+const PAYROLL_SETTINGS_DEFAULTS = {
+  res_tech_pay_pct: 0.35,
+  deep_clean_pay_pct: 0.32,
+  move_in_out_pay_pct: 0.32,
+  commercial_hourly_rate: 20,
+  commercial_comp_mode: 'allowed_hours',
+  leave_pay_rate: 20,
+  mileage_rate: 0.7,
+  training_pay_rate: 20,
+  payroll_hours_basis: 'greater_of',
+};
+
+/** 0.35 -> "35", 0.325 -> "32.5". Never "35.000000000000004". */
+const fractionToPct = (n: number) => String(Math.round(Number(n) * 10000) / 100);
+/** "35" -> 0.35. Rounds at four places, the column's own precision. */
+const pctToFraction = (s: string) => Math.round(parseFloat(s) * 100) / 10000;
+
 function PayrollOptionsTab() {
-  const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
-  const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
   const { toast } = useToast();
   const [mileageRate, setMileageRate] = useState('0.700');
   const [resTechPayPct, setResTechPayPct] = useState('35');
+  const [deepCleanPayPct, setDeepCleanPayPct] = useState('32');
+  const [moveInOutPayPct, setMoveInOutPayPct] = useState('32');
   const [commercialHourlyRate, setCommercialHourlyRate] = useState('20');
   const [commercialCompMode, setCommercialCompMode] = useState('allowed_hours');
   const [leavePayRate, setLeavePayRate] = useState('20');
   const [trainingPayRate, setTrainingPayRate] = useState('20');
-  const [minJobPayHours, setMinJobPayHours] = useState('3');
-  const [recleanTechRate, setRecleanTechRate] = useState('20');
-  const [companyPayFloor, setCompanyPayFloor] = useState('18');
-  const [unavailableReclassRate, setUnavailableReclassRate] = useState('20');
-  const [qpThreshold, setQpThreshold] = useState('2');
-  const [qpWindowDays, setQpWindowDays] = useState('30');
-  const [qpPayRate, setQpPayRate] = useState('20');
+  const [hoursBasis, setHoursBasis] = useState('greater_of');
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
   const role = getTokenRole();
   const isOwner = role === 'owner' || role === 'super_admin';
 
   useEffect(() => {
-    const c = company?.data as any;
-    if (c?.res_tech_pay_pct != null) setResTechPayPct(String(Math.round(parseFloat(c.res_tech_pay_pct) * 100)));
-    if (c?.commercial_hourly_rate != null) setCommercialHourlyRate(String(c.commercial_hourly_rate));
-    if (c?.commercial_comp_mode != null) setCommercialCompMode(c.commercial_comp_mode);
-    if (c?.leave_pay_rate != null) setLeavePayRate(String(c.leave_pay_rate));
-    // Load detailed payroll settings from payroll_settings table
-    fetch(`${BASE}/api/payroll-settings`, { headers: getAuthHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const ps = d?.data;
-        if (!ps) return;
-        if (ps.res_tech_pay_pct != null) setResTechPayPct(String(ps.res_tech_pay_pct));
-        if (ps.commercial_hourly_rate != null) setCommercialHourlyRate(String(ps.commercial_hourly_rate));
-        if (ps.commercial_pay_default != null) setCommercialCompMode(ps.commercial_pay_default);
-        if (ps.training_pay_rate != null) setTrainingPayRate(String(ps.training_pay_rate));
-        if (ps.minimum_job_pay_hours != null) setMinJobPayHours(String(ps.minimum_job_pay_hours));
-        if (ps.reclean_tech_rate != null) setRecleanTechRate(String(ps.reclean_tech_rate));
-        if (ps.company_pay_floor != null) setCompanyPayFloor(String(ps.company_pay_floor));
-        if (ps.unavailable_reclassification_rate != null) setUnavailableReclassRate(String(ps.unavailable_reclassification_rate));
-        if (ps.quality_probation_threshold_complaints != null) setQpThreshold(String(ps.quality_probation_threshold_complaints));
-        if (ps.quality_probation_window_days != null) setQpWindowDays(String(ps.quality_probation_window_days));
-        if (ps.quality_probation_pay_rate != null) setQpPayRate(String(ps.quality_probation_pay_rate));
-        if (ps.mileage_rate != null) setMileageRate(String(ps.mileage_rate));
-      });
-  }, [company?.data]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${BASE}/api/payroll-settings`, { headers: getAuthHeaders() });
+        if (!r.ok) throw new Error(`Server returned ${r.status}`);
+        const ps = (await r.json())?.data;
+        if (cancelled || !ps) throw new Error('Server returned no settings');
+        setResTechPayPct(fractionToPct(ps.res_tech_pay_pct));
+        setDeepCleanPayPct(fractionToPct(ps.deep_clean_pay_pct));
+        setMoveInOutPayPct(fractionToPct(ps.move_in_out_pay_pct));
+        setCommercialHourlyRate(String(ps.commercial_hourly_rate));
+        setCommercialCompMode(String(ps.commercial_comp_mode));
+        setLeavePayRate(String(ps.leave_pay_rate));
+        setMileageRate(String(ps.mileage_rate));
+        setTrainingPayRate(String(ps.training_pay_rate));
+        setHoursBasis(String(ps.payroll_hours_basis));
+        setLoadError(null);
+      } catch (err) {
+        // Say so. The old screen swallowed this and rendered its hardcoded
+        // defaults, which read as "your company pays 35%" whether or not it did.
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Could not load payroll settings');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [BASE]);
 
   const handleSave = async () => {
+    const pcts: [string, string][] = [
+      ['Standard commission', resTechPayPct],
+      ['Deep clean commission', deepCleanPayPct],
+      ['Move in/out commission', moveInOutPayPct],
+    ];
+    for (const [label, v] of pcts) {
+      const n = parseFloat(v);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        toast({ title: `${label} must be between 0 and 100 percent`, variant: 'destructive' });
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await fetch(`${BASE}/api/payroll-settings`, {
+      const r = await fetch(`${BASE}/api/payroll-settings`, {
         method: 'PATCH',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          res_tech_pay_pct: parseFloat(resTechPayPct),
-          commercial_hourly_rate: parseFloat(commercialHourlyRate),
-          commercial_pay_default: commercialCompMode,
-          training_pay_rate: parseFloat(trainingPayRate),
-          minimum_job_pay_hours: parseFloat(minJobPayHours),
-          reclean_tech_rate: parseFloat(recleanTechRate),
-          company_pay_floor: parseFloat(companyPayFloor),
-          unavailable_reclassification_rate: parseFloat(unavailableReclassRate),
-          quality_probation_threshold_complaints: parseInt(qpThreshold),
-          quality_probation_window_days: parseInt(qpWindowDays),
-          quality_probation_pay_rate: parseFloat(qpPayRate),
-          mileage_rate: parseFloat(mileageRate),
-        }),
-      });
-      // Also sync to companies table for backward compat
-      await fetch(`${BASE}/api/companies/me`, {
-        method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          res_tech_pay_pct: parseFloat(resTechPayPct) / 100,
+          res_tech_pay_pct: pctToFraction(resTechPayPct),
+          deep_clean_pay_pct: pctToFraction(deepCleanPayPct),
+          move_in_out_pay_pct: pctToFraction(moveInOutPayPct),
           commercial_hourly_rate: parseFloat(commercialHourlyRate),
           commercial_comp_mode: commercialCompMode,
           leave_pay_rate: parseFloat(leavePayRate),
+          mileage_rate: parseFloat(mileageRate),
+          training_pay_rate: parseFloat(trainingPayRate),
+          payroll_hours_basis: hoursBasis,
         }),
       });
+      if (!r.ok) {
+        const body = await r.json().catch(() => null);
+        throw new Error(body?.message || `Server returned ${r.status}`);
+      }
+      // Re-seed from what the server actually stored, so the screen can never
+      // show a number the database disagrees with.
+      const ps = (await r.json())?.data ?? PAYROLL_SETTINGS_DEFAULTS;
+      setResTechPayPct(fractionToPct(ps.res_tech_pay_pct));
+      setDeepCleanPayPct(fractionToPct(ps.deep_clean_pay_pct));
+      setMoveInOutPayPct(fractionToPct(ps.move_in_out_pay_pct));
+      setLoadError(null);
       toast({ title: 'Payroll settings saved' });
-    } catch {
-      toast({ title: 'Failed to save', variant: 'destructive' });
+    } catch (err) {
+      toast({
+        title: 'Payroll settings were NOT saved',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -1377,19 +1421,36 @@ function PayrollOptionsTab() {
         </div>
       )}
 
+      {loadError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FDECEC', border: '1px solid #F5C2C2', borderRadius: 8, padding: '10px 14px' }}>
+          <span style={{ fontSize: 13, color: '#B42318', fontFamily: FF2 }}>
+            These settings could not be loaded, so the values below are <strong>not</strong> your live pay settings. Reload the page before changing anything. ({loadError})
+          </span>
+        </div>
+      )}
+
       <div style={sectionCard}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 16px', fontFamily: FF2 }}>Residential Tech Commission</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={fieldLabel}>Commission % of Job Total (per tech)</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input
-              type="number" step="1" min="1" max="100" value={resTechPayPct}
-              onChange={e => setResTechPayPct(e.target.value)} style={inputStyle(fieldInput)} placeholder="35"
-              disabled={!isOwner}
-            />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>%</span>
-          </div>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Formula: Job Total × pct ÷ number of techs on job. Default 35%.</p>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Residential Tech Commission</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>
+          The share of the job total the cleaners split. A job uses the rate for its own service type, so all three matter.
+          Formula: Job Total × rate ÷ number of cleaners on the job.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {[
+            { label: 'Standard Cleaning', value: resTechPayPct, set: setResTechPayPct, ph: '35' },
+            { label: 'Deep Cleaning', value: deepCleanPayPct, set: setDeepCleanPayPct, ph: '32' },
+            { label: 'Move In / Move Out', value: moveInOutPayPct, set: setMoveInOutPayPct, ph: '32' },
+          ].map(row => (
+            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ ...fieldLabel, width: 220, marginBottom: 0 }}>{row.label}</label>
+              <input
+                type="number" step="0.5" min="0" max="100" value={row.value}
+                onChange={e => row.set(e.target.value)} style={inputStyle({ ...fieldInput, width: 100 })}
+                placeholder={row.ph} disabled={!isOwner}
+              />
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>% of job total</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1402,7 +1463,8 @@ function PayrollOptionsTab() {
               <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
               <input
                 type="number" step="0.25" min="0" value={commercialHourlyRate}
-                onChange={e => setCommercialHourlyRate(e.target.value)} style={fieldInput} placeholder="20.00"
+                onChange={e => setCommercialHourlyRate(e.target.value)} style={inputStyle(fieldInput)} placeholder="20.00"
+                disabled={!isOwner}
               />
               <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
             </div>
@@ -1410,15 +1472,21 @@ function PayrollOptionsTab() {
           <div>
             <label style={fieldLabel}>Default Hours Used for Pay Calculation</label>
             <div style={{ display: 'flex', gap: 8 }}>
+              {/* The stored values are exactly what the pay engines branch on.
+                  This picker used to offer 'worked_hours', which no engine has
+                  ever recognized — choosing it saved a value that silently fell
+                  back to allowed hours. The office wording stays; the value is
+                  now the real one. */}
               {[
                 { value: 'allowed_hours', label: 'Allowed Hours', desc: 'Scheduled / estimated hours' },
-                { value: 'worked_hours', label: 'Worked Hours', desc: 'Actual clocked time' },
+                { value: 'actual_hours', label: 'Worked Hours', desc: 'Actual clocked time' },
               ].map(opt => (
                 <button
                   key={opt.value}
-                  onClick={() => setCommercialCompMode(opt.value)}
+                  onClick={() => isOwner && setCommercialCompMode(opt.value)}
+                  disabled={!isOwner}
                   style={{
-                    flex: 1, padding: '12px 14px', borderRadius: 8, cursor: 'pointer', textAlign: 'left' as const,
+                    flex: 1, padding: '12px 14px', borderRadius: 8, cursor: isOwner ? 'pointer' : 'not-allowed', textAlign: 'left' as const,
                     border: `2px solid ${commercialCompMode === opt.value ? 'var(--brand)' : '#E5E2DC'}`,
                     background: commercialCompMode === opt.value ? 'rgba(var(--brand-rgb),0.07)' : '#fff',
                     fontFamily: FF2,
@@ -1458,76 +1526,54 @@ function PayrollOptionsTab() {
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
             <input
               type="number" step="0.001" min="0" value={mileageRate}
-              onChange={e => setMileageRate(e.target.value)} style={fieldInput} placeholder="0.700"
+              onChange={e => setMileageRate(e.target.value)} style={inputStyle(fieldInput)} placeholder="0.700"
+              disabled={!isOwner}
             />
           </div>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Updated annually to match the IRS standard mileage rate.</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Updated annually to match the IRS standard mileage rate. Applies to mileage the office enters by hand; drive legs the system measures itself are priced from the dated mileage-rate history.</p>
         </div>
       </div>
 
       <div style={sectionCard}>
         <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Training Pay</p>
-        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>While training status is active (default hire date + 21 days), tech earns this flat rate — no commission.</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Flat rate for training and other clocked time that isn't a job. A cleaner with their own dated pay rate on file uses that rate instead.</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <label style={fieldLabel}>Training Pay Rate</label>
+          <label style={{ ...fieldLabel, marginBottom: 0 }}>Training Pay Rate</label>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
-          <input type="number" step="0.25" min="0" value={trainingPayRate} onChange={e => setTrainingPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
+          <input
+            type="number" step="0.25" min="0" value={trainingPayRate}
+            onChange={e => setTrainingPayRate(e.target.value)} style={inputStyle(fieldInput)} placeholder="20.00"
+            disabled={!isOwner}
+          />
           <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
         </div>
       </div>
 
       <div style={sectionCard}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Minimum Job Pay</p>
-        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Every dispatched job guarantees this many hours of pay. If actual hours are less, the minimum is paid.</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <label style={fieldLabel}>Minimum Job Pay Hours</label>
-          <input type="number" step="0.5" min="1" value={minJobPayHours} onChange={e => setMinJobPayHours(e.target.value)} style={fieldInput} placeholder="3" />
-          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>hours</span>
-        </div>
-      </div>
-
-      <div style={sectionCard}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Re-Clean & Recovery Pay</p>
-        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Rates used when jobs are reclassified due to quality issues. Pay floor is a weekly safety net — not per job.</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <label style={{ ...fieldLabel, width: 220 }}>Re-Clean Tech Rate</label>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
-            <input type="number" step="0.25" min="0" value={recleanTechRate} onChange={e => setRecleanTechRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <label style={{ ...fieldLabel, width: 220 }}>Company Pay Floor (weekly)</label>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
-            <input type="number" step="0.25" min="0" value={companyPayFloor} onChange={e => setCompanyPayFloor(e.target.value)} style={fieldInput} placeholder="18.00" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <label style={{ ...fieldLabel, width: 220 }}>Unavailable Reclassification Rate</label>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
-            <input type="number" step="0.25" min="0" value={unavailableReclassRate} onChange={e => setUnavailableReclassRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
-          </div>
-        </div>
-      </div>
-
-      <div style={sectionCard}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Quality Probation</p>
-        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Triggered when a tech accumulates N complaints within a rolling window. Pay switches to probation rate — no commission.</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <label style={{ ...fieldLabel, width: 220 }}>Probation Threshold (complaints)</label>
-            <input type="number" step="1" min="1" value={qpThreshold} onChange={e => setQpThreshold(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="2" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>in</span>
-            <input type="number" step="1" min="1" value={qpWindowDays} onChange={e => setQpWindowDays(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="30" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>days</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <label style={{ ...fieldLabel, width: 220 }}>Quality Probation Pay Rate</label>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
-            <input type="number" step="0.25" min="0" value={qpPayRate} onChange={e => setQpPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr flat</span>
-          </div>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Paid Hours Basis (hourly cleaners)</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>
+          Which hours an hourly-paid cleaner is paid for on a job. Cleaners paid commission are unaffected.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { value: 'greater_of', label: 'Greater of the Two', desc: 'Whichever is higher' },
+            { value: 'actual_clocked', label: 'Clocked Time', desc: 'Exactly what the clock recorded' },
+            { value: 'allowed_hours', label: 'Allowed Hours', desc: 'The hours the job was budgeted' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => isOwner && setHoursBasis(opt.value)}
+              disabled={!isOwner}
+              style={{
+                flex: 1, padding: '12px 14px', borderRadius: 8, cursor: isOwner ? 'pointer' : 'not-allowed', textAlign: 'left' as const,
+                border: `2px solid ${hoursBasis === opt.value ? 'var(--brand)' : '#E5E2DC'}`,
+                background: hoursBasis === opt.value ? 'rgba(var(--brand-rgb),0.07)' : '#fff',
+                fontFamily: FF2,
+              }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 2px' }}>{opt.label}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{opt.desc}</p>
+            </button>
+          ))}
         </div>
       </div>
 

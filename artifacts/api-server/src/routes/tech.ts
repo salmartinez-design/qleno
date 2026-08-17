@@ -569,8 +569,12 @@ router.get("/one-on-ones", requireAuth, async (req, res) => {
 const CLOCKABLE_EVENT_KINDS = ["tech_block", "client_visit", "one_on_one"] as const;
 
 // Hourly rate for event/meeting time: the tech's dated rate first
-// (employee_pay_rates), else the company default (payroll_settings.training_pay_rate),
+// (employee_pay_rates), else the company default (companies.training_pay_rate),
 // else $20. Never hardcoded at the call site — mirrors the rate-source rule.
+// [payroll-settings-one-store 2026-08-17] This used to read a `payroll_settings`
+// table that exists in no environment, so the lookup threw on every call and
+// every tenant silently landed on the $20 fallback no matter what the settings
+// screen showed. The rate now lives on companies with the rest of the pay config.
 async function resolveEventHourlyRate(companyId: number, userId: number, dateStr: string): Promise<number> {
   try {
     const r = await db.execute(sql`
@@ -583,7 +587,7 @@ async function resolveEventHourlyRate(companyId: number, userId: number, dateStr
     if (hr != null && !Number.isNaN(parseFloat(String(hr)))) return parseFloat(String(hr));
   } catch { /* fall through to company default */ }
   try {
-    const s = await db.execute(sql`SELECT training_pay_rate FROM payroll_settings WHERE company_id = ${companyId} LIMIT 1`);
+    const s = await db.execute(sql`SELECT training_pay_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
     const tr = (s.rows[0] as any)?.training_pay_rate;
     if (tr != null && !Number.isNaN(parseFloat(String(tr)))) return parseFloat(String(tr));
   } catch { /* fall through to default */ }
