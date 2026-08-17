@@ -2,8 +2,9 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { apiRequestLogTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { listAssistantWrites, revertAssistantWrite } from "../lib/ai-write.js";
 import {
   mintApiKey, revokeApiKey, rotateApiKey, listApiKeys,
   canMintApiKeys, isValidScope, maskedToken,
@@ -272,6 +273,52 @@ router.get("/:id/activity", gateMinters, async (req, res) => {
     .limit(100);
 
   res.json(rows);
+});
+
+// ── Assistant changes ────────────────────────────────────────────────────────
+// [ai-access-write 2026-08-16] Every write endpoint tells the assistant, in its
+// own response, that the change "is listed under Settings → AI & API Access,
+// where it can be reverted." These two endpoints are what make that sentence
+// true rather than a promise. Without them the ledger is a table nobody can
+// read and the undo is a column nobody can set.
+//
+// Gate is requireRole("owner", "admin"), NOT gateMinters. Minting a credential
+// is an owner/admin act on purpose; reviewing what the assistant did to today's
+// schedule is the office's daily work, and Maribel is the person this whole
+// phase exists for. requireRole("admin") grants 'office' parity by the
+// office-admin-parity choke point, so those three roles and no others.
+
+/** What has an assistant changed lately, newest first. */
+router.get("/changes", requireRole("owner", "admin"), async (req, res) => {
+  const companyId = req.auth!.companyId;
+  if (!companyId) { res.status(400).json({ error: "No company context" }); return; }
+
+  const limit = Number(req.query.limit);
+  const rows = await listAssistantWrites(companyId, Number.isFinite(limit) ? limit : 50);
+  res.json(rows);
+});
+
+/** Put one of them back. */
+router.post("/changes/:id/revert", requireRole("owner", "admin"), async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const writeId = Number(req.params.id);
+  if (!companyId || !Number.isFinite(writeId)) { res.status(400).json({ error: "Bad request" }); return; }
+
+  const outcome = await revertAssistantWrite({
+    writeId, companyId, userId: req.auth!.userId ?? null,
+  });
+
+  if (!outcome.ok) {
+    // The engine's refusals are the interesting half: 'changed_since' means a
+    // person edited the row after the assistant did, and reverting would throw
+    // that person's work away silently. It surfaces as a message the office can
+    // act on, not a generic failure.
+    res.status(outcome.status).json({ error: outcome.error, message: outcome.message });
+    return;
+  }
+
+  await logAudit(req, "ai_write_reverted", "ai_write_log", writeId, { summary: outcome.summary });
+  res.json({ ok: true, summary: outcome.summary });
 });
 
 export default router;

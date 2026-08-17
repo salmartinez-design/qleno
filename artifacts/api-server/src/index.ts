@@ -1187,6 +1187,24 @@ async function runStartupMigrations() {
     recordStartupFailure("ensureApiKeysSchema", err);
   }
 
+  // [ai-access-write 2026-08-16] Attribution columns on the three audit tables,
+  // plus ai_write_log / ai_write_idempotency / ai_write_proposals. All empty
+  // tables and nullable columns — no backfill, and deliberately no date sweep on
+  // the boot path (see the June-fill incident, PR #1351).
+  //
+  // A silent failure here is the expensive one: the write tools would still
+  // work, and every change they made would land with no ledger row, so nothing
+  // would appear in Recent assistant changes and nothing could be reverted. The
+  // office would be looking at a moved job with no way to see who moved it.
+  try {
+    await withBootTimeout("ensureAiWriteSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureAiWriteSchema } = await import("./lib/ai-write-migrate.js");
+      await ensureAiWriteSchema();
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureAiWriteSchema", err);
+  }
+
   // [ai-access-oauth 2026-08-16] oauth_clients + oauth_authorization_codes +
   // oauth_grants + api_request_log.oauth_grant_id. Empty tables and one nullable
   // column, so a failure here cannot affect existing behavior — but it is

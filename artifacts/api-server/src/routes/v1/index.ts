@@ -6,6 +6,7 @@ import clientsRouter from "./clients.js";
 import invoicesRouter from "./invoices.js";
 import payrollRouter from "./payroll.js";
 import reportsRouter from "./reports.js";
+import writesRouter from "./writes.js";
 
 // [ai-access 2026-08-15] Qleno Connect — the tenant-facing REST API, mounted at
 // /api/v1. Design: docs/AI_ACCESS_DESIGN.md §3.
@@ -36,6 +37,10 @@ v1Routes.use(clientsRouter);
 v1Routes.use(invoicesRouter);
 v1Routes.use(payrollRouter);
 v1Routes.use(reportsRouter);
+// [ai-access-write 2026-08-16] Everything that can CHANGE data lives in this one
+// router, so the answer to "what can an assistant do to my business" is a single
+// file read top to bottom rather than a grep for verbs.
+v1Routes.use(writesRouter);
 
 const router = Router();
 

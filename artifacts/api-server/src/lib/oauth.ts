@@ -53,26 +53,43 @@ function randomToken(prefix: string): string {
 }
 
 // ── Scopes an OAuth grant may carry ──────────────────────────────────────────
-// READ ONLY in this phase, and this is the mitigation rather than a limitation
-// we ran out of time for.
+// [ai-access-write 2026-08-16] Writes are grantable from Phase 5 onward, but
+// only the ones an office job actually needs, and never by default.
 //
 // A grant lands in a CHAT WINDOW, where text from a customer note reaches a
 // tool call by the shortest path in the system and the human sees a summary
-// instead of the request. Phase 5 is where the injection defenses get built —
-// confirmation gates, destructive-action framing, an injection-resistant tool
-// contract. Putting write scopes on the least-defended surface before those
-// exist would invert the whole safety argument. Write joins this list when
-// Phase 5 ships, behind its confirm contract.
-export const OAUTH_GRANTABLE_SCOPES: ApiScope[] = [...READ_SCOPES];
+// instead of the request. Phase 5 is what makes that survivable: every write is
+// budgeted, recorded with the connection named in the activity feed, and
+// reversible from Settings, and customer-facing sends only ever propose.
+//
+// Two scopes stay off the list on purpose. `payments:charge` moves money, which
+// no undo reaches — a reversed charge is a refund, a bank record, and a
+// conversation with a customer. `comms:send` is absent because nothing needs it:
+// the message tools write a proposal and a person presses Send, so the send
+// itself still happens through the office flow that respects COMMS_ENABLED.
+export const OAUTH_GRANTABLE_SCOPES: ApiScope[] = [
+  ...READ_SCOPES,
+  "jobs:write",
+  "clients:write",
+  "invoices:write",
+];
+
+// What an app gets when it asks for nothing in particular.
+//
+// Deliberately READ ONLY, and deliberately not the same list as the one above.
+// "Whatever you'll give me" is a request made by a client that has no idea what
+// it will be used for, and answering it with the power to move tomorrow's
+// schedule would mean a tenant grants write access by clicking Allow on a
+// screen that never mentioned writing. Writing has to be asked for by name.
+export const OAUTH_DEFAULT_SCOPES: ApiScope[] = [...READ_SCOPES];
 
 /** Drop anything a grant may not carry. Silently — the consent screen shows what was actually granted. */
 export function filterGrantableScopes(requested: string[]): ApiScope[] {
   const ok = requested.filter(isValidScope).filter((s) => OAUTH_GRANTABLE_SCOPES.includes(s));
-  // An empty scope request means "whatever you'll give me", which for a
-  // read-only grant is the full read set. Returning nothing would hand back a
-  // token that authenticates and can read nothing, which reads to the tenant as
-  // a broken connector.
-  return ok.length > 0 ? Array.from(new Set(ok)) : [...OAUTH_GRANTABLE_SCOPES];
+  // An empty request means "whatever you'll give me". Returning nothing would
+  // hand back a token that authenticates and can read nothing, which reads to
+  // the tenant as a broken connector — so it gets the read set, never more.
+  return ok.length > 0 ? Array.from(new Set(ok)) : [...OAUTH_DEFAULT_SCOPES];
 }
 
 // ── Redirect URI matching ────────────────────────────────────────────────────

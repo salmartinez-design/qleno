@@ -417,6 +417,11 @@ export function AiAccessTab() {
 
       <ConnectedAppsPanel />
 
+      {/* Above Connect on purpose. Connect is read once, when someone is setting
+          an assistant up; this is the panel the office opens on an ordinary
+          Tuesday to see what changed. Setup instructions can live further down. */}
+      <AssistantChangesPanel />
+
       <ConnectPanel />
 
       {creating && (
@@ -676,6 +681,110 @@ function ConnectedAppsPanel() {
             >
               Disconnect
             </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Assistant changes ────────────────────────────────────────────────────────
+
+interface ChangeRow {
+  id: number;
+  tool: string;
+  summary: string;
+  /** The app — "Claude", "ChatGPT". Null for a direct API key. */
+  connection: string | null;
+  /** The person whose credential it was. Every change has one. */
+  person: string | null;
+  created_at: string;
+  reverted_at: string | null;
+  reverted_by_name: string | null;
+  /** False once reverted, or for a change this page has no undo for. */
+  revertable: boolean;
+}
+
+/**
+ * [ai-access-write 2026-08-16] What an assistant has changed, and the button
+ * that puts it back.
+ *
+ * Every write endpoint tells the assistant its change "can be reverted in
+ * Settings". This panel is the difference between that being true and it being
+ * a sentence. It is also the honest answer to the risk Sal accepted when he
+ * chose to skip the soak period: the defense against a bad write is not that it
+ * cannot happen, it is that the office can see it and undo it the same day.
+ */
+function AssistantChangesPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const q = useQuery<ChangeRow[]>({
+    queryKey: ["api-keys", "changes"],
+    queryFn: () => apiFetch("/api/api-keys/changes?limit=50"),
+  });
+
+  const revert = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/api-keys/changes/${id}/revert`, { method: "POST" }),
+    onSuccess: (r: { summary?: string }) => {
+      qc.invalidateQueries({ queryKey: ["api-keys", "changes"] });
+      toast({ title: "Put back", description: r?.summary ?? "The change was reverted." });
+    },
+    // The server's refusals carry the whole point. "Someone changed this after
+    // the assistant did" is not an error to shrug at — it means undoing now
+    // would quietly throw away a person's work, so it is shown as written.
+    onError: (e: Error) => toast({ title: "Not reverted", description: e.message, variant: "destructive" }),
+  });
+
+  const rows = q.data ?? [];
+
+  return (
+    <div style={card}>
+      <h2 style={h2}>Recent assistant changes</h2>
+      <p style={sub}>
+        Every change an assistant made, newest first. Each one also appears in the customer's
+        own history under the name of the person whose connection made it.
+      </p>
+
+      {q.isLoading && <p style={{ ...sub, marginTop: 14 }}>Loading…</p>}
+
+      {!q.isLoading && rows.length === 0 && (
+        <p style={{ ...sub, marginTop: 14 }}>
+          No changes yet. Assistants can read your data right away; changing it takes a
+          connection approved with permission to make changes.
+        </p>
+      )}
+
+      {rows.map((c) => (
+        <div key={c.id} style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5E2DC" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: "1 1 320px" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif", lineHeight: 1.45 }}>
+                {c.summary}
+              </div>
+              <div style={{ ...sub, marginTop: 6 }}>
+                {c.person ?? "Someone"}{c.connection ? ` via ${c.connection}` : ""} · {when(c.created_at)}
+              </div>
+              {c.reverted_at && (
+                <div style={{ ...sub, marginTop: 4, color: "#8C2F22" }}>
+                  Put back by {c.reverted_by_name || "the office"} · {when(c.reverted_at)}
+                </div>
+              )}
+            </div>
+            {c.revertable && (
+              <button
+                type="button"
+                disabled={revert.isPending}
+                onClick={() => {
+                  if (window.confirm(`Put this back?\n\n${c.summary}\n\nThe customer's history will show both the change and this reversal.`)) {
+                    revert.mutate(c.id);
+                  }
+                }}
+                style={{ ...btnSecondary, opacity: revert.isPending ? 0.6 : 1 }}
+              >
+                Put it back
+              </button>
+            )}
           </div>
         </div>
       ))}

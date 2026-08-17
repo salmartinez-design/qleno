@@ -21,8 +21,9 @@ import type { ApiScope } from "./api-keys.js";
 // The failure this guards against is quiet: the model picks a plausible tool,
 // gets a plausible number, and the operator acts on it. Nobody sees an error.
 //
-// Every tool here is READ ONLY. Write tools are Phase 5 and land behind their
-// own confirm-before-destructive gate; nothing in this file can change data.
+// A tool that changes data must set `writes: true` and return a non-GET method
+// from build(). Everything without that marker is read-only and cannot change a
+// row no matter what it is asked to do.
 
 export type ToolArgs = Record<string, unknown>;
 
@@ -45,6 +46,18 @@ export type McpTool = {
   local?: true;
   /** Only advertised on a cross-tenant connection. */
   crossTenantOnly?: true;
+  /**
+   * [ai-access-write 2026-08-16] This tool CHANGES data.
+   *
+   * Declared here rather than inferred from build().method, because the checks
+   * that depend on it run before build() does — chiefly the refusal of a
+   * `company` argument. A cross-tenant connection may read any company it was
+   * granted and may write only to its home one, and that asymmetry is
+   * deliberate: reading the wrong tenant produces a wrong answer somebody can
+   * question, while writing to the wrong tenant moves a real job at a business
+   * that never asked for an assistant.
+   */
+  writes?: true;
   inputSchema: {
     type: "object";
     properties: Record<string, unknown>;
@@ -55,8 +68,18 @@ export type McpTool = {
    * Turn validated arguments into a v1 request. Returns an error string instead
    * of throwing when an argument is unusable, so the caller answers with an
    * MCP tool error the model can correct rather than a 500 it cannot.
+   *
+   * Omitting `method` means GET, which is what every read tool wants and what
+   * every tool written before Phase 5 assumed.
    */
-  build: (args: ToolArgs) => { path: string; query: Record<string, string | undefined> } | { error: string };
+  build: (args: ToolArgs) =>
+    | {
+        path: string;
+        query: Record<string, string | undefined>;
+        method?: "GET" | "POST" | "PATCH" | "DELETE";
+        body?: Record<string, unknown>;
+      }
+    | { error: string };
 };
 
 // ── Argument coercion ────────────────────────────────────────────────────────
@@ -452,6 +475,137 @@ export const MCP_TOOLS: McpTool[] = [
       },
     }),
   },
+
+  // ── Changes ────────────────────────────────────────────────────────────────
+  // [ai-access-write 2026-08-16] Everything below CHANGES data. The endpoints
+  // behind them live in one file (routes/v1/writes.ts) and every one of them is
+  // budgeted, recorded in the customer's Activity feed under the connection's
+  // name, and listed for reversal in Settings.
+  //
+  // These descriptions carry a second job the read ones do not: they have to say
+  // what the change does NOT touch. "Move this visit" and "move this customer's
+  // Tuesdays" are the same sentence in English and wildly different acts, and the
+  // model has no way to know which one it just performed unless the tool says so.
+  {
+    name: "reschedule_job",
+    description:
+      "Move ONE visit to a different date and/or time. Give scheduled_date as YYYY-MM-DD, scheduled_time as 24-hour HH:MM in the company's own timezone, or both; whichever you leave out stays as it is. " +
+      "This moves that single visit only. A recurring customer's other visits do not move and the repeating schedule behind them is not touched — to change the pattern itself, a person does that in Qleno. " +
+      "Visits can only be moved to today or later, and a visit already marked complete or cancelled cannot be moved at all. " +
+      "The assigned cleaner is notified, the customer's invoice follows the new date, and the change appears in the customer's activity history naming this connection. " +
+      "Confirm the date with the person before calling: this reaches a real crew and a real customer.",
+    scope: "jobs:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        job_id: { type: "integer", description: "The visit's numeric id, from get_schedule or find_jobs." },
+        scheduled_date: { type: "string", description: "New date as YYYY-MM-DD. Omit to keep the current date." },
+        scheduled_time: { type: "string", description: "New start time as 24-hour HH:MM. Omit to keep the current time." },
+      },
+      required: ["job_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.job_id);
+      if (id === null) return { error: "job_id must be a positive whole number" };
+      return {
+        path: `/jobs/${id}/schedule`,
+        query: {},
+        method: "PATCH",
+        body: { scheduled_date: date(a.scheduled_date), scheduled_time: str(a.scheduled_time) },
+      };
+    },
+  },
+  {
+    name: "assign_technician",
+    description:
+      "Put a cleaner on a visit, or take the visit back to unassigned by passing technician_id as null. " +
+      "One person at a time: this sets who the visit belongs to, replacing whoever held it. Anyone else already helping on that visit keeps their place. " +
+      "The id must be an active employee of this company — look the person up rather than guessing an id, because a wrong id is refused, not silently ignored. " +
+      "A cancelled visit cannot be staffed. The cleaner is notified on their phone, so do not call this to explore options.",
+    scope: "jobs:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        job_id: { type: "integer", description: "The visit's numeric id." },
+        technician_id: {
+          type: ["integer", "null"],
+          description: "The employee's numeric id, from get_technician_load. Pass null to leave the visit unassigned.",
+        },
+      },
+      required: ["job_id", "technician_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.job_id);
+      if (id === null) return { error: "job_id must be a positive whole number" };
+      // null is a real instruction here — "unassign" — so it is passed through
+      // rather than coerced away by the usual empty-value handling.
+      const t = a.technician_id;
+      const tech = t === null || t === undefined || t === "" ? (t === null ? null : undefined) : Number(t);
+      return {
+        path: `/jobs/${id}/assign`,
+        query: {},
+        method: "POST",
+        body: { technician_id: tech },
+      };
+    },
+  },
+  {
+    name: "add_job_note",
+    description:
+      "Add a line to a visit's office notes — access instructions, what the customer asked for, what to watch out for. " +
+      "It APPENDS. Nothing already in the notes is replaced or removed, and the line is stamped with this connection's name so whoever reads it later knows where it came from. " +
+      "Up to 2000 characters. These notes are read by the crew and quoted to customers, so write what a person would write, not a summary of the conversation.",
+    scope: "jobs:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        job_id: { type: "integer", description: "The visit's numeric id." },
+        note: { type: "string", description: "The line to add. Plain text, up to 2000 characters." },
+      },
+      required: ["job_id", "note"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.job_id);
+      if (id === null) return { error: "job_id must be a positive whole number" };
+      return { path: `/jobs/${id}/notes`, query: {}, method: "POST", body: { note: str(a.note) } };
+    },
+  },
+  {
+    name: "update_client_contact",
+    description:
+      "Correct a customer's email address or phone number. Pass either or both; whichever you leave out is unchanged. " +
+      "Phone is stored as ten US digits however you punctuate it, and an email that is not a valid address is refused rather than saved. " +
+      "This changes contact details ONLY. It cannot change a customer's name or their service address — the address decides which branch serves them and what the crew's route looks like, so a person changes that in Qleno. " +
+      "The customer's reminders and receipts go to whatever is stored here, so a typo reaches them before anyone notices.",
+    scope: "clients:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_id: { type: "integer", description: "The customer's numeric id, from find_client." },
+        email: { type: "string", description: "New email address. Omit to leave it alone." },
+        phone: { type: "string", description: "New US phone number, 10 digits. Omit to leave it alone." },
+      },
+      required: ["client_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.client_id);
+      if (id === null) return { error: "client_id must be a positive whole number" };
+      return {
+        path: `/clients/${id}/contact`,
+        query: {},
+        method: "PATCH",
+        body: { email: str(a.email), phone: str(a.phone) },
+      };
+    },
+  },
 ];
 
 export const TOOLS_BY_NAME: ReadonlyMap<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
@@ -472,7 +626,10 @@ const COMPANY_ARG = {
 };
 
 function withCompanyArg(tool: McpTool): McpTool {
-  if (tool.crossTenantOnly) return tool;
+  // A write tool never gets the argument, on any connection. Advertising it and
+  // then refusing it would teach the model to keep trying; leaving it off the
+  // schema says plainly that changes land in this connection's own company.
+  if (tool.crossTenantOnly || tool.writes) return tool;
   return {
     ...tool,
     inputSchema: {
