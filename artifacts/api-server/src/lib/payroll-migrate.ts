@@ -46,7 +46,14 @@ export async function ensurePayrollP0Setup(): Promise<void> {
     // backfill never double-shifts a row. New rows are inserted with this true;
     // pre-existing rows default false and become true once reviewed+applied.
     await db.execute(sql`ALTER TABLE timeclock ADD COLUMN IF NOT EXISTS tz_normalized boolean NOT NULL DEFAULT false`);
-    console.log("[payroll-P0] schema ready (payroll_hours_basis + payroll_hours_overrides + cancel/lockout flat fee + tz_normalized)");
+    // [payroll-settings-one-store 2026-08-17] Flat $/hr for training and other
+    // clockable non-job events (resolveEventHourlyRate in routes/tech.ts). It
+    // used to be read from a `payroll_settings` table that was never created in
+    // any environment, so the lookup always threw and every tenant silently got
+    // the hardcoded $20 fallback. Lives on companies with the rest of the pay
+    // config — one store, the one the money comes from.
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS training_pay_rate numeric(10,2) NOT NULL DEFAULT 20.00`);
+    console.log("[payroll-P0] schema ready (payroll_hours_basis + payroll_hours_overrides + cancel/lockout flat fee + tz_normalized + training_pay_rate)");
   } catch (err) {
     console.error("[payroll-P0] ensure setup error (non-fatal):", err);
   }
