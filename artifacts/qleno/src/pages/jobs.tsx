@@ -3439,8 +3439,21 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate} tipsTotal={tipsTotal}
             modLines={rateMods}
             adjustments={canManageMods ? (
-              <div style={{ marginTop: 14, borderTop: "1px solid #F0EEE9", paddingTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Adjustments</div>
+              /* [job-card-restructure 2026-08-17] Collapsed to a summary row.
+                 On a normal job this reads "Adjustments · none" and takes one
+                 line instead of a header, an empty-state line and a button.
+                 Opens itself the moment there IS an adjustment, so a changed
+                 price is never hidden. Add adjustment still lives inside —
+                 nothing removed; that button only retires once Edit can do
+                 everything it does (Maribel's three conditions). */
+              <details open={rateMods.length > 0} style={{ marginTop: 14, borderTop: "1px solid #F0EEE9", paddingTop: 12 }}>
+                <summary style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", listStyle: "none", marginBottom: 8 }}>
+                  <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Adjustments</span>
+                  <span style={{ fontSize: 12, color: "#6B6860" }}>
+                    {!rateModsLoaded ? "…" : rateMods.length === 0 ? "none" : `${rateMods.length}`}
+                  </span>
+                </summary>
                 {rateMods.length === 0 ? (
                   <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
                     {rateModsLoaded ? "No adjustments" : "Loading…"}
@@ -3538,7 +3551,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </div>
                   </div>
                 )}
-              </div>
+              </details>
             ) : null}
           />
 
@@ -3624,15 +3637,21 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
           {/* Cleaner Notes — the note the technician sees in the field app.
               Inline-editable for office/owner/admin (#15); read-only otherwise. */}
+          {/* [job-card-restructure 2026-08-17] Collapsed unless it has a note.
+              An empty 4-row textarea was the tallest thing on the card and said
+              nothing. Opens itself the moment there IS a note, so field
+              instructions are never buried. */}
           {canEditOfficeNotes ? (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <details open={!!cleanerNotes} style={{ marginBottom: 12 }}>
+              <summary style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
                   <span title="Shown to the cleaner on their job. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Cleaner Notes</span>
+                  {!cleanerNotes && <span style={{ fontSize: 11, color: "#C4C0BB" }}>none</span>}
                 </div>
                 {cleanerNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
                 {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
-              </div>
+              </summary>
               <textarea
                 value={cleanerNotes}
                 onChange={e => { setCleanerNotes(e.target.value); setCleanerNotesSaved(false); }}
@@ -3649,7 +3668,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               />
               
               {cleanerNotes && <TranslateNote text={cleanerNotes} />}
-            </div>
+            </details>
           ) : (
             job.notes && (
               <PS label="Cleaner Notes (tech sees this)">
@@ -3661,15 +3680,17 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
           {/* Office Notes — editable, office/owner/admin only */}
           {canEditOfficeNotes && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <details open={!!officeNotes} style={{ marginBottom: 12 }}>
+              <summary style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
                   <Phone size={11} style={{ color: "var(--brand)" }} />
                   <span title="Internal only — never shown to clients or technicians. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Office Notes</span>
+                  {!officeNotes && <span style={{ fontSize: 11, color: "#C4C0BB" }}>none</span>}
                 </div>
                 {officeNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
                 {!officeNotesSaving && officeNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
-              </div>
+              </summary>
               <textarea
                 value={officeNotes}
                 onChange={e => { setOfficeNotes(e.target.value); setOfficeNotesSaved(false); }}
@@ -3692,7 +3713,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </p>
               )}
               <TranslateNote text={officeNotes} />
-            </div>
+            </details>
           )}
 
           {/* [panel-revamp 2026-06-03 · hours-merge] One section so allowed
