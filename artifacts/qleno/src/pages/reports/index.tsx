@@ -16,6 +16,7 @@ const REPORT_GROUPS = [
       { title: "Revenue Summary",      desc: "Total revenue, trends, and projected income by period.", url: "/reports/revenue",          icon: DollarSign },
       { title: "Accounts Receivable",  desc: "Outstanding invoices grouped by aging bucket.",          url: "/reports/receivables",       icon: ReceiptText },
       { title: "Job Costing",          desc: "Revenue vs labor cost with gross profit margins.",       url: "/reports/job-costing",       icon: Clipboard },
+      { title: "Client Profitability", desc: "Gross profit and margin per customer, plus the cut by service type, zone and frequency.", url: "/reports/client-profitability", icon: Users },
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
       { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
       { title: "Fees Collected",       desc: "Cancellation and lockout fees billed in a period — labeled subset of revenue.", url: "/reports/fees", icon: Banknote },

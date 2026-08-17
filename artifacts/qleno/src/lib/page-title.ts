@@ -32,6 +32,7 @@ export const ROUTE_TITLES: Record<string, string> = {
   '/reports/tips':                 'Tips Report',
   '/reports/receivables':          'Accounts Receivable',
   '/reports/job-costing':          'Job Costing',
+  '/reports/client-profitability': 'Client Profitability',
   '/reports/payroll-to-revenue':   'Payroll % Revenue',
   '/reports/efficiency':           'Schedule Efficiency',
   '/reports/week-review':          'Week in Review',

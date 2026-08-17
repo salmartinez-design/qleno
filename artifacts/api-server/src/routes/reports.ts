@@ -426,10 +426,12 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
         ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
         j.allowed_hours, j.actual_hours,
         c.first_name AS client_first, c.last_name AS client_last,
+        c.company_name AS client_company, a.account_name,
         u.first_name AS emp_first, u.last_name AS emp_last,
         u.pay_rate, u.pay_type
       FROM jobs j
-      JOIN clients c ON c.id = j.client_id
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.company_id = ${companyId}
         ${branchFilter(req, "j.branch_id")}
@@ -445,7 +447,15 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
       const margin  = revenue > 0 ? (profit / revenue) * 100 : 0;
       return {
         id: r.id, date: r.scheduled_date, service_type: r.service_type,
-        client_name: `${r.client_first} ${r.client_last}`,
+        // [job-costing-commercial 2026-08-17] This was `JOIN clients`, an inner
+        // join, so every job booked to an account instead of a client vanished
+        // from the report — 703 of co1's 1,866 completed jobs over the last
+        // twelve months, carrying $135,678.29 of revenue. Job Costing looked
+        // complete while showing only the residential book. LEFT JOIN both
+        // sides and name the customer from whichever one the job actually has.
+        client_name: r.account_name
+          || r.client_company
+          || (r.client_first ? `${r.client_first} ${r.client_last}` : "No customer on the job"),
         employee_name: r.emp_first ? `${r.emp_first} ${r.emp_last}` : "Unassigned",
         revenue, labor_cost: parseF(labor), gross_profit: profit, margin_pct: margin,
         allowed_hours: parseF(r.allowed_hours), actual_hours: parseF(r.actual_hours),
@@ -493,6 +503,206 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
     });
   } catch (err) {
     console.error("Job costing error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── CLIENT PROFITABILITY ────────────────────────────────────────────────────
+// Job Costing answers "which JOBS earn"; this answers "which CUSTOMERS earn".
+//
+// A customer here is a client OR an account. Routing is on `!!jobs.account_id`,
+// the same test the commission engine uses to decide residential vs commercial —
+// so a job belongs to exactly one customer and the two reports can never
+// disagree about which side of the book it sits on.
+//
+// GROSS margin only. Qleno knows what a job billed and what it paid in labor;
+// it does not carry supplies, vehicle, or overhead cost per job. So this reports
+// revenue − labor and says "gross" everywhere. No net margin is manufactured out
+// of expenses that do not exist in the data.
+router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+
+    const typeFilter = (req.query.type as string) || "all";        // all | residential | commercial
+    const sortKey    = (req.query.sort as string) || "revenue";
+    const sortDir    = (req.query.dir  as string) === "asc" ? "asc" : "desc";
+    const page       = Math.max(1, parseInt((req.query.page as string) || "1", 10) || 1);
+    const pageSize   = Math.min(200, Math.max(10, parseInt((req.query.page_size as string) || "50", 10) || 50));
+
+    // Labor from the paycheck engine — the same source Job Costing uses, so the
+    // two reports cannot report different labor for the same job.
+    const { lines: costLines } = await computePeriodPayLines(companyId, fromStr, toStr);
+    const laborByJob = new Map<number, number>();
+    for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
+
+    // LEFT JOIN clients, not JOIN. Job Costing's inner join silently dropped
+    // every account job — on co1's last twelve months that was 703 of 1,866
+    // completed jobs and $135,678.29 of revenue that no costing screen showed.
+    //
+    // Zone follows the documented resolution chain as far as this report can:
+    // jobs.zone_id, then the job's own zip, then the client's, then the
+    // property's. A job that still resolves to nothing lands in an explicit
+    // "No zone" bucket rather than being quietly folded into a real zone.
+    const rows = await db.execute(sql`
+      SELECT
+        j.id, j.scheduled_date, j.service_type, j.frequency,
+        ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
+        j.client_id, j.account_id,
+        cl.first_name AS client_first, cl.last_name AS client_last,
+        cl.company_name AS client_company, cl.client_type,
+        a.account_name,
+        coalesce(zd.name, zj.name, zc.name, zp.name) AS zone_name
+      FROM jobs j
+      LEFT JOIN clients cl ON cl.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN account_properties p ON p.id = j.account_property_id
+      LEFT JOIN service_zones zd ON zd.id = j.zone_id
+      LEFT JOIN service_zones zj ON zj.company_id = j.company_id AND j.address_zip = ANY(zj.zip_codes)
+      LEFT JOIN service_zones zc ON zc.company_id = j.company_id AND cl.zip       = ANY(zc.zip_codes)
+      LEFT JOIN service_zones zp ON zp.company_id = j.company_id AND p.zip        = ANY(zp.zip_codes)
+      WHERE j.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
+        AND j.status = 'complete'
+        AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+    `);
+
+    type Cust = {
+      key: string; kind: "client" | "account"; id: number | null; name: string;
+      client_type: string; jobs: number; revenue: number; labor: number;
+      first_visit: string | null; last_visit: string | null;
+      freqs: Record<string, number>; zones: Record<string, number>;
+    };
+    const custs = new Map<string, Cust>();
+    const cut = (bag: Map<string, { jobs: number; revenue: number; labor: number }>, label: string, rev: number, lab: number) => {
+      const e = bag.get(label) ?? { jobs: 0, revenue: 0, labor: 0 };
+      e.jobs += 1; e.revenue += rev; e.labor += lab;
+      bag.set(label, e);
+    };
+    const byService = new Map<string, { jobs: number; revenue: number; labor: number }>();
+    const byZone    = new Map<string, { jobs: number; revenue: number; labor: number }>();
+    const byFreq    = new Map<string, { jobs: number; revenue: number; labor: number }>();
+
+    for (const r of rows.rows as any[]) {
+      const revenue = parseF(r.effective_amount);
+      const labor   = Math.round((laborByJob.get(Number(r.id)) ?? 0) * 100) / 100;
+
+      const isAccount = r.account_id != null;
+      const key  = isAccount ? `a:${r.account_id}` : r.client_id != null ? `c:${r.client_id}` : "unassigned";
+      const name = isAccount
+        ? (r.account_name || `Account ${r.account_id}`)
+        : r.client_id != null
+          ? (r.client_company || `${r.client_first ?? ""} ${r.client_last ?? ""}`.trim() || `Client ${r.client_id}`)
+          : "No customer on the job";
+
+      let c = custs.get(key);
+      if (!c) {
+        c = {
+          key, kind: isAccount ? "account" : "client",
+          id: isAccount ? Number(r.account_id) : r.client_id != null ? Number(r.client_id) : null,
+          name,
+          // An account is commercial by definition — that is what account_id
+          // means to the commission engine, so it means the same here.
+          client_type: isAccount ? "commercial" : (r.client_type || "residential"),
+          jobs: 0, revenue: 0, labor: 0, first_visit: null, last_visit: null,
+          freqs: {}, zones: {},
+        };
+        custs.set(key, c);
+      }
+      c.jobs += 1; c.revenue += revenue; c.labor += labor;
+      const d = String(r.scheduled_date).slice(0, 10);
+      if (!c.first_visit || d < c.first_visit) c.first_visit = d;
+      if (!c.last_visit  || d > c.last_visit)  c.last_visit  = d;
+      if (r.frequency) c.freqs[r.frequency] = (c.freqs[r.frequency] ?? 0) + 1;
+      const zn = r.zone_name || "No zone";
+      c.zones[zn] = (c.zones[zn] ?? 0) + 1;
+
+      cut(byService, r.service_type || "unspecified", revenue, labor);
+      cut(byZone, zn, revenue, labor);
+      cut(byFreq, r.frequency || "on_demand", revenue, labor);
+    }
+
+    const topOf = (bag: Record<string, number>) => {
+      const e = Object.entries(bag).sort((a, b) => b[1] - a[1])[0];
+      return e ? e[0] : null;
+    };
+    const marginOf = (rev: number, profit: number) => (rev > 0 ? (profit / rev) * 100 : 0);
+
+    let all = [...custs.values()].map(c => {
+      const profit = c.revenue - c.labor;
+      return {
+        key: c.key, kind: c.kind, id: c.id, name: c.name, client_type: c.client_type,
+        jobs: c.jobs,
+        revenue: Math.round(c.revenue * 100) / 100,
+        labor: Math.round(c.labor * 100) / 100,
+        profit: Math.round(profit * 100) / 100,
+        margin_pct: marginOf(c.revenue, profit),
+        rev_per_visit: c.jobs > 0 ? Math.round((c.revenue / c.jobs) * 100) / 100 : 0,
+        first_visit: c.first_visit, last_visit: c.last_visit,
+        frequency: topOf(c.freqs), zone: topOf(c.zones),
+      };
+    });
+
+    if (typeFilter === "residential" || typeFilter === "commercial") {
+      all = all.filter(c => c.client_type === typeFilter);
+    }
+
+    // Summary is computed over the FILTERED set but BEFORE pagination — the
+    // headline always describes the whole list underneath it, never one page.
+    const totalRevenue = all.reduce((s, c) => s + c.revenue, 0);
+    const totalLabor   = all.reduce((s, c) => s + c.labor, 0);
+    const totalProfit  = totalRevenue - totalLabor;
+    const totalJobs    = all.reduce((s, c) => s + c.jobs, 0);
+
+    const SORTS: Record<string, (c: typeof all[number]) => number | string> = {
+      revenue: c => c.revenue, profit: c => c.profit, margin: c => c.margin_pct,
+      jobs: c => c.jobs, rev_per_visit: c => c.rev_per_visit,
+      last_visit: c => c.last_visit || "", name: c => c.name.toLowerCase(),
+    };
+    const pick = SORTS[sortKey] || SORTS.revenue;
+    all.sort((a, b) => {
+      const x = pick(a), y = pick(b);
+      const cmp = typeof x === "string" || typeof y === "string"
+        ? String(x).localeCompare(String(y))
+        : (x as number) - (y as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+    const start = (page - 1) * pageSize;
+    const data  = all.slice(start, start + pageSize);
+
+    const cutOut = (bag: Map<string, { jobs: number; revenue: number; labor: number }>) =>
+      [...bag.entries()]
+        .map(([label, v]) => ({
+          label, jobs: v.jobs,
+          revenue: Math.round(v.revenue * 100) / 100,
+          labor: Math.round(v.labor * 100) / 100,
+          profit: Math.round((v.revenue - v.labor) * 100) / 100,
+          margin_pct: marginOf(v.revenue, v.revenue - v.labor),
+        }))
+        .sort((a, b) => b.revenue - a.revenue);
+
+    return res.json({
+      from: fromStr, to: toStr,
+      summary: {
+        customers: all.length, jobs: totalJobs,
+        total_revenue: Math.round(totalRevenue * 100) / 100,
+        total_labor: Math.round(totalLabor * 100) / 100,
+        total_profit: Math.round(totalProfit * 100) / 100,
+        margin_pct: marginOf(totalRevenue, totalProfit),
+        rev_per_visit: totalJobs > 0 ? Math.round((totalRevenue / totalJobs) * 100) / 100 : 0,
+      },
+      data,
+      page, page_size: pageSize, total_rows: all.length,
+      total_pages: Math.max(1, Math.ceil(all.length / pageSize)),
+      by_service: cutOut(byService),
+      by_zone: cutOut(byZone),
+      by_frequency: cutOut(byFreq),
+    });
+  } catch (err) {
+    console.error("Client profitability error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
