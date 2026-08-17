@@ -1038,15 +1038,21 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
     return (
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><MapPin size={14} /></span>
+        {/* [job-card-redesign 2026-08-17] The word "Directions" is gone — Sal:
+            "It should just be easy to understand that clicking the address will
+            navigate you." The address itself is the link now; a hairline
+            underline is the only affordance it needs. Falls back to plain text
+            when there's no address to map. */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>
-            {job.address || "(No address)"}
-          </span>
-          {mapsHref && (
-            <a href={mapsHref} target="_blank" rel="noopener noreferrer" title="Open directions in Google Maps"
-              style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: "#185FA5", textDecoration: "none", whiteSpace: "nowrap" }}>
-              Directions
+          {mapsHref ? (
+            <a href={mapsHref} target="_blank" rel="noopener noreferrer" title="Open in Google Maps"
+              style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5, textDecoration: "none", borderBottom: "1px solid #E5E2DC" }}>
+              {job.address}
             </a>
+          ) : (
+            <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>
+              {job.address || "(No address)"}
+            </span>
           )}
         </div>
         {/* [address-reinherit 2026-08-12] Only when this job carries its OWN
@@ -3111,7 +3117,22 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   specific job (e.g. spot a duplicate) and cross-reference it in the
                   activity/audit tab. Maribel's request. */}
               <span title="Job number — use this to identify the job in the activity tab" style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", fontVariantNumeric: "tabular-nums" }}>#{job.id}</span>
-              {job.zone_name && <span style={{ fontSize: 11, fontWeight: 700, color: job.zone_color ?? "#6B6860" }}>{job.zone_name}</span>}
+              {/* [job-card-redesign 2026-08-17] Zone reads with its own colour as
+                  a SWATCH, not as the text colour. Sal: "the zone needs to
+                  display the zone color… there cannot be variance." Colouring the
+                  text meant the label's legibility depended on the hue — the 23
+                  zone colours include #FFD700 and #00F20A, which are unreadable
+                  as text on white, so those zones effectively lost their colour.
+                  A dot shows the exact stored value at full saturation and keeps
+                  the name readable for every zone. */}
+              {job.zone_name && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#6B6860" }}>
+                  {job.zone_color && (
+                    <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: job.zone_color, flexShrink: 0 }} />
+                  )}
+                  {job.zone_name}
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -3423,12 +3444,21 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       </div>
                     );
                   })}
+                  {/* [job-card-redesign 2026-08-17] Maribel: "Instead of having
+                      that big 'add a tech' button we can just have a Plus button
+                      or something that takes less space." Round icon button, and
+                      no dashed border — Sal: "stop with the scissor cut-out
+                      outlines, we don't like them." */}
                   {canManageCommission && (
-                    <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
-                      disabled={job.status === "cancelled"}
-                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "7px 10px", fontSize: 12, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#0F7A63", border: `1px dashed ${job.status === "cancelled" ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
-                      <Plus size={13} /> Add tech
-                    </button>
+                    <div>
+                      <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
+                        disabled={job.status === "cancelled"}
+                        title="Add cleaner"
+                        aria-label="Add cleaner"
+                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, fontSize: 15, fontWeight: 800, lineHeight: 1, color: job.status === "cancelled" ? "#9E9B94" : "#0F7A63", border: `1px solid ${job.status === "cancelled" ? "#E5E2DC" : "#CFEEE4"}`, borderRadius: "50%", background: job.status === "cancelled" ? "#FFFFFF" : "#EAF9F4", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
+                        <Plus size={14} />
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -3512,7 +3542,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 {!modAddOpen ? (
                   <button onClick={() => adjUnlocked && setModAddOpen(true)}
                     disabled={!adjUnlocked}
-                    style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#0F7A63", border: `1px dashed ${!adjUnlocked ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
+                    style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#0F7A63", border: `1px solid ${!adjUnlocked ? "#E5E2DC" : "#CFEEE4"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
                     <Plus size={12} /> Add adjustment
                   </button>
                 ) : (
@@ -3652,7 +3682,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Cleaner Notes (tech sees this)</span>
+                  <span title="Shown to the cleaner on their job. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Cleaner Notes</span>
                 </div>
                 {cleanerNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
                 {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
@@ -3671,7 +3701,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 onFocus={e => (e.target.style.borderColor = "var(--brand)")}
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
               />
-              <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
+              
               {cleanerNotes && <TranslateNote text={cleanerNotes} />}
             </div>
           ) : (
@@ -3689,7 +3719,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <Phone size={11} style={{ color: "var(--brand)" }} />
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Office Notes</span>
+                  <span title="Internal only — never shown to clients or technicians. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Office Notes</span>
                 </div>
                 {officeNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
                 {!officeNotesSaving && officeNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
@@ -3697,7 +3727,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <textarea
                 value={officeNotes}
                 onChange={e => { setOfficeNotes(e.target.value); setOfficeNotesSaved(false); }}
-                placeholder="Internal office notes — not visible to clients or technicians..."
+                placeholder="Internal notes…"
                 rows={4}
                 style={{
                   width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
@@ -3708,12 +3738,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 onFocus={e => (e.target.style.borderColor = "var(--brand)")}
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
               />
-              {job.office_notes_updated_at ? (
+              {/* The standing "auto-saves" line that used to sit here is now the
+                  label's tooltip — it repeated the ✓ Saved indicator right above. */}
+              {job.office_notes_updated_at && (
                 <p style={{ fontSize: 10, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>
                   Last edited{job.office_notes_updated_by_name ? ` by ${job.office_notes_updated_by_name}` : ""} · {new Date(job.office_notes_updated_at).toLocaleDateString([], { month: "short", day: "numeric" })}
                 </p>
-              ) : (
-                <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
               )}
               <TranslateNote text={officeNotes} />
             </div>
@@ -3904,14 +3934,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       <span style={{ fontSize: 12, color: t.pay_override != null ? "#B45309" : "#0F7A63", fontWeight: 700 }}>
                         ${t.final_pay.toFixed(2)}{t.pay_override != null ? " (override)" : ""}
                       </span>
-                      {canManageCommission ? (
-                        <button
-                          onClick={() => { setOverrideOpen(o => ({ ...o, [t.user_id]: !o[t.user_id] })); setOverrideVal(v => ({ ...v, [t.user_id]: t.pay_override != null ? String(t.pay_override) : "" })); }}
-                          style={{ fontSize: 10, color: "#6B6860", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
-                        >
-                          {overrideOpen[t.user_id] ? "Cancel" : "Override"}
-                        </button>
-                      ) : null}
+                      {/* [job-card-redesign 2026-08-17] Override removed.
+                          Maribel: "Never liked the override commission thing, we
+                          do not assign commissions just because, we have every
+                          system set up in time clock. I don't think we need it
+                          there too."
+                          The editor + saveOverride path is still wired (an
+                          existing override still renders above, tagged), so no
+                          historical value is stranded — the office just can't
+                          hand-set a new one from the card. */}
                       {!isLocked && (
                         <button
                           onClick={() => removeTechFromJob(t.user_id)}
@@ -4231,7 +4262,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               )}
               {!tipFormOpen ? (
                 <button onClick={openTipForm}
-                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#0F7A63", border: "1px dashed #0F7A63", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
+                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#0F7A63", border: "1px solid #CFEEE4", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
                   <Plus size={12} /> Add tip
                 </button>
               ) : (
@@ -4586,29 +4617,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 )
               )}
             </>
-          ) : confirmComplete ? (
-            <>
-              <button onClick={() => setStatus("complete")} disabled={busy}
-                style={{ flex: 1, minWidth: 120, padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#0F7A63", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>
-                {busy ? "..." : "Yes, complete"}
-              </button>
-              <button onClick={() => setConfirmComplete(false)} disabled={busy}
-                style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setConfirmComplete(true)} disabled={busy}
-              style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#22C55E", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-              Mark Complete
-            </button>
-          )}
-          {!isLocked && job.status !== "in_progress" && !confirmComplete && (
-            <button onClick={() => setStatus("in_progress")} disabled={busy}
-              style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #F2DFB8", borderRadius: 8, backgroundColor: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-              Start Job
-            </button>
-          )}
+          ) : null}
+          {/* [job-card-redesign 2026-08-17] Mark Complete and Start Job removed.
+              Maribel: "I have never once use 'mark complete', we don't need that
+              at all. If we wish to do that we will clock them out with the time."
+              and "Same with start job. We are never using that."
+              Safe to remove: the clock-out handler in routes/timeclock.ts already
+              does the transition — it sets status='complete', stamps
+              actual_end_time and records completed_by_user_id — so completion was
+              never depending on this button. Reopen (above, on locked jobs) is
+              untouched; it is the only way back out of complete. */}
           {/* Charge Client — owner/admin/office, completed jobs not yet collected.
               [double-charge 2026-08-03] `charge_succeeded_at` only knows about
               charges Qleno made, so it stays null when the office takes the
@@ -8424,7 +8442,7 @@ function AttendanceProposalCard({
       </div>
 
       {isPanelOpen === "confirm" && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E5E2DC" }}>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E5E2DC" }}>
           {requiresOverride && (
             <div style={{ marginBottom: 8, fontSize: 11, color: "#BA7517" }}>
               Resolve via 1C clock correction or set hours manually below.
@@ -8510,7 +8528,7 @@ function AttendanceProposalCard({
       )}
 
       {isPanelOpen === "dismiss" && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E5E2DC" }}>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E5E2DC" }}>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
