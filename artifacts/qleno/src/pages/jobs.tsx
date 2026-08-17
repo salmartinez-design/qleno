@@ -2700,6 +2700,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [reopen 2026-08-12] Two-step, like Mark Complete — reopening a job undoes a
   // decision someone made, so it shouldn't be a single stray tap.
   const [confirmReopen, setConfirmReopen] = useState(false);
+  // [job-card-notes-tabs 2026-08-17] Which note the single Notes box is editing.
+  const [notesTab, setNotesTab] = useState<"cleaner" | "office">("cleaner");
   // [job-card-gaps 2026-08-17] Footer overflow menu (Duplicate / Redo / Cancel).
   const [actionsOpen, setActionsOpen] = useState(false);
   const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
@@ -3685,85 +3687,87 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
-          {/* Cleaner Notes — the note the technician sees in the field app.
-              Inline-editable for office/owner/admin (#15); read-only otherwise. */}
-          {/* [job-card-restructure 2026-08-17] Collapsed unless it has a note.
-              An empty 4-row textarea was the tallest thing on the card and said
-              nothing. Opens itself the moment there IS a note, so field
-              instructions are never buried. */}
+          {/* [job-card-notes-tabs 2026-08-17] Cleaner and Office notes were two
+              stacked sections, each with its own header, its own chevron and its
+              own 4-row textarea — the last piece of the approved mockup, which
+              had one box with two tabs. One box now; the tab you're on decides
+              which note you're editing. Both still auto-save independently and
+              the ✓ Saved indicator reflects whichever tab is active.
+              Collapsed unless EITHER note has content, so a job with an office
+              note still opens on its own. */}
           {canEditOfficeNotes ? (
-            <details open={!!cleanerNotes} style={{ marginBottom: 12 }}>
+            <details open={!!cleanerNotes || !!officeNotes} style={{ marginBottom: 12 }}>
               <summary style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
-                  <span title="Shown to the cleaner on their job. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Cleaner Notes</span>
-                  {!cleanerNotes && <span style={{ fontSize: 11, color: "#C4C0BB" }}>none</span>}
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Notes</span>
+                  {!cleanerNotes && !officeNotes && <span style={{ fontSize: 11, color: "#C4C0BB" }}>none</span>}
+                  {(cleanerNotes || officeNotes) && (
+                    <span style={{ fontSize: 11, color: "#9E9B94" }}>
+                      {[cleanerNotes ? "cleaner" : null, officeNotes ? "office" : null].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
                 </div>
-                {cleanerNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
-                {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
+                {(notesTab === "cleaner" ? cleanerNotesSaving : officeNotesSaving)
+                  ? <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>
+                  : (notesTab === "cleaner" ? cleanerNotesSaved : officeNotesSaved)
+                    ? <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>
+                    : null}
               </summary>
-              <textarea
-                value={cleanerNotes}
-                onChange={e => { setCleanerNotes(e.target.value); setCleanerNotesSaved(false); }}
-                placeholder="Instructions the cleaner sees on this job…"
-                rows={4}
-                style={{
-                  width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
-                  border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px",
-                  fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6,
-                  outline: "none", background: "#F7F6F3",
-                }}
-                onFocus={e => (e.target.style.borderColor = "var(--brand)")}
-                onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
-              />
-              
-              {cleanerNotes && <TranslateNote text={cleanerNotes} />}
+
+              <div style={{ display: "flex", background: "#F0EEE9", borderRadius: 8, padding: 3, gap: 3, marginBottom: 8 }}>
+                {([["cleaner", "Cleaner", "Shown to the cleaner on their job."],
+                   ["office", "Office", "Internal only — never shown to clients or technicians."]] as const).map(([k, lbl, tip]) => (
+                  <button key={k} onClick={() => setNotesTab(k)} title={tip}
+                    style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF,
+                      fontSize: 12, fontWeight: 700,
+                      background: notesTab === k ? "#FFFFFF" : "transparent",
+                      color: notesTab === k ? "#1A1917" : "#6B6860" }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+
+              {notesTab === "cleaner" ? (
+                <>
+                  <textarea
+                    value={cleanerNotes}
+                    onChange={e => { setCleanerNotes(e.target.value); setCleanerNotesSaved(false); }}
+                    placeholder="Instructions the cleaner sees on this job…"
+                    rows={4}
+                    style={{ width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const, border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6, outline: "none", background: "#F7F6F3" }}
+                    onFocus={e => (e.target.style.borderColor = "var(--brand)")}
+                    onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
+                  />
+                  {cleanerNotes && <TranslateNote text={cleanerNotes} />}
+                </>
+              ) : (
+                <>
+                  <textarea
+                    value={officeNotes}
+                    onChange={e => { setOfficeNotes(e.target.value); setOfficeNotesSaved(false); }}
+                    placeholder="Internal notes…"
+                    rows={4}
+                    style={{ width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const, border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6, outline: "none", background: "#F7F6F3" }}
+                    onFocus={e => (e.target.style.borderColor = "var(--brand)")}
+                    onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
+                  />
+                  {job.office_notes_updated_at && (
+                    <p style={{ fontSize: 10, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>
+                      Last edited{job.office_notes_updated_by_name ? ` by ${job.office_notes_updated_by_name}` : ""} · {new Date(job.office_notes_updated_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                    </p>
+                  )}
+                  <TranslateNote text={officeNotes} />
+                </>
+              )}
             </details>
           ) : (
             job.notes && (
-              <PS label="Cleaner Notes (tech sees this)">
+              <PS label="Cleaner Notes">
                 <p style={{ margin: 0, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>{job.notes}</p>
                 <TranslateNote text={job.notes} />
               </PS>
             )
-          )}
-
-          {/* Office Notes — editable, office/owner/admin only */}
-          {canEditOfficeNotes && (
-            <details open={!!officeNotes} style={{ marginBottom: 12 }}>
-              <summary style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, cursor: "pointer", listStyle: "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <ChevronRight size={12} style={{ color: "#C4C0BB", flexShrink: 0 }} />
-                  <Phone size={11} style={{ color: "var(--brand)" }} />
-                  <span title="Internal only — never shown to clients or technicians. Auto-saves 2 s after you stop typing." style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94", cursor: "help" }}>Office Notes</span>
-                  {!officeNotes && <span style={{ fontSize: 11, color: "#C4C0BB" }}>none</span>}
-                </div>
-                {officeNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
-                {!officeNotesSaving && officeNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
-              </summary>
-              <textarea
-                value={officeNotes}
-                onChange={e => { setOfficeNotes(e.target.value); setOfficeNotesSaved(false); }}
-                placeholder="Internal notes…"
-                rows={4}
-                style={{
-                  width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
-                  border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px",
-                  fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6,
-                  outline: "none", background: "#F7F6F3",
-                }}
-                onFocus={e => (e.target.style.borderColor = "var(--brand)")}
-                onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
-              />
-              {/* The standing "auto-saves" line that used to sit here is now the
-                  label's tooltip — it repeated the ✓ Saved indicator right above. */}
-              {job.office_notes_updated_at && (
-                <p style={{ fontSize: 10, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>
-                  Last edited{job.office_notes_updated_by_name ? ` by ${job.office_notes_updated_by_name}` : ""} · {new Date(job.office_notes_updated_at).toLocaleDateString([], { month: "short", day: "numeric" })}
-                </p>
-              )}
-              <TranslateNote text={officeNotes} />
-            </details>
           )}
 
           {/* [panel-revamp 2026-06-03 · hours-merge] One section so allowed
