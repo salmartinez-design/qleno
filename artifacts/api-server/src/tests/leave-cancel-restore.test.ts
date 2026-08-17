@@ -113,3 +113,77 @@ describe("route source invariants", () => {
     assert.ok(leavePay.includes("leave_req#"));
   });
 });
+
+// [leave-day 2026-08-17] Leave pay is dated to the day off, not the day the
+// office clicked Approve. Payroll windows additional_pay by created_at, so an
+// approval stamped NOW() put the money in the approval's pay week — live case:
+// $100 stamped 2026-07-23 for leave actually taken 2026-07-28, two different
+// weeks. Approval already writes a usage row per calendar day, so pay follows
+// those days.
+describe("approved leave pays on the day taken", () => {
+  it("never stamps created_at at approval time", () => {
+    // The old `..., 'pending', NOW())` insert is the whole bug — it must be gone.
+    assert.ok(!/'pending',\s*NOW\(\)/.test(leavePay));
+  });
+  it("stamps each row to its own leave day", () => {
+    assert.ok(leavePay.includes("(${d.day} || ' 12:00:00')::timestamp"));
+  });
+  it("reads the per-day truth from the usage rows approval wrote", () => {
+    assert.ok(/FROM employee_leave_usage/.test(leavePay));
+    assert.ok(leavePay.includes("leave_request #${requestId} approved%"));
+  });
+  it("falls back to the first day off, never to the approval moment", () => {
+    assert.ok(/fallbackDay\s*=\s*String\(row\.start_date\)/.test(leavePay));
+  });
+  it("will not re-pay a request already paid as one pre-per-day row", () => {
+    assert.ok(leavePay.includes("notes NOT LIKE '%[leave_usage:%'"));
+    assert.ok(leavePay.includes("already paid (pre-per-day row)"));
+  });
+
+  // A bare `%leave_req#5%` also matches `leave_req#50`: request 5 would see 50's
+  // row and skip its own insert (never paid), and cancelling 5 would void 50's
+  // money. Parenthesising makes it exact. Every row ever written carries the
+  // parens, so history still matches.
+  it("matches the request marker parenthesised, so #5 cannot hit #50", () => {
+    assert.ok(leavePay.includes("(leave_req#${requestId})"));
+    assert.ok(!/`leave_req#\$\{requestId\}`/.test(leavePay));
+
+    const noteFor = (id: number) => `Ana leave approved (leave_req#${id}) — 8.00h`;
+    assert.ok(likeMatch(noteFor(50), "%leave_req#5%"), "bare pattern is ambiguous");
+    assert.ok(!likeMatch(noteFor(50), "%(leave_req#5)%"), "parens disambiguate");
+    assert.ok(likeMatch(noteFor(5), "%(leave_req#5)%"), "still matches its own row");
+  });
+
+  // The cancel route DELETEs the usage rows before it voids pay, so pay has to
+  // stay findable by request id — a usage-keyed void would find nothing and
+  // leave cancelled leave paid.
+  it("keeps the request marker on per-day rows so cancel can still find them", () => {
+    assert.ok(leavePay.includes("leave approved ${reqMarker}${usageMarker}"));
+    const perDay = "Ana leave approved (leave_req#12) [leave_usage:88] — 8.00h × $20/hr, 2026-08-07";
+    assert.ok(likeMatch(perDay, "%(leave_req#12)%"), "cancel finds it by request");
+    assert.ok(likeMatch(perDay, "%[leave_usage:88]%"), "payroll dates it by usage day");
+  });
+
+  // Live double-pay this uncovered: Jose Ardila, 2026-08-07, 6h PLAWA paid
+  // $60 by approval AND $120 by the office edit — $180 for one 6-hour day.
+  // Approval's row carried no usage marker, so the edit path's
+  // voidUsageLeavePay(146) matched nothing and wrote a second row on top.
+  it("approval rows carry the usage marker, so an office edit voids instead of stacking", () => {
+    const approvalRow = "Jose leave approved (leave_req#12) [leave_usage:146] — 6.00h × $20/hr, 2026-08-07";
+    assert.ok(likeMatch(approvalRow, "%[leave_usage:146]%"),
+      "voidUsageLeavePay must be able to find the approval row");
+    const oldApprovalRow = "Jose leave approved (leave_req#12) — 3.00h × $20/hr, 2026-08-07";
+    assert.ok(!likeMatch(oldApprovalRow, "%[leave_usage:146]%"),
+      "the pre-fix row was invisible to the void — this is the double-pay");
+  });
+
+  // …and the reverse direction: once the edit path rewrites the row it must not
+  // drop the request link, or cancelling the request would leave it paid.
+  it("rewritten rows keep the request link so cancel still voids them", () => {
+    assert.ok(/leave_request #\(\\d\+\) approved/.test(leavePay));
+    assert.ok(leavePay.includes("leave recorded ${marker}${reqSuffix}"));
+    const rewritten = "Jose leave recorded [leave_usage:146] (leave_req#12) — 6.00h × $20/hr, 2026-08-07";
+    assert.ok(likeMatch(rewritten, "%(leave_req#12)%"), "cancel can still find it");
+    assert.ok(likeMatch(rewritten, "%[leave_usage:146]%"), "and so can a later edit");
+  });
+});
