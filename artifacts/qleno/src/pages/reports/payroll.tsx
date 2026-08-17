@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc } from "./_shared";
+import { fmt$c, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc, RangeClampNotice, type RangeClamp } from "./_shared";
 import { AlertTriangle } from "lucide-react";
 
 function weekStart() {
@@ -15,6 +15,7 @@ function weekEnd(start: string) {
 }
 
 interface PayrollData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string;
   employees: {
     id: number; name: string; pay_type: string; days_worked: number;
@@ -61,6 +62,8 @@ export default function PayrollReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         {/* Flags */}
         {((flags?.missing_clocks?.length ?? 0) > 0 || (flags?.unclocked_out?.length ?? 0) > 0) && (

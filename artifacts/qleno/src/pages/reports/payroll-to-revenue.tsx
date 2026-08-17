@@ -1,9 +1,16 @@
 import { useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtPct, clr, KpiCard, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$, fmtPct, clr, KpiCard, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 interface WeekRow { week: string; revenue: number; payroll: number; pct: number; jobs: number; }
-interface P2RData { weeks: WeekRow[]; current: WeekRow; status: "critical" | "high" | "healthy" | "low"; }
+interface P2RData {
+  range_clamped?: RangeClamp | null;
+  weeks: WeekRow[];
+  // [reporting-floor 2026-08-17] Null when every week of the rolling twelve
+  // predates the cutover — the page already reads this with `cur?.`.
+  current: WeekRow | null;
+  status: "critical" | "high" | "healthy" | "low";
+}
 
 export default function PayrollToRevenuePage() {
   const { data, loading, error, reload } = useReportData<P2RData>("/reports/payroll-to-revenue");
@@ -42,6 +49,8 @@ export default function PayrollToRevenuePage() {
         <ReportHeader title="Payroll % to Revenue" subtitle="Track labor cost efficiency over 12 rolling weeks. Target: 30-40%." />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         {/* Current week KPI */}
         <div style={{ backgroundColor: clr.card, border: `2px solid ${sColor}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 20 }}>

@@ -60,6 +60,129 @@ function branchCond(req: any, column: any) {
   return eq(column, n);
 }
 
+// [reporting-floor 2026-08-17] Phes ran on MaidCentral until 2026-07-01 and
+// only partially entered work in Qleno before that, so Qleno's own tables are
+// NOT a record of pre-cutover trading. What is in there is a mixture: Jan–Mar
+// 2026 was imported twice (per-job AND as 80 daily rollup rows on the
+// "MaidCentral Historical Import" client, which double-counted $155,970), May
+// is 98% absent, and June is short ~$17,900 against MaidCentral's own figure.
+// Any total drawn across that boundary is wrong in a direction that changes
+// with the month, which is worse than being absent.
+//
+// `companies.invoice_cutover_date` already means exactly this — its own comment
+// says work before it "must never surface in an uninvoiced queue, auto-invoice
+// on completion, or count toward revenue here." Billing has honored it since
+// 2026-08-05; reports never did. Reusing it keeps ONE cutover date per tenant
+// rather than a second one that can drift out of step. All four tenants are
+// already set to 2026-07-01, so this needs no migration and no data write.
+//
+// Sal, 2026-08-17: "we did not fully use Qleno until July 1 do not count any
+// june revenue from qleno it would be from MC history."
+//
+// Scope: money and hours totalled over a date range. NOT applied to customer-
+// history reports (cancellations, redos, tickets, scorecards, upsell) — a
+// client's behavior before July is real and belongs in their history — and not
+// to snapshots with no range (receivables, hot sheet, first-time).
+const floorCache = new Map<number, { v: string | null; at: number }>();
+const FLOOR_TTL_MS = 5 * 60 * 1000;
+
+async function reportingFloor(companyId: number): Promise<string | null> {
+  const hit = floorCache.get(companyId);
+  if (hit && Date.now() - hit.at < FLOOR_TTL_MS) return hit.v;
+  const r = await db.execute(sql`
+    SELECT to_char(invoice_cutover_date, 'YYYY-MM-DD') AS d
+      FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const v = ((r.rows?.[0] as any)?.d as string) ?? null;
+  floorCache.set(companyId, { v, at: Date.now() });
+  return v;
+}
+
+export interface RangeClamp {
+  requested_from: string;
+  effective_from: string;
+  floor: string;
+  /** The whole requested window predates the cutover — there is nothing to show. */
+  entire_range_before: boolean;
+}
+
+// Returns the from-date to actually query, plus a clamp descriptor when the
+// caller asked for something earlier. When the ENTIRE window is pre-cutover the
+// clamped from lands after `to`, so every BETWEEN returns zero rows on its own —
+// the report renders empty with the notice rather than a fabricated total.
+async function clampFrom(companyId: number, fromStr: string, toStr: string):
+  Promise<{ fromStr: string; clamp: RangeClamp | null }> {
+  const floor = await reportingFloor(companyId);
+  if (!floor || fromStr >= floor) return { fromStr, clamp: null };
+  return {
+    fromStr: floor,
+    clamp: { requested_from: fromStr, effective_from: floor, floor, entire_range_before: toStr < floor },
+  };
+}
+
+// [mc-revenue-history 2026-08-17] The floor above stops Qleno reporting revenue
+// it doesn't have. This fills the hole it leaves: MaidCentral's month totals for
+// the period before the cutover, so asking for the year returns the year.
+//
+// Sal, 2026-08-17: "for May and June we have to follow MaidCentral and add the
+// revenue into Qleno, we were still using MaidCentral then." MaidCentral is the
+// authoritative record for everything before 2026-07-01 — including the months
+// where Qleno's own tables happen to hold something, because what they hold is
+// partial (May is 98% absent, June is ~$17,900 short).
+//
+// MONTH TOTALS ONLY. There is no job, client or employee detail behind these
+// figures, so they belong to revenue history and nothing else. Job costing,
+// client profitability, payroll and commission all stay floored — a margin or a
+// commission split cannot be computed from a monthly number, and inventing one
+// would be exactly the fabrication the reporting rules forbid.
+export interface HistoricalMonth {
+  month: string;          // YYYY-MM
+  revenue: number;
+  source: string;         // 'maidcentral'
+}
+
+export interface HistoricalRevenue {
+  months: HistoricalMonth[];
+  total: number;
+  source: string;
+  /** Last day this historical series covers — the day before the cutover. */
+  through: string;
+}
+
+// Months from `fromStr` up to (not including) the cutover, for a company that
+// has one. Only 'actual' rows count: MaidCentral's own 'partial' July overlaps
+// Qleno's live July, and its 'projected' months were never delivered.
+//
+// A month is included only when it sits ENTIRELY inside the requested window.
+// These are month totals with no day detail, so a half-requested month cannot
+// be apportioned; counting it whole would overstate the range the operator
+// actually asked for. Real queries start on a month boundary, so this is the
+// same answer in practice — it just refuses to guess when they don't.
+async function historicalRevenue(
+  companyId: number, fromStr: string, toStr: string, floor: string,
+): Promise<HistoricalRevenue | null> {
+  const end = toStr < floor ? toStr : floor;   // never past the cutover
+  const r = await db.execute(sql`
+    SELECT to_char(month, 'YYYY-MM') AS month,
+           total_revenue AS revenue,
+           source
+      FROM mc_revenue_history
+     WHERE company_id = ${companyId}
+       AND revenue_type = 'actual'
+       AND month >= ${fromStr}::date
+       AND (month + interval '1 month') <= ${end}::date
+     ORDER BY month`);
+  const months = (r.rows as any[]).map(m => ({
+    month: m.month as string, revenue: parseF(m.revenue), source: m.source as string,
+  }));
+  if (!months.length) return null;
+  return {
+    months,
+    total: Math.round(months.reduce((s, m) => s + m.revenue, 0) * 100) / 100,
+    source: months[0].source,
+    through: end,
+  };
+}
+
 // ─── INSIGHTS (existing) ──────────────────────────────────────────────────────
 router.get("/insights", requireAuth, ROLE, async (req, res) => {
   try {
@@ -190,8 +313,30 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
+    // [mc-revenue-history 2026-08-17] ...and where that record exists, fold it
+    // in, so the operator gets the whole period they asked for instead of a
+    // hole.
+    //
+    // Sal, 2026-08-17: "I don't want to keep them separate. There's really no
+    // need... I still need it all to be in one place, not separated. It's the
+    // same company." So `summary.total_revenue` and `trend` below span BOTH
+    // systems. It is one company's revenue for one period, and splitting the
+    // headline in two made the operator do the addition by hand.
+    //
+    // What does NOT merge, because it cannot: `job_count`, `avg_job_value` and
+    // `allowed_hours`. MaidCentral handed over one number per month with no job
+    // detail behind it, so there is nothing to count or divide by. Those stay
+    // Qleno-only and say so via `counts_from`; the MaidCentral trend rows carry
+    // null (not 0) in those columns so a table renders an em-dash rather than
+    // implying a month with no work in it.
+    const historical = rangeClamp
+      ? await historicalRevenue(companyId, rangeClamp.requested_from, toStr, rangeClamp.floor)
+      : null;
     const groupBy = (req.query.group_by as string) || "day";
 
     const groupExpr = groupBy === "month" ? sql`to_char(${jobsTable.scheduled_date}::date, 'YYYY-MM')`
@@ -304,12 +449,27 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const cb = (cancelBreakdown.rows[0] as any) ?? {};
 
     const s = summary.rows[0] as any;
-    const totalRev = parseF(s?.total_revenue);
+    const qlenoRev = parseF(s?.total_revenue);
+    const histRev = historical?.total ?? 0;
+    // The headline. One company, one period, one number.
+    const totalRev = Math.round((qlenoRev + histRev) * 100) / 100;
     const cancelFeeRev = parseF(cb.cancellation_fee_revenue);
     return res.json({
-      from: fromStr, to: toStr, group_by: groupBy,
+      range_clamped: rangeClamp,
+      // The month-by-month MaidCentral detail behind the figure above, so a
+      // reader can see which months came from where. The split is available;
+      // it is no longer the thing the page leads with.
+      historical,
+      from: historical ? historical.months[0].month + "-01" : fromStr,
+      to: toStr, group_by: groupBy,
+      // Where Qleno's own job-level data starts. Job counts, averages and hours
+      // below cover this date onward and nothing earlier.
+      counts_from: rangeClamp ? rangeClamp.floor : fromStr,
       summary: {
         total_revenue: totalRev,
+        // The two halves of that total, for anyone who needs them.
+        qleno_revenue: qlenoRev,
+        historical_revenue: histRev,
         avg_job_value: parseF(s?.avg_job_value),
         job_count: parseN(s?.job_count),
         projected_month_end: parseF((projected.rows[0] as any)?.projected),
@@ -331,13 +491,85 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         lockout_count: cb.lockout_count ?? 0,
         cancel_service_count: cb.cancel_service_count ?? 0,
       },
-      trend: (trend.rows as any[]).map(r => ({
-        period: r.period, job_count: parseN(r.job_count), revenue: parseF(r.revenue),
-        avg_per_job: parseF(r.avg_per_job), allowed_hours: parseF(r.allowed_hours),
-      })),
+      // One series, oldest first, MaidCentral's months leading into Qleno's own
+      // periods. `source` lets a consumer label the earlier rows; the job/hours
+      // columns are null there because those figures do not exist, and a null
+      // renders as a dash instead of a false zero.
+      trend: [
+        ...(historical?.months ?? []).map(m => ({
+          // Matched to the current grouping so the series still sorts as text:
+          // 'YYYY-MM' when grouping by month, else the first of that month.
+          period: groupBy === "month" ? m.month : `${m.month}-01`,
+          job_count: null as number | null,
+          revenue: m.revenue,
+          avg_per_job: null as number | null,
+          allowed_hours: null as number | null,
+          source: m.source,
+        })),
+        ...(trend.rows as any[]).map(r => ({
+          period: r.period as string, job_count: parseN(r.job_count), revenue: parseF(r.revenue),
+          avg_per_job: parseF(r.avg_per_job), allowed_hours: parseF(r.allowed_hours),
+          source: "qleno",
+        })),
+      ],
     });
   } catch (err) {
     console.error("Revenue report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── REVENUE HISTORY (pre-Qleno, from MaidCentral) ───────────────────────────
+// [mc-revenue-history 2026-08-17] Was a hardcoded array in the page component.
+// Moved to the database so it is one source of truth with the revenue report,
+// and so a figure can be corrected without a deploy.
+router.get("/revenue-history", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const floor = await reportingFloor(companyId);
+    const rows = await db.execute(sql`
+      SELECT to_char(month, 'MM/YYYY') AS month,
+             to_char(month, 'YYYY-MM') AS month_key,
+             phes_revenue, schaumburg_revenue, total_revenue,
+             revenue_type, source, to_char(captured_at, 'YYYY-MM-DD') AS captured_at
+        FROM mc_revenue_history
+       WHERE company_id = ${companyId}
+       ORDER BY month`);
+
+    const data = (rows.rows as any[]).map(r => ({
+      month: r.month as string,
+      month_key: r.month_key as string,
+      phes: parseF(r.phes_revenue),
+      schaumburg: parseF(r.schaumburg_revenue),
+      total: parseF(r.total_revenue),
+      type: r.revenue_type as string,
+      source: r.source as string,
+    }));
+
+    const sumOf = (t: string) => Math.round(
+      data.filter(d => d.type === t).reduce((s, d) => s + d.total, 0) * 100) / 100;
+    const actual = sumOf("actual");
+    const full = Math.round(data.reduce((s, d) => s + d.total, 0) * 100) / 100;
+
+    return res.json({
+      data,
+      summary: {
+        actual_total: actual,
+        // Everything MaidCentral had not yet delivered when the figures were
+        // captured — its own forecast, never collected. Reported separately so
+        // it can never be mistaken for revenue.
+        projected_total: Math.round((full - actual) * 100) / 100,
+        full_total: full,
+        actual_months: data.filter(d => d.type === "actual").length,
+        first_month: data[0]?.month ?? null,
+        last_actual_month: [...data].reverse().find(d => d.type === "actual")?.month ?? null,
+      },
+      captured_at: (rows.rows[0] as any)?.captured_at ?? null,
+      // Where Qleno's own records take over.
+      cutover_date: floor,
+    });
+  } catch (err) {
+    console.error("Revenue history report error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -402,8 +634,11 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     // [pay-model-parity 2026-07-04] Labor cost per job = SUM of the paycheck
     // engine's per-tech amounts on that job (computePeriodPayLines), NOT the old
@@ -426,10 +661,12 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
         ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
         j.allowed_hours, j.actual_hours,
         c.first_name AS client_first, c.last_name AS client_last,
+        c.company_name AS client_company, a.account_name,
         u.first_name AS emp_first, u.last_name AS emp_last,
         u.pay_rate, u.pay_type
       FROM jobs j
-      JOIN clients c ON c.id = j.client_id
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.company_id = ${companyId}
         ${branchFilter(req, "j.branch_id")}
@@ -445,7 +682,15 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
       const margin  = revenue > 0 ? (profit / revenue) * 100 : 0;
       return {
         id: r.id, date: r.scheduled_date, service_type: r.service_type,
-        client_name: `${r.client_first} ${r.client_last}`,
+        // [job-costing-commercial 2026-08-17] This was `JOIN clients`, an inner
+        // join, so every job booked to an account instead of a client vanished
+        // from the report — 703 of co1's 1,866 completed jobs over the last
+        // twelve months, carrying $135,678.29 of revenue. Job Costing looked
+        // complete while showing only the residential book. LEFT JOIN both
+        // sides and name the customer from whichever one the job actually has.
+        client_name: r.account_name
+          || r.client_company
+          || (r.client_first ? `${r.client_first} ${r.client_last}` : "No customer on the job"),
         employee_name: r.emp_first ? `${r.emp_first} ${r.emp_last}` : "Unassigned",
         revenue, labor_cost: parseF(labor), gross_profit: profit, margin_pct: margin,
         allowed_hours: parseF(r.allowed_hours), actual_hours: parseF(r.actual_hours),
@@ -478,6 +723,7 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
     const data = all.slice(0, DETAIL_ROW_CAP);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       row_count: all.length,
       rows_shown: data.length,
@@ -497,6 +743,253 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ─── CLIENT PROFITABILITY ────────────────────────────────────────────────────
+// Job Costing answers "which JOBS earn"; this answers "which CUSTOMERS earn".
+//
+// A customer here is a client OR an account. Routing is on `!!jobs.account_id`,
+// the same test the commission engine uses to decide residential vs commercial —
+// so a job belongs to exactly one customer and the two reports can never
+// disagree about which side of the book it sits on.
+//
+// GROSS margin only. Qleno knows what a job billed and what it paid in labor;
+// it does not carry supplies, vehicle, or overhead cost per job. So this reports
+// revenue − labor and says "gross" everywhere. No net margin is manufactured out
+// of expenses that do not exist in the data.
+router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
+
+    const typeFilter = (req.query.type as string) || "all";        // all | residential | commercial
+    const sortKey    = (req.query.sort as string) || "revenue";
+    const sortDir    = (req.query.dir  as string) === "asc" ? "asc" : "desc";
+    const page       = Math.max(1, parseInt((req.query.page as string) || "1", 10) || 1);
+    const pageSize   = Math.min(200, Math.max(10, parseInt((req.query.page_size as string) || "50", 10) || 50));
+
+    // Labor from the paycheck engine — the same source Job Costing uses, so the
+    // two reports cannot report different labor for the same job.
+    //
+    // [labor-coverage 2026-08-17] The engine returns nothing for a job it cannot
+    // cost, and "nothing" is NOT "zero". Jobs imported from MaidCentral carry
+    // revenue but no clock punches, so the engine emits no line for them. On
+    // co1's trailing twelve months that is 1,258 of 1,866 completed jobs and 74%
+    // of revenue — reading those as $0 labor produced a 90.4% gross margin for a
+    // business that actually runs near 37%. Post-cutover the same range costs
+    // 37.3% of revenue, which is right for a 35% commission shop. So track WHICH
+    // jobs are costed and report margin only over those, rather than averaging a
+    // real margin together with a fabricated one.
+    const { lines: costLines } = await computePeriodPayLines(companyId, fromStr, toStr);
+    const laborByJob = new Map<number, number>();
+    for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
+
+    // LEFT JOIN clients, not JOIN. Job Costing's inner join silently dropped
+    // every account job — on co1's last twelve months that was 703 of 1,866
+    // completed jobs and $135,678.29 of revenue that no costing screen showed.
+    //
+    // Zone follows the documented resolution chain as far as this report can:
+    // jobs.zone_id, then the job's own zip, then the client's, then the
+    // property's. A job that still resolves to nothing lands in an explicit
+    // "No zone" bucket rather than being quietly folded into a real zone.
+    const rows = await db.execute(sql`
+      SELECT
+        j.id, j.scheduled_date, j.service_type, j.frequency,
+        ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
+        j.client_id, j.account_id,
+        cl.first_name AS client_first, cl.last_name AS client_last,
+        cl.company_name AS client_company, cl.client_type,
+        a.account_name,
+        coalesce(zd.name, zj.name, zc.name, zp.name) AS zone_name
+      FROM jobs j
+      LEFT JOIN clients cl ON cl.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN account_properties p ON p.id = j.account_property_id
+      LEFT JOIN service_zones zd ON zd.id = j.zone_id
+      LEFT JOIN service_zones zj ON zj.company_id = j.company_id AND j.address_zip = ANY(zj.zip_codes)
+      LEFT JOIN service_zones zc ON zc.company_id = j.company_id AND cl.zip       = ANY(zc.zip_codes)
+      LEFT JOIN service_zones zp ON zp.company_id = j.company_id AND p.zip        = ANY(zp.zip_codes)
+      WHERE j.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
+        AND j.status = 'complete'
+        AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+    `);
+
+    type Cust = {
+      key: string; kind: "client" | "account"; id: number | null; name: string;
+      client_type: string; jobs: number; revenue: number; labor: number;
+      jobs_costed: number; revenue_costed: number;
+      first_visit: string | null; last_visit: string | null;
+      freqs: Record<string, number>; zones: Record<string, number>;
+    };
+    type Bag = { jobs: number; revenue: number; labor: number; jobs_costed: number; revenue_costed: number };
+    const custs = new Map<string, Cust>();
+    const cut = (bag: Map<string, Bag>, label: string, rev: number, lab: number, costed: boolean) => {
+      const e = bag.get(label) ?? { jobs: 0, revenue: 0, labor: 0, jobs_costed: 0, revenue_costed: 0 };
+      e.jobs += 1; e.revenue += rev;
+      if (costed) { e.jobs_costed += 1; e.revenue_costed += rev; e.labor += lab; }
+      bag.set(label, e);
+    };
+    const byService = new Map<string, Bag>();
+    const byZone    = new Map<string, Bag>();
+    const byFreq    = new Map<string, Bag>();
+
+    for (const r of rows.rows as any[]) {
+      const revenue = parseF(r.effective_amount);
+      // Costed = the pay engine produced a line for this job. A job it skipped
+      // has UNKNOWN labor, not zero, and never contributes to a margin.
+      const costed  = laborByJob.has(Number(r.id));
+      const labor   = Math.round((laborByJob.get(Number(r.id)) ?? 0) * 100) / 100;
+
+      const isAccount = r.account_id != null;
+      const key  = isAccount ? `a:${r.account_id}` : r.client_id != null ? `c:${r.client_id}` : "unassigned";
+      const name = isAccount
+        ? (r.account_name || `Account ${r.account_id}`)
+        : r.client_id != null
+          ? (r.client_company || `${r.client_first ?? ""} ${r.client_last ?? ""}`.trim() || `Client ${r.client_id}`)
+          : "No customer on the job";
+
+      let c = custs.get(key);
+      if (!c) {
+        c = {
+          key, kind: isAccount ? "account" : "client",
+          id: isAccount ? Number(r.account_id) : r.client_id != null ? Number(r.client_id) : null,
+          name,
+          // An account is commercial by definition — that is what account_id
+          // means to the commission engine, so it means the same here.
+          client_type: isAccount ? "commercial" : (r.client_type || "residential"),
+          jobs: 0, revenue: 0, labor: 0, jobs_costed: 0, revenue_costed: 0,
+          first_visit: null, last_visit: null,
+          freqs: {}, zones: {},
+        };
+        custs.set(key, c);
+      }
+      c.jobs += 1; c.revenue += revenue;
+      if (costed) { c.jobs_costed += 1; c.revenue_costed += revenue; c.labor += labor; }
+      const d = String(r.scheduled_date).slice(0, 10);
+      if (!c.first_visit || d < c.first_visit) c.first_visit = d;
+      if (!c.last_visit  || d > c.last_visit)  c.last_visit  = d;
+      if (r.frequency) c.freqs[r.frequency] = (c.freqs[r.frequency] ?? 0) + 1;
+      const zn = r.zone_name || "No zone";
+      c.zones[zn] = (c.zones[zn] ?? 0) + 1;
+
+      cut(byService, r.service_type || "unspecified", revenue, labor, costed);
+      cut(byZone, zn, revenue, labor, costed);
+      cut(byFreq, r.frequency || "on_demand", revenue, labor, costed);
+    }
+
+    const topOf = (bag: Record<string, number>) => {
+      const e = Object.entries(bag).sort((a, b) => b[1] - a[1])[0];
+      return e ? e[0] : null;
+    };
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    // Margin is always profit ÷ the revenue of the COSTED jobs. Dividing by
+    // total revenue would quietly dilute a real margin with uncosted work and
+    // report a number that is true of no set of jobs at all.
+    const marginOf = (revCosted: number, profit: number) => (revCosted > 0 ? (profit / revCosted) * 100 : 0);
+
+    let all = [...custs.values()].map(c => {
+      const known  = c.jobs_costed > 0;
+      const profit = c.revenue_costed - c.labor;
+      return {
+        key: c.key, kind: c.kind, id: c.id, name: c.name, client_type: c.client_type,
+        jobs: c.jobs,
+        revenue: r2(c.revenue),
+        // null, not 0 — the difference between "cost nothing" and "cost unknown".
+        labor:      known ? r2(c.labor) : null,
+        profit:     known ? r2(profit) : null,
+        margin_pct: known ? marginOf(c.revenue_costed, profit) : null,
+        jobs_costed: c.jobs_costed,
+        revenue_costed: r2(c.revenue_costed),
+        rev_per_visit: c.jobs > 0 ? r2(c.revenue / c.jobs) : 0,
+        first_visit: c.first_visit, last_visit: c.last_visit,
+        frequency: topOf(c.freqs), zone: topOf(c.zones),
+      };
+    });
+
+    if (typeFilter === "residential" || typeFilter === "commercial") {
+      all = all.filter(c => c.client_type === typeFilter);
+    }
+
+    // Summary is computed over the FILTERED set but BEFORE pagination — the
+    // headline always describes the whole list underneath it, never one page.
+    const totalRevenue = all.reduce((s, c) => s + c.revenue, 0);
+    const totalLabor   = all.reduce((s, c) => s + (c.labor ?? 0), 0);
+    const totalJobs    = all.reduce((s, c) => s + c.jobs, 0);
+    const costedJobs   = all.reduce((s, c) => s + c.jobs_costed, 0);
+    const costedRev    = all.reduce((s, c) => s + c.revenue_costed, 0);
+    const totalProfit  = costedRev - totalLabor;
+
+    const SORTS: Record<string, (c: typeof all[number]) => number | string | null> = {
+      revenue: c => c.revenue, profit: c => c.profit, margin: c => c.margin_pct,
+      jobs: c => c.jobs, rev_per_visit: c => c.rev_per_visit,
+      last_visit: c => c.last_visit || "", name: c => c.name.toLowerCase(),
+    };
+    const pick = SORTS[sortKey] || SORTS.revenue;
+    all.sort((a, b) => {
+      const x = pick(a), y = pick(b);
+      // Unknowns sink to the bottom in BOTH directions. Sorting by worst margin
+      // should surface the genuinely thin customers, not the uncosted ones.
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      const cmp = typeof x === "string" || typeof y === "string"
+        ? String(x).localeCompare(String(y))
+        : (x as number) - (y as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+    const start = (page - 1) * pageSize;
+    const data  = all.slice(start, start + pageSize);
+
+    const cutOut = (bag: Map<string, Bag>) =>
+      [...bag.entries()]
+        .map(([label, v]) => {
+          const known = v.jobs_costed > 0;
+          const profit = v.revenue_costed - v.labor;
+          return {
+            label, jobs: v.jobs,
+            revenue: r2(v.revenue),
+            labor:      known ? r2(v.labor) : null,
+            profit:     known ? r2(profit) : null,
+            margin_pct: known ? marginOf(v.revenue_costed, profit) : null,
+            jobs_costed: v.jobs_costed,
+          };
+        })
+        .sort((a, b) => b.revenue - a.revenue);
+
+    return res.json({
+      range_clamped: rangeClamp,
+      from: fromStr, to: toStr,
+      summary: {
+        customers: all.length, jobs: totalJobs,
+        total_revenue: r2(totalRevenue),
+        total_labor: costedJobs > 0 ? r2(totalLabor) : null,
+        total_profit: costedJobs > 0 ? r2(totalProfit) : null,
+        margin_pct: costedJobs > 0 ? marginOf(costedRev, totalProfit) : null,
+        rev_per_visit: totalJobs > 0 ? r2(totalRevenue / totalJobs) : 0,
+        // Coverage drives the on-screen caveat. When it is short of every job,
+        // the margin above describes a subset and the page has to say so.
+        jobs_costed: costedJobs,
+        revenue_costed: r2(costedRev),
+        coverage_pct: totalJobs > 0 ? (costedJobs / totalJobs) * 100 : 0,
+      },
+      data,
+      page, page_size: pageSize, total_rows: all.length,
+      total_pages: Math.max(1, Math.ceil(all.length / pageSize)),
+      by_service: cutOut(byService),
+      by_zone: cutOut(byZone),
+      by_frequency: cutOut(byFreq),
+    });
+  } catch (err) {
+    console.error("Client profitability error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── PAYROLL % TO REVENUE ────────────────────────────────────────────────────
 router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
   try {
@@ -504,14 +997,30 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
     const now = new Date();
 
     // Last 12 weeks
-    const weeks = [];
+    const allWeeks = [];
     for (let i = 11; i >= 0; i--) {
       const weekStart = new Date(now);
       weekStart.setDate(now.getDate() - now.getDay() - i * 7);
       weekStart.setHours(0,0,0,0);
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 6);
-      weeks.push({ start: dateStr(weekStart), end: dateStr(weekEnd) });
+      allWeeks.push({ start: dateStr(weekStart), end: dateStr(weekEnd) });
+    }
+    // [reporting-floor 2026-08-17] A twelve-week window reaches back past the
+    // cutover, and a pre-cutover week has Qleno revenue near zero against real
+    // payroll — which renders as a labor ratio of several hundred percent and
+    // reads as a payroll crisis that never happened. Drop any week that starts
+    // before the floor rather than charting a ratio built from two different
+    // systems. A week straddling the boundary is kept: its start is on or after
+    // the floor, so both halves of the ratio come from Qleno.
+    const p2rFloor = await reportingFloor(companyId);
+    const weeks = p2rFloor ? allWeeks.filter(w => w.start >= p2rFloor) : allWeeks;
+    const weeksDropped = allWeeks.length - weeks.length;
+    if (weeks.length === 0) {
+      return res.json({
+        weeks: [], current: null, status: "low",
+        range_clamped: { requested_from: allWeeks[0].start, effective_from: p2rFloor!, floor: p2rFloor!, entire_range_before: true },
+      });
     }
 
     // [pay-model-parity 2026-07-04] Payroll comes from the paycheck engine
@@ -557,7 +1066,12 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
     const currentWeek = weekData[weekData.length - 1];
     const status = currentWeek.pct > 45 ? "critical" : currentWeek.pct > 40 ? "high" : currentWeek.pct >= 30 ? "healthy" : "low";
 
-    return res.json({ weeks: weekData, current: currentWeek, status });
+    return res.json({
+      weeks: weekData, current: currentWeek, status,
+      range_clamped: weeksDropped > 0
+        ? { requested_from: allWeeks[0].start, effective_from: weeks[0].start, floor: p2rFloor!, entire_range_before: false }
+        : null,
+    });
   } catch (err) {
     console.error("Payroll-to-revenue error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -571,10 +1085,13 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     const now = new Date();
     const monday = new Date(now);
     monday.setDate(now.getDate() - now.getDay() + 1);
-    const fromStr = (req.query.from as string) || dateStr(monday);
+    let fromStr = (req.query.from as string) || dateStr(monday);
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
     const toStr = (req.query.to as string) || dateStr(sunday);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     // Filter the employee list by home_branch_id when a specific branch is
     // requested. Techs without a home_branch (legacy NULLs) are still surfaced
@@ -657,6 +1174,7 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, employees: rows,
       totals: {
         base_pay: rows.reduce((s, r) => s + r.base_pay, 0),
@@ -681,8 +1199,11 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     const byDay = await db.execute(sql`
       SELECT
@@ -722,6 +1243,7 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
     const overallEff = totals.clock > 0 ? (totals.allowed / totals.clock) * 100 : 0;
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr,
       overall_efficiency: overallEff,
       total_jobs: totals.jobs, total_allowed_hours: totals.allowed, total_clock_hours: totals.clock,
@@ -745,8 +1267,11 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = req.query.user_id ? Number(req.query.user_id) : null;
 
     const empFilter = userId ? sql`AND u.id = ${userId}` : sql``;
@@ -780,6 +1305,7 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr,
       data: (rows.rows as any[]).map(r => {
         const jobHrs = parseF(r.job_hours);
@@ -809,8 +1335,11 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
     const authRole   = req.auth!.role!;
     const isTech     = isTechnicianRole(authRole); // [trainee-role] trainee scoped to own tips, like a technician
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = isTech ? authUserId : (req.query.user_id ? Number(req.query.user_id) : null);
 
     const userFilter = userId ? sql`AND ap.user_id = ${userId}` : sql``;
@@ -840,7 +1369,7 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
     }));
 
     const totalTips = data.reduce((s, r) => s + r.amount, 0);
-    return res.json({ from: fromStr, to: toStr, data, summary: { total_tips: totalTips, avg_per_tip: data.length > 0 ? totalTips / data.length : 0, count: data.length } });
+    return res.json({ from: fromStr, to: toStr, range_clamped: rangeClamp, data, summary: { total_tips: totalTips, avg_per_tip: data.length > 0 ? totalTips / data.length : 0, count: data.length } });
   } catch (err) {
     console.error("Tips error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -854,8 +1383,11 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const rows = await db.execute(sql`
       SELECT
         jd.id, jd.code, jd.type, jd.value, jd.amount, jd.reason, jd.created_at,
@@ -880,6 +1412,7 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
     }));
     const total = data.reduce((s, r) => s + r.amount, 0);
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       summary: {
         total_discount: total, count: data.length,
@@ -901,8 +1434,11 @@ router.get("/fees", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const rows = await db.execute(sql`
       SELECT
         cl.id, cl.cancel_action, cl.customer_charge_amount, cl.cancelled_at,
@@ -930,6 +1466,7 @@ router.get("/fees", requireAuth, ROLE, async (req, res) => {
     const lockoutTotal = data.filter(d => d.action === "lockout").reduce((s, r) => s + r.amount, 0);
     const cancelTotal  = data.filter(d => d.action === "cancel").reduce((s, r) => s + r.amount, 0);
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       summary: {
         total_fees: Math.round((lockoutTotal + cancelTotal) * 100) / 100,
@@ -1196,7 +1733,14 @@ router.get("/redos", requireAuth, ROLE, async (req, res) => {
       LEFT JOIN clients cl ON cl.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
       WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff}
-      GROUP BY client_id, name
+      -- [redos-groupby 2026-08-17] Group by ordinal, NOT by the output aliases.
+      -- Postgres resolves a bare name in GROUP BY to an INPUT column before an
+      -- output alias, and jobs.client_id exists — so "GROUP BY client_id" bound
+      -- to j.client_id, left COALESCE(cl.id, a.id) ungrouped, and the whole
+      -- report 500'd with 'column "cl.id" must appear in the GROUP BY clause'.
+      -- Broken since #1010 (2026-07-10). The sibling byEmployee query above is
+      -- safe only because no input column there is called "name".
+      GROUP BY 1, 2
       ORDER BY valid_count DESC, invalid_count DESC`);
 
     const byCategory = await db.execute(sql`
@@ -1498,8 +2042,11 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 90 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 90 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = req.query.user_id ? Number(req.query.user_id) : null;
     const userFilter = userId ? sql`AND ml.user_id = ${userId}` : sql``;
 
@@ -1746,6 +2293,7 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr,
       to: toStr,
       rate_per_mile: rateRow.rows[0] ? parseF((rateRow.rows[0] as any).rate) : null,

@@ -90,6 +90,7 @@ export * from "./document_templates";
 export * from "./document_signatures";
 export * from "./document_requests";
 export * from "./mileage_requests";
+export * from "./mc_revenue_history";
 export * from "./pricing";
 export * from "./quickbooks";
 export * from "./employee_payroll_history";

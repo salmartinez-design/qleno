@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, EffBar } from "./_shared";
+import { fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, EffBar, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
 
 interface DayRow { date: string; jobs: number; allowed_hours: number; clock_hours: number; efficiency_pct: number; }
 interface EmpRow { id: number; name: string; jobs: number; allowed_hours: number; clock_hours: number; efficiency_pct: number; }
-interface EffData { from: string; to: string; overall_efficiency: number; total_jobs: number; total_allowed_hours: number; total_clock_hours: number; by_day: DayRow[]; by_employee: EmpRow[]; }
+interface EffData {
+  range_clamped?: RangeClamp | null; from: string; to: string; overall_efficiency: number; total_jobs: number; total_allowed_hours: number; total_clock_hours: number; by_day: DayRow[]; by_employee: EmpRow[]; }
 
 export default function EfficiencyPage() {
   const [from, setFrom] = useState(daysAgo(30));
@@ -45,6 +46,8 @@ export default function EfficiencyPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Overall Efficiency" value={`${eff.toFixed(0)}%`} color={effColor} sub="Allowed / Clock hours" />

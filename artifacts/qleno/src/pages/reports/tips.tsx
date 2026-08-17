@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
 
 interface TipRow { id: number; date: string; amount: number; employee_name: string; client_name: string | null; service_type: string | null; job_date: string | null; notes: string | null; }
-interface TipsData { from: string; to: string; data: TipRow[]; summary: { total_tips: number; avg_per_tip: number; count: number }; }
+interface TipsData {
+  range_clamped?: RangeClamp | null; from: string; to: string; data: TipRow[]; summary: { total_tips: number; avg_per_tip: number; count: number }; }
 
 export default function TipsReportPage() {
   const [from, setFrom] = useState(daysAgo(30));
@@ -41,6 +42,8 @@ export default function TipsReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Tips" value={fmt$c(s?.total_tips ?? 0)} color={clr.green} />

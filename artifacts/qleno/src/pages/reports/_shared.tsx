@@ -131,6 +131,107 @@ export function ReportError({ error, onRetry }: { error: string | null; onRetry?
   );
 }
 
+// [reporting-floor 2026-08-17] The server refuses to total money or hours from
+// before the tenant's cutover date, because what sits in Qleno's tables from
+// before then is a partial, partly double-counted import — not a record of
+// trading. When the operator asks for an earlier window the API silently starts
+// at the cutover and returns `range_clamped`; without this notice the total
+// would look like a full answer to the question they asked. Say what was
+// actually covered, and point at where the earlier figures live.
+export interface RangeClamp {
+  requested_from: string;
+  effective_from: string;
+  floor: string;
+  entire_range_before: boolean;
+}
+
+export function RangeClampNotice({ clamp }: { clamp?: RangeClamp | null }) {
+  if (!clamp) return null;
+  const before = clamp.entire_range_before;
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", marginBottom: 18, backgroundColor: "#FFFDF5", border: `1px solid ${clr.amber}55`, borderRadius: 8 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: clr.amber, flexShrink: 0, marginTop: 6 }} />
+      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: clr.secondary }}>
+        {before ? (
+          <>
+            <strong style={{ color: clr.text }}>Nothing to show for this period.</strong>{" "}
+            Qleno's records begin {fmtDate(clamp.floor)} — the whole range you asked for
+            is before that.
+          </>
+        ) : (
+          <>
+            <strong style={{ color: clr.text }}>Showing {fmtDate(clamp.effective_from)} onward.</strong>{" "}
+            You asked from {fmtDate(clamp.requested_from)}, but Qleno's records begin{" "}
+            {fmtDate(clamp.floor)}.
+          </>
+        )}{" "}
+        Work before then was run and billed in MaidCentral, and only part of it was
+        entered here, so any total that crossed that date would be wrong. Earlier
+        figures live in{" "}
+        <Link href="/reports/revenue-history">
+          <span style={{ color: clr.brand, fontWeight: 600, cursor: "pointer" }}>Revenue History (MaidCentral)</span>
+        </Link>.
+      </p>
+    </div>
+  );
+}
+
+// [mc-revenue-history 2026-08-17] When the operator asks for a period that
+// reaches back before the cutover, the revenue report no longer shows a hole —
+// MaidCentral's month totals for that stretch are folded into the total and
+// into the trend series, as one company's revenue for one period.
+//
+// This started life as a three-column band showing MaidCentral and Qleno side
+// by side. Sal, same day: "I don't want to keep them separate. There's really
+// no need... It's the same company." He is right — presenting two figures and
+// leaving the addition to the reader is not reporting. So what remains here is
+// a single line of provenance under the header, and the numbers themselves are
+// merged upstream in the /reports/revenue response.
+//
+// RangeClampNotice still belongs on the reports that genuinely cannot go back —
+// payroll, margins, per-customer figures — because MaidCentral gave us month
+// totals only, with no job detail underneath.
+export interface HistoricalMonth { month: string; revenue: number; source: string; }
+export interface HistoricalRevenue {
+  months: HistoricalMonth[]; total: number; source: string; through: string;
+}
+
+const SOURCE_LABEL: Record<string, string> = { maidcentral: "MaidCentral" };
+
+function monthLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+export function HistoricalRevenueNote({
+  historical, countsFrom,
+}: {
+  historical?: HistoricalRevenue | null;
+  countsFrom?: string | null;
+}) {
+  if (!historical?.months.length) return null;
+  const src = SOURCE_LABEL[historical.source] ?? historical.source;
+  const first = monthLabel(historical.months[0].month);
+  const last = monthLabel(historical.months[historical.months.length - 1].month);
+  const span = first === last ? first : `${first} – ${last}`;
+
+  return (
+    <div style={{ backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderLeft: `3px solid ${clr.brand}`, borderRadius: 10, padding: "13px 16px", marginBottom: 16 }}>
+      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6, color: clr.secondary }}>
+        <strong style={{ color: clr.text }}>{span} comes from {src}</strong>
+        {" — "}{fmt$(historical.total)} across {historical.months.length}{" "}
+        month{historical.months.length === 1 ? "" : "s"}, included in the totals below.
+        Phes ran on {src} until {countsFrom ? fmtDate(countsFrom) : "the cutover"}, and those are
+        month totals with no job detail behind them, so job counts, averages and hours cover{" "}
+        {countsFrom ? fmtDate(countsFrom) : "the cutover"} onward.{" "}
+        <Link href="/reports/revenue-history">
+          <span style={{ color: clr.brand, fontWeight: 600, cursor: "pointer" }}>Month-by-month history</span>
+        </Link>.
+      </p>
+    </div>
+  );
+}
+
 export function ScoreBadge({ score }: { score: number }) {
   const colors: Record<number, string> = { 4: "#10B981", 3: "#2F3646", 2: "#F59E0B", 1: "#B3261E", 0: "#9E9B94" };
   const labels: Record<number, string> = { 4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor", 0: "N/A" };
