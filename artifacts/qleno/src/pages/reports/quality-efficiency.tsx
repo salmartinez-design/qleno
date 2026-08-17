@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { ReportHeader, KpiCard, DataTable, useReportData, clr } from "./_shared";
+import { ReportHeader, KpiCard, DataTable, useReportData, ReportError, clr } from "./_shared";
 
 type Period = "rolling_90d" | "month" | "quarter" | "year";
 const PERIODS: { id: Period; label: string }[] = [
@@ -34,6 +34,9 @@ export default function QualityEfficiencyReport() {
   const techPickerList = useReportData<ScorecardReport>(`/scorecards/report?scope=company&period=${period}`);
 
   const loading = sc.loading || eff.loading;
+  // Either half failing makes the page's figures incomplete, so neither half renders.
+  const error = sc.error || eff.error;
+  const reload = () => { sc.reload(); eff.reload(); };
   const win = sc.data?.window || eff.data?.window;
 
   const pillRow = (
@@ -62,6 +65,9 @@ export default function QualityEfficiencyReport() {
           subtitle={win ? `${win.label} · ${win.from} → ${win.to}` : "Performance Score + efficiency by service"}
           filters={pillRow}
         />
+
+      {error ? <ReportError error={error} onRetry={reload} /> : <>
+
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
         <KpiCard label="Performance Score" value={sc.data?.composite_pct != null ? `${sc.data.composite_pct.toFixed(1)}%` : (sc.data?.score_pct != null ? `${sc.data.score_pct.toFixed(1)}%` : "—")}
           sub="Rolling · trailing 90 days" />
@@ -102,6 +108,8 @@ export default function QualityEfficiencyReport() {
           />
         </>
       )}
+
+      </>}
       </div>
     </DashboardLayout>
   );

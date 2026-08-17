@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, clr, ReportHeader, useReportData, DeltaBadge } from "./_shared";
+import { fmt$, clr, ReportHeader, useReportData, ReportError, DeltaBadge } from "./_shared";
 import { CalendarPopover } from "@/components/calendar-popover";
 
 function thisMonday() {
@@ -32,7 +32,7 @@ function MetricRow({ label, thisVal, prevVal, delta, format }: { label: string; 
 
 export default function WeekReviewPage() {
   const [weekStart, setWeekStart] = useState(thisMonday());
-  const { data, loading } = useReportData<WRData>(`/reports/week-review?week_start=${weekStart}`);
+  const { data, loading, error, reload } = useReportData<WRData>(`/reports/week-review?week_start=${weekStart}`);
 
   const maxRev = Math.max(...(data?.trend?.map(t => t.revenue) ?? [1]), 1);
 
@@ -92,7 +92,7 @@ export default function WeekReviewPage() {
               </div>
             </div>
           </>
-        ) : null}
+        ) : <ReportError error={error} onRetry={reload} />}
       </div>
     </DashboardLayout>
   );

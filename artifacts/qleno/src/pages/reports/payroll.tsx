@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, fmtSvc } from "./_shared";
+import { fmt$c, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc } from "./_shared";
 import { AlertTriangle } from "lucide-react";
 
 function weekStart() {
@@ -30,7 +30,7 @@ export default function PayrollReportPage() {
   const [from, setFrom] = useState(weekStart());
   const [to, setTo] = useState(() => weekEnd(weekStart()));
 
-  const { data, loading } = useReportData<PayrollData>(`/reports/payroll?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<PayrollData>(`/reports/payroll?from=${from}&to=${to}`);
   const emps = data?.employees ?? [];
   const totals = data?.totals;
   const flags = data?.flags;
@@ -60,6 +60,8 @@ export default function PayrollReportPage() {
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} label="Pay Period" />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         {/* Flags */}
         {((flags?.missing_clocks?.length ?? 0) > 0 || (flags?.unclocked_out?.length ?? 0) > 0) && (
           <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F59E0B", borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10 }}>
@@ -80,6 +82,7 @@ export default function PayrollReportPage() {
         </div>
 
         <DataTable cols={cols} rows={emps} loading={loading} emptyMsg="No employee pay data for this period." />
+        </>}
       </div>
     </DashboardLayout>
   );

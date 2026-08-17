@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtH, fmtPct, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ScoreBadge, EffBar } from "./_shared";
+import { fmt$, fmtH, fmtPct, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, ScoreBadge, EffBar } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -16,7 +16,7 @@ export default function EmployeeStatsPage() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
 
-  const { data, loading } = useReportData<EmpStatsData>(`/reports/employee-stats?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<EmpStatsData>(`/reports/employee-stats?from=${from}&to=${to}`);
   const rows = data?.data ?? [];
 
   const avgRev = rows.length > 0 ? rows.reduce((s,r) => s + r.revenue_generated, 0) / rows.length : 0;
@@ -54,6 +54,8 @@ export default function EmployeeStatsPage() {
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Employees" value={String(rows.length)} color={clr.secondary} />
           <KpiCard label="Total Revenue" value={fmt$(rows.reduce((s,r) => s+r.revenue_generated, 0))} />
@@ -62,6 +64,7 @@ export default function EmployeeStatsPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} />
+        </>}
       </div>
     </DashboardLayout>
   );

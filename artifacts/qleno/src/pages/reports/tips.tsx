@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -12,7 +12,7 @@ export default function TipsReportPage() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
 
-  const { data, loading } = useReportData<TipsData>(`/reports/tips?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<TipsData>(`/reports/tips?from=${from}&to=${to}`);
   const rows = data?.data ?? [];
   const s = data?.summary;
 
@@ -40,6 +40,8 @@ export default function TipsReportPage() {
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Tips" value={fmt$c(s?.total_tips ?? 0)} color={clr.green} />
           <KpiCard label="Avg per Tip" value={fmt$c(s?.avg_per_tip ?? 0)} />
@@ -48,6 +50,7 @@ export default function TipsReportPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No tips recorded in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

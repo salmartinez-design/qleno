@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -37,7 +37,7 @@ export default function CancellationsPage() {
   const [from, setFrom] = useState(daysAgo(90));
   const [to, setTo] = useState(today());
 
-  const { data, loading } = useReportData<CancelData>(`/reports/cancellations?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<CancelData>(`/reports/cancellations?from=${from}&to=${to}`);
   const rows = data?.data ?? [];
   const s = data?.summary;
 
@@ -68,6 +68,8 @@ export default function CancellationsPage() {
           printable
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} />}
         />
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
           <KpiCard label="Total Cancellations" value={String(s?.total ?? 0)} color={clr.red} />
@@ -129,6 +131,7 @@ export default function CancellationsPage() {
         )}
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No cancellations in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

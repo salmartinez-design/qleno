@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ScoreBadge } from "./_shared";
+import { fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, ScoreBadge } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -13,7 +13,7 @@ export default function ScorecardsReportPage() {
   const [to, setTo] = useState(today());
   const [minScore, setMinScore] = useState<number | null>(null);
 
-  const { data, loading } = useReportData<SCData>(`/reports/scorecards?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<SCData>(`/reports/scorecards?from=${from}&to=${to}`);
   const allRows = data?.data ?? [];
   const rows = minScore !== null ? allRows.filter(r => r.score <= minScore) : allRows;
   const s = data?.summary;
@@ -52,6 +52,8 @@ export default function ScorecardsReportPage() {
           }
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Ratings" value={String(s?.total ?? 0)} />
           <KpiCard label="Avg Score" value={`${(s?.avg_score ?? 0).toFixed(2)}/4`} color={(s?.avg_score ?? 0) >= 3.5 ? clr.green : (s?.avg_score ?? 0) >= 2.5 ? clr.amber : clr.red} />
@@ -64,6 +66,7 @@ export default function ScorecardsReportPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No scorecards in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

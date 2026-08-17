@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtPct, clr, KpiCard, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$, fmtPct, clr, KpiCard, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 
 interface WeekRow { week: string; revenue: number; payroll: number; pct: number; jobs: number; }
 interface P2RData { weeks: WeekRow[]; current: WeekRow; status: "critical" | "high" | "healthy" | "low"; }
 
 export default function PayrollToRevenuePage() {
-  const { data, loading } = useReportData<P2RData>("/reports/payroll-to-revenue");
+  const { data, loading, error, reload } = useReportData<P2RData>("/reports/payroll-to-revenue");
   const weeks = data?.weeks ?? [];
   const cur = data?.current;
   const status = data?.status ?? "healthy";
@@ -40,6 +40,8 @@ export default function PayrollToRevenuePage() {
     <DashboardLayout title="Payroll % to Revenue">
       <div style={{ padding: "24px 28px", maxWidth: 1000 }}>
         <ReportHeader title="Payroll % to Revenue" subtitle="Track labor cost efficiency over 12 rolling weeks. Target: 30-40%." />
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         {/* Current week KPI */}
         <div style={{ backgroundColor: clr.card, border: `2px solid ${sColor}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 20 }}>
@@ -81,6 +83,7 @@ export default function PayrollToRevenuePage() {
         )}
 
         <DataTable cols={cols} rows={weeks} loading={loading} emptyMsg="No payroll data available." />
+        </>}
       </div>
     </DashboardLayout>
   );

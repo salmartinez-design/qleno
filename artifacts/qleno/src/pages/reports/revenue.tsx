@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, fmtSvc } from "./_shared";
+import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
@@ -38,7 +38,7 @@ export default function RevenueReportPage() {
   const isMobile = useIsMobile();
 
   const qs = `?from=${from}&to=${to}&group_by=${groupBy}`;
-  const { data, loading } = useReportData<RevData>(`/reports/revenue${qs}`);
+  const { data, loading, error, reload } = useReportData<RevData>(`/reports/revenue${qs}`);
 
   const s = data?.summary;
   const trend = data?.trend ?? [];
@@ -76,6 +76,8 @@ export default function RevenueReportPage() {
             </>
           }
         />
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
           <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)} sub="Visits + cancellation fees" />
@@ -137,6 +139,7 @@ export default function RevenueReportPage() {
         )}
 
         <DataTable cols={cols} rows={trend} loading={loading} emptyMsg="No completed jobs in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

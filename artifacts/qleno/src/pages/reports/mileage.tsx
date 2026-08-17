@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
-import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, useReportData } from "./_shared";
+import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, useReportData, ReportError } from "./_shared";
 
 // [mileage-report 2026-08-15] Sal: "I need a report where i can see how much in
 // mileage we are rembursing. Check the accuracy as well please."
@@ -90,7 +90,7 @@ export default function MileageReportPage() {
   const [busy, setBusy] = useState<number[]>([]);
   const { toast } = useToast();
 
-  const { data, loading, reload } = useReportData<MileageData>(`/reports/mileage?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<MileageData>(`/reports/mileage?from=${from}&to=${to}`);
   const s = data?.summary;
   const flagged = data?.flagged ?? [];
 
@@ -218,6 +218,8 @@ export default function MileageReportPage() {
           printable
           filters={<DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />}
         />
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Reimbursed" value={fmt$c(s?.applied_amount ?? 0)} sub={`${(s?.applied_miles ?? 0).toFixed(0)} mi paid · ${s?.applied_legs ?? 0} drives`} color={clr.green} />
@@ -430,6 +432,8 @@ export default function MileageReportPage() {
         </div>
 
         {loading && <div style={{ fontSize: 13, color: clr.muted, padding: "10px 0" }}>Loading mileage…</div>}
+
+        </>}
       </div>
     </DashboardLayout>
   );

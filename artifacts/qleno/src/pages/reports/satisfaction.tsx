@@ -12,7 +12,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { TrendingUp, TrendingDown, Download, Send } from "lucide-react";
 import {
-  KpiCard, DateRange, ReportHeader, DataTable, useReportData, clr, fmtDate, fmtSvc,
+  KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, clr, fmtDate, fmtSvc,
 } from "./_shared";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -65,7 +65,7 @@ export default function SatisfactionReportPage() {
   const [resending, setResending] = useState<number | null>(null);
   const [resent, setResent] = useState<Set<number>>(new Set());
 
-  const { data, loading, reload } = useReportData<Results>(`/satisfaction/scorecard-results?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<Results>(`/satisfaction/scorecard-results?from=${from}&to=${to}`);
   const kpis = data?.kpis;
   const rows = useMemo(() => {
     const all = data?.data ?? [];
@@ -156,6 +156,8 @@ export default function SatisfactionReportPage() {
           }
         />
 
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
           <KpiCard label="Returned" value={kpis ? String(kpis.returned) : "—"} color={clr.text} />
           <KpiCard label="Sent" value={kpis ? String(kpis.sent) : "—"} color={clr.text} />
@@ -167,6 +169,8 @@ export default function SatisfactionReportPage() {
 
         <DataTable cols={cols} rows={rows} loading={loading}
           emptyMsg={responsesOnly ? "No responses in this period." : "No surveys sent in this period."} />
+
+        </>}
       </div>
     </DashboardLayout>
   );

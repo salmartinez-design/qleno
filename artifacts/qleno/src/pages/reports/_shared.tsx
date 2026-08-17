@@ -108,6 +108,29 @@ export function DataTable<T extends object>({ cols, rows, emptyMsg = "No data fo
   );
 }
 
+// [report-error-state 2026-08-17] A failed fetch used to be invisible. Pages
+// destructured only { data, loading }, so a 500 left data null, every
+// `s?.total ?? 0` rendered $0, and DataTable fell through to its empty message —
+// a broken A/R report looked exactly like a fully collected book. Wrap the
+// figures of a report in this and a failure says so instead of showing zeros:
+// nothing is estimated, nothing is implied, and the operator can retry.
+export function ReportError({ error, onRetry }: { error: string | null; onRetry?: () => void }) {
+  if (!error) return null;
+  return (
+    <div style={{ backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderLeft: `3px solid ${clr.red}`, borderRadius: 10, padding: "28px 24px", textAlign: "center" }}>
+      <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 600, color: clr.red }}>This report could not be loaded</p>
+      <p style={{ margin: "0 0 14px", fontSize: 12, color: clr.secondary }}>
+        No figures are shown because none could be calculated. {error}
+      </p>
+      {onRetry && (
+        <button onClick={onRetry} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 500, color: clr.text, backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ScoreBadge({ score }: { score: number }) {
   const colors: Record<number, string> = { 4: "#10B981", 3: "#2F3646", 2: "#F59E0B", 1: "#B3261E", 0: "#9E9B94" };
   const labels: Record<number, string> = { 4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor", 0: "N/A" };

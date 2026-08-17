@@ -16,6 +16,25 @@ function dateStr(d: Date) { return d.toISOString().split("T")[0]; }
 function parseF(v: any) { return parseFloat(v || "0"); }
 function parseN(v: any) { return Number(v || 0); }
 
+// [revenue-definition 2026-08-17] ONE definition of what a job earned.
+// `billed_amount` when it is set — it carries rate mods and any amount stamped
+// at completion — otherwise `base_fee`. /revenue has used this waterfall since
+// 2026-06-02, but job-costing, payroll-to-revenue, employee-stats, week-review
+// and insights each summed bare `base_fee`, so the same completed job was worth
+// two different numbers depending on which report you opened. On co1's last
+// twelve months that gap was 127 jobs of 1,866 and $5,947.44 — margin, labor
+// ratio and per-employee revenue were all computed against the smaller figure.
+// Any new revenue rollup uses this. Do not sum `base_fee` alone again.
+//
+// EFFECTIVE_AMOUNT_SQL is for raw `db.execute(sql...)` queries; pass a table
+// alias ("j") when the query aliases jobs. effectiveAmountCol() is the Drizzle
+// query-builder form for sum()/avg().
+const EFFECTIVE_AMOUNT_SQL = (alias = "") => {
+  const p = alias ? `${alias}.` : "";
+  return sql.raw(`coalesce(${p}billed_amount, ${p}base_fee)`);
+};
+const effectiveAmountCol = () => sql<string>`coalesce(${jobsTable.billed_amount}, ${jobsTable.base_fee})`;
+
 // Model A branch filter. Pass `col` to qualify when the query aliases the
 // source table (e.g. "j.branch_id"). Returns an empty SQL fragment when the
 // caller wants "all branches" (default), so it composes cleanly into any
@@ -144,14 +163,14 @@ router.get("/insights", requireAuth, ROLE, async (req, res) => {
     });
 
     const revenueByService = await db.select({
-      service_type: jobsTable.service_type, total_revenue: sum(jobsTable.base_fee), job_count: count(jobsTable.id),
+      service_type: jobsTable.service_type, total_revenue: sum(effectiveAmountCol()), job_count: count(jobsTable.id),
     }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30), branchCondJob))
-      .groupBy(jobsTable.service_type).orderBy(desc(sum(jobsTable.base_fee)));
+      .groupBy(jobsTable.service_type).orderBy(desc(sum(effectiveAmountCol())));
 
-    const avgJobValue = await db.select({ avg: avg(jobsTable.base_fee) }).from(jobsTable)
+    const avgJobValue = await db.select({ avg: avg(effectiveAmountCol()) }).from(jobsTable)
       .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30), branchCondJob));
 
-    const projectedRevenue = await db.select({ projected: sum(jobsTable.base_fee) }).from(jobsTable)
+    const projectedRevenue = await db.select({ projected: sum(effectiveAmountCol()) }).from(jobsTable)
       .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), gte(jobsTable.scheduled_date, todayStr), branchCondJob));
 
     return res.json({
@@ -393,9 +412,18 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
     const laborByJob = new Map<number, number>();
     for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
 
+    // [job-costing-truncation 2026-08-17] This query used to end in `LIMIT 500`
+    // and the summary totals were then summed over whatever survived the cut.
+    // Phes completes roughly 260-320 jobs a month, so a month fit and looked
+    // right; a quarter (~800) or a year (~1,900) silently dropped the oldest
+    // rows AND under-reported total revenue, total labor and total profit, with
+    // nothing on screen to say so. Totals are now computed over every job in the
+    // range. Only the detail list is capped, and when it is, the response says
+    // so and the page prints it.
     const rows = await db.execute(sql`
       SELECT
-        j.id, j.scheduled_date, j.service_type, j.base_fee,
+        j.id, j.scheduled_date, j.service_type,
+        ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
         j.allowed_hours, j.actual_hours,
         c.first_name AS client_first, c.last_name AS client_last,
         u.first_name AS emp_first, u.last_name AS emp_last,
@@ -408,11 +436,10 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
         AND j.status = 'complete'
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       ORDER BY j.scheduled_date DESC
-      LIMIT 500
     `);
 
-    const data = (rows.rows as any[]).map(r => {
-      const revenue = parseF(r.base_fee);
+    const all = (rows.rows as any[]).map(r => {
+      const revenue = parseF(r.effective_amount);
       const labor   = Math.round((laborByJob.get(Number(r.id)) ?? 0) * 100) / 100;
       const profit  = revenue - labor;
       const margin  = revenue > 0 ? (profit / revenue) * 100 : 0;
@@ -425,27 +452,43 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
       };
     });
 
-    const avgMargin = data.length > 0 ? data.reduce((s, r) => s + r.margin_pct, 0) / data.length : 0;
+    const totalRevenue = all.reduce((s, r) => s + r.revenue, 0);
+    const totalLabor   = all.reduce((s, r) => s + r.labor_cost, 0);
+    const totalProfit  = all.reduce((s, r) => s + r.gross_profit, 0);
 
-    // Best/worst service types
-    const byService: Record<string, { total: number; count: number }> = {};
-    data.forEach(r => {
-      if (!byService[r.service_type]) byService[r.service_type] = { total: 0, count: 0 };
-      byService[r.service_type].total += r.margin_pct;
-      byService[r.service_type].count += 1;
+    // Portfolio margin, not the mean of per-job margin percentages. The old
+    // unweighted mean let a $60 job swing the headline as hard as a $600 one,
+    // so `avg_margin` could disagree with total_profit / total_revenue on the
+    // same screen. One definition: profit over revenue for the whole range.
+    const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    // Best/worst service types — weighted the same way, for the same reason.
+    const byService: Record<string, { revenue: number; profit: number }> = {};
+    all.forEach(r => {
+      if (!byService[r.service_type]) byService[r.service_type] = { revenue: 0, profit: 0 };
+      byService[r.service_type].revenue += r.revenue;
+      byService[r.service_type].profit  += r.gross_profit;
     });
-    const serviceAvgs = Object.entries(byService).map(([st, v]) => ({ service_type: st, avg_margin: v.total / v.count }))
+    const serviceAvgs = Object.entries(byService)
+      .filter(([, v]) => v.revenue > 0)
+      .map(([st, v]) => ({ service_type: st, avg_margin: (v.profit / v.revenue) * 100 }))
       .sort((a, b) => b.avg_margin - a.avg_margin);
+
+    const DETAIL_ROW_CAP = 2000;
+    const data = all.slice(0, DETAIL_ROW_CAP);
 
     return res.json({
       from: fromStr, to: toStr, data,
+      row_count: all.length,
+      rows_shown: data.length,
+      truncated: all.length > data.length,
       summary: {
         avg_margin: avgMargin,
         best_service: serviceAvgs[0]?.service_type || null,
         worst_service: serviceAvgs[serviceAvgs.length - 1]?.service_type || null,
-        total_revenue: data.reduce((s, r) => s + r.revenue, 0),
-        total_labor: data.reduce((s, r) => s + r.labor_cost, 0),
-        total_profit: data.reduce((s, r) => s + r.gross_profit, 0),
+        total_revenue: totalRevenue,
+        total_labor: totalLabor,
+        total_profit: totalProfit,
       },
     });
   } catch (err) {
@@ -491,7 +534,7 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
 
     const weekData = await Promise.all(weeks.map(async w => {
       const revRow = await db.execute(sql`
-        SELECT coalesce(sum(base_fee), 0) AS revenue, count(*) AS jobs
+        SELECT coalesce(sum(${EFFECTIVE_AMOUNT_SQL()}), 0) AS revenue, count(*) AS jobs
         FROM jobs WHERE company_id=${companyId} AND status='complete'
           ${branchFilter(req)}
           AND scheduled_date BETWEEN ${w.start} AND ${w.end}
@@ -715,7 +758,7 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
         count(DISTINCT j.scheduled_date) AS days_worked,
         coalesce(sum(j.allowed_hours), 0) AS job_hours,
         coalesce(sum(EXTRACT(EPOCH FROM (t.clock_out_at - t.clock_in_at))/3600) FILTER (WHERE t.clock_out_at IS NOT NULL), 0) AS clock_hours,
-        coalesce(sum(j.base_fee), 0) AS revenue_generated,
+        coalesce(sum(${EFFECTIVE_AMOUNT_SQL("j")}), 0) AS revenue_generated,
         -- [scorecard-dead-table 2026-08-08] rescaled: scorecard_entries stores a
         -- ratio against max_value, the legacy table stored a bare 0-4.
         coalesce(avg(sc.score_value / NULLIF(sc.max_value, 0) * 4) FILTER (WHERE sc.excluded=false), 0) AS scorecard_avg,
@@ -917,7 +960,7 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
     const prevEnd   = dateStr(new Date(new Date(thisStart).getTime() - 86400000));
 
     async function weekMetrics(start: string, end: string) {
-      const rev = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, count(*) AS jobs, coalesce(avg(base_fee),0) AS avg_bill FROM jobs WHERE company_id=${companyId} AND status='complete' ${branchFilter(req)} AND scheduled_date BETWEEN ${start} AND ${end}`);
+      const rev = await db.execute(sql`SELECT coalesce(sum(${EFFECTIVE_AMOUNT_SQL()}),0) AS revenue, count(*) AS jobs, coalesce(avg(${EFFECTIVE_AMOUNT_SQL()}),0) AS avg_bill FROM jobs WHERE company_id=${companyId} AND status='complete' ${branchFilter(req)} AND scheduled_date BETWEEN ${start} AND ${end}`);
       // [scorecard-dead-table 2026-08-08] Was FROM scorecards — a legacy table
       // nothing writes to, so this averaged zero rows and Week in Review showed
       // "Quality Score 0.00/4" every week while the Scorecard report showed
@@ -949,7 +992,7 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
       // trend was flat zero. DISTINCT-safe: scorecard_entries holds one row per
       // TECH per job, so a two-tech job would otherwise double-count its revenue.
       const r = await db.execute(sql`
-        SELECT coalesce(sum(j.base_fee), 0) AS revenue,
+        SELECT coalesce(sum(${EFFECTIVE_AMOUNT_SQL("j")}), 0) AS revenue,
                (SELECT coalesce(avg(se.score_value / NULLIF(se.max_value, 0) * 4), 0)
                   FROM scorecard_entries se
                   JOIN jobs j2 ON j2.id = se.job_id

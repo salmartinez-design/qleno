@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -20,7 +20,7 @@ export default function UpsellConversionPage() {
   const [cadenceFilter, setCadenceFilter] = useState("all");
 
   const queryStr = `from=${from}&to=${to}&status=${statusFilter}&cadence=${cadenceFilter}`;
-  const { data, loading } = useReportData<UpsellData>(`/reports/upsell-conversion?${queryStr}`);
+  const { data, loading, error, reload } = useReportData<UpsellData>(`/reports/upsell-conversion?${queryStr}`);
 
   const kpi = data?.kpi;
   const trend = (data?.trend ?? []).map(t => ({
@@ -62,6 +62,8 @@ export default function UpsellConversionPage() {
           printable
           filters={<DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />}
         />
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         {/* KPI Cards */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
@@ -135,6 +137,7 @@ export default function UpsellConversionPage() {
             </div>
           )}
         </div>
+        </>}
       </div>
     </DashboardLayout>
   );

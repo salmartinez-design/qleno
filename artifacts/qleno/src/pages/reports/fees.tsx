@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; }
@@ -21,7 +21,7 @@ export default function FeesReportPage() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
 
-  const { data, loading } = useReportData<FeesData>(`/reports/fees?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<FeesData>(`/reports/fees?from=${from}&to=${to}`);
   const rows = data?.data ?? [];
   const s = data?.summary;
 
@@ -51,6 +51,8 @@ export default function FeesReportPage() {
           filters={<DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Fees Collected" value={fmt$c(s?.total_fees ?? 0)} color={clr.green} />
           <KpiCard label="Lockout Fees" value={fmt$c(s?.lockout_fees ?? 0)} sub={`${s?.lockout_count ?? 0} lockouts`} color={clr.amber} />
@@ -59,6 +61,7 @@ export default function FeesReportPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No cancellation or lockout fees in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );
