@@ -1387,14 +1387,24 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
 
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
 
-    // Booking confirmation (job_scheduled) — email AND SMS, both carrying a
-    // no-login customer appointment-view link. Per-tenant via sendNotification
-    // (company gate + global COMMS_ENABLED + tenant from-address/number all
-    // enforced inside). Fetches client email+phone from the job. Non-blocking.
+    // Booking confirmation (job_scheduled) — carries a no-login customer
+    // appointment-view link. Per-tenant via sendNotification (company gate +
+    // global COMMS_ENABLED + tenant from-address/number all enforced inside).
+    // Non-blocking.
+    // [convert-schedule-prompt 2026-08-17] Convert used to ALWAYS send both
+    // email and SMS with no way to opt out — the office had no say, so an
+    // internal re-book still texted the client. Same notify_client_via contract
+    // as POST /api/jobs ('none'|'sms'|'email'|'both'); absent or invalid →
+    // 'both', which is the pre-existing behavior.
     if (jobId) {
-      import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
-        sendJobScheduledConfirmation(req, jobId)
-      ).catch(() => {});
+      const via = String((req.body as any)?.notify_client_via ?? "both");
+      const channels: Array<"email" | "sms"> =
+        via === "none" ? [] : via === "sms" ? ["sms"] : via === "email" ? ["email"] : ["email", "sms"];
+      if (channels.length) {
+        import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+          sendJobScheduledConfirmation(req, jobId, { channels })
+        ).catch(() => {});
+      }
     }
 
     // Stop quote_followup enrollment (non-blocking)
