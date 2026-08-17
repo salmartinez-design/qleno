@@ -60,6 +60,65 @@ function branchCond(req: any, column: any) {
   return eq(column, n);
 }
 
+// [reporting-floor 2026-08-17] Phes ran on MaidCentral until 2026-07-01 and
+// only partially entered work in Qleno before that, so Qleno's own tables are
+// NOT a record of pre-cutover trading. What is in there is a mixture: Jan–Mar
+// 2026 was imported twice (per-job AND as 80 daily rollup rows on the
+// "MaidCentral Historical Import" client, which double-counted $155,970), May
+// is 98% absent, and June is short ~$17,900 against MaidCentral's own figure.
+// Any total drawn across that boundary is wrong in a direction that changes
+// with the month, which is worse than being absent.
+//
+// `companies.invoice_cutover_date` already means exactly this — its own comment
+// says work before it "must never surface in an uninvoiced queue, auto-invoice
+// on completion, or count toward revenue here." Billing has honored it since
+// 2026-08-05; reports never did. Reusing it keeps ONE cutover date per tenant
+// rather than a second one that can drift out of step. All four tenants are
+// already set to 2026-07-01, so this needs no migration and no data write.
+//
+// Sal, 2026-08-17: "we did not fully use Qleno until July 1 do not count any
+// june revenue from qleno it would be from MC history."
+//
+// Scope: money and hours totalled over a date range. NOT applied to customer-
+// history reports (cancellations, redos, tickets, scorecards, upsell) — a
+// client's behavior before July is real and belongs in their history — and not
+// to snapshots with no range (receivables, hot sheet, first-time).
+const floorCache = new Map<number, { v: string | null; at: number }>();
+const FLOOR_TTL_MS = 5 * 60 * 1000;
+
+async function reportingFloor(companyId: number): Promise<string | null> {
+  const hit = floorCache.get(companyId);
+  if (hit && Date.now() - hit.at < FLOOR_TTL_MS) return hit.v;
+  const r = await db.execute(sql`
+    SELECT to_char(invoice_cutover_date, 'YYYY-MM-DD') AS d
+      FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const v = ((r.rows?.[0] as any)?.d as string) ?? null;
+  floorCache.set(companyId, { v, at: Date.now() });
+  return v;
+}
+
+export interface RangeClamp {
+  requested_from: string;
+  effective_from: string;
+  floor: string;
+  /** The whole requested window predates the cutover — there is nothing to show. */
+  entire_range_before: boolean;
+}
+
+// Returns the from-date to actually query, plus a clamp descriptor when the
+// caller asked for something earlier. When the ENTIRE window is pre-cutover the
+// clamped from lands after `to`, so every BETWEEN returns zero rows on its own —
+// the report renders empty with the notice rather than a fabricated total.
+async function clampFrom(companyId: number, fromStr: string, toStr: string):
+  Promise<{ fromStr: string; clamp: RangeClamp | null }> {
+  const floor = await reportingFloor(companyId);
+  if (!floor || fromStr >= floor) return { fromStr, clamp: null };
+  return {
+    fromStr: floor,
+    clamp: { requested_from: fromStr, effective_from: floor, floor, entire_range_before: toStr < floor },
+  };
+}
+
 // ─── INSIGHTS (existing) ──────────────────────────────────────────────────────
 router.get("/insights", requireAuth, ROLE, async (req, res) => {
   try {
@@ -190,8 +249,11 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const groupBy = (req.query.group_by as string) || "day";
 
     const groupExpr = groupBy === "month" ? sql`to_char(${jobsTable.scheduled_date}::date, 'YYYY-MM')`
@@ -307,6 +369,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const totalRev = parseF(s?.total_revenue);
     const cancelFeeRev = parseF(cb.cancellation_fee_revenue);
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, group_by: groupBy,
       summary: {
         total_revenue: totalRev,
@@ -402,8 +465,11 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     // [pay-model-parity 2026-07-04] Labor cost per job = SUM of the paycheck
     // engine's per-tech amounts on that job (computePeriodPayLines), NOT the old
@@ -488,6 +554,7 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
     const data = all.slice(0, DETAIL_ROW_CAP);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       row_count: all.length,
       rows_shown: data.length,
@@ -523,8 +590,11 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     const typeFilter = (req.query.type as string) || "all";        // all | residential | commercial
     const sortKey    = (req.query.sort as string) || "revenue";
@@ -723,6 +793,7 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
         .sort((a, b) => b.revenue - a.revenue);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr,
       summary: {
         customers: all.length, jobs: totalJobs,
@@ -757,14 +828,30 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
     const now = new Date();
 
     // Last 12 weeks
-    const weeks = [];
+    const allWeeks = [];
     for (let i = 11; i >= 0; i--) {
       const weekStart = new Date(now);
       weekStart.setDate(now.getDate() - now.getDay() - i * 7);
       weekStart.setHours(0,0,0,0);
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 6);
-      weeks.push({ start: dateStr(weekStart), end: dateStr(weekEnd) });
+      allWeeks.push({ start: dateStr(weekStart), end: dateStr(weekEnd) });
+    }
+    // [reporting-floor 2026-08-17] A twelve-week window reaches back past the
+    // cutover, and a pre-cutover week has Qleno revenue near zero against real
+    // payroll — which renders as a labor ratio of several hundred percent and
+    // reads as a payroll crisis that never happened. Drop any week that starts
+    // before the floor rather than charting a ratio built from two different
+    // systems. A week straddling the boundary is kept: its start is on or after
+    // the floor, so both halves of the ratio come from Qleno.
+    const p2rFloor = await reportingFloor(companyId);
+    const weeks = p2rFloor ? allWeeks.filter(w => w.start >= p2rFloor) : allWeeks;
+    const weeksDropped = allWeeks.length - weeks.length;
+    if (weeks.length === 0) {
+      return res.json({
+        weeks: [], current: null, status: "low",
+        range_clamped: { requested_from: allWeeks[0].start, effective_from: p2rFloor!, floor: p2rFloor!, entire_range_before: true },
+      });
     }
 
     // [pay-model-parity 2026-07-04] Payroll comes from the paycheck engine
@@ -810,7 +897,12 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
     const currentWeek = weekData[weekData.length - 1];
     const status = currentWeek.pct > 45 ? "critical" : currentWeek.pct > 40 ? "high" : currentWeek.pct >= 30 ? "healthy" : "low";
 
-    return res.json({ weeks: weekData, current: currentWeek, status });
+    return res.json({
+      weeks: weekData, current: currentWeek, status,
+      range_clamped: weeksDropped > 0
+        ? { requested_from: allWeeks[0].start, effective_from: weeks[0].start, floor: p2rFloor!, entire_range_before: false }
+        : null,
+    });
   } catch (err) {
     console.error("Payroll-to-revenue error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -824,10 +916,13 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     const now = new Date();
     const monday = new Date(now);
     monday.setDate(now.getDate() - now.getDay() + 1);
-    const fromStr = (req.query.from as string) || dateStr(monday);
+    let fromStr = (req.query.from as string) || dateStr(monday);
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
     const toStr = (req.query.to as string) || dateStr(sunday);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     // Filter the employee list by home_branch_id when a specific branch is
     // requested. Techs without a home_branch (legacy NULLs) are still surfaced
@@ -910,6 +1005,7 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, employees: rows,
       totals: {
         base_pay: rows.reduce((s, r) => s + r.base_pay, 0),
@@ -934,8 +1030,11 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
 
     const byDay = await db.execute(sql`
       SELECT
@@ -975,6 +1074,7 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
     const overallEff = totals.clock > 0 ? (totals.allowed / totals.clock) * 100 : 0;
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr,
       overall_efficiency: overallEff,
       total_jobs: totals.jobs, total_allowed_hours: totals.allowed, total_clock_hours: totals.clock,
@@ -998,8 +1098,11 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = req.query.user_id ? Number(req.query.user_id) : null;
 
     const empFilter = userId ? sql`AND u.id = ${userId}` : sql``;
@@ -1033,6 +1136,7 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr,
       data: (rows.rows as any[]).map(r => {
         const jobHrs = parseF(r.job_hours);
@@ -1062,8 +1166,11 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
     const authRole   = req.auth!.role!;
     const isTech     = isTechnicianRole(authRole); // [trainee-role] trainee scoped to own tips, like a technician
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = isTech ? authUserId : (req.query.user_id ? Number(req.query.user_id) : null);
 
     const userFilter = userId ? sql`AND ap.user_id = ${userId}` : sql``;
@@ -1093,7 +1200,7 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
     }));
 
     const totalTips = data.reduce((s, r) => s + r.amount, 0);
-    return res.json({ from: fromStr, to: toStr, data, summary: { total_tips: totalTips, avg_per_tip: data.length > 0 ? totalTips / data.length : 0, count: data.length } });
+    return res.json({ from: fromStr, to: toStr, range_clamped: rangeClamp, data, summary: { total_tips: totalTips, avg_per_tip: data.length > 0 ? totalTips / data.length : 0, count: data.length } });
   } catch (err) {
     console.error("Tips error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -1107,8 +1214,11 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const rows = await db.execute(sql`
       SELECT
         jd.id, jd.code, jd.type, jd.value, jd.amount, jd.reason, jd.created_at,
@@ -1133,6 +1243,7 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
     }));
     const total = data.reduce((s, r) => s + r.amount, 0);
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       summary: {
         total_discount: total, count: data.length,
@@ -1154,8 +1265,11 @@ router.get("/fees", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const rows = await db.execute(sql`
       SELECT
         cl.id, cl.cancel_action, cl.customer_charge_amount, cl.cancelled_at,
@@ -1183,6 +1297,7 @@ router.get("/fees", requireAuth, ROLE, async (req, res) => {
     const lockoutTotal = data.filter(d => d.action === "lockout").reduce((s, r) => s + r.amount, 0);
     const cancelTotal  = data.filter(d => d.action === "cancel").reduce((s, r) => s + r.amount, 0);
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr, to: toStr, data,
       summary: {
         total_fees: Math.round((lockoutTotal + cancelTotal) * 100) / 100,
@@ -1751,8 +1866,11 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 90 * 86400000));
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 90 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
     const userId  = req.query.user_id ? Number(req.query.user_id) : null;
     const userFilter = userId ? sql`AND ml.user_id = ${userId}` : sql``;
 
@@ -1999,6 +2117,7 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
     `);
 
     return res.json({
+      range_clamped: rangeClamp,
       from: fromStr,
       to: toStr,
       rate_per_mile: rateRow.rows[0] ? parseF((rateRow.rows[0] as any).rate) : null,

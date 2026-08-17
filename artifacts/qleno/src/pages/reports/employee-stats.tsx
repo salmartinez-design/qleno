@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtH, fmtPct, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, ScoreBadge, EffBar } from "./_shared";
+import { fmt$, fmtH, fmtPct, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, ScoreBadge, EffBar, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -10,7 +10,8 @@ interface EmpStatRow {
   days_worked: number; jobs_completed: number; job_hours: number; clock_hours: number;
   efficiency_pct: number; revenue_generated: number; scorecard_avg: number; tips_earned: number; attendance_score: number;
 }
-interface EmpStatsData { from: string; to: string; data: EmpStatRow[]; }
+interface EmpStatsData {
+  range_clamped?: RangeClamp | null; from: string; to: string; data: EmpStatRow[]; }
 
 export default function EmployeeStatsPage() {
   const [from, setFrom] = useState(daysAgo(30));
@@ -55,6 +56,8 @@ export default function EmployeeStatsPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Employees" value={String(rows.length)} color={clr.secondary} />

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; }
@@ -10,6 +10,7 @@ interface FeeRow {
   recorded_by: string | null; client_name: string | null; service_type: string | null; job_id: number;
 }
 interface FeesData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string; data: FeeRow[];
   summary: {
     total_fees: number; lockout_fees: number; cancel_fees: number;
@@ -52,6 +53,8 @@ export default function FeesReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Fees Collected" value={fmt$c(s?.total_fees ?? 0)} color={clr.green} />

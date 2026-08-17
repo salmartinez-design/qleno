@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
-import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, useReportData, ReportError } from "./_shared";
+import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 // [mileage-report 2026-08-15] Sal: "I need a report where i can see how much in
 // mileage we are rembursing. Check the accuracy as well please."
@@ -54,6 +54,7 @@ interface SharedDrive {
 interface WeekRow { week_start: string; legs: number; miles: number; amount: number; applied_amount: number; pending_amount: number }
 interface TechRow { user_id: number; tech_name: string; legs: number; miles: number; amount: number; applied_amount: number; pending_amount: number; flagged_legs: number }
 interface MileageData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string; rate_per_mile: number | null;
   summary: {
     applied_amount: number; applied_miles: number; applied_legs: number;
@@ -220,6 +221,8 @@ export default function MileageReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Reimbursed" value={fmt$c(s?.applied_amount ?? 0)} sub={`${(s?.applied_miles ?? 0).toFixed(0)} mi paid · ${s?.applied_legs ?? 0} drives`} color={clr.green} />

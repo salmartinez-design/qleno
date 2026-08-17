@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc } from "./_shared";
+import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, fmtSvc, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
@@ -11,6 +11,7 @@ function useIsMobile() {
 }
 
 interface RevData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string; group_by: string;
   summary: {
     total_revenue: number; avg_job_value: number; job_count: number; projected_month_end: number;
@@ -78,6 +79,8 @@ export default function RevenueReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
           <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)} sub="Visits + cancellation fees" />

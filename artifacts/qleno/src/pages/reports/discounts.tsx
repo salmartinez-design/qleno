@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; }
@@ -11,6 +11,7 @@ interface DiscountRow {
   service_type: string | null; job_date: string | null;
 }
 interface DiscountsData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string; data: DiscountRow[];
   summary: { total_discount: number; count: number; percent_count: number; flat_count: number };
 }
@@ -52,6 +53,8 @@ export default function DiscountsReportPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Discounted" value={fmt$c(s?.total_discount ?? 0)} color={clr.green} />

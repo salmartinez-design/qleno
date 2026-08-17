@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtPct, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$c, fmtDate, fmtPct, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
 
 interface CostRow { id: number; date: string; service_type: string; client_name: string; employee_name: string; revenue: number; labor_cost: number; gross_profit: number; margin_pct: number; allowed_hours: number; actual_hours: number; }
 interface CostData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string; data: CostRow[];
   row_count?: number; rows_shown?: number; truncated?: boolean;
   summary: { avg_margin: number; best_service: string | null; worst_service: string | null; total_revenue: number; total_labor: number; total_profit: number };
@@ -45,6 +46,8 @@ export default function JobCostingPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Revenue" value={fmt$c(s?.total_revenue ?? 0)} />

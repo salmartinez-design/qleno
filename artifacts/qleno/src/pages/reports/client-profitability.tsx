@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmt$c, fmtDate, fmtPct, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
+import { fmt$, fmt$c, fmtDate, fmtPct, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, RangeClampNotice, type RangeClamp } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
@@ -20,6 +20,7 @@ interface CutRow {
   labor: number | null; profit: number | null; margin_pct: number | null; jobs_costed: number;
 }
 interface ProfitData {
+  range_clamped?: RangeClamp | null;
   from: string; to: string;
   summary: {
     customers: number; jobs: number; total_revenue: number;
@@ -171,6 +172,8 @@ export default function ClientProfitabilityPage() {
         />
 
         {error ? <ReportError error={error} onRetry={reload} /> : <>
+
+        <RangeClampNotice clamp={data?.range_clamped} />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Customers" value={(s?.customers ?? 0).toLocaleString()} sub={`${(s?.jobs ?? 0).toLocaleString()} completed visits`} />
