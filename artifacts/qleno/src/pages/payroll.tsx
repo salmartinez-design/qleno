@@ -1305,9 +1305,23 @@ export default function PayrollPage() {
     queryFn: () => apiFetch(`/payroll/detail?pay_period_start=${payPeriod.start}&pay_period_end=${payPeriod.end}${activeBranchId !== 'all' ? `&branch_id=${activeBranchId}` : ''}`),
   });
   const payMap = useMemo(() => {
-    const m: Record<number, { hours: number; gross: number }> = {};
+    const m: Record<number, { hours: number; gross: number; rate: number | null }> = {};
     for (const e of (payData?.data || [])) {
-      m[e.user_id] = { hours: e.totals?.hrs_worked ?? 0, gross: e.totals?.grand_total ?? e.totals?.commission ?? 0 };
+      m[e.user_id] = {
+        hours: e.totals?.hrs_worked ?? 0,
+        gross: e.totals?.grand_total ?? e.totals?.commission ?? 0,
+        // [mileage-not-a-wage 2026-08-17] The $/hr column used to divide
+        // grand_total by hours. grand_total folds in pay_adjustments, which is
+        // where applied mileage reimbursement lands — so a tech with a big
+        // mileage week would have shown an inflated "hourly" figure built partly
+        // out of a vehicle-expense reimbursement. Mileage is not wages
+        // (29 CFR 778.217), and Phes pays commission, not hourly. The server
+        // already publishes the honest number as totals.effective_rate
+        // (commission ÷ hours worked), which is what the day-band rate on this
+        // same page has always used. Use it here too; never re-derive a rate
+        // from grand_total.
+        rate: e.totals?.effective_rate ?? null,
+      };
     }
     return m;
   }, [payData]);
@@ -1516,8 +1530,10 @@ export default function PayrollPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #EEECE7' }}>
-                {['Employee', 'Role', 'Hours', 'Gross $/hr', 'Gross Pay', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                {['Employee', 'Role', 'Hours', 'Commission $/hr', 'Gross Pay', 'Status'].map(h => (
+                  <th key={h}
+                    title={h === 'Commission $/hr' ? 'Effective earnings per recorded job hour = commission ÷ hours worked. Not an hourly wage. Excludes tips, bonuses and mileage.' : undefined}
+                    style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1525,8 +1541,8 @@ export default function PayrollPage() {
               {isLoading ? (
                 <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>Loading payroll data...</td></tr>
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
-                const pay = payMap[emp.id] || { hours: 0, gross: 0 };
-                const effRate = pay.hours > 0 ? pay.gross / pay.hours : null;
+                const pay = payMap[emp.id] || { hours: 0, gross: 0, rate: null };
+                const effRate = pay.rate;
                 const detail = payDetailMap[emp.id];
                 const jobs: any[] = detail?.jobs || [];
                 const addl = Object.entries(detail?.additional_pay || {}).filter(([, v]) => (v as number) !== 0);

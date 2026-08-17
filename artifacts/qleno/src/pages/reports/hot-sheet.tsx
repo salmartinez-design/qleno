@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtSvc, fmtH, clr, KpiCard, ReportHeader, DataTable, useReportData, StatusBadge, ScoreBadge } from "./_shared";
+import { fmt$c, fmtSvc, fmtH, clr, KpiCard, ReportHeader, DataTable, useReportData, ReportError, StatusBadge, ScoreBadge } from "./_shared";
 import { MapPin, Star, AlertTriangle } from "lucide-react";
 import { formatAddress } from "@/lib/format-address";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -12,7 +12,7 @@ interface HotData { date: string; data: HotRow[]; }
 
 export default function HotSheetPage() {
   const [date, setDate] = useState(today());
-  const { data, loading } = useReportData<HotData>(`/reports/hot-sheet?date=${date}`);
+  const { data, loading, error, reload } = useReportData<HotData>(`/reports/hot-sheet?date=${date}`);
   const rows = data?.data ?? [];
 
   const statColor = (s: string) => s === "in_progress" ? clr.green : s === "scheduled" ? clr.brand : clr.muted;
@@ -60,6 +60,8 @@ export default function HotSheetPage() {
           }
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Jobs" value={String(rows.length)} />
           <KpiCard label="First Time Clients" value={String(firstTimeCount)} color={clr.brand} sub="Require extra attention" />
@@ -75,6 +77,7 @@ export default function HotSheetPage() {
         )}
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg={`No jobs scheduled for ${date}.`} />
+        </>}
       </div>
     </DashboardLayout>
   );

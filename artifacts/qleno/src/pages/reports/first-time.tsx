@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$c, fmtDate, fmtSvc, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
+import { fmt$c, fmtDate, fmtSvc, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError } from "./_shared";
 import { Star } from "lucide-react";
 
 function today() { return new Date().toISOString().split("T")[0]; }
@@ -13,7 +13,7 @@ export default function FirstTimePage() {
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(daysAhead(30));
 
-  const { data, loading } = useReportData<FTData>(`/reports/first-time?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<FTData>(`/reports/first-time?from=${from}&to=${to}`);
   const rows = data?.data ?? [];
 
   const cols = [
@@ -39,6 +39,8 @@ export default function FirstTimePage() {
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} label="Date Range" />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="First Time Clients" value={String(rows.length)} color={clr.brand} />
           <KpiCard label="Total Revenue" value={fmt$c(totalRev)} color={clr.green} />
@@ -55,6 +57,7 @@ export default function FirstTimePage() {
         )}
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No first-time client visits in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

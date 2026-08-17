@@ -13,7 +13,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useBranch } from "@/contexts/branch-context";
 import { getAuthHeaders } from "@/lib/auth";
 import { Download } from "lucide-react";
-import { ReportHeader, DateRange, useReportData, clr, fmtSvc } from "./_shared";
+import { ReportHeader, DateRange, useReportData, ReportError, clr, fmtSvc } from "./_shared";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -158,7 +158,7 @@ export default function ScorecardReportPage() {
   const [resent, setResent] = useState<Set<number>>(new Set());
 
   // useReportData auto-appends branch_id from the navbar/branch switcher.
-  const { data, loading, reload } = useReportData<Report>(`/scorecards/company-report?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<Report>(`/scorecards/company-report?from=${from}&to=${to}`);
   // Full per-survey list (sent + returned + pending) — reuses the endpoint that
   // backed the retired "Scorecard Results" page, so that operational view lives on.
   const surveys = useReportData<SurveyResults>(`/satisfaction/scorecard-results?from=${from}&to=${to}`);
@@ -258,6 +258,8 @@ export default function ScorecardReportPage() {
           }
         />
 
+
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
         {/* KPI row */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
           <KpiTile accent label="Performance score" value={pct(k?.composite_pct)} sub={`company composite · ${data?.composite_window_days ?? 90}d`} />
@@ -544,6 +546,8 @@ export default function ScorecardReportPage() {
             </div>
           )}
         </div>
+
+        </>}
       </div>
     </DashboardLayout>
   );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, StatusBadge } from "./_shared";
+import { fmtDate, fmtSvc, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, StatusBadge } from "./_shared";
 import { AlertTriangle, Star, MessageSquare, FileText, Zap } from "lucide-react";
 
 function today() { return new Date().toISOString().split("T")[0]; }
@@ -25,7 +25,7 @@ export default function ContactTicketsReportPage() {
   const [type, setType] = useState("all");
 
   const qs = type !== "all" ? `&type=${type}` : "";
-  const { data, loading } = useReportData<CTData>(`/reports/contact-tickets?from=${from}&to=${to}${qs}`);
+  const { data, loading, error, reload } = useReportData<CTData>(`/reports/contact-tickets?from=${from}&to=${to}${qs}`);
   const rows = data?.data ?? [];
   const counts = data?.counts;
 
@@ -62,6 +62,8 @@ export default function ContactTicketsReportPage() {
           }
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 10, padding: "12px 16px" }}>
             <AlertTriangle size={14} color="#F97316" />
@@ -86,6 +88,7 @@ export default function ContactTicketsReportPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No contact tickets in this date range." />
+        </>}
       </div>
     </DashboardLayout>
   );

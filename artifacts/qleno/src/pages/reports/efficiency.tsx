@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, EffBar } from "./_shared";
+import { fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, ReportError, EffBar } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
@@ -14,7 +14,7 @@ export default function EfficiencyPage() {
   const [to, setTo] = useState(today());
   const [view, setView] = useState<"day"|"employee">("day");
 
-  const { data, loading } = useReportData<EffData>(`/reports/efficiency?from=${from}&to=${to}`);
+  const { data, loading, error, reload } = useReportData<EffData>(`/reports/efficiency?from=${from}&to=${to}`);
 
   const dayCols = [
     { header: "Date", render: (r: DayRow) => fmtDate(r.date) },
@@ -44,6 +44,8 @@ export default function EfficiencyPage() {
           filters={<DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} />}
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Overall Efficiency" value={`${eff.toFixed(0)}%`} color={effColor} sub="Allowed / Clock hours" />
           <KpiCard label="Total Jobs" value={String(data?.total_jobs ?? 0)} color={clr.secondary} />
@@ -64,6 +66,7 @@ export default function EfficiencyPage() {
           ? <DataTable cols={dayCols} rows={data?.by_day ?? []} loading={loading} />
           : <DataTable cols={empCols} rows={data?.by_employee ?? []} loading={loading} />
         }
+        </>}
       </div>
     </DashboardLayout>
   );

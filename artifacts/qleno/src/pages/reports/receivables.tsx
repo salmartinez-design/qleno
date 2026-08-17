@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { fmt$, fmt$c, fmtDate, clr, KpiCard, ReportHeader, DataTable, useReportData, StatusBadge } from "./_shared";
+import { fmt$, fmt$c, fmtDate, clr, KpiCard, ReportHeader, DataTable, useReportData, ReportError, StatusBadge } from "./_shared";
 import { formatInvoiceNumber } from "@/lib/invoice-number";
 
 interface ARRow { id: number; invoice_number?: string | null; status: string; total: number; client_name: string; client_email: string; invoice_date: string; due_date: string; days_overdue: number; }
@@ -12,7 +12,7 @@ type Filter = typeof FILTERS[number];
 export default function ReceivablesPage() {
   const [filter, setFilter] = useState<Filter>("all");
 
-  const { data, loading } = useReportData<ARData>(`/reports/receivables?filter=${filter}`);
+  const { data, loading, error, reload } = useReportData<ARData>(`/reports/receivables?filter=${filter}`);
   const rows = data?.data ?? [];
   const s = data?.summary;
 
@@ -52,6 +52,8 @@ export default function ReceivablesPage() {
           }
         />
 
+        {error ? <ReportError error={error} onRetry={reload} /> : <>
+
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Total Outstanding" value={fmt$(s?.total_outstanding ?? 0)} />
           <KpiCard label="Current (0-30d)" value={fmt$(s?.current ?? 0)} color={clr.green} />
@@ -61,6 +63,8 @@ export default function ReceivablesPage() {
         </div>
 
         <DataTable cols={cols} rows={rows} loading={loading} emptyMsg="No outstanding invoices." />
+
+        </>}
       </div>
     </DashboardLayout>
   );
