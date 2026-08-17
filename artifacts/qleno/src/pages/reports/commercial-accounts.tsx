@@ -15,6 +15,9 @@ interface AccountRow {
   // no clock records, no pay lines.
   budget_hours: number | null; actual_hours: number | null;
   efficiency_pct: number | null; rev_per_budget_hour: number | null;
+  // The two halves the percentage is actually built from — visits carrying both
+  // a budget and a clock record.
+  measured_budget_hours: number | null; measured_actual_hours: number | null; jobs_measured: number;
   labor: number | null; profit: number | null; margin_pct: number | null;
   jobs_budgeted: number; jobs_clocked: number; jobs_costed: number; revenue_costed: number;
   first_visit: string | null; last_visit: string | null;
@@ -29,6 +32,7 @@ interface CommercialData {
     accounts: number; dormant_accounts: number; visits: number;
     total_revenue: number; rev_per_visit: number | null;
     budget_hours: number | null; actual_hours: number | null; efficiency_pct: number | null;
+    measured_budget_hours: number | null; measured_actual_hours: number | null; jobs_measured: number;
     total_labor: number | null; total_profit: number | null; margin_pct: number | null;
     jobs_budgeted: number; jobs_clocked: number; jobs_costed: number; coverage_pct: number;
     top_account: string | null; top_account_share_pct: number | null;
@@ -101,9 +105,15 @@ export default function CommercialAccountsPage() {
         )}
       </span>
     ), align: "right" as const },
+    // Only visits with both a budget and a clock can be scored, so the count of
+    // those is shown whenever it is short of the account's visits — the number
+    // then reads as what it is rather than as the whole account.
     { header: "Efficiency", render: (r: AccountRow) => r.efficiency_pct == null ? unknown : (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
         <span style={{ fontWeight: 600, color: effColor(r.efficiency_pct) }}>{fmtPct(r.efficiency_pct)}</span>
+        {r.jobs_measured < r.visits && (
+          <span style={{ fontSize: 10, fontWeight: 500, color: clr.muted }}>{r.jobs_measured} scored</span>
+        )}
         <EffBar pct={r.efficiency_pct} />
       </div>
     ), align: "right" as const },
@@ -163,7 +173,8 @@ export default function CommercialAccountsPage() {
           <KpiCard label="Hours Worked" value={s?.actual_hours == null ? "Not available" : fmtH(s.actual_hours)}
             sub="all cleaners on the job" color={clr.secondary} />
           <KpiCard label="Efficiency" value={s?.efficiency_pct == null ? "Not available" : fmtPct(s.efficiency_pct)}
-            sub="budgeted ÷ worked" color={s?.efficiency_pct == null ? clr.secondary : effColor(s.efficiency_pct)} />
+            sub={s && s.jobs_measured < s.visits ? `over ${s.jobs_measured.toLocaleString()} of ${s.visits.toLocaleString()} visits` : "budgeted ÷ worked"}
+            color={s?.efficiency_pct == null ? clr.secondary : effColor(s.efficiency_pct)} />
           <KpiCard label="Gross Profit" value={s?.total_profit == null ? "Not available" : fmt$(s.total_profit)} color={clr.green} />
           <KpiCard label="Gross Margin" value={s?.margin_pct == null ? "Not available" : fmtPct(s.margin_pct)}
             sub="revenue less labor only" color={s?.margin_pct == null ? clr.secondary : marginColor(s.margin_pct)} />
@@ -173,7 +184,9 @@ export default function CommercialAccountsPage() {
             doc nobody opens. Efficiency over 100% is the good direction. */}
         <p style={{ margin: "-12px 0 14px", fontSize: 12, color: clr.secondary, lineHeight: 1.55 }}>
           Efficiency compares the hours a visit was budgeted against the hours actually clocked by everyone who worked it —
-          above 100% means the crew came in under budget. Gross margin is revenue less labor; supplies, vehicle and
+          above 100% means the crew came in under budget. Only visits that have both a budget and a clock record go into
+          it; a visit missing either one would move the number without telling you anything about the work, so it stays in
+          the hour totals and out of the score. Gross margin is revenue less labor; supplies, vehicle and
           overhead costs are not tracked per job, so they are not in this figure.
         </p>
 
@@ -189,8 +202,8 @@ export default function CommercialAccountsPage() {
             <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>
               Labor is known for <strong>{s.jobs_costed.toLocaleString()} of {s.visits.toLocaleString()} visits</strong> ({fmtPct(s.coverage_pct)}).
               Profit and margin describe only those visits. Budgeted hours cover {s.jobs_budgeted.toLocaleString()} visits and
-              clock records cover {s.jobs_clocked.toLocaleString()} — an account missing either one shows a dash rather than a
-              number built on a blank.
+              clock records cover {s.jobs_clocked.toLocaleString()}; efficiency is scored on the {s.jobs_measured.toLocaleString()} that
+              have both. An account with neither shows a dash rather than a number built on a blank.
             </p>
           </div>
         )}

@@ -979,6 +979,9 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
       properties: Set<number>;
       budget_hours: number; jobs_budgeted: number;
       actual_hours: number; jobs_clocked: number;
+      // [efficiency-matched-pair 2026-08-17] The two halves of the ratio, over
+      // the jobs that carry BOTH. See the accumulator below.
+      measured_budget: number; measured_actual: number; jobs_measured: number;
       labor: number; jobs_costed: number; revenue_costed: number;
       first_visit: string | null; last_visit: string | null;
     };
@@ -986,6 +989,7 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
       visits: 0, revenue: 0, properties: new Set(),
       budget_hours: 0, jobs_budgeted: 0,
       actual_hours: 0, jobs_clocked: 0,
+      measured_budget: 0, measured_actual: 0, jobs_measured: 0,
       labor: 0, jobs_costed: 0, revenue_costed: 0,
       first_visit: null, last_visit: null,
     });
@@ -1003,8 +1007,23 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
       // Budget present or absent — never defaulted. A blank allowed_hours on a
       // commercial job has already cost this business real money once (it paid
       // $20 × 0), so it is surfaced here rather than absorbed.
-      if (r.allowed_hours != null) { a.budget_hours += parseF(r.allowed_hours); a.jobs_budgeted += 1; }
-      if (parseN(r.clock_rows) > 0) { a.actual_hours += parseF(r.crew_hours); a.jobs_clocked += 1; }
+      const hasBudget = r.allowed_hours != null;
+      const hasClock  = parseN(r.clock_rows) > 0;
+      if (hasBudget) { a.budget_hours += parseF(r.allowed_hours); a.jobs_budgeted += 1; }
+      if (hasClock)  { a.actual_hours += parseF(r.crew_hours);    a.jobs_clocked  += 1; }
+
+      // [efficiency-matched-pair 2026-08-17] Efficiency is a RATIO, so both
+      // halves have to describe the same visits. A visit missing either one
+      // cannot be in it: no clock puts its budget over no hours (inflates), no
+      // budget puts its hours under no budget (deflates). Both were happening.
+      // This is the same rule /reports/efficiency scores on, so the two reports
+      // cannot disagree about the same jobs. Budget and hours are still totalled
+      // in full above; they just aren't what the percentage is made of.
+      if (hasBudget && hasClock) {
+        a.measured_budget += parseF(r.allowed_hours);
+        a.measured_actual += parseF(r.crew_hours);
+        a.jobs_measured   += 1;
+      }
 
       if (laborByJob.has(Number(r.id))) {
         a.jobs_costed += 1;
@@ -1042,10 +1061,14 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
 
         budget_hours: budgeted ? r2(a.budget_hours) : null,
         actual_hours: clocked  ? r2(a.actual_hours) : null,
-        // Over 100% = came in under budget. Needs both halves; one alone is a
-        // number about nothing.
-        efficiency_pct: budgeted && clocked && a.actual_hours > 0
-          ? (a.budget_hours / a.actual_hours) * 100 : null,
+        // Over 100% = came in under budget. Built only from visits carrying a
+        // budget AND a clock; null when no visit here can be scored, because
+        // "nothing measurable" is not 0% efficient.
+        efficiency_pct: a.jobs_measured > 0 && a.measured_actual > 0
+          ? (a.measured_budget / a.measured_actual) * 100 : null,
+        measured_budget_hours: a.jobs_measured > 0 ? r2(a.measured_budget) : null,
+        measured_actual_hours: a.jobs_measured > 0 ? r2(a.measured_actual) : null,
+        jobs_measured: a.jobs_measured,
         // What an hour of budgeted time actually bills at — the number to
         // compare one commercial contract against another.
         rev_per_budget_hour: budgeted && a.budget_hours > 0 ? r2(a.revenue / a.budget_hours) : null,
@@ -1075,12 +1098,20 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
       data.reduce((s, d) => s + (f(d) ?? 0), 0);
     const totalRevenue  = sum_(d => d.revenue);
     const totalVisits   = data.reduce((s, d) => s + d.visits, 0);
-    const totalBudget   = sum_(d => d.budget_hours);
-    const totalActual   = sum_(d => d.actual_hours);
+    // Summed from the raw accumulators, not from the per-row rounded figures —
+    // rounding each account to two decimals first and then adding would land a
+    // few cents away from the same total computed anywhere else.
+    const raw = (f: (a: Acc) => number) =>
+      data.reduce((s, d) => s + (byAccount.has(d.id) ? f(byAccount.get(d.id)!) : 0), 0);
+    const totalBudget   = raw(a => a.budget_hours);
+    const totalActual   = raw(a => a.actual_hours);
     const totalLabor    = sum_(d => d.labor);
     const costedRev     = sum_(d => d.revenue_costed);
     const jobsBudgeted  = data.reduce((s, d) => s + d.jobs_budgeted, 0);
     const jobsClocked   = data.reduce((s, d) => s + d.jobs_clocked, 0);
+    const jobsMeasured  = data.reduce((s, d) => s + d.jobs_measured, 0);
+    const measBudget    = raw(a => a.measured_budget);
+    const measActual    = raw(a => a.measured_actual);
     const jobsCosted    = data.reduce((s, d) => s + d.jobs_costed, 0);
     const totalProfit   = costedRev - totalLabor;
 
@@ -1119,8 +1150,11 @@ router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
         rev_per_visit: totalVisits > 0 ? r2(totalRevenue / totalVisits) : null,
         budget_hours: jobsBudgeted > 0 ? r2(totalBudget) : null,
         actual_hours: jobsClocked  > 0 ? r2(totalActual) : null,
-        efficiency_pct: jobsBudgeted > 0 && jobsClocked > 0 && totalActual > 0
-          ? (totalBudget / totalActual) * 100 : null,
+        efficiency_pct: jobsMeasured > 0 && measActual > 0
+          ? (measBudget / measActual) * 100 : null,
+        measured_budget_hours: jobsMeasured > 0 ? r2(measBudget) : null,
+        measured_actual_hours: jobsMeasured > 0 ? r2(measActual) : null,
+        jobs_measured: jobsMeasured,
         total_labor:  jobsCosted > 0 ? r2(totalLabor) : null,
         total_profit: jobsCosted > 0 ? r2(totalProfit) : null,
         margin_pct:   jobsCosted > 0 && costedRev > 0 ? (totalProfit / costedRev) * 100 : null,
