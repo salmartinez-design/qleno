@@ -1564,7 +1564,14 @@ router.get("/redos", requireAuth, ROLE, async (req, res) => {
       LEFT JOIN clients cl ON cl.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
       WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff}
-      GROUP BY client_id, name
+      -- [redos-groupby 2026-08-17] Group by ordinal, NOT by the output aliases.
+      -- Postgres resolves a bare name in GROUP BY to an INPUT column before an
+      -- output alias, and jobs.client_id exists — so "GROUP BY client_id" bound
+      -- to j.client_id, left COALESCE(cl.id, a.id) ungrouped, and the whole
+      -- report 500'd with 'column "cl.id" must appear in the GROUP BY clause'.
+      -- Broken since #1010 (2026-07-10). The sibling byEmployee query above is
+      -- safe only because no input column there is called "name".
+      GROUP BY 1, 2
       ORDER BY valid_count DESC, invalid_count DESC`);
 
     const byCategory = await db.execute(sql`
