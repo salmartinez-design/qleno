@@ -5,7 +5,7 @@ import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
   AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
-  Briefcase, Percent, History, Car,
+  Briefcase, Percent, History, Car, Building2,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -17,6 +17,7 @@ const REPORT_GROUPS = [
       { title: "Accounts Receivable",  desc: "Outstanding invoices grouped by aging bucket.",          url: "/reports/receivables",       icon: ReceiptText },
       { title: "Job Costing",          desc: "Revenue vs labor cost with gross profit margins.",       url: "/reports/job-costing",       icon: Clipboard },
       { title: "Client Profitability", desc: "Gross profit and margin per customer, plus the cut by service type, zone and frequency.", url: "/reports/client-profitability", icon: Users },
+      { title: "Commercial Accounts",  desc: "Every commercial account ranked — revenue, budgeted hours vs hours worked, efficiency and gross profit.", url: "/reports/commercial-accounts", icon: Building2 },
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
       { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
       { title: "Fees Collected",       desc: "Cancellation and lockout fees billed in a period — labeled subset of revenue.", url: "/reports/fees", icon: Banknote },

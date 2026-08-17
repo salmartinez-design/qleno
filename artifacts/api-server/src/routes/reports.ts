@@ -877,6 +877,305 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ─── COMMERCIAL ACCOUNTS ─────────────────────────────────────────────────────
+// [commercial-accounts 2026-08-17] Every commercial account ranked side by side.
+// Client Profitability already lists accounts and can filter to commercial, but
+// it is a customer report and carries customer columns — it has no view of the
+// two numbers a commercial book actually turns on: the HOURS a job was budgeted
+// and the hours it took. On a commission-per-allowed-hour shop that gap IS the
+// margin, and nothing in Reports showed it per account.
+//
+// Definitions, all borrowed rather than invented, so this report cannot disagree
+// with the ones beside it:
+//   • Commercial = `jobs.account_id IS NOT NULL`. That is what the commission
+//     engine routes on, so it means the same thing here.
+//   • Revenue = coalesce(billed_amount, base_fee), the one waterfall.
+//   • Completed work only, as Client Profitability and Job Costing do. Booked-
+//     but-not-yet-worked visits belong to the revenue reports, not to a margin.
+//   • Labor = computePeriodPayLines, the paycheck engine. Same source as Job
+//     Costing, so the same job cannot cost two different amounts.
+//
+// Three separate kinds of "we do not know", each tracked and never rounded to
+// zero: a job with no allowed_hours has no BUDGET, a job with no clock-out has
+// no ACTUAL, and a job the pay engine skipped has no LABOR. An account is only
+// given an efficiency, or a margin, over the jobs where that figure exists.
+//
+// Efficiency is the canonical one: allowed ÷ actual, over 100% meaning the crew
+// came in under budget. Actual counts EVERY cleaner clocked on the job, not just
+// the one on `assigned_user_id` — allowed_hours budgets the whole crew, so the
+// denominator has to be the whole crew. (Note: /efficiency joins the assigned
+// cleaner only, which reads high on multi-cleaner commercial work.)
+router.get("/commercial-accounts", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    let fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+    // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
+    const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
+    fromStr = floorFrom;
+
+    const sortKey = (req.query.sort as string) || "revenue";
+    const sortDir = (req.query.dir  as string) === "asc" ? "asc" : "desc";
+
+    // One row per job, with the whole crew's clocked hours folded in. A single
+    // GROUP BY rather than a correlated subquery per job — this has to stay one
+    // query no matter how many accounts a tenant grows into.
+    const jobRows = await db.execute(sql`
+      SELECT
+        j.id, j.account_id, j.account_property_id,
+        -- pg hands a DATE back as a JS Date, so format it here. Slicing the
+        -- stringified Date yields "Wed Jul 29" and breaks date comparison.
+        to_char(j.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+        j.allowed_hours,
+        ${EFFECTIVE_AMOUNT_SQL("j")} AS effective_amount,
+        coalesce(sum(EXTRACT(EPOCH FROM (t.clock_out_at - t.clock_in_at))/3600)
+                 FILTER (WHERE t.clock_out_at IS NOT NULL), 0) AS crew_hours,
+        count(t.id) FILTER (WHERE t.clock_out_at IS NOT NULL)  AS clock_rows
+      FROM jobs j
+      LEFT JOIN timeclock t ON t.job_id = j.id
+      WHERE j.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
+        AND j.account_id IS NOT NULL
+        AND j.status = 'complete'
+        AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+      GROUP BY j.id
+    `);
+
+    // Every account on the books, not only the ones that worked. An active
+    // account with no completed visit in the window is the single most useful
+    // row on this screen — a customer that quietly stopped calling — and it can
+    // only appear if the list starts from `accounts` rather than from `jobs`.
+    const accountRows = await db.execute(sql`
+      SELECT a.id, a.account_name, a.is_active, a.account_type,
+             a.invoice_frequency, a.payment_terms_days, a.payment_method
+        FROM accounts a
+       WHERE a.company_id = ${companyId}
+       ORDER BY a.account_name
+    `);
+
+    // For the dormant list: when did this account last actually get work? Inside
+    // the window it has none by definition, so the useful date is the last one
+    // BEFORE it — that is what turns "no visits" into "stopped calling in May".
+    const lastBefore = await db.execute(sql`
+      SELECT j.account_id, to_char(max(j.scheduled_date), 'YYYY-MM-DD') AS last_visit
+        FROM jobs j
+       WHERE j.company_id = ${companyId}
+         AND j.account_id IS NOT NULL
+         AND j.status = 'complete'
+         AND j.scheduled_date < ${fromStr}
+       GROUP BY j.account_id
+    `);
+    const lastBeforeByAccount = new Map<number, string>(
+      (lastBefore.rows as any[]).map(r => [Number(r.account_id), String(r.last_visit).slice(0, 10)]),
+    );
+
+    const { lines: costLines } = await computePeriodPayLines(companyId, fromStr, toStr);
+    const laborByJob = new Map<number, number>();
+    for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
+
+    type Acc = {
+      visits: number; revenue: number;
+      properties: Set<number>;
+      budget_hours: number; jobs_budgeted: number;
+      actual_hours: number; jobs_clocked: number;
+      // [efficiency-matched-pair 2026-08-17] The two halves of the ratio, over
+      // the jobs that carry BOTH. See the accumulator below.
+      measured_budget: number; measured_actual: number; jobs_measured: number;
+      labor: number; jobs_costed: number; revenue_costed: number;
+      first_visit: string | null; last_visit: string | null;
+    };
+    const blank = (): Acc => ({
+      visits: 0, revenue: 0, properties: new Set(),
+      budget_hours: 0, jobs_budgeted: 0,
+      actual_hours: 0, jobs_clocked: 0,
+      measured_budget: 0, measured_actual: 0, jobs_measured: 0,
+      labor: 0, jobs_costed: 0, revenue_costed: 0,
+      first_visit: null, last_visit: null,
+    });
+
+    const byAccount = new Map<number, Acc>();
+    for (const r of jobRows.rows as any[]) {
+      const id = Number(r.account_id);
+      let a = byAccount.get(id);
+      if (!a) { a = blank(); byAccount.set(id, a); }
+
+      a.visits += 1;
+      a.revenue += parseF(r.effective_amount);
+      if (r.account_property_id != null) a.properties.add(Number(r.account_property_id));
+
+      // Budget present or absent — never defaulted. A blank allowed_hours on a
+      // commercial job has already cost this business real money once (it paid
+      // $20 × 0), so it is surfaced here rather than absorbed.
+      const hasBudget = r.allowed_hours != null;
+      const hasClock  = parseN(r.clock_rows) > 0;
+      if (hasBudget) { a.budget_hours += parseF(r.allowed_hours); a.jobs_budgeted += 1; }
+      if (hasClock)  { a.actual_hours += parseF(r.crew_hours);    a.jobs_clocked  += 1; }
+
+      // [efficiency-matched-pair 2026-08-17] Efficiency is a RATIO, so both
+      // halves have to describe the same visits. A visit missing either one
+      // cannot be in it: no clock puts its budget over no hours (inflates), no
+      // budget puts its hours under no budget (deflates). Both were happening.
+      // This is the same rule /reports/efficiency scores on, so the two reports
+      // cannot disagree about the same jobs. Budget and hours are still totalled
+      // in full above; they just aren't what the percentage is made of.
+      if (hasBudget && hasClock) {
+        a.measured_budget += parseF(r.allowed_hours);
+        a.measured_actual += parseF(r.crew_hours);
+        a.jobs_measured   += 1;
+      }
+
+      if (laborByJob.has(Number(r.id))) {
+        a.jobs_costed += 1;
+        a.revenue_costed += parseF(r.effective_amount);
+        a.labor += laborByJob.get(Number(r.id))!;
+      }
+
+      const d = String(r.scheduled_date).slice(0, 10);
+      if (!a.first_visit || d < a.first_visit) a.first_visit = d;
+      if (!a.last_visit  || d > a.last_visit)  a.last_visit  = d;
+    }
+
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    let data = (accountRows.rows as any[]).map(row => {
+      const id = Number(row.id);
+      const a  = byAccount.get(id) ?? blank();
+      const costed    = a.jobs_costed > 0;
+      const profit    = a.revenue_costed - a.labor;
+      const budgeted  = a.jobs_budgeted > 0;
+      const clocked   = a.jobs_clocked  > 0;
+
+      return {
+        id, name: row.account_name || `Account ${id}`,
+        is_active: row.is_active !== false,
+        account_type: row.account_type ?? null,
+        invoice_frequency: row.invoice_frequency ?? null,
+        payment_terms_days: row.payment_terms_days ?? null,
+        payment_method: row.payment_method ?? null,
+
+        visits: a.visits,
+        properties: a.properties.size,
+        revenue: r2(a.revenue),
+        rev_per_visit: a.visits > 0 ? r2(a.revenue / a.visits) : null,
+
+        budget_hours: budgeted ? r2(a.budget_hours) : null,
+        actual_hours: clocked  ? r2(a.actual_hours) : null,
+        // Over 100% = came in under budget. Built only from visits carrying a
+        // budget AND a clock; null when no visit here can be scored, because
+        // "nothing measurable" is not 0% efficient.
+        efficiency_pct: a.jobs_measured > 0 && a.measured_actual > 0
+          ? (a.measured_budget / a.measured_actual) * 100 : null,
+        measured_budget_hours: a.jobs_measured > 0 ? r2(a.measured_budget) : null,
+        measured_actual_hours: a.jobs_measured > 0 ? r2(a.measured_actual) : null,
+        jobs_measured: a.jobs_measured,
+        // What an hour of budgeted time actually bills at — the number to
+        // compare one commercial contract against another.
+        rev_per_budget_hour: budgeted && a.budget_hours > 0 ? r2(a.revenue / a.budget_hours) : null,
+
+        labor:      costed ? r2(a.labor) : null,
+        profit:     costed ? r2(profit) : null,
+        margin_pct: costed && a.revenue_costed > 0 ? (profit / a.revenue_costed) * 100 : null,
+
+        // Coverage, so the page can caveat any row whose figures cover only
+        // part of its work rather than presenting them as the whole picture.
+        jobs_budgeted: a.jobs_budgeted,
+        jobs_clocked:  a.jobs_clocked,
+        jobs_costed:   a.jobs_costed,
+        revenue_costed: r2(a.revenue_costed),
+
+        first_visit: a.first_visit, last_visit: a.last_visit,
+      };
+    });
+
+    // Accounts with no completed visit in the window are kept, but they are not
+    // part of the ranking — they are the dormant list, reported separately so a
+    // page of zeros never sits between two real rows.
+    const dormant = data.filter(d => d.visits === 0 && d.is_active);
+    data = data.filter(d => d.visits > 0);
+
+    const sum_ = (f: (d: typeof data[number]) => number | null) =>
+      data.reduce((s, d) => s + (f(d) ?? 0), 0);
+    const totalRevenue  = sum_(d => d.revenue);
+    const totalVisits   = data.reduce((s, d) => s + d.visits, 0);
+    // Summed from the raw accumulators, not from the per-row rounded figures —
+    // rounding each account to two decimals first and then adding would land a
+    // few cents away from the same total computed anywhere else.
+    const raw = (f: (a: Acc) => number) =>
+      data.reduce((s, d) => s + (byAccount.has(d.id) ? f(byAccount.get(d.id)!) : 0), 0);
+    const totalBudget   = raw(a => a.budget_hours);
+    const totalActual   = raw(a => a.actual_hours);
+    const totalLabor    = sum_(d => d.labor);
+    const costedRev     = sum_(d => d.revenue_costed);
+    const jobsBudgeted  = data.reduce((s, d) => s + d.jobs_budgeted, 0);
+    const jobsClocked   = data.reduce((s, d) => s + d.jobs_clocked, 0);
+    const jobsMeasured  = data.reduce((s, d) => s + d.jobs_measured, 0);
+    const measBudget    = raw(a => a.measured_budget);
+    const measActual    = raw(a => a.measured_actual);
+    const jobsCosted    = data.reduce((s, d) => s + d.jobs_costed, 0);
+    const totalProfit   = costedRev - totalLabor;
+
+    const SORTS: Record<string, (d: typeof data[number]) => number | string | null> = {
+      revenue: d => d.revenue, visits: d => d.visits, profit: d => d.profit,
+      margin: d => d.margin_pct, efficiency: d => d.efficiency_pct,
+      rev_per_visit: d => d.rev_per_visit, rev_per_budget_hour: d => d.rev_per_budget_hour,
+      hours: d => d.actual_hours, last_visit: d => d.last_visit || "",
+      name: d => d.name.toLowerCase(),
+    };
+    const pick = SORTS[sortKey] || SORTS.revenue;
+    data.sort((a, b) => {
+      const x = pick(a), y = pick(b);
+      // Unknowns sink in both directions — sorting by worst margin should
+      // surface the genuinely thin accounts, not the uncosted ones.
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      const cmp = typeof x === "string" || typeof y === "string"
+        ? String(x).localeCompare(String(y))
+        : (x as number) - (y as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+    // Concentration: how much of the commercial book rides on the top account.
+    const top = data.length ? data.reduce((m, d) => (d.revenue > m.revenue ? d : m), data[0]!) : null;
+
+    return res.json({
+      range_clamped: rangeClamp,
+      from: fromStr, to: toStr,
+      summary: {
+        accounts: data.length,
+        dormant_accounts: dormant.length,
+        visits: totalVisits,
+        total_revenue: r2(totalRevenue),
+        rev_per_visit: totalVisits > 0 ? r2(totalRevenue / totalVisits) : null,
+        budget_hours: jobsBudgeted > 0 ? r2(totalBudget) : null,
+        actual_hours: jobsClocked  > 0 ? r2(totalActual) : null,
+        efficiency_pct: jobsMeasured > 0 && measActual > 0
+          ? (measBudget / measActual) * 100 : null,
+        measured_budget_hours: jobsMeasured > 0 ? r2(measBudget) : null,
+        measured_actual_hours: jobsMeasured > 0 ? r2(measActual) : null,
+        jobs_measured: jobsMeasured,
+        total_labor:  jobsCosted > 0 ? r2(totalLabor) : null,
+        total_profit: jobsCosted > 0 ? r2(totalProfit) : null,
+        margin_pct:   jobsCosted > 0 && costedRev > 0 ? (totalProfit / costedRev) * 100 : null,
+        jobs_budgeted: jobsBudgeted, jobs_clocked: jobsClocked, jobs_costed: jobsCosted,
+        coverage_pct: totalVisits > 0 ? (jobsCosted / totalVisits) * 100 : 0,
+        top_account: top ? top.name : null,
+        top_account_share_pct: top && totalRevenue > 0 ? (top.revenue / totalRevenue) * 100 : null,
+      },
+      data,
+      dormant: dormant.map(d => ({
+        id: d.id, name: d.name,
+        last_visit: lastBeforeByAccount.get(d.id) ?? null,
+        invoice_frequency: d.invoice_frequency,
+      })),
+    });
+  } catch (err) {
+    console.error("Commercial accounts error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── PAYROLL % TO REVENUE ────────────────────────────────────────────────────
 router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
   try {

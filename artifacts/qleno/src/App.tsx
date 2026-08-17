@@ -60,6 +60,7 @@ const FeesReportPage      = lazy(() => import("@/pages/reports/fees"));
 const ReceivablesPage     = lazy(() => import("@/pages/reports/receivables"));
 const JobCostingPage      = lazy(() => import("@/pages/reports/job-costing"));
 const ClientProfitPage    = lazy(() => import("@/pages/reports/client-profitability"));
+const CommercialAcctsPage = lazy(() => import("@/pages/reports/commercial-accounts"));
 const PayrollToRevenuePage= lazy(() => import("@/pages/reports/payroll-to-revenue"));
 const EfficiencyPage      = lazy(() => import("@/pages/reports/efficiency"));
 const WeekReviewPage      = lazy(() => import("@/pages/reports/week-review"));
@@ -319,6 +320,7 @@ function Router() {
         <Route path="/reports/receivables" component={ReceivablesPage} />
         <Route path="/reports/job-costing" component={JobCostingPage} />
         <Route path="/reports/client-profitability" component={ClientProfitPage} />
+        <Route path="/reports/commercial-accounts" component={CommercialAcctsPage} />
         <Route path="/reports/payroll-to-revenue" component={PayrollToRevenuePage} />
         <Route path="/reports/efficiency" component={EfficiencyPage} />
         <Route path="/reports/week-review" component={WeekReviewPage} />
