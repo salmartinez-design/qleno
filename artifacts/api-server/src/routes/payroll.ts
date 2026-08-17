@@ -782,10 +782,45 @@ router.get("/detail", requireAuth, async (req, res) => {
     ];
     if (filterUserId) addlPayConditions.push(eq(additionalPayTable.user_id, filterUserId));
 
-    const addlPay = await db
-      .select({ user_id: additionalPayTable.user_id, type: additionalPayTable.type, amount: additionalPayTable.amount, notes: additionalPayTable.notes })
+    const addlPayBase = await db
+      .select({ id: additionalPayTable.id, user_id: additionalPayTable.user_id, type: additionalPayTable.type, amount: additionalPayTable.amount, notes: additionalPayTable.notes, job_id: additionalPayTable.job_id })
       .from(additionalPayTable)
       .where(and(...addlPayConditions));
+
+    // [addl-pay-day 2026-08-17] Two dates the row itself doesn't carry cleanly:
+    //   created_date — created_at rendered in SQL, not JS. created_at is a
+    //     `timestamp without time zone`, so letting the driver hand back a Date
+    //     and slicing an ISO string re-interprets it against the server's zone
+    //     and can slide an entry a day. to_char() settles it in Postgres.
+    //   leave_date   — PLAWA/PTO pay written by the office-deduct path stamps
+    //     created_at at the LEAVE day, but the approve-a-request path stamps it
+    //     at approval time, which can be a different week than the day off.
+    //     Both spellings embed the usage id, so join it back for the true day.
+    //     Guarded `~` before the ::int cast — a bare cast on a non-numeric
+    //     capture 500s the whole payroll screen. [comm-log-job-id lesson]
+    const addlDates = new Map<number, { created_date: string | null; leave_date: string | null }>();
+    if (addlPayBase.length) {
+      try {
+        const dateRows = await db.execute(sql`
+          SELECT ap.id,
+                 to_char(ap.created_at, 'YYYY-MM-DD') AS created_date,
+                 to_char(lu.date_used, 'YYYY-MM-DD')  AS leave_date
+            FROM additional_pay ap
+            LEFT JOIN employee_leave_usage lu
+              ON substring(ap.notes from '\\[leave_usage:([0-9]+)\\]') ~ '^[0-9]+$'
+             AND lu.id = substring(ap.notes from '\\[leave_usage:([0-9]+)\\]')::int
+             AND lu.company_id = ap.company_id
+           WHERE ap.id IN (${sql.join(addlPayBase.map(p => sql`${p.id}`), sql`, `)})
+        `);
+        for (const r of dateRows.rows as any[]) {
+          addlDates.set(Number(r.id), {
+            created_date: r.created_date ? String(r.created_date) : null,
+            leave_date: r.leave_date ? String(r.leave_date) : null,
+          });
+        }
+      } catch { /* employee_leave_usage absent for this tenant — dates degrade to the job day */ }
+    }
+    const addlPay = addlPayBase.map(p => ({ ...p, ...(addlDates.get(p.id) || { created_date: null, leave_date: null }) }));
 
     // [payroll-summary 2026-06-04] pay_adjustments (the 2B mileage-reimbursement
     // promotion + any office adjustments) never reached the payroll summary —
@@ -865,7 +900,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     const legsByUser = new Map<number, any[]>();
     try {
       const lRows = await db.execute(sql`
-        SELECT ml.id, ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status,
+        SELECT ml.id, ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status, ml.minutes,
                COALESCE(NULLIF(TRIM(fc.first_name||' '||COALESCE(fc.last_name,'')),''), fa.account_name, 'Job '||ml.from_job_id) AS from_label,
                COALESCE(NULLIF(TRIM(tc.first_name||' '||COALESCE(tc.last_name,'')),''), ta.account_name, 'Job '||ml.to_job_id) AS to_label
         FROM mileage_legs ml
@@ -894,6 +929,13 @@ router.get("/detail", requireAuth, async (req, res) => {
           miles: parseFloat(String(r.miles || 0)),
           amount: parseFloat(String(r.amount || 0)),
           status: r.status,
+          // [day-hours 2026-08-17] Drive TIME, not drive money. The mileage
+          // engine already stores the mapping API's minutes on every leg;
+          // /detail simply never read them, which is why this screen could show
+          // miles and dollars but no "Drive & Office Hours" line. Null when the
+          // leg predates the column — a null must stay a null, because a drive
+          // of unknown length is not a drive of zero minutes.
+          drive_hours: r.minutes == null ? null : Math.round((Number(r.minutes) / 60) * 100) / 100,
           from: r.from_label,
           to: r.to_label,
         });
@@ -1019,11 +1061,183 @@ router.get("/detail", requireAuth, async (req, res) => {
       }
     } catch { /* mileage_legs / timeclock absent — skip */ }
 
+    // ── [day-hours 2026-08-17] The hours RECORD, per employee per day ────────
+    //
+    // CLAUDE.md (Time Clock — Workflow Model) locks four numbers per day: job,
+    // drive, idle, total-on-clock — shown UNDER the dollars and labelled "for
+    // records — not paid hourly". Only job hours existed on this screen. This
+    // block derives the other three.
+    //
+    // Rules that make the derivation honest rather than plausible:
+    //
+    //  - The day is DERIVED, never a button: total-on-clock = first check-in →
+    //    last check-out. There is no day clock to read.
+    //  - The day is keyed on the CLOCK day, not the job's scheduled_date, and on
+    //    the SAME `AT TIME ZONE` expression the mileage pairing uses above — so
+    //    job hours and drive hours bucket into the same day. Keying on
+    //    scheduled_date instead produces a 24.93-hour day the first time someone
+    //    clocks out after midnight (measured: Diana Vasquez, job 8514).
+    //  - Idle = on-clock − job − drive, and is published ONLY when that
+    //    subtraction is coherent. Two things make it incoherent: punches that
+    //    overlap each other (one person, two houses at once — job hours then
+    //    exceed the span), and a day where job + drive is already larger than
+    //    the span. On production co1 that is ~5% of user-days. Those days report
+    //    idle as unavailable WITH the reason, per the spec rule that a report
+    //    shows what it cannot calculate rather than estimating silently. A
+    //    clamped or negative idle would be a made-up number.
+    //  - Nothing here moves money. Idle and drive hours are a record; the only
+    //    dollars are commission + mileage reimbursement.
+    //
+    // Office-only by construction: /payroll sits outside TECH_ALLOWED_PREFIXES,
+    // and this whole block is skipped for a tech viewer, so a technician's own
+    // /detail response gains no drive, idle or on-clock figure.
+    type DayHoursRow = {
+      date: string;
+      job_hours: number;
+      drive_hours: number;
+      on_clock_hours: number;
+      idle_hours: number | null;
+      /** Of `job_hours`, the part clocked on a visit scheduled outside this pay
+       *  period — the only reason the record's job hours can exceed the hours in
+       *  the table above, which is built from the period's visits. Reported so
+       *  the screen names the gap instead of printing two hour totals in silence. */
+      off_period_hours: number;
+      unavailable_reason: "overlapping_punches" | "does_not_add_up" | "implausible_span" | null;
+    };
+    const dayHoursByUser = new Map<number, DayHoursRow[]>();
+    const officeOnly = canSeeAll && !previewAsTech;
+    if (officeOnly) {
+      try {
+        const tz = tzOf(companyId);
+        const dRows = await db.execute(sql`
+          WITH punch AS (
+            SELECT t.id, t.user_id,
+                   (t.clock_in_at AT TIME ZONE ${tz})::date AS d,
+                   t.clock_in_at, t.clock_out_at,
+                   EXTRACT(EPOCH FROM (t.clock_out_at - t.clock_in_at)) / 3600.0 AS h,
+                   -- a punch on a visit SCHEDULED outside this pay period. It
+                   -- belongs to this day's clock, but not to the table above,
+                   -- which is built from the period's visits. Carried so the
+                   -- screen can name the difference instead of showing two
+                   -- hour totals that don't match and saying nothing.
+                   (j.id IS NULL OR j.scheduled_date < ${String(pay_period_start)}::date
+                                 OR j.scheduled_date > ${String(pay_period_end)}::date) AS off_period
+              FROM timeclock t
+              LEFT JOIN jobs j ON j.id = t.job_id
+             WHERE t.company_id = ${companyId}
+               AND t.clock_out_at IS NOT NULL
+               AND (t.clock_in_at AT TIME ZONE ${tz})::date >= ${String(pay_period_start)}
+               AND (t.clock_in_at AT TIME ZONE ${tz})::date <= ${String(pay_period_end)}
+               ${filterUserId ? sql`AND t.user_id = ${filterUserId}` : sql``}
+          ),
+          d AS (
+            SELECT user_id, d, SUM(h) AS job_hours,
+                   SUM(h) FILTER (WHERE off_period) AS off_period_hours,
+                   EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0 AS on_clock_hours
+              FROM punch GROUP BY 1, 2
+          ),
+          -- one person clocked into two houses at the same moment: the day's
+          -- job hours then double-count and idle cannot be subtracted out.
+          ovl AS (
+            SELECT DISTINCT a.user_id, a.d
+              FROM punch a
+              JOIN punch b ON b.user_id = a.user_id AND b.d = a.d AND b.id <> a.id
+               AND b.clock_in_at < a.clock_out_at AND a.clock_in_at < b.clock_out_at
+          )
+          SELECT d.user_id, d.d::text AS date, d.job_hours, d.on_clock_hours,
+                 coalesce(d.off_period_hours, 0) AS off_period_hours,
+                 (ovl.user_id IS NOT NULL) AS overlapping
+            FROM d LEFT JOIN ovl ON ovl.user_id = d.user_id AND ovl.d = d.d
+           ORDER BY d.user_id, d.d
+        `);
+        const r2h = (n: number) => Math.round(n * 100) / 100;
+        for (const r of dRows.rows as any[]) {
+          const uid = Number(r.user_id);
+          const date = String(r.date);
+          const job = r2h(parseFloat(String(r.job_hours || 0)));
+          const onClock = r2h(parseFloat(String(r.on_clock_hours || 0)));
+          // Drive comes from the same legs the screen already lists, so the two
+          // can never disagree. A leg with no minutes contributes nothing to the
+          // sum and disqualifies the day's idle — an unknown drive length would
+          // otherwise be silently counted as zero and inflate idle.
+          const legs = (legsByUser.get(uid) || []).filter(l => l.leg_date === date);
+          const driveUnknown = legs.some(l => l.drive_hours == null);
+          const drive = r2h(legs.reduce((s, l) => s + (l.drive_hours || 0), 0));
+          const idleRaw = onClock - job - drive;
+          let reason: DayHoursRow["unavailable_reason"] = null;
+          if (r.overlapping) reason = "overlapping_punches";
+          else if (driveUnknown || idleRaw < -0.02) reason = "does_not_add_up";
+          else if (onClock > 18) reason = "implausible_span";
+          if (!dayHoursByUser.has(uid)) dayHoursByUser.set(uid, []);
+          dayHoursByUser.get(uid)!.push({
+            date, job_hours: job, drive_hours: drive, on_clock_hours: onClock,
+            idle_hours: reason ? null : r2h(Math.max(0, idleRaw)),
+            off_period_hours: r2h(parseFloat(String(r.off_period_hours || 0))),
+            unavailable_reason: reason,
+          });
+        }
+      } catch (err) { console.error("[payroll/detail] day hours query failed:", err); }
+    }
+
+    /**
+     * The per-employee hours record: the days above plus the period roll-up.
+     * Job and drive hours total across EVERY day; idle totals only across the
+     * days where it could be computed, and says how many days it could not.
+     * A total that quietly skipped days without saying so would read as a
+     * complete figure.
+     */
+    const hoursRecordFor = (uid: number) => {
+      if (!officeOnly) return null;
+      const days = dayHoursByUser.get(uid) || [];
+      let job = 0, drive = 0, onClock = 0, idle = 0, offPeriod = 0, unavailable = 0;
+      for (const d of days) {
+        job += d.job_hours; drive += d.drive_hours; onClock += d.on_clock_hours;
+        offPeriod += d.off_period_hours;
+        if (d.idle_hours == null) unavailable++; else idle += d.idle_hours;
+      }
+      const r2h = (n: number) => Math.round(n * 100) / 100;
+      return {
+        days,
+        job_hours: r2h(job),
+        drive_hours: r2h(drive),
+        on_clock_hours: r2h(onClock),
+        idle_hours: days.length > unavailable ? r2h(idle) : null,
+        idle_days_unavailable: unavailable,
+        off_period_hours: r2h(offPeriod),
+        days_counted: days.length,
+      };
+    };
+
+    // Drive TIME is part of the office's hours record, not a tech's pay. Strip
+    // it from a tech's own legs so the field app can never surface it as one.
+    const legsFor = (uid: number) => {
+      const legs = legsByUser.get(uid) || [];
+      return officeOnly ? legs : legs.map(({ drive_hours, ...rest }) => rest);
+    };
+
     // ── [payroll-P0] per-tech-CLOCKED attribution via the pay-type engine ────
     // A tech earns from every job they personally clocked (helpers included).
     // Pay type is per-tech (job_technicians): fee_split / allowed_hours / hourly,
     // computed by the SAME engine that cuts the paychecks (Option A).
     const jobById = new Map<number, typeof jobs[number]>(jobs.map(j => [j.id, j]));
+
+    // [day-hours 2026-08-17] An additional-pay entry attached to a job belongs
+    // to that job's day. Read the date off the job rather than off created_at —
+    // a tip entered on Friday for Tuesday's visit was earned on Tuesday.
+    // [addl-pay-day 2026-08-17] Falling back in priority order, so every entry
+    // lands on a day the office can act on:
+    //   1. the job's day        — the tip/cancellation the entry hangs off
+    //   2. the leave day        — PLAWA/PTO: the day actually taken off
+    //   3. created_at's day     — the same field that decides which pay period
+    //                             this entry falls in, so it is the entry's own
+    //                             effective date, not an invented one
+    const addlPayDate = (p: { job_id?: number | null; leave_date?: string | null; created_date?: string | null }): string | null => {
+      if (p.job_id) {
+        const j = jobById.get(Number(p.job_id));
+        if (j) return String(j.scheduled_date).slice(0, 10);
+      }
+      return p.leave_date || p.created_date || null;
+    };
     const inScopeJobIds = jobs.map(j => j.id);
     // [payroll-P0 hotfix] Use the codebase-proven inline int-array form
     // (ARRAY[…]::int[] via sql.raw) for raw db.execute IN-lists. The drizzle
@@ -1248,18 +1462,26 @@ router.get("/detail", requireAuth, async (req, res) => {
         // entries WITH their notes, so the office can see WHAT each one is —
         // additional_pay only carries type totals (Bonus $160), which don't say
         // what the bonus was for (Sal: "no breakdown"). One row per entry.
+        // [day-hours 2026-08-17] `date` = the day the entry belongs to — the
+        // job's day, the leave day, else the entry's own effective date. See
+        // addlPayDate above for the order and why each step is honest.
         additional_pay_items: userAddlPay.map(p => ({
           type: p.type, amount: parseFloat(String(p.amount || 0)), notes: p.notes ?? null,
+          date: addlPayDate(p),
         })),
         // [Model A — Step 5] commission_by_branch is the "where did your
         // commission come from" sub-table the UI renders inside each
         // employee's expanded panel.
         commission_by_branch: branchRollup,
-        mileage_legs: legsByUser.get(uid) || [],
+        mileage_legs: legsFor(uid),
         // [mileage-unmeasured 2026-08-15] Drives with no leg. See the derivation
         // above — this is what makes a dropped leg visible instead of just a
         // smaller total.
         unmeasured_drives: unmeasuredByUser.get(uid) || [],
+        // [day-hours 2026-08-17] Job / drive / idle / total-on-clock per day.
+        // null for a tech viewer — this is the office's coaching radar, not a
+        // pay line. See the derivation above.
+        hours_record: hoursRecordFor(uid),
         // [pay-components 2026-07-31] The canonical breakdown, so the UI stops
         // re-deriving it. The payroll strip printed a Labor % built from
         // grand_total next to a Commission card built from commission alone, and
@@ -1323,10 +1545,12 @@ router.get("/detail", requireAuth, async (req, res) => {
         // main builder) for the no-completed-job path.
         additional_pay_items: addlPay.filter(p => p.user_id === uid).map(p => ({
           type: p.type, amount: parseFloat(String(p.amount || 0)), notes: p.notes ?? null,
+          date: addlPayDate(p),
         })),
         commission_by_branch: [],
-        mileage_legs: legsByUser.get(uid) || [],
+        mileage_legs: legsFor(uid),
         unmeasured_drives: unmeasuredByUser.get(uid) || [],
+        hours_record: hoursRecordFor(uid),
         // Same canonical breakdown on the mileage/adjustment-only path — a tech
         // with pending mileage and no completed job still gets real components.
         pay_components: payComponentsFor(uid, 0, addlByType),

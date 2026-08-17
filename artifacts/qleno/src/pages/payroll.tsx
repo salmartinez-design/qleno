@@ -776,6 +776,64 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
 
                 <div style={{ fontSize: 11, color: '#9E9B94', marginTop: 6 }}>Hours shown for records — paid on commission + mileage, not hourly.</div>
 
+                {/* [pay-buckets 2026-08-17] What to enter, by pay code. The
+                    itemized entries are further down with their notes and days,
+                    but payroll day is not the time to add up a list — this is
+                    the same set of buckets the office keys into ADP, in the
+                    order they key them. Sick / vacation / holiday stay SEPARATE
+                    (they are separate pay codes and separate balances); rolling
+                    them into one "time off" figure would make the office open
+                    every entry to find out which. Only non-zero buckets render,
+                    so a plain week stays a short row. */}
+                {(() => {
+                  const bTips = sumK('tips');
+                  const bSick = sumK('sick_pay');
+                  const bVac = sumK('vacation_pay', 'pto');
+                  const bHol = sumK('holiday_pay');
+                  const namedKeys = new Set(['tips', 'sick_pay', 'vacation_pay', 'pto', 'holiday_pay', 'mileage', 'mileage_reimbursement']);
+                  const bOther = Object.entries(ap)
+                    .filter(([k]) => !namedKeys.has(k))
+                    .reduce((s, [, v]) => s + (Number(v) || 0), 0);
+                  const bMileageApplied = sumK('mileage', 'mileage_reimbursement');
+                  // Driven this period vs. what the office has actually approved.
+                  // The gap is the "no money until reviewed" rule made visible —
+                  // it is NOT in Total pay, and it is exactly the number that
+                  // decides whether a mileage line gets keyed this week.
+                  const mileagePending = Math.round((Number(emp.totals?.mileage || 0) - bMileageApplied) * 100) / 100;
+                  const buckets: Array<{ label: string; value: number; help: string; accent?: boolean }> = [
+                    { label: 'Commission', value: Number(emp.totals?.commission || 0), help: 'Pay earned on jobs this period — fee split, allowed hours, or hourly. The per-client breakdown below shows every line.' },
+                    ...(bTips !== 0 ? [{ label: 'Tips', value: bTips, help: 'Customer tips recorded on jobs this period.' }] : []),
+                    ...(bSick !== 0 ? [{ label: 'Sick (PLAWA)', value: bSick, help: 'Paid sick leave taken this period. Each entry below shows the day it was taken.' }] : []),
+                    ...(bVac !== 0 ? [{ label: 'Vacation', value: bVac, help: 'Paid vacation / PTO taken this period.' }] : []),
+                    ...(bHol !== 0 ? [{ label: 'Holiday', value: bHol, help: 'Holiday pay for this period.' }] : []),
+                    ...(bOther !== 0 ? [{ label: 'Bonus & other', value: bOther, help: 'Everything else recorded this period — bonuses, cancellation pay, adjustments. Itemized below with notes.' }] : []),
+                    ...(bMileageApplied !== 0 ? [{ label: 'Mileage', value: bMileageApplied, help: 'Mileage reimbursement the office has already approved. Reimbursement, not wages.' }] : []),
+                    { label: 'Total pay', value: Number(emp.totals?.grand_total || 0), help: 'Everything to the left, added up. Matches the Total Pay on the collapsed row.', accent: true },
+                  ];
+                  return (
+                    <div style={{ marginTop: 12, background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '12px 16px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                        What to enter <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#B3AFA6' }}>— by pay code</span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-end' }}>
+                        {buckets.map((b, i) => (
+                          <div key={b.label} style={{ minWidth: 92, ...(b.accent ? { paddingLeft: 24, borderLeft: i > 0 ? '1px solid #EEECE7' : undefined } : null) }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>{b.label}</div>
+                            <div title={b.help} style={{ fontSize: b.accent ? 17 : 15, fontWeight: b.accent ? 800 : 600, fontVariantNumeric: 'tabular-nums', color: b.value < 0 ? '#B3261E' : b.accent ? 'var(--brand)' : '#1A1917' }}>
+                              {b.value < 0 ? '−' : ''}${Math.abs(b.value).toFixed(2)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {mileagePending > 0.005 && (
+                        <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid #F0EEE8', fontSize: 11.5, color: '#8A6100' }}>
+                          Mileage still to review: <b>${mileagePending.toFixed(2)}</b> driven this period has not been approved yet, so it is not in Total pay. Approve it on the mileage review screen if it should be paid this week.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Per-client breakdown */}
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 2px' }}>Per-client breakdown</p>
                 {/* [panel-cleanup 2026-06-12] Day-grouped, 4-5 columns instead
@@ -791,7 +849,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     // job.job_total (billed_amount ?? base_fee from the server);
                     // Labor % = pay ÷ billed (the margin per job). Quality column
                     // only when something's rated.
-                    const cols = hasQuality ? 6 : 5;
+                    // [day-hours 2026-08-17] +1 for the Pay type column. How a
+                    // line was paid was only ever in the row subtitle, mixed in
+                    // with the arithmetic ("Fee split 35%"), so it could not be
+                    // scanned down a column the way MaidCentral's payroll detail
+                    // does. The subtitle keeps the arithmetic; the column names
+                    // the basis.
+                    const cols = hasQuality ? 7 : 6;
+                    const payTypeLabel = (t: string) =>
+                      t === 'hourly' ? 'Hourly' : t === 'allowed_hours' ? 'Allowed hours' : t === 'fee_split' ? 'Fee split' : '—';
                     const fmtScope = (s: string) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
                     const dayName = (d: string) => new Date(`${String(d).slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
                     const byDay: Record<string, any[]> = {};
@@ -812,6 +878,23 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     // day with no driving, and the difference is money.
                     const unmeasuredByDate: Record<string, any[]> = {};
                     for (const u of (emp.unmeasured_drives || [])) { const k = String(u.leg_date).slice(0, 10); (unmeasuredByDate[k] = unmeasuredByDate[k] || []).push(u); }
+                    // [day-hours 2026-08-17] The hours record for each day —
+                    // job / drive / idle / total-on-clock, derived server-side
+                    // from the punches (see routes/payroll.ts). Absent for a
+                    // tech viewer and on older backends, so every read is
+                    // optional and every missing day just shows nothing.
+                    const hoursByDate: Record<string, any> = {};
+                    for (const h of (emp.hours_record?.days || [])) hoursByDate[String(h.date).slice(0, 10)] = h;
+                    // Additional-pay entries that belong to a specific day (a
+                    // tip on a job). They render inside that day's band so the
+                    // office sees WHEN it was earned; the itemized list below
+                    // still carries every entry and is what feeds take-home.
+                    const addlByDate: Record<string, any[]> = {};
+                    for (const it of (emp.additional_pay_items || [])) {
+                      if (!it?.date || Number(it.amount) === 0) continue;
+                      const k = String(it.date).slice(0, 10);
+                      (addlByDate[k] = addlByDate[k] || []).push(it);
+                    }
                     // [payroll-scan 2026-06-20] Eff as a colored pill so the eye
                     // scans the column: green = at/under budget (≥100%), amber =
                     // over budget (<100%). "—" stays plain when not yet clocked.
@@ -830,6 +913,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                           <tr>
                             <th style={th}>Client</th>
                             <th style={{ ...th, textAlign: 'right' }}>Billed</th>
+                            <th style={{ ...th, textAlign: 'left' }} title="How this line was paid — fee split, allowed hours, or hourly">Pay type</th>
                             <th style={{ ...th, textAlign: 'right' }}>Done / Allowed</th>
                             <th style={{ ...th, textAlign: 'center' }} title="Allowed hours ÷ actual hours — over 100% means under budget">Eff</th>
                             {hasQuality && <th style={{ ...th, textAlign: 'center' }}>Quality</th>}
@@ -849,6 +933,18 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             const dayLegs = milesByDate[d] || [];
                             const dayMiles = dayLegs.reduce((s: number, l: any) => s + Number(l.miles || 0), 0);
                             const dayMileagePay = dayLegs.reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+                            // [day-hours 2026-08-17] The day's hours record. Drive
+                            // hours come from the same legs listed under the band,
+                            // so the chip and the rows can never disagree. Idle is
+                            // null on a day the subtraction doesn't hold up — the
+                            // chip then says so instead of printing a number.
+                            const dh = hoursByDate[d];
+                            const idleWhy = dh?.unavailable_reason === 'overlapping_punches'
+                              ? 'Idle unavailable — two clock entries overlap, so the day cannot be split into job and idle time.'
+                              : dh?.unavailable_reason === 'implausible_span'
+                              ? 'Idle unavailable — this day spans more than 18 hours on the clock, which is a clock-entry problem, not idle time.'
+                              : 'Idle unavailable — job and drive time already exceed the span between the first check-in and last check-out.';
+                            const dayAddl = addlByDate[d] || [];
                             return (
                             <Fragment key={d}>
                               {/* [payroll-scan 2026-06-20] Day band — a shaded
@@ -864,6 +960,18 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Commission rate this day = commission ÷ hours worked. Excludes tips, bonuses and mileage.">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }}>{laborOf(dayBilled, dayPay)} labor</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: dayMiles > 0 ? '#0A6E8A' : '#9B9890', background: dayMiles > 0 ? '#E0F2F9' : '#fff', border: `1px solid ${dayMiles > 0 ? '#BFE4F0' : '#E5E2DC'}`, borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Driving mileage between this day's jobs (pending office review)">{dayMiles > 0 ? `${dayMiles.toFixed(1)} mi · ${money(dayMileagePay)}` : '0 mi'}</span>
+                                    {/* [day-hours 2026-08-17] Drive time and idle
+                                        time — a record, never a pay line. Idle =
+                                        time on the clock minus job time minus
+                                        drive time. */}
+                                    {dh && dh.drive_hours > 0 && (
+                                      <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A6E8A', background: '#E0F2F9', border: '1px solid #BFE4F0', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Drive time between this day's jobs (for records — not paid hourly)">{dh.drive_hours.toFixed(1)}h drive</span>
+                                    )}
+                                    {dh && (dh.idle_hours != null ? (
+                                      <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title={`Idle = ${dh.on_clock_hours.toFixed(1)}h on the clock − ${dh.job_hours.toFixed(1)}h in houses − ${dh.drive_hours.toFixed(1)}h driving. For records — not paid.`}>{dh.idle_hours.toFixed(1)}h idle</span>
+                                    ) : (
+                                      <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title={idleWhy}>idle —</span>
+                                    ))}
                                   </span>
                                 </td>
                               </tr>
@@ -920,6 +1028,26 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                   </td>
                                 </tr>
                               ))}
+                              {/* [day-hours 2026-08-17] Tips and other extras that
+                                  belong to a job on this day. Shown here because
+                                  "what did Tuesday earn" is the question this
+                                  screen is read with, and a tip floating at the
+                                  period level can't answer it. It is NOT added
+                                  into the day's pay figure — the same rule the
+                                  drive rows follow — so nothing is counted twice;
+                                  the itemized list below the table is still the
+                                  one that feeds take-home. */}
+                              {dayAddl.map((it: any, ai: number) => (
+                                <tr key={`ap-${d}-${ai}`}>
+                                  <td colSpan={cols} style={{ ...td, borderTop: '0.5px dashed #E5E2DC', paddingTop: 6, paddingBottom: 6, background: '#FAF9F6' }}>
+                                    <span style={{ fontSize: 12, color: '#6B6860', fontWeight: 700 }}>↳ {labelType(it.type)}</span>
+                                    {it.notes && <span style={{ fontSize: 12, color: '#9E9B94', marginLeft: 8 }}>{it.notes}</span>}
+                                    <span style={{ float: 'right', fontSize: 12 }} title="Earned on this day. Included in additional pay below, not in this day's commission.">
+                                      <b style={{ color: Number(it.amount) < 0 ? '#B3261E' : '#1A1917' }}>{Number(it.amount) < 0 ? '−' : ''}${Math.abs(Number(it.amount)).toFixed(2)}</b>
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
                               {byDay[d].map((job: any) => {
                                 const billed = Number(job.job_total || 0);
                                 return (
@@ -941,6 +1069,12 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                     )}
                                   </td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, color: '#0A0E1A', whiteSpace: 'nowrap' }}>{billed > 0 ? money(billed) : '—'}</td>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', fontSize: 12, whiteSpace: 'nowrap' }}>
+                                    <span style={{ display: 'inline-block', fontWeight: 700, color: '#6B6860', background: '#F4F2EE', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px' }}
+                                      title={job.commission_overridden ? 'Overridden by the office' : 'How this line was paid'}>
+                                      {payTypeLabel(String(job.pay_type || ''))}
+                                    </span>
+                                  </td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, whiteSpace: 'nowrap' }}>
                                     <span style={{ color: '#0A0E1A' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</span>
                                     <span style={{ color: '#9B9890' }}> / {job.hrs_scheduled.toFixed(1)}h</span>
@@ -975,6 +1109,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                           <tr>
                             <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.job_count} jobs</td>
                             <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', textAlign: 'right', borderTop: '1.5px solid #D8D5CD', whiteSpace: 'nowrap' }}>{money(billedTotal)}</td>
+                            <td style={{ ...td, borderTop: '1.5px solid #D8D5CD' }} />
                             <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', textAlign: 'right', borderTop: '1.5px solid #D8D5CD', whiteSpace: 'nowrap' }}>{emp.totals.hrs_worked.toFixed(1)}h / {emp.totals.hrs_scheduled.toFixed(1)}h</td>
                             <td style={{ ...td, fontWeight: 500, color: '#9B9890', textAlign: 'center', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
                             {hasQuality && <td style={{ ...td, fontWeight: 500, color: '#9B9890', textAlign: 'center', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>}
@@ -989,6 +1124,68 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                   })()}
                 </div>
 
+                {/* [day-hours 2026-08-17] Hours — a RECORD, never a pay line.
+                    Phes pays commission + mileage. Drive and idle hours are the
+                    office's coaching radar; showing them as pay would be the
+                    MaidCentral drive-pay mistake this system designed out.
+                    Office-only: the server returns hours_record = null for a tech
+                    viewer, so this block simply doesn't render for them.
+
+                    The reconciliation line is the point of the whole strip. The
+                    record counts CLOCK days; the table above counts the period's
+                    VISITS. When someone clocks out on a visit scheduled in the
+                    previous period, the two totals differ by that punch — a real
+                    difference, so it is named on screen with its exact size
+                    rather than left for the reader to notice and distrust. */}
+                {emp.hours_record && emp.hours_record.days_counted > 0 && (() => {
+                  const hr = emp.hours_record;
+                  const tableHours = Number(emp.totals?.hrs_worked ?? 0);
+                  const gap = Math.round((hr.job_hours - tableHours) * 100) / 100;
+                  const off = Number(hr.off_period_hours || 0);
+                  const residual = Math.round((gap - off) * 100) / 100;
+                  const util = hr.on_clock_hours > 0 ? Math.round((hr.job_hours / hr.on_clock_hours) * 100) : null;
+                  const cell = (label: string, value: string, help: string, muted?: boolean) => (
+                    <div style={{ minWidth: 96 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>{label}</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: muted ? '#9E9B94' : '#1A1917', fontVariantNumeric: 'tabular-nums' }} title={help}>{value}</div>
+                    </div>
+                  );
+                  return (
+                    <>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>
+                        Hours <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#B3AFA6' }}>— for records, not paid hourly</span>
+                      </p>
+                      <div style={{ background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
+                          {cell('In houses', `${hr.job_hours.toFixed(1)}h`, 'Total clocked time inside customers’ homes, on the days clocked in this period.')}
+                          {cell('Drive', `${hr.drive_hours.toFixed(1)}h`, 'Measured driving time between customers. Reimbursed as mileage, never paid as hours.')}
+                          {hr.idle_hours == null
+                            ? cell('Idle', '—', 'Idle cannot be calculated for any day in this period — see the day rows above for the reason.', true)
+                            : cell('Idle', `${hr.idle_hours.toFixed(1)}h`, 'Time on the clock that was neither in a house nor driving between customers. A record only — idle is not paid.')}
+                          {cell('Total on clock', `${hr.on_clock_hours.toFixed(1)}h`, 'First check-in to last check-out, each day added up. The day is derived from the clock — there is no separate day clock.')}
+                          {util != null && cell('Utilization', `${util}%`, 'Time in houses ÷ time on the clock. This is NOT efficiency — efficiency is allowed hours ÷ actual hours, in the table above.')}
+                        </div>
+                        {(Math.abs(gap) > 0.05 || hr.idle_days_unavailable > 0) && (
+                          <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid #F0EEE8', fontSize: 11, color: '#8A867E', lineHeight: 1.5 }}>
+                            {Math.abs(gap) > 0.05 && (
+                              <div>
+                                The table above totals <b style={{ color: '#6B6860' }}>{tableHours.toFixed(1)}h</b> because it counts this period&rsquo;s visits, while this counts the days clocked.
+                                {off > 0.05 && <> {off.toFixed(1)}h was clocked on a visit scheduled outside this period.</>}
+                                {Math.abs(residual) > 0.05 && <> The remaining {Math.abs(residual).toFixed(1)}h is scheduled or office-adjusted time in the table, which the clock record does not carry.</>}
+                              </div>
+                            )}
+                            {hr.idle_days_unavailable > 0 && (
+                              <div style={{ marginTop: Math.abs(gap) > 0.05 ? 4 : 0 }}>
+                                Idle excludes {hr.idle_days_unavailable} of {hr.days_counted} day{hr.days_counted !== 1 ? 's' : ''} where it could not be calculated. Each of those days says why above.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+
                 {/* Additional pay & reimbursements */}
                 {(() => {
                   // [addl-pay-detail 2026-07-23] Prefer the itemized entries WITH
@@ -996,21 +1193,53 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                   // is no breakdown"). Each bonus/tip/reimbursement is its own line
                   // with what it was for. Fall back to the type-totals when the
                   // itemized payload isn't present (older backend during deploy).
-                  const items: Array<{ type: string; amount: number; notes: string | null }> =
+                  const items: Array<{ type: string; amount: number; notes: string | null; date?: string | null }> =
                     Array.isArray(emp.additional_pay_items) ? emp.additional_pay_items.filter((i: any) => Number(i.amount) !== 0) : [];
                   if (items.length > 0) {
+                    // [pay-buckets 2026-08-17] Grouped by pay code with a
+                    // subtotal per group, so this section ties line-by-line to
+                    // the "What to enter" strip at the top of the panel instead
+                    // of being a flat list the office has to add up by eye.
+                    // Each entry leads with the day it belongs to — for leave
+                    // that is the day taken off, which is the thing being
+                    // checked when the question is "do we owe sick time?".
+                    const groups = new Map<string, typeof items>();
+                    for (const it of items) {
+                      if (!groups.has(it.type)) groups.set(it.type, []);
+                      groups.get(it.type)!.push(it);
+                    }
+                    const dayLabel = (d?: string | null) => {
+                      if (!d) return null;
+                      const [y, m, dd] = String(d).slice(0, 10).split('-').map(Number);
+                      if (!y || !m || !dd) return null;
+                      return new Date(y, m - 1, dd).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    };
                     return (
                       <>
                         <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Additional pay &amp; reimbursements</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {items.map((it, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
-                              <span style={{ color: '#6B6860', fontWeight: 600, minWidth: 90 }}>{labelType(it.type)}</span>
-                              <b style={{ color: it.amount < 0 ? '#B3261E' : '#1A1917' }}>{it.amount < 0 ? '−' : ''}${Math.abs(it.amount).toFixed(2)}</b>
-                              {it.notes ? <span style={{ color: '#9E9B94' }}>· {it.notes}</span>
-                                : <span style={{ color: '#C4C0B8', fontStyle: 'italic' }}>· no note</span>}
-                            </div>
-                          ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {[...groups.entries()].map(([type, rows]) => {
+                            const subtotal = rows.reduce((s, r) => s + r.amount, 0);
+                            return (
+                              <div key={type}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12.5, paddingBottom: 4, borderBottom: '1px solid #F0EEE8' }}>
+                                  <span style={{ color: '#1A1917', fontWeight: 700 }}>{labelType(type)}</span>
+                                  <b style={{ color: subtotal < 0 ? '#B3261E' : '#1A1917', fontVariantNumeric: 'tabular-nums' }}>{subtotal < 0 ? '−' : ''}${Math.abs(subtotal).toFixed(2)}</b>
+                                  <span style={{ color: '#B3AFA6' }}>{rows.length} entr{rows.length === 1 ? 'y' : 'ies'}</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 5 }}>
+                                  {rows.map((it, i) => (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+                                      <span style={{ color: '#8A867E', minWidth: 82, fontVariantNumeric: 'tabular-nums' }}>{dayLabel(it.date) ?? '—'}</span>
+                                      <b style={{ color: it.amount < 0 ? '#B3261E' : '#1A1917', minWidth: 62, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{it.amount < 0 ? '−' : ''}${Math.abs(it.amount).toFixed(2)}</b>
+                                      {it.notes ? <span style={{ color: '#9E9B94' }}>{it.notes}</span>
+                                        : <span style={{ color: '#C4C0B8', fontStyle: 'italic' }}>no note</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </>
                     );
