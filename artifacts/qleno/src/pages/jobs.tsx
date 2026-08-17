@@ -3390,9 +3390,33 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     return (
                       <div key={t.user_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <EmployeeAvatar name={t.name} avatarUrl={avatarUrl} size={28} fontSize={10} title={t.name} />
-                        <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {t.name}
+                        {/* [job-card-crew 2026-08-17] The crew row now carries the
+                            hours and the pay. Before this the same two people were
+                            listed twice — once here as names, and again further
+                            down as commission rows — so the office read one crew in
+                            two places. This is the merge from the approved mockup:
+                            who, how long, what they earn, on one line. */}
+                        <div style={{ flex: 1, minWidth: 0, fontFamily: FF, overflow: "hidden" }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#9E9B94" }}>
+                            {[
+                              // actual_hours is NULL (not 0) while they're still
+                              // on the clock — "hasn't clocked out" and "worked no
+                              // time" are different facts, so fall back to the
+                              // estimate and label it.
+                              t.actual_hours != null ? `${Number(t.actual_hours).toFixed(1)} hrs clocked`
+                                : t.est_hours != null ? `${Number(t.est_hours).toFixed(1)} hrs est.` : null,
+                              t.pay_type === "hourly" && t.pay_rate != null ? `$${Number(t.pay_rate).toFixed(2)}/hr` : null,
+                            ].filter(Boolean).join(" · ") || "no hours yet"}
+                          </div>
                         </div>
+                        {canManageCommission && (
+                          <span style={{ fontSize: 13, fontWeight: 800, color: "#0F7A63", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                            ${Number(t.final_pay ?? 0).toFixed(2)}
+                          </span>
+                        )}
                         {canManageCommission && !isLocked && (
                           <button
                             onClick={() => removeTechFromJob(t.user_id)}
@@ -3745,7 +3769,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   ce?.clock_out_at ? `out ${fmtClock(ce.clock_out_at)}` : null,
                   allowed != null ? `${allowed.toFixed(1)}h allowed` : null,
                   actual != null ? `${actual.toFixed(1)}h actual` : null,
-                ].filter(Boolean).join(" · ") || "not clocked in"}
+                ].filter(Boolean).join(" · ") || "no hours yet"}
                 /* Opened by default when something is off — a variance worth
                    noticing, a punch outside the geofence, or no GPS at all.
                    A clean job stays collapsed. */
@@ -4644,7 +4668,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             return (
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
-                  <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>Invoice{total ? ` ${total}` : ""}</span>
+                  {/* [job-card-crew 2026-08-17] Show the invoice NUMBER, not just
+                      the word. Maribel: "where it says paid we still need the
+                      invoice number and a link to redirect us there, so just
+                      saying paid doesn't help." */}
+                  <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>
+                    Invoice{job.invoice_number ? ` #${job.invoice_number}` : ""}{total ? ` · ${total}` : ""}
+                  </span>
                   <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", backgroundColor: bg, color, border: `1px solid ${border}`, fontFamily: FF }}>{label}</span>
                   <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", fontFamily: FF }}>View →</a>
                 </div>
