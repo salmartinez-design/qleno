@@ -15,7 +15,7 @@ import {
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User, Users,
+  ChevronLeft, ChevronRight, ChevronDown, MoreHorizontal, Plus, Clock, Camera, X, MapPin, User, Users,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
   Languages, Pencil, Paperclip, Image, Download,
@@ -1689,7 +1689,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, modLines, ti
       </div>
     );
     return (
-      <PS label="Service & pricing">
+      <PS label="">
         {showsHourly && (job as any).allowed_hours
           ? line(`${svcLabel(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr × ${(job as any).allowed_hours}h`, num(baseInit))
           : showsHourly
@@ -1756,7 +1756,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, modLines, ti
   }
 
   return (
-    <PS label="Service & pricing">
+    <PS label="">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {isHourlyCommercial ? (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
@@ -2700,6 +2700,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [reopen 2026-08-12] Two-step, like Mark Complete — reopening a job undoes a
   // decision someone made, so it shouldn't be a single stray tap.
   const [confirmReopen, setConfirmReopen] = useState(false);
+  // [job-card-gaps 2026-08-17] Footer overflow menu (Duplicate / Redo / Cancel).
+  const [actionsOpen, setActionsOpen] = useState(false);
   const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
   // [post-completion-adjust 2026-06-21] The office must be able to add a flat
   // fee (e.g. +$20 parking) AFTER a job is marked complete — that case is the
@@ -3365,6 +3367,30 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 Team section is gone; helpers + add are visible without
                 scrolling. */}
             <InlineTechEdit job={job} onUpdate={onUpdate} />
+            {/* [job-card-gaps 2026-08-17] The primary cleaner renders through
+                InlineTechEdit (a dropdown, so it can be reassigned) while helpers
+                render as rows. That left the primary as the only person on the
+                card with no hours and no pay beside their name — Sal: "that's not
+                what's showing." Same line, same shape, under the dropdown. */}
+            {(() => {
+              const p = commTechs.find(t => t.user_id === job.assigned_user_id) ?? commTechs.find(t => t.is_primary);
+              if (!p) return null;
+              const hrs = p.actual_hours != null ? `${Number(p.actual_hours).toFixed(1)} hrs clocked`
+                : p.est_hours != null ? `${Number(p.est_hours).toFixed(1)} hrs est.` : null;
+              const rate = p.pay_type === "hourly" && p.pay_rate != null ? `$${Number(p.pay_rate).toFixed(2)}/hr` : null;
+              return (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingLeft: 36, marginTop: -2 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
+                    {[hrs, rate].filter(Boolean).join(" · ") || "no hours yet"}
+                  </span>
+                  {canManageCommission && (
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#0F7A63", fontVariantNumeric: "tabular-nums" }}>
+                      ${Number(p.final_pay ?? 0).toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {(() => {
               // [primary-flag-drift 2026-08-11] Exclude the assigned tech by
               // user_id, not just by the is_primary flag. InlineTechEdit above
@@ -4715,6 +4741,33 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             style={{ padding: "10px 12px", border: "1px solid #A7F3D0", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             Edit
           </button>
+          {/* [job-card-gaps 2026-08-17] Edit and Reschedule stay on the bar —
+              the two that actually get pressed. Duplicate, Create Redo Service
+              and Cancel Job move behind the ⋯ so the footer stops being seven
+              buttons in five sizes. Maribel: "the buttons at the bottom should
+              all be the same size and smaller. Right now they look very bad."
+              Nothing is removed; they are one tap away. */}
+          <button
+            disabled={isLocked}
+            onClick={() => {
+              if (isLocked) return;
+              setRescheduleOpen(true); setRescheduleSuccess(""); setRescheduleReason(""); setRescheduleReasonOther("");
+              setRescheduleDate(job.scheduled_date || ""); setRescheduleHour(null);
+              setAvailSlots([]); setTechList([]); setSelectedTechId(job.assigned_user_id); setRescheduleCount(null);
+            }}
+            style={{ padding: "10px 12px", border: `1px solid ${isLocked ? "#E5E2DC" : "#DEDEE4"}`, borderRadius: 8, backgroundColor: isLocked ? "#F8F7F4" : "#EFEFF2", color: isLocked ? "#9E9B94" : "#2F3646", fontSize: 13, fontWeight: 600, cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+            Reschedule
+          </button>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setActionsOpen(o => !o)} title="More actions" aria-label="More actions"
+              style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, lineHeight: 1 }}>
+              <MoreHorizontal size={15} />
+            </button>
+            {actionsOpen && (
+              <>
+                <div onClick={() => setActionsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                <div onClick={() => setActionsOpen(false)}
+                  style={{ position: "absolute", right: 0, bottom: 44, zIndex: 41, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, boxShadow: "0 8px 26px rgba(10,14,26,0.14)", padding: 6, minWidth: 190, display: "flex", flexDirection: "column", gap: 4 }}>
           <button
             onClick={() => {
               const base = job.scheduled_date ? new Date(`${job.scheduled_date}T12:00:00`) : new Date();
@@ -4742,23 +4795,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Create Redo Service
             </button>
           )}
-          <button
-            disabled={isLocked}
-            onClick={() => {
-              if (isLocked) return;
-              setRescheduleOpen(true); setRescheduleSuccess(""); setRescheduleReason(""); setRescheduleReasonOther("");
-              setRescheduleDate(job.scheduled_date || ""); setRescheduleHour(null);
-              setAvailSlots([]); setTechList([]); setSelectedTechId(job.assigned_user_id); setRescheduleCount(null);
-            }}
-            style={{ padding: "10px 12px", border: `1px solid ${isLocked ? "#E5E2DC" : "#DEDEE4"}`, borderRadius: 8, backgroundColor: isLocked ? "#F8F7F4" : "#EFEFF2", color: isLocked ? "#9E9B94" : "#2F3646", fontSize: 13, fontWeight: 600, cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
-            Reschedule
-          </button>
           {!isLocked && (
             <button onClick={() => setCancelOpen(true)} disabled={busy}
               style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
               Cancel Job
             </button>
           )}
+                </div>
+              </>
+            )}
+          </div>
           {/* [reclassify-lockout 2026-06-17] A job that was marked Complete
               normally can still turn out to have been a lockout / cancellation
               (tech showed up, couldn't get in — office only learns later).
@@ -5898,7 +5944,9 @@ function PS({ label, children, summary, defaultOpen }: {
 }) {
   const head = { fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" };
   if (summary === undefined) {
-    return <div style={{ marginBottom: 16 }}><div style={{ ...head, marginBottom: 8 }}>{label}</div>{children}</div>;
+    // An empty label renders no header at all — Sal, on the pricing block:
+    // "remove money label or text". The lines and the Total say what it is.
+    return <div style={{ marginBottom: 16 }}>{label ? <div style={{ ...head, marginBottom: 8 }}>{label}</div> : null}{children}</div>;
   }
   return (
     <details open={defaultOpen} style={{ marginBottom: 10, border: "1px solid #EEECE7", borderRadius: 10, overflow: "hidden" }}>
