@@ -534,6 +534,16 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
 
     // Labor from the paycheck engine — the same source Job Costing uses, so the
     // two reports cannot report different labor for the same job.
+    //
+    // [labor-coverage 2026-08-17] The engine returns nothing for a job it cannot
+    // cost, and "nothing" is NOT "zero". Jobs imported from MaidCentral carry
+    // revenue but no clock punches, so the engine emits no line for them. On
+    // co1's trailing twelve months that is 1,258 of 1,866 completed jobs and 74%
+    // of revenue — reading those as $0 labor produced a 90.4% gross margin for a
+    // business that actually runs near 37%. Post-cutover the same range costs
+    // 37.3% of revenue, which is right for a 35% commission shop. So track WHICH
+    // jobs are costed and report margin only over those, rather than averaging a
+    // real margin together with a fabricated one.
     const { lines: costLines } = await computePeriodPayLines(companyId, fromStr, toStr);
     const laborByJob = new Map<number, number>();
     for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
@@ -572,21 +582,27 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
     type Cust = {
       key: string; kind: "client" | "account"; id: number | null; name: string;
       client_type: string; jobs: number; revenue: number; labor: number;
+      jobs_costed: number; revenue_costed: number;
       first_visit: string | null; last_visit: string | null;
       freqs: Record<string, number>; zones: Record<string, number>;
     };
+    type Bag = { jobs: number; revenue: number; labor: number; jobs_costed: number; revenue_costed: number };
     const custs = new Map<string, Cust>();
-    const cut = (bag: Map<string, { jobs: number; revenue: number; labor: number }>, label: string, rev: number, lab: number) => {
-      const e = bag.get(label) ?? { jobs: 0, revenue: 0, labor: 0 };
-      e.jobs += 1; e.revenue += rev; e.labor += lab;
+    const cut = (bag: Map<string, Bag>, label: string, rev: number, lab: number, costed: boolean) => {
+      const e = bag.get(label) ?? { jobs: 0, revenue: 0, labor: 0, jobs_costed: 0, revenue_costed: 0 };
+      e.jobs += 1; e.revenue += rev;
+      if (costed) { e.jobs_costed += 1; e.revenue_costed += rev; e.labor += lab; }
       bag.set(label, e);
     };
-    const byService = new Map<string, { jobs: number; revenue: number; labor: number }>();
-    const byZone    = new Map<string, { jobs: number; revenue: number; labor: number }>();
-    const byFreq    = new Map<string, { jobs: number; revenue: number; labor: number }>();
+    const byService = new Map<string, Bag>();
+    const byZone    = new Map<string, Bag>();
+    const byFreq    = new Map<string, Bag>();
 
     for (const r of rows.rows as any[]) {
       const revenue = parseF(r.effective_amount);
+      // Costed = the pay engine produced a line for this job. A job it skipped
+      // has UNKNOWN labor, not zero, and never contributes to a margin.
+      const costed  = laborByJob.has(Number(r.id));
       const labor   = Math.round((laborByJob.get(Number(r.id)) ?? 0) * 100) / 100;
 
       const isAccount = r.account_id != null;
@@ -606,12 +622,14 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
           // An account is commercial by definition — that is what account_id
           // means to the commission engine, so it means the same here.
           client_type: isAccount ? "commercial" : (r.client_type || "residential"),
-          jobs: 0, revenue: 0, labor: 0, first_visit: null, last_visit: null,
+          jobs: 0, revenue: 0, labor: 0, jobs_costed: 0, revenue_costed: 0,
+          first_visit: null, last_visit: null,
           freqs: {}, zones: {},
         };
         custs.set(key, c);
       }
-      c.jobs += 1; c.revenue += revenue; c.labor += labor;
+      c.jobs += 1; c.revenue += revenue;
+      if (costed) { c.jobs_costed += 1; c.revenue_costed += revenue; c.labor += labor; }
       const d = String(r.scheduled_date).slice(0, 10);
       if (!c.first_visit || d < c.first_visit) c.first_visit = d;
       if (!c.last_visit  || d > c.last_visit)  c.last_visit  = d;
@@ -619,27 +637,35 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
       const zn = r.zone_name || "No zone";
       c.zones[zn] = (c.zones[zn] ?? 0) + 1;
 
-      cut(byService, r.service_type || "unspecified", revenue, labor);
-      cut(byZone, zn, revenue, labor);
-      cut(byFreq, r.frequency || "on_demand", revenue, labor);
+      cut(byService, r.service_type || "unspecified", revenue, labor, costed);
+      cut(byZone, zn, revenue, labor, costed);
+      cut(byFreq, r.frequency || "on_demand", revenue, labor, costed);
     }
 
     const topOf = (bag: Record<string, number>) => {
       const e = Object.entries(bag).sort((a, b) => b[1] - a[1])[0];
       return e ? e[0] : null;
     };
-    const marginOf = (rev: number, profit: number) => (rev > 0 ? (profit / rev) * 100 : 0);
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    // Margin is always profit ÷ the revenue of the COSTED jobs. Dividing by
+    // total revenue would quietly dilute a real margin with uncosted work and
+    // report a number that is true of no set of jobs at all.
+    const marginOf = (revCosted: number, profit: number) => (revCosted > 0 ? (profit / revCosted) * 100 : 0);
 
     let all = [...custs.values()].map(c => {
-      const profit = c.revenue - c.labor;
+      const known  = c.jobs_costed > 0;
+      const profit = c.revenue_costed - c.labor;
       return {
         key: c.key, kind: c.kind, id: c.id, name: c.name, client_type: c.client_type,
         jobs: c.jobs,
-        revenue: Math.round(c.revenue * 100) / 100,
-        labor: Math.round(c.labor * 100) / 100,
-        profit: Math.round(profit * 100) / 100,
-        margin_pct: marginOf(c.revenue, profit),
-        rev_per_visit: c.jobs > 0 ? Math.round((c.revenue / c.jobs) * 100) / 100 : 0,
+        revenue: r2(c.revenue),
+        // null, not 0 — the difference between "cost nothing" and "cost unknown".
+        labor:      known ? r2(c.labor) : null,
+        profit:     known ? r2(profit) : null,
+        margin_pct: known ? marginOf(c.revenue_costed, profit) : null,
+        jobs_costed: c.jobs_costed,
+        revenue_costed: r2(c.revenue_costed),
+        rev_per_visit: c.jobs > 0 ? r2(c.revenue / c.jobs) : 0,
         first_visit: c.first_visit, last_visit: c.last_visit,
         frequency: topOf(c.freqs), zone: topOf(c.zones),
       };
@@ -652,11 +678,13 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
     // Summary is computed over the FILTERED set but BEFORE pagination — the
     // headline always describes the whole list underneath it, never one page.
     const totalRevenue = all.reduce((s, c) => s + c.revenue, 0);
-    const totalLabor   = all.reduce((s, c) => s + c.labor, 0);
-    const totalProfit  = totalRevenue - totalLabor;
+    const totalLabor   = all.reduce((s, c) => s + (c.labor ?? 0), 0);
     const totalJobs    = all.reduce((s, c) => s + c.jobs, 0);
+    const costedJobs   = all.reduce((s, c) => s + c.jobs_costed, 0);
+    const costedRev    = all.reduce((s, c) => s + c.revenue_costed, 0);
+    const totalProfit  = costedRev - totalLabor;
 
-    const SORTS: Record<string, (c: typeof all[number]) => number | string> = {
+    const SORTS: Record<string, (c: typeof all[number]) => number | string | null> = {
       revenue: c => c.revenue, profit: c => c.profit, margin: c => c.margin_pct,
       jobs: c => c.jobs, rev_per_visit: c => c.rev_per_visit,
       last_visit: c => c.last_visit || "", name: c => c.name.toLowerCase(),
@@ -664,6 +692,11 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
     const pick = SORTS[sortKey] || SORTS.revenue;
     all.sort((a, b) => {
       const x = pick(a), y = pick(b);
+      // Unknowns sink to the bottom in BOTH directions. Sorting by worst margin
+      // should surface the genuinely thin customers, not the uncosted ones.
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
       const cmp = typeof x === "string" || typeof y === "string"
         ? String(x).localeCompare(String(y))
         : (x as number) - (y as number);
@@ -673,26 +706,36 @@ router.get("/client-profitability", requireAuth, ROLE, async (req, res) => {
     const start = (page - 1) * pageSize;
     const data  = all.slice(start, start + pageSize);
 
-    const cutOut = (bag: Map<string, { jobs: number; revenue: number; labor: number }>) =>
+    const cutOut = (bag: Map<string, Bag>) =>
       [...bag.entries()]
-        .map(([label, v]) => ({
-          label, jobs: v.jobs,
-          revenue: Math.round(v.revenue * 100) / 100,
-          labor: Math.round(v.labor * 100) / 100,
-          profit: Math.round((v.revenue - v.labor) * 100) / 100,
-          margin_pct: marginOf(v.revenue, v.revenue - v.labor),
-        }))
+        .map(([label, v]) => {
+          const known = v.jobs_costed > 0;
+          const profit = v.revenue_costed - v.labor;
+          return {
+            label, jobs: v.jobs,
+            revenue: r2(v.revenue),
+            labor:      known ? r2(v.labor) : null,
+            profit:     known ? r2(profit) : null,
+            margin_pct: known ? marginOf(v.revenue_costed, profit) : null,
+            jobs_costed: v.jobs_costed,
+          };
+        })
         .sort((a, b) => b.revenue - a.revenue);
 
     return res.json({
       from: fromStr, to: toStr,
       summary: {
         customers: all.length, jobs: totalJobs,
-        total_revenue: Math.round(totalRevenue * 100) / 100,
-        total_labor: Math.round(totalLabor * 100) / 100,
-        total_profit: Math.round(totalProfit * 100) / 100,
-        margin_pct: marginOf(totalRevenue, totalProfit),
-        rev_per_visit: totalJobs > 0 ? Math.round((totalRevenue / totalJobs) * 100) / 100 : 0,
+        total_revenue: r2(totalRevenue),
+        total_labor: costedJobs > 0 ? r2(totalLabor) : null,
+        total_profit: costedJobs > 0 ? r2(totalProfit) : null,
+        margin_pct: costedJobs > 0 ? marginOf(costedRev, totalProfit) : null,
+        rev_per_visit: totalJobs > 0 ? r2(totalRevenue / totalJobs) : 0,
+        // Coverage drives the on-screen caveat. When it is short of every job,
+        // the margin above describes a subset and the page has to say so.
+        jobs_costed: costedJobs,
+        revenue_costed: r2(costedRev),
+        coverage_pct: totalJobs > 0 ? (costedJobs / totalJobs) * 100 : 0,
       },
       data,
       page, page_size: pageSize, total_rows: all.length,
