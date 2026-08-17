@@ -318,11 +318,22 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     // [reporting-floor 2026-08-17] Pre-cutover work is MaidCentral's record, not Qleno's.
     const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
     fromStr = floorFrom;
-    // [mc-revenue-history 2026-08-17] ...and where that record exists, hand it
-    // back so the operator gets the whole period they asked for instead of a
-    // hole. Kept as its own block on the response, never folded into `summary`
-    // or `trend`: those are Qleno's job-level numbers and are divided by job
-    // counts and hours that do not exist for the MaidCentral months.
+    // [mc-revenue-history 2026-08-17] ...and where that record exists, fold it
+    // in, so the operator gets the whole period they asked for instead of a
+    // hole.
+    //
+    // Sal, 2026-08-17: "I don't want to keep them separate. There's really no
+    // need... I still need it all to be in one place, not separated. It's the
+    // same company." So `summary.total_revenue` and `trend` below span BOTH
+    // systems. It is one company's revenue for one period, and splitting the
+    // headline in two made the operator do the addition by hand.
+    //
+    // What does NOT merge, because it cannot: `job_count`, `avg_job_value` and
+    // `allowed_hours`. MaidCentral handed over one number per month with no job
+    // detail behind it, so there is nothing to count or divide by. Those stay
+    // Qleno-only and say so via `counts_from`; the MaidCentral trend rows carry
+    // null (not 0) in those columns so a table renders an em-dash rather than
+    // implying a month with no work in it.
     const historical = rangeClamp
       ? await historicalRevenue(companyId, rangeClamp.requested_from, toStr, rangeClamp.floor)
       : null;
@@ -438,21 +449,27 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const cb = (cancelBreakdown.rows[0] as any) ?? {};
 
     const s = summary.rows[0] as any;
-    const totalRev = parseF(s?.total_revenue);
+    const qlenoRev = parseF(s?.total_revenue);
+    const histRev = historical?.total ?? 0;
+    // The headline. One company, one period, one number.
+    const totalRev = Math.round((qlenoRev + histRev) * 100) / 100;
     const cancelFeeRev = parseF(cb.cancellation_fee_revenue);
     return res.json({
       range_clamped: rangeClamp,
-      // Pre-cutover months from MaidCentral, and the two added together — the
-      // true revenue for the window the operator asked for. `combined_revenue`
-      // is the only figure that spans the cutover; everything under `summary`
-      // remains strictly Qleno's own.
+      // The month-by-month MaidCentral detail behind the figure above, so a
+      // reader can see which months came from where. The split is available;
+      // it is no longer the thing the page leads with.
       historical,
-      combined_revenue: historical
-        ? Math.round((totalRev + historical.total) * 100) / 100
-        : null,
-      from: fromStr, to: toStr, group_by: groupBy,
+      from: historical ? historical.months[0].month + "-01" : fromStr,
+      to: toStr, group_by: groupBy,
+      // Where Qleno's own job-level data starts. Job counts, averages and hours
+      // below cover this date onward and nothing earlier.
+      counts_from: rangeClamp ? rangeClamp.floor : fromStr,
       summary: {
         total_revenue: totalRev,
+        // The two halves of that total, for anyone who needs them.
+        qleno_revenue: qlenoRev,
+        historical_revenue: histRev,
         avg_job_value: parseF(s?.avg_job_value),
         job_count: parseN(s?.job_count),
         projected_month_end: parseF((projected.rows[0] as any)?.projected),
@@ -474,10 +491,27 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         lockout_count: cb.lockout_count ?? 0,
         cancel_service_count: cb.cancel_service_count ?? 0,
       },
-      trend: (trend.rows as any[]).map(r => ({
-        period: r.period, job_count: parseN(r.job_count), revenue: parseF(r.revenue),
-        avg_per_job: parseF(r.avg_per_job), allowed_hours: parseF(r.allowed_hours),
-      })),
+      // One series, oldest first, MaidCentral's months leading into Qleno's own
+      // periods. `source` lets a consumer label the earlier rows; the job/hours
+      // columns are null there because those figures do not exist, and a null
+      // renders as a dash instead of a false zero.
+      trend: [
+        ...(historical?.months ?? []).map(m => ({
+          // Matched to the current grouping so the series still sorts as text:
+          // 'YYYY-MM' when grouping by month, else the first of that month.
+          period: groupBy === "month" ? m.month : `${m.month}-01`,
+          job_count: null as number | null,
+          revenue: m.revenue,
+          avg_per_job: null as number | null,
+          allowed_hours: null as number | null,
+          source: m.source,
+        })),
+        ...(trend.rows as any[]).map(r => ({
+          period: r.period as string, job_count: parseN(r.job_count), revenue: parseF(r.revenue),
+          avg_per_job: parseF(r.avg_per_job), allowed_hours: parseF(r.allowed_hours),
+          source: "qleno",
+        })),
+      ],
     });
   } catch (err) {
     console.error("Revenue report error:", err);
