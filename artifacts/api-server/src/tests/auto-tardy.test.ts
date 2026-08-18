@@ -8,7 +8,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { scheduledTimeToMins, clockInMinsLocal } from "../lib/auto-tardy.js";
+import { scheduledTimeToMins, clockInMinsLocal, punchMinsLocal } from "../lib/auto-tardy.js";
 
 describe("scheduledTimeToMins", () => {
   it("parses 24h times", () => {
@@ -55,5 +55,50 @@ describe("lateness rule", () => {
     const late = clockInMinsLocal(new Date("2026-07-07T14:21:00Z")); // 9:21 CT
     assert.equal(graceEdge - sched, 20); // not > 20 → no tardy
     assert.equal(late - sched, 21); // > 20 → tardy
+  });
+});
+
+describe("punchMinsLocal — the two frames timeclock.clock_in_at is stored in", () => {
+  // [late-clockin-frame 2026-08-18] Maribel: "0 lates this year" on a profile
+  // whose owner had been clocking in 30–55 minutes late all month.
+  //
+  // `clock_in_at` is `timestamp` (no zone) and holds two different things.
+  // Since [clock-tz 2026-06-17] a field punch stores the tenant's WALL CLOCK —
+  // 9:55 AM Central is literally 09:55:00, flagged by tz_normalized. Older rows
+  // are raw UTC instants: the same punch as 14:55:00.
+  //
+  // The sweep ran every row through clockInMinsLocal, which converts UTC→local.
+  // On a wall-clock row that subtracts the offset a SECOND time.
+
+  it("reads a wall-clock row at face value", () => {
+    // 09:55 in the column IS 9:55 AM Central.
+    const wall = new Date("2026-08-18T09:55:00Z");
+    assert.equal(punchMinsLocal(wall, true), 9 * 60 + 55);
+  });
+
+  it("still converts a legacy UTC row", () => {
+    // 2026-08-18 14:55 UTC = 9:55 AM Chicago (CDT).
+    const utc = new Date("2026-08-18T14:55:00Z");
+    assert.equal(punchMinsLocal(utc, false), 9 * 60 + 55);
+  });
+
+  it("the two frames agree on the same real-world moment", () => {
+    assert.equal(
+      punchMinsLocal(new Date("2026-08-18T09:55:00Z"), true),
+      punchMinsLocal(new Date("2026-08-18T14:55:00Z"), false),
+    );
+  });
+
+  it("Vanessa Hernandez, Aug 18: 55 min late, not 245 min early", () => {
+    // The exact notification the office received — "clocked in 55 min late for
+    // a client's job" — against a 9:00 AM start, from a wall-clock row.
+    const sched = scheduledTimeToMins("9:00 AM")!;
+    const punch = new Date("2026-08-18T09:55:00Z"); // wall clock, tz_normalized
+    assert.equal(punchMinsLocal(punch, true) - sched, 55);
+
+    // What the old code computed: 09:55 read as UTC → 04:55 Central → 245
+    // minutes EARLY, so the row never became a tardy candidate and the sweep
+    // recorded nothing while the notifications kept firing.
+    assert.equal(clockInMinsLocal(punch) - sched, -245);
   });
 });

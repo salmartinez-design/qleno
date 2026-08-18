@@ -1161,6 +1161,64 @@ async function buildAttendanceSummary(
   const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
 
+  // [late-clockin-record 2026-08-18] Every late CLOCK-IN in the window, from
+  // the punch itself — one row per late arrival, naming the service it happened
+  // on.
+  //
+  // Maribel: "Even when we receive a notification that a cleaner has a late
+  // check-in, the late check-in is not being recorded in the cleaner's profile
+  // or service history ... Keep a record of the service where the late check-in
+  // occurred."
+  //
+  // This is deliberately NOT the same number as the `late` tile above, and the
+  // two must not be merged. `late` counts disciplinary TARDY OCCURRENCES: one
+  // per day at most, first job of the day only, subject to the office deleting
+  // a mistake, and it feeds the write-up ladder. This counts ARRIVALS: every
+  // punch that landed 20+ minutes after its job's scheduled start, third house
+  // of the day included. A tech can be late to two houses and still owe exactly
+  // one occurrence — showing one figure would misreport whichever question was
+  // being asked.
+  //
+  // Sourced from timeclock.late_by_min, stamped at clock-in and never
+  // recomputed, so rescheduling the job afterwards cannot rewrite history.
+  // Blank before 2026-08-18: the column did not exist and older punches carry
+  // an ambiguous timezone frame, so there is nothing honest to backfill.
+  let lateClockInRows: Array<{ id: number | null; src: null; by: string; date: string; reason: string; hours: null }> = [];
+  try {
+    const lateRes = await db.execute(sql`
+      SELECT tc.id,
+             COALESCE(j.scheduled_date::text, tc.clock_in_at::date::text) AS d,
+             tc.late_by_min,
+             j.scheduled_time,
+             COALESCE(
+               a.account_name,
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+               'Job #' || tc.job_id::text
+             ) AS service
+        FROM timeclock tc
+        JOIN jobs j ON j.id = tc.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE tc.company_id = ${companyId}
+         AND tc.user_id = ${userId}
+         AND tc.late_by_min IS NOT NULL
+         AND COALESCE(j.scheduled_date, tc.clock_in_at::date) BETWEEN ${from}::date AND ${to}::date
+       ORDER BY COALESCE(j.scheduled_date, tc.clock_in_at::date) DESC, tc.clock_in_at DESC`);
+    lateClockInRows = (lateRes.rows as any[]).map((r) => ({
+      id: Number(r.id),
+      src: null,
+      // Never "recorded by <someone>" — nobody typed this in, the punch did.
+      by: "auto-detected",
+      date: String(r.d).slice(0, 10),
+      reason: `${r.service} — clocked in ${Number(r.late_by_min)} min late${r.scheduled_time ? ` (scheduled ${String(r.scheduled_time)})` : ""}`,
+      hours: null,
+    }));
+  } catch {
+    // Column not present yet on this tenant (pre-migration boot) — the row
+    // renders 0 rather than failing the whole Attendance tab.
+    lateClockInRows = [];
+  }
+
   const tile = (rows: Array<{ hours: number | null }>) => ({
     count: rows.length,
     hours: round2(rows.reduce((s, r) => s + (r.hours || 0), 0)),
@@ -1388,6 +1446,8 @@ async function buildAttendanceSummary(
     },
     tiles: {
       late: tile(lateRows),
+      // Arrivals, not occurrences — see the note where lateClockInRows is built.
+      late_clockins: tile(lateClockInRows),
       absent: tile(absentRows),
       unexcused: tile(unexRows),
       time_off: tile(timeOffRows),

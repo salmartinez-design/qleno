@@ -57,6 +57,9 @@ export function scheduledTimeToMins(t: string | null | undefined): number | null
  * [company-timezone 2026-08-15] The zone used to be a module-level Chicago
  * constant. It's a parameter now; omitting it keeps the prior behavior, so an
  * un-updated caller is stale rather than wrong.
+ *
+ * Correct ONLY for a row that really holds a UTC instant — see
+ * punchMinsLocal below, which is what callers should use.
  */
 export function clockInMinsLocal(at: Date, tz: string = DEFAULT_TZ): number {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -68,6 +71,42 @@ export function clockInMinsLocal(at: Date, tz: string = DEFAULT_TZ): number {
   const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
   const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
   return h * 60 + m;
+}
+
+/**
+ * Minutes since local midnight for a punch, in whichever frame the row is
+ * actually stored in.
+ *
+ * THE BUG THIS CLOSES (Maribel, 8/18): "0 lates this year" on a profile whose
+ * owner had been clocking in 30–55 minutes late all month, and: "even when we
+ * receive a notification that a cleaner has a late check-in, the late check-in
+ * is not being recorded."
+ *
+ * `timeclock.clock_in_at` is `timestamp` (no zone) and holds TWO different
+ * things. Since the [clock-tz 2026-06-17] fix, a field punch is stored as the
+ * tenant's WALL-CLOCK — 9:55 AM Central is literally `09:55:00` in the column,
+ * and `tz_normalized` marks it. Older rows are raw UTC instants: the same punch
+ * stored as `14:55:00`.
+ *
+ * This sweep ran every row through clockInMinsLocal, which converts UTC→local.
+ * On a wall-clock row that subtracts the offset a second time: 09:55 is read as
+ * 09:55 UTC and reported as 04:55 Central — five hours EARLY. Against a 9:00
+ * start that is 245 minutes early, not 55 late, so the row never became a
+ * candidate. Every field punch since 6/17 was invisible to the sweep, which is
+ * exactly why the ladder recorded nothing while the notifications kept firing
+ * (the clock-in route measures lateness in a single consistent wall-clock frame,
+ * so IT was right all along — the two surfaces simply disagreed).
+ *
+ * The frame is also server-dependent, which is what let this survive review:
+ * on a machine whose TZ is already Central the double conversion is a no-op and
+ * the sweep looks fine. Railway runs UTC.
+ */
+export function punchMinsLocal(at: Date, tzNormalized: boolean, tz: string = DEFAULT_TZ): number {
+  // Wall-clock row: the digits in the column ARE the local time. node-postgres
+  // parses a zone-less timestamp against the process TZ, so read the UTC
+  // components back out rather than re-interpreting them.
+  if (tzNormalized) return at.getUTCHours() * 60 + at.getUTCMinutes();
+  return clockInMinsLocal(at, tz);
 }
 
 export type AutoTardyRow = {
@@ -105,6 +144,7 @@ export async function runAutoTardySweep(ymd: string): Promise<AutoTardySummary> 
       company_id: timeclockTable.company_id,
       clock_in_at: timeclockTable.clock_in_at,
       source: timeclockTable.source,
+      tz_normalized: timeclockTable.tz_normalized,
     })
     .from(timeclockTable)
     .where(inArray(timeclockTable.job_id, jobIds));
@@ -119,7 +159,7 @@ export async function runAutoTardySweep(ymd: string): Promise<AutoTardySummary> 
     if (!job) continue;
     const schedMins = scheduledTimeToMins(job.scheduled_time);
     if (schedMins == null) continue;
-    const clockMins = clockInMinsLocal(new Date(c.clock_in_at), tzOf(job.company_id));
+    const clockMins = punchMinsLocal(new Date(c.clock_in_at), !!c.tz_normalized, tzOf(job.company_id));
     const prev = firstJob.get(c.user_id);
     if (!prev || schedMins < prev.schedMins || (schedMins === prev.schedMins && clockMins < prev.clockMins)) {
       firstJob.set(c.user_id, { schedMins, clockMins, job_id: c.job_id, company_id: job.company_id });

@@ -41,6 +41,24 @@ export const timeclockTable = pgTable("timeclock", {
   // synthetic write when any row already exists for the job.
   source: text("source").notNull().default("punched"),
 
+  // [late-clockin-record 2026-08-18] How many minutes past the job's scheduled
+  // start this punch landed, stamped AT clock-in and never recomputed.
+  //
+  // Maribel: "Even when we receive a notification that a cleaner has a late
+  // check-in, the late check-in is not being recorded in the cleaner's profile
+  // or service history." The notification fired and nothing was written down,
+  // so the moment the tech clocked in the dispatch tile flipped from LATE to
+  // ACTIVE and every trace of the lateness was gone.
+  //
+  // NULL means "not recorded as late" — either on time, inside the 20-minute
+  // grace, or the job had no scheduled_time to measure against. Recorded per
+  // PUNCH, so a tech late to their third house of the day is on the record even
+  // though the disciplinary tardy sweep only ever looks at the first job.
+  //
+  // Stamped, not derived, on purpose: rescheduling the job afterwards must not
+  // silently rewrite whether someone was late to it.
+  late_by_min: integer("late_by_min"),
+
   // [clock-out-frame 2026-08-07] Added by payroll-migrate.ts (raw SQL) but never
   // declared here, so Drizzle could not read it. FALSE means clock_in_at holds a
   // raw UTC instant; TRUE means Central wall-clock. Clock-out must stamp in the
