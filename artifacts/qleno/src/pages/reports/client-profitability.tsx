@@ -202,7 +202,7 @@ export default function ClientProfitabilityPage() {
           <div style={{
             display: "flex", gap: 10, alignItems: "flex-start",
             padding: "12px 14px", marginBottom: 22,
-            backgroundColor: "#FFFDF5", border: `1px solid ${clr.amber}55`, borderRadius: 8,
+            backgroundColor: "var(--warn-bg)", border: "1px solid color-mix(in srgb, var(--warn) 33%, transparent)", borderRadius: 8,
           }}>
             <AlertTriangle size={15} color={clr.amber} style={{ flexShrink: 0, marginTop: 1 }} />
             <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>

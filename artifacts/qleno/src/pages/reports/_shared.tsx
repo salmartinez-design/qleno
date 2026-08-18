@@ -12,10 +12,16 @@ export const fmtH = (n: number) => `${(n || 0).toFixed(1)}h`;
 // value never renders one day early in US Central. Full timestamps are untouched.
 export const fmtDate = (d: string | Date | null) => d ? new Date(typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 export const fmtSvc = (s: string) => (s || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+// [ares-cohesion 2026-08-18] Pointed at the index.css tokens so every report
+// page and the Ares module render the SAME colors. `green` and `amber` were
+// Tailwind defaults (#10B981 / #F59E0B), not Qleno's --ok #0F7A63 / --warn
+// #B45309 — so a warning chip on a report and a warning chip anywhere else in
+// the app were two different oranges. index.css is explicit about this:
+// "Don't add a sixth 'sort of green' — use these."
 export const clr = {
-  base: "#F7F6F3", card: "#FFFFFF", border: "#E5E2DC",
-  text: "#1A1917", secondary: "#6B6860", muted: "#9E9B94",
-  brand: "var(--brand)", green: "#10B981", amber: "#F59E0B", red: "#B3261E",
+  base: "var(--bg-base)", card: "var(--bg-card)", border: "var(--border)",
+  text: "var(--ink)", secondary: "var(--ink-muted)", muted: "var(--ink-faint)",
+  brand: "var(--brand)", green: "var(--ok)", amber: "var(--warn)", red: "var(--danger)",
 };
 
 interface KpiCardProps { label: string; value: string; sub?: string; color?: string; }
@@ -92,7 +98,7 @@ export function DataTable<T extends object>({ cols, rows, emptyMsg = "No data fo
             <tr><td colSpan={cols.length} style={{ padding: 32, textAlign: "center", color: clr.muted }}>{emptyMsg}</td></tr>
           ) : rows.map((row, i) => (
             <tr key={i} style={{ borderBottom: i < rows.length - 1 ? `1px solid ${clr.border}` : "none" }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "var(--bg-hover)")}
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               {cols.map(c => (
@@ -149,7 +155,7 @@ export function RangeClampNotice({ clamp }: { clamp?: RangeClamp | null }) {
   if (!clamp) return null;
   const before = clamp.entire_range_before;
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", marginBottom: 18, backgroundColor: "#FFFDF5", border: `1px solid ${clr.amber}55`, borderRadius: 8 }}>
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", marginBottom: 18, backgroundColor: "var(--warn-bg)", border: "1px solid color-mix(in srgb, var(--warn) 33%, transparent)", borderRadius: 8 }}>
       <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: clr.amber, flexShrink: 0, marginTop: 6 }} />
       <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: clr.secondary }}>
         {before ? (
@@ -233,7 +239,7 @@ export function HistoricalRevenueNote({
 }
 
 export function ScoreBadge({ score }: { score: number }) {
-  const colors: Record<number, string> = { 4: "#10B981", 3: "#2F3646", 2: "#F59E0B", 1: "#B3261E", 0: "#9E9B94" };
+  const colors: Record<number, string> = { 4: "var(--ok)", 3: "var(--info)", 2: "var(--warn)", 1: "var(--danger)", 0: "var(--ink-faint)" };
   const labels: Record<number, string> = { 4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor", 0: "N/A" };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: colors[score] ?? clr.muted }}>
@@ -256,7 +262,7 @@ export function EffBar({ pct, max = 150 }: { pct: number; max?: number }) {
   const color = pct >= 90 ? clr.green : pct >= 70 ? clr.brand : clr.amber;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ flex: 1, height: 6, backgroundColor: "#E5E2DC", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ flex: 1, height: 6, backgroundColor: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ width: `${(clamped / max) * 100}%`, height: "100%", backgroundColor: color, borderRadius: 3 }} />
       </div>
       <span style={{ fontSize: 12, fontWeight: 600, color, minWidth: 40 }}>{pct.toFixed(0)}%</span>

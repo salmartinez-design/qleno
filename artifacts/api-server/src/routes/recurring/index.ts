@@ -11,6 +11,8 @@ import { and, eq, sql, desc, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "../../lib/auth.js";
 import { computeMrr, KNOWN_CADENCES, normalizePersonName } from "../../lib/recurring-mrr.js";
 import reportsRouter from "./reports.js";
+import commissionsRouter from "./commissions.js";
+import { createCommissionForNewClient, handleLostClient } from "../../lib/sales-commission.js";
 
 // [recurring-revenue 2026-07-12] Step 2 — GO-FORWARD CAPTURE.
 // The capture layer for the native recurring-revenue engine: attribution on
@@ -31,6 +33,12 @@ const CAPTURE_ROLES = ["owner", "admin", "office"] as const;
 
 // Read-only reporting (GET /overview → Data Health + Dashboard) lives in reports.ts.
 router.use(reportsRouter);
+
+// [ares-parity 2026-08-18] VA sales commission — approval queue, payout,
+// chargebacks and the rate card. Mounted after reports so its literal paths
+// (/commissions/metrics, /commissions/statement/:id) resolve before the
+// generic /commissions/:id.
+router.use(commissionsRouter);
 
 // Small manual-validation helpers (house convention: no Zod).
 const bad = (res: any, msg: string) => res.status(400).json({ error: "Bad Request", message: msg });
@@ -91,7 +99,26 @@ router.post("/subscriptions", requireAuth, requireRole(...CAPTURE_ROLES), async 
       created_by: req.auth!.userId ?? null,
     }).returning();
 
-    return res.status(201).json({ subscription: sub, attribution: attr, mrr_computable: mrr != null });
+    // [ares-parity 2026-08-18] Earn the VA sales commission. Only fires with a
+    // real user FK — a free-text salesperson name is attribution, not a payee,
+    // and Ares' string-matching of names to users is exactly how commissions
+    // ended up on the wrong person. No user id, no commission.
+    let commission = null;
+    if (eligible && attr.salesperson_user_id) {
+      commission = await createCommissionForNewClient({
+        companyId,
+        branchId: numOrNull(branch_id),
+        subscriptionId: sub.id,
+        vaUserId: attr.salesperson_user_id,
+        vaName: attr.salesperson ?? attr.subscribed_by ?? null,
+        isSelfSourced: attr.is_self_sourced === true,
+        actor: { userId: req.auth!.userId ?? null },
+      });
+    }
+
+    return res.status(201).json({
+      subscription: sub, attribution: attr, mrr_computable: mrr != null, commission,
+    });
   } catch (err) {
     console.error("[recurring/subscriptions POST]", err);
     return res.status(500).json({ error: "Server error" });
@@ -127,7 +154,20 @@ router.post("/subscriptions/:id/classify-loss", requireAuth, requireRole(...CAPT
     await db.update(recurringSubscriptionsTable).set({ status: "lost", updated_at: new Date() })
       .where(and(eq(recurringSubscriptionsTable.id, id), eq(recurringSubscriptionsTable.company_id, companyId)));
 
-    return res.status(201).json({ event: ev });
+    // [ares-parity 2026-08-18] A loss drives the commission: not-yet-approved is
+    // reversed outright; approved/paid inside the chargeback window opens a
+    // clawback with a dispute deadline. Nothing is deducted here — that happens
+    // at payout, after the dispute window closes.
+    const commission_outcome = await handleLostClient({
+      companyId,
+      branchId: sub.branch_id,
+      subscriptionId: id,
+      lossDate: loss_date ? new Date(String(loss_date)) : null,
+      reason: String(loss_reason),
+      actor: { userId: req.auth!.userId ?? null },
+    });
+
+    return res.status(201).json({ event: ev, commission_outcome });
   } catch (err) {
     console.error("[recurring/classify-loss POST]", err);
     return res.status(500).json({ error: "Server error" });
