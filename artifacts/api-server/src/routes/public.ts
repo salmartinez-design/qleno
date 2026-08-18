@@ -2337,14 +2337,32 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
   try {
     const {
       company_id, first_name, last_name, email, phone,
-      address, sqft, construction_type, completion_date, notes,
+      address, city, state, zip, referral_source, sqft, construction_type, completion_date, notes,
       photos = [],
     } = req.body as {
       company_id: number; first_name: string; last_name: string;
       email: string; phone?: string; address?: string;
+      city?: string; state?: string; zip?: string; referral_source?: string;
       sqft?: string; construction_type?: string; completion_date?: string; notes?: string;
       photos?: { name: string; data: string; mimeType: string }[];
     };
+
+    // [post-construction-contact-fields 2026-08-18] The widget used to send the
+    // customer's zip in the `address` field and nothing else, leaving
+    // leads.city/state/zip NULL — so these leads never matched a service zone and
+    // the office had to phone the customer back just to learn the address. The
+    // widget now sends the parts separately; older payloads (a bare zip in
+    // `address`) still land intact via the zip fallback below.
+    const pcStreet = (address ?? "").trim();
+    const pcZip = (zip ?? "").trim() || (/^\d{5}$/.test(pcStreet) ? pcStreet : "");
+    const pcCity = (city ?? "").trim();
+    const pcState = (state ?? "").trim();
+    // Canonical display form — matches formatAddress(street, city, state, zip).
+    const pcAddressDisplay = [
+      pcStreet && !/^\d{5}$/.test(pcStreet) ? pcStreet : "",
+      pcCity,
+      [pcState, pcZip].filter(Boolean).join(" "),
+    ].filter(Boolean).join(", ") || pcZip || null;
 
     if (!company_id || !first_name || !email || !construction_type || !completion_date) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -2353,8 +2371,9 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
     // ── Insert lead ───────────────────────────────────────────────────────────
     const { sql: drizzleSql } = await import("drizzle-orm");
     const pcInsert = await db.execute(drizzleSql`
-      INSERT INTO leads (company_id, first_name, last_name, email, phone, address, lead_type, source, status, construction_type, completion_date, notes, sqft, created_at, updated_at)
-      VALUES (${company_id}, ${first_name}, ${last_name || null}, ${email}, ${phone || null}, ${address || null},
+      INSERT INTO leads (company_id, first_name, last_name, email, phone, address, city, state, zip, referral_source, lead_type, source, status, construction_type, completion_date, notes, sqft, created_at, updated_at)
+      VALUES (${company_id}, ${first_name}, ${last_name || null}, ${email}, ${phone || null}, ${pcAddressDisplay},
+              ${pcCity || null}, ${pcState || null}, ${pcZip || null}, ${referral_source || null},
               'post_construction', 'widget', 'new', ${construction_type}, ${completion_date}, ${notes || null},
               ${sqft ? parseInt(sqft) : null}, NOW(), NOW())
       RETURNING id
@@ -2392,7 +2411,7 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
   <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Name</td><td style="padding:6px 0;">${first_name} ${last_name || ""}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Email</td><td style="padding:6px 0;"><a href="mailto:${email}">${email}</a></td></tr>
   ${phone ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Phone</td><td style="padding:6px 0;">${phone}</td></tr>` : ""}
-  ${address ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Service Zip/Address</td><td style="padding:6px 0;">${address}</td></tr>` : ""}
+  ${pcAddressDisplay ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Service Address</td><td style="padding:6px 0;">${pcAddressDisplay}</td></tr>` : ""}
   <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Construction Type</td><td style="padding:6px 0;">${ctLabel}</td></tr>
   ${sqft ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Square Footage</td><td style="padding:6px 0;">${sqft} sq ft</td></tr>` : ""}
   <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Completion Date</td><td style="padding:6px 0;">${completion_date}</td></tr>

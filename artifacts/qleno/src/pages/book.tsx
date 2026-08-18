@@ -1380,6 +1380,13 @@ export default function BookPage() {
   function selectPostConstruction() {
     setScopeId(null);
     setDisplayScopeKey("post_construction");
+    // [post-construction-no-price 2026-08-18] Drop any price computed under a
+    // previously-selected scope. Nulling scopeId alone was NOT enough: calcResult
+    // survived, so a customer who priced Deep Clean and then switched to
+    // Post-Construction saw that Deep Clean total sitting next to the words
+    // "requires a custom quote". Post-Construction is quoted by hand off photos
+    // and square footage — it must never display a number.
+    setCalcResult(null);
     setPcConstructionType(""); setPcCompletionDate(""); setPcSqft(""); setPcNotes("");
     setPcPhotos([]); setPcPhotoError(""); setPcSubmitting(false); setPcSubmitted(false); setPcSubmitError("");
     setMoveInAck(false); setMoveInNotes(""); setStandardDismissed(false);
@@ -1745,7 +1752,11 @@ export default function BookPage() {
 
   // ── Mobile sticky price bar (fixed at bottom, hidden on desktop via CSS) ────
   // Rendered once at root level so it persists across all steps 1–4
-  const mobileStickyBar = step >= 1 && step <= 4 && calcResult ? (
+  // [post-construction-no-price 2026-08-18] `!isPostConstruction` is a belt-and-
+  // braces guard on top of clearing calcResult in selectPostConstruction(). Any
+  // future path that leaves a stale price in state must still not surface a
+  // number on the custom-quote scope.
+  const mobileStickyBar = step >= 1 && step <= 4 && calcResult && !isPostConstruction ? (
     <div className="bw-price-sticky" style={{ display: "none" }}>
       {/* Expanded breakdown panel slides in above the bar */}
       {mobilePriceExpanded && (
@@ -1846,7 +1857,17 @@ export default function BookPage() {
 
         {/* Section 2 — Price Summary */}
         {step >= 1 && (
-          step === 1 ? (
+          // [post-construction-no-price 2026-08-18] Post-Construction is quoted by
+          // hand, so it gets neither a price nor the "price on the next step"
+          // promise — there is no next step on this scope.
+          isPostConstruction ? (
+            <div style={s.card}>
+              <p style={sectionLabel}>Price Summary</p>
+              <p style={{ margin: 0, fontSize: 13, color: "#9E9B94", lineHeight: 1.5 }}>
+                Post-construction cleaning is quoted individually. Send us the details and we'll follow up with your quote within 1 business day.
+              </p>
+            </div>
+          ) : step === 1 ? (
             <div style={s.card}>
               <p style={sectionLabel}>Price Summary</p>
               <p style={{ margin: 0, fontSize: 13, color: "#9E9B94", lineHeight: 1.5 }}>Your price will appear on the next step.</p>
@@ -2343,11 +2364,27 @@ export default function BookPage() {
                               });
                               photoPayloads.push({ name: file.name, data: b64, mimeType: file.type || "image/jpeg" });
                             }
+                            // [post-construction-contact-fields 2026-08-18] The
+                            // customer already gave us their full service address on
+                            // Step 0 — this used to send `address: zip`, so the office
+                            // received a post-construction lead carrying nothing but a
+                            // 5-digit zip and had to call the customer back to ask
+                            // where the house was. Send the whole address the way
+                            // formatAddress() renders it everywhere else, and pass the
+                            // parts separately so leads.city/state/zip get populated
+                            // (zone routing reads leads.zip, not the address text).
+                            const comp = addressComponents;
+                            const pcStreet = [address.trim(), addressLine2.trim()].filter(Boolean).join(", ");
+                            const pcCity = comp?.city ?? "";
+                            const pcState = comp?.state ?? "";
+                            const pcZip = (comp?.zip || zip).trim();
                             const payload = {
                               company_id: company.id,
                               first_name: firstName, last_name: lastName,
                               email, phone,
-                              address: `${zip}`,
+                              address: pcStreet,
+                              city: pcCity, state: pcState, zip: pcZip,
+                              referral_source: referral || null,
                               sqft: pcSqft, construction_type: pcConstructionType,
                               completion_date: pcCompletionDate, notes: pcNotes,
                               photos: photoPayloads,
