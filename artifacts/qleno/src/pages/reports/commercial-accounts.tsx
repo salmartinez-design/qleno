@@ -41,6 +41,18 @@ interface CommercialData {
   dormant: DormantRow[];
 }
 
+// [commercial-price-drift 2026-08-18] GET /api/recurring/pricing-audit — the
+// schedules whose stored per-visit price no longer agrees with their own hours
+// times their hourly rate. Flat-fee schedules carry no hourly rate and never
+// appear here, which is most of them.
+interface PricingDrift {
+  schedule_id: number; name: string; frequency: string | null;
+  future_visits: number; hours: number; rate: number;
+  stored_fee: number; expected_fee: number; difference: number;
+  future_difference: number; message: string;
+}
+interface PricingAudit { checked: number; drifting_count: number; schedules: PricingDrift[] }
+
 const SORTS = [
   { key: "revenue", label: "Revenue" },
   { key: "profit", label: "Gross profit" },
@@ -71,6 +83,9 @@ export default function CommercialAccountsPage() {
   const { data, loading, error, reload } = useReportData<CommercialData>(
     `/reports/commercial-accounts?from=${from}&to=${to}&sort=${sort}&dir=${dir}`
   );
+  // Not date-ranged: a schedule generating a wrong price is wrong today and
+  // wrong next month, so the window the report is looking at is irrelevant to it.
+  const { data: audit } = useReportData<PricingAudit>("/recurring/pricing-audit");
   const rows = data?.data ?? [];
   const dormant = data?.dormant ?? [];
   const s = data?.summary;
@@ -164,6 +179,44 @@ export default function CommercialAccountsPage() {
         {error ? <ReportError error={error} onRetry={reload} /> : <>
 
         <RangeClampNotice clamp={data?.range_clamped} />
+
+        {/* [commercial-price-drift 2026-08-18] National Able cut from eight
+            hours a day to four and the price on the schedule stayed at the
+            eight-hour figure, so Qleno reported $53,100 of revenue that was
+            never coming — for four months, silently. This says so out loud.
+            It reports; it never repairs. Whether the price or the hours is the
+            wrong number depends on what the customer agreed to, and only the
+            office knows that. */}
+        {audit && audit.drifting_count > 0 && (
+          <div style={{
+            padding: "14px 16px", marginBottom: 22,
+            backgroundColor: "#FFFDF5", border: `1px solid ${clr.amber}55`, borderRadius: 8,
+          }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+              <AlertTriangle size={15} color={clr.amber} style={{ flexShrink: 0, marginTop: 1 }} />
+              <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>
+                <strong>{audit.drifting_count} {audit.drifting_count === 1 ? "schedule prices" : "schedules price"} a visit
+                differently than {audit.drifting_count === 1 ? "its" : "their"} own hours and hourly rate.</strong>{" "}
+                Nothing has been changed. Either the price is stale or the hours are — open the schedule and set whichever
+                one is wrong. Accounts billed a flat price per visit have no hourly rate and are not checked.
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 25 }}>
+              {audit.schedules.map(d => (
+                <div key={d.schedule_id} style={{ fontSize: 12, color: clr.text, lineHeight: 1.5 }}>
+                  <strong>{d.name}</strong> — {d.message}
+                  {d.future_visits > 0 && (
+                    <span style={{ color: clr.secondary }}>
+                      {" "}{d.future_visits.toLocaleString()} visit{d.future_visits === 1 ? "" : "s"} still booked,
+                      a difference of {fmt$c(Math.abs(d.future_difference))} {d.future_difference < 0 ? "less" : "more"} than
+                      currently shows on the calendar.
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Accounts Worked" value={(s?.accounts ?? 0).toLocaleString()} sub={`${(s?.visits ?? 0).toLocaleString()} completed visits`} />

@@ -348,6 +348,13 @@ export async function insertJobFromSchedule(
       allowed_hours: schedule.duration_minutes
         ? String((schedule.duration_minutes / 60).toFixed(2))
         : null as any,
+      // [commercial-rate-stamp 2026-08-18] Record-only: this changes no price
+      // and no pay (commercial pay is companies.commercial_hourly_rate × hours,
+      // per commission-compute.ts). It exists so a visit carries the rate it was
+      // priced from, which is what makes a stale price detectable at all.
+      hourly_rate: schedule.commercial_hourly_rate
+        ? String(parseFloat(schedule.commercial_hourly_rate).toFixed(2))
+        : null as any,
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
@@ -455,6 +462,13 @@ type ScheduleInput = {
   scheduled_time?: string | null;
   duration_minutes: number | null;
   base_fee: string | null;
+  // [commercial-rate-stamp 2026-08-18] The per-hour rate a commercial account
+  // is billed at. Carried onto every generated job so the visit can be checked
+  // against its own hours later. Without it, 250 National Able occurrences were
+  // generated with a NULL rate and nothing could tell that their $400 price no
+  // longer matched the 4 hours booked. NULL is normal and means flat-fee — 38
+  // of Phes's 41 commercial schedules have no hourly rate at all.
+  commercial_hourly_rate?: string | null;
   // [monthly-batch-billing] Commercial accounts billed once a month. When
   // monthly_charge_mode='auto_first_visit', the engine drops monthly_charge_amount
   // on the first visit of each calendar month and $0 on the rest. 'manual'
@@ -711,6 +725,12 @@ export async function computeOccurrencesForSchedule(
       // a pinned agreed price stays sticky on future occurrences.
       manual_rate_override: !!schedule.manual_rate_override,
       allowed_hours: schedule.duration_minutes ? String((schedule.duration_minutes / 60).toFixed(2)) : null as any,
+      // [commercial-rate-stamp 2026-08-18] See insertJobFromSchedule — same
+      // record-only stamp, same reason. NULL on residential and on flat-fee
+      // commercial, which is most of them.
+      hourly_rate: schedule.commercial_hourly_rate
+        ? String(parseFloat(schedule.commercial_hourly_rate).toFixed(2))
+        : null as any,
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,

@@ -57,6 +57,7 @@
     "@workspace/dashboard-cards": "workspace:*",
     "@workspace/lms-curriculum": "workspace:*",
     "@workspace/payroll-metrics": "workspace:*",
+    "@workspace/pricing-rules": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
