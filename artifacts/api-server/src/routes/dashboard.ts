@@ -449,6 +449,11 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     // Next 7 days window
     const next7Start = todayStr;
     const next7End = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    // [revenue-forecast 2026-08-18] Feeds the dashboard's "Revenue forecast ·
+    // next 30 days" tile, which has asked for `forecast_next_month` since it was
+    // built and never got it — so it filtered itself out and rendered nothing.
+    // Not a projection: it is the non-cancelled work already on the calendar.
+    const next30End = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
     const [
       jhWeekRev,
@@ -471,6 +476,8 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       // Next 7 days
       next7Rev,
       next7Count,
+      // Next 30 days revenue (dashboard forecast tile)
+      next30Rev,
       // Recurring count
       recurringCount,
       // Outstanding AR
@@ -651,6 +658,17 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
+      // Next 30 days revenue
+      db.execute(sql`
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${next7Start}
+          AND j.scheduled_date <= ${next30End}
+      `),
+
       // Recurring schedules active count
       db.select({ count: count() }).from(recurringSchedulesTable)
         .where(and(
@@ -742,6 +760,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     const clientsAtRisk = atRiskRaw;
 
     const next7RevNum = parseFloat(rowStr(next7Rev.rows[0], 'total'));
+    const next30RevNum = parseFloat(rowStr(next30Rev.rows[0], 'total'));
     const next7CountNum = Number(next7Count[0]?.c || 0);
     const recurringCountNum = Number(recurringCount[0]?.count || 0);
 
@@ -856,6 +875,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       churn_configured: true,
       next7_revenue: next7RevNum,
       next7_jobs: next7CountNum,
+      forecast_next_month: next30RevNum,
       action_items: actions.slice(0, 8),
       // HouseCall Pro KPI bar
       hcp: {

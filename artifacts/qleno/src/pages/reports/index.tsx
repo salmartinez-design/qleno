@@ -5,7 +5,7 @@ import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
   AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
-  Briefcase, Percent, History, Car, Building2,
+  Briefcase, Percent, History, Car, Building2, CalendarClock,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -21,6 +21,7 @@ const REPORT_GROUPS = [
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
       { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
       { title: "Fees Collected",       desc: "Cancellation and lockout fees billed in a period — labeled subset of revenue.", url: "/reports/fees", icon: Banknote },
+      { title: "Revenue Forecast",     desc: "Scheduled work month by month, a year out. Booked visits at current prices — not a prediction.", url: "/reports/revenue-forecast", icon: CalendarClock },
       { title: "Revenue History (MaidCentral)", desc: "Pre-Qleno monthly revenue from MaidCentral, preserved for reporting. Separate from live Qleno numbers.", url: "/reports/revenue-history", icon: History },
     ],
   },
