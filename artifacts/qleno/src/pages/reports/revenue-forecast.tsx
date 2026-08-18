@@ -177,7 +177,12 @@ export default function RevenueForecastPage() {
             <div style={{ padding: "13px 16px", marginBottom: 18, backgroundColor: "#FBFAF7", border: `1px solid ${clr.border}`, borderRadius: 8, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <AlertTriangle size={15} color={clr.muted} style={{ flexShrink: 0, marginTop: 1 }} />
               <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>
-                <strong>{partial.map(r => monthLabel(r.month)).join(", ")} {partial.length === 1 ? "is" : "are"} past the point the calendar has been written to.</strong>{" "}
+                <strong>
+                  {partial.length === 1
+                    ? `${monthLabel(partial[0].month)} is`
+                    : `${monthLabel(partial[0].month)} onward is`}{" "}
+                  past the point the calendar has been written to.
+                </strong>{" "}
                 Recurring visits are generated about a year out, so these months are genuine but incomplete and their figures will rise as the calendar fills.
                 They are shown dimmed and are left out of the totals above rather than being padded with a guess.
               </p>

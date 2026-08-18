@@ -514,22 +514,37 @@ router.get("/revenue-forecast", requireAuth, ROLE, async (req, res) => {
       return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
     };
 
-    const rows = (monthRows.rows as any[]).map(r => {
-      const month = String(r.month);
+    // The month series is built as an unbroken run from the current month, then
+    // the aggregate rows are laid onto it. Building it straight off GROUP BY
+    // instead would silently drop any month with nothing on the calendar, and a
+    // bar chart of non-adjacent months reads as if they were consecutive — one
+    // stray job booked far ahead would sit next to the horizon tail looking like
+    // the very next month. An empty month past the horizon is not "$0 of work";
+    // it is work the engine has not written yet, which is exactly what `partial`
+    // already says, so it carries that state and stays out of every total.
+    const byMonth = new Map((monthRows.rows as any[]).map(r => [String(r.month), r]));
+    const [cy, cm] = currentMonth.split("-").map(Number);
+
+    const rows = Array.from({ length: months }, (_, i) => {
+      const d = new Date(Date.UTC(cy, cm - 1 + i, 1));
+      const month = d.toISOString().slice(0, 7);
+      const r = byMonth.get(month);
+
       let state: "in_progress" | "scheduled" | "partial";
       if (month === currentMonth) state = "in_progress";
       else if (!generatedThrough || monthEnd(month) <= generatedThrough) state = "scheduled";
       else state = "partial";
+
       return {
         month,
         state,
-        jobs: num(r.jobs),
-        remaining_jobs: num(r.remaining_jobs),
-        unpriced_jobs: num(r.unpriced_jobs),
-        booked: num(r.booked),
-        remaining: num(r.remaining),
-        recurring: num(r.recurring),
-        one_time: num(r.one_time),
+        jobs: num(r?.jobs),
+        remaining_jobs: num(r?.remaining_jobs),
+        unpriced_jobs: num(r?.unpriced_jobs),
+        booked: num(r?.booked),
+        remaining: num(r?.remaining),
+        recurring: num(r?.recurring),
+        one_time: num(r?.one_time),
       };
     });
 

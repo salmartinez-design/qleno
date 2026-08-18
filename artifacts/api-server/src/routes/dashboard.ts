@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { ctDate, ctToday, ctDateStr } from "../lib/ct-day.js";
-import { tzOf } from "../lib/company-tz.js";
+import { tzOf, companyDateStr } from "../lib/company-tz.js";
 import { scheduledTimeToMins, clockInMinsLocal } from "../lib/auto-tardy.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
@@ -453,7 +453,14 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     // next 30 days" tile, which has asked for `forecast_next_month` since it was
     // built and never got it — so it filtered itself out and rendered nothing.
     // Not a projection: it is the non-cancelled work already on the calendar.
-    const next30End = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    //
+    // This window is defined identically to /api/reports/revenue-forecast's
+    // next_30_days: anchored on the tenant's OWN calendar date (not UTC, which
+    // rolls over at 7pm here) and half-open, so "next 30 days" is exactly 30
+    // days. The two surfaces show the same figure and must not drift apart.
+    const fcStart = companyDateStr(companyId);
+    const fcEnd = new Date(new Date(`${fcStart}T00:00:00Z`).getTime() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString().split("T")[0];
 
     const [
       jhWeekRev,
@@ -665,8 +672,8 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
         LEFT JOIN clients c ON c.id = j.client_id
         WHERE j.company_id = ${companyId}
           AND j.status != 'cancelled'
-          AND j.scheduled_date >= ${next7Start}
-          AND j.scheduled_date <= ${next30End}
+          AND j.scheduled_date >= ${fcStart}
+          AND j.scheduled_date <  ${fcEnd}
       `),
 
       // Recurring schedules active count
