@@ -108,11 +108,28 @@ describe("the zip picks the branch, and the branch picks the merchant", () => {
     assert.ok(branchRouter.includes("return getBranchByZip(clean).branch"), "fallback retained");
   });
 
-  it("an unmapped branch falls back to the widget's company and says so", () => {
-    // Before the Schaumburg tenant exists, bookings must keep working exactly as
-    // they do today — but never silently.
+  it("an unready branch falls back to the widget's company and says so", () => {
+    // A tenant ROW existing is not the same as a tenant being able to take a
+    // booking. Phes Schaumburg (company 4) has existed for months with zero
+    // jobs and no pricing — routing to it on row-existence alone produces a job
+    // with no price and a card on a merchant that tenant cannot charge.
     assert.match(branchRouter, /usedFallback: true/);
-    assert.match(branchRouter, /console\.warn\([\s\S]{0,200}no company matches it/);
+    assert.match(branchRouter, /no company matches this branch/);
+    assert.match(branchRouter, /has no square_account_key/);
+    assert.match(branchRouter, /has no active pricing scopes/);
+  });
+
+  it("routing is all-or-nothing across setup and confirm", () => {
+    // The card is tokenized against the merchant chosen at /book/setup and saved
+    // by /book/confirm. If those resolve to different companies, the save uses
+    // the wrong merchant's token and EVERY booking in that branch fails. Both
+    // must go through the one resolver, and it must refuse a half-ready tenant.
+    assert.match(branchRouter, /square_account_key[\s\S]{0,400}scope_count/);
+    const gate = branchRouter.slice(branchRouter.indexOf("export async function resolveBookingTenant"));
+    assert.ok(
+      gate.includes("if (!row?.account_key)") && gate.includes("Number(row.scope_count ?? 0) === 0"),
+      "both readiness conditions must gate the handover",
+    );
   });
 
   it("/book/setup resolves the merchant from the ZIP, not the widget's slug", () => {

@@ -115,13 +115,67 @@ export async function resolveBranchByZip(zip: string): Promise<string> {
 export async function resolveBookingTenant(
   zip: string,
   fallbackCompanyId: number,
-): Promise<{ branch: string; companyId: number; usedFallback: boolean }> {
+): Promise<{ branch: string; companyId: number; usedFallback: boolean; reason?: string }> {
   const branch = await resolveBranchByZip(zip);
   const companyId = await getCompanyIdByBranch(branch);
-  if (companyId != null) return { branch, companyId, usedFallback: false };
+  if (companyId == null) {
+    return fallback(branch, fallbackCompanyId, zip, "no company matches this branch");
+  }
+  if (companyId === fallbackCompanyId) {
+    return { branch, companyId, usedFallback: false };
+  }
+
+  // ── The readiness gate ───────────────────────────────────────────────────
+  //
+  // A tenant ROW existing is not the same as a tenant being able to take a
+  // booking. Phes Schaumburg (company 4) has existed for months with zero jobs,
+  // zero clients and no pricing — its work still lives in MaidCentral. Routing a
+  // booking into it because the row exists would produce a job with no price and
+  // a card saved on a merchant that tenant cannot charge.
+  //
+  // Worse, routing must be ALL-OR-NOTHING. The card is tokenized against the
+  // merchant chosen at /book/setup and then saved by /book/confirm; if those two
+  // resolve to different companies, the save is attempted with the wrong
+  // merchant's access token and every booking in that branch fails. So both
+  // endpoints call this same function, and it only hands over the branch tenant
+  // once that tenant can actually complete the whole flow:
+  //
+  //   1. square_account_key set — the explicit "this branch has its own
+  //      merchant" switch. Without it the tenant would resolve to the DEFAULT
+  //      credentials, i.e. the other branch's Square account, which is the exact
+  //      outcome this whole change exists to prevent.
+  //   2. at least one active pricing scope — otherwise there is nothing to price
+  //      the booking against.
+  //
+  // Until both are true the booking stays on the widget's company and behaves
+  // exactly as it does today. Flipping them on is what turns this live.
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        NULLIF(TRIM(COALESCE(c.square_account_key, '')), '') AS account_key,
+        (SELECT COUNT(*) FROM pricing_scopes ps
+          WHERE ps.company_id = c.id AND COALESCE(ps.is_active, true) = true) AS scope_count
+      FROM companies c WHERE c.id = ${companyId} LIMIT 1
+    `);
+    const row = ((rows as any).rows ?? rows)[0];
+    if (!row?.account_key) {
+      return fallback(branch, fallbackCompanyId, zip, `company ${companyId} has no square_account_key`);
+    }
+    if (Number(row.scope_count ?? 0) === 0) {
+      return fallback(branch, fallbackCompanyId, zip, `company ${companyId} has no active pricing scopes`);
+    }
+  } catch (err) {
+    console.error("[branchRouter] readiness check failed:", err);
+    return fallback(branch, fallbackCompanyId, zip, "readiness check errored");
+  }
+
+  return { branch, companyId, usedFallback: false };
+}
+
+function fallback(branch: string, fallbackCompanyId: number, zip: string, reason: string) {
   console.warn(
-    `[branchRouter] zip ${zip} routes to branch '${branch}' but no company matches it — ` +
-    `falling back to company ${fallbackCompanyId}. Create the tenant to split these books.`,
+    `[branchRouter] zip ${zip} routes to branch '${branch}' but ${reason} — ` +
+    `booking stays on company ${fallbackCompanyId}.`,
   );
-  return { branch, companyId: fallbackCompanyId, usedFallback: true };
+  return { branch, companyId: fallbackCompanyId, usedFallback: true, reason };
 }
