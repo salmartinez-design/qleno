@@ -1362,6 +1362,12 @@ export default function BookPage() {
     return m[f] || f;
   }
 
+  // Same cadence, sentence form — "Then every <this>: $X/visit". Kept beside
+  // wLabel so the two phrasings can't drift apart.
+  function everyLabel(f: string) {
+    return f === "weekly" ? "week" : f === "biweekly" ? "2 weeks" : "4 weeks";
+  }
+
   // ── Shared styles ─────────────────────────────────────────────────────────
   const s = {
     input: {
@@ -1447,7 +1453,6 @@ export default function BookPage() {
     return d.toISOString().split("T")[0];
   })();
 
-  const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
   // [cleanliness-gate-parity 2026-08-17] Derived from the SAME flags the step-1
   // Continue gate reads (isDeepCleanScope / isOneTimeStandard / isRecurringScope),
   // never from a second string test on the scope name. When these two drifted, the
@@ -1465,22 +1470,31 @@ export default function BookPage() {
   // one-time standard, move in/out) — the recurring offer must NOT gate the
   // funnel. Unanswered defaults to "no thanks" (the offer stays visible). The
   // legal Move In/Out ack + cleanliness (a pricing input) do still gate.
-  const step1Blocked = (() => {
-    if (isCommercial) return !commercialOption;
-    if (!scopeId || !sqft) return true;
-    if (bedrooms < 1 || bathrooms < 1) return true;
-    if (showStandardAdvisory) return true;
-    if (isMoveInOut && !moveInAck) return true;
-    if (showVeryDirtyCard) return true;
-    if (isDeepCleanScope && cleanliness === 0) return true;
-    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return true;
-    if (isRecurringScope && (
-      !lastCleanedResponse ||
-      (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) ||
-      cleanliness === 0
-    )) return true;
-    return false;
+  // [step1-blocked-reason 2026-08-17] The ladder now returns WHY it blocked, not
+  // just that it did. Eight rules could dim Continue and exactly one of them
+  // (bedrooms/bathrooms) ever said so — every other path left a dead grey button
+  // with no explanation. Recurring took the worst of it: three silent gates in a
+  // row (last-cleaned answer, the overdue Deep Clean choice, the extended-rate
+  // acknowledgment) plus cleanliness, so a customer who scrolled past the
+  // acknowledgment checkbox simply could not proceed and was told nothing. Keep
+  // the reason and the block in ONE expression — a rule added without a message
+  // recreates the dead button.
+  const step1Block: string | null = (() => {
+    const overdue = ["1_3_months", "over_3_months"].includes(lastCleanedResponse);
+    if (isCommercial) return commercialOption ? null : "Choose Single Visit or Cleaning Walkthrough to continue.";
+    if (!scopeId) return "Select the type of cleaning you need to continue.";
+    if (!sqft) return "Enter your home's square footage to continue.";
+    if (bedrooms < 1 || bathrooms < 1) return "Please enter the number of bedrooms and bathrooms to continue.";
+    if (showStandardAdvisory) return "Choose Start with a Deep Clean or Continue with Standard Clean to continue.";
+    if (isMoveInOut && !moveInAck) return "Please check the move-in / move-out confirmation above to continue.";
+    if (showVeryDirtyCard) return "Homes needing extra attention are quoted by phone — call us or leave your info above and we'll reach out.";
+    if (isRecurringScope && !lastCleanedResponse) return "Tell us when your home was last professionally cleaned to continue.";
+    if (isRecurringScope && overdue && !lastCleanedOverride) return "Choose Book a Deep Clean Instead or Continue with Recurring Anyway to continue.";
+    if (isRecurringScope && overdue && !overageAcknowledged) return "Please check the extended service rate acknowledgment above to continue.";
+    if (showCleanlinessQ && cleanliness === 0) return "Rate your home's current cleanliness to continue.";
+    return null;
   })();
+  const step1Blocked = step1Block !== null;
 
   const conditionMultiplier = 1.0;
 
@@ -1554,16 +1568,9 @@ export default function BookPage() {
 
   const bundleAddonIds = new Set(bundles.flatMap(b => (b.items as { addon_id: number }[]).map(it => Number(it.addon_id))));
 
-  const addonPersuasionLine = (() => {
-    if (!scopeNameLower || isCommercial) return null;
-    if (scopeNameLower.includes("deep clean")) return "Deep cleans are the perfect time to tackle appliances and those forgotten spots — add extras while we're already there.";
-    if (scopeNameLower.includes("one-time") || scopeNameLower.includes("one time")) return "Make the most of your single visit — add any extras you want handled today.";
-    if (scopeNameLower.startsWith("recurring")) return "Regular clients save the most by including consistent extras in every visit.";
-    if (scopeNameLower.includes("move")) return "Moving out or in? Add appliance and cabinet cleaning to leave the place spotless.";
-    return null;
-  })();
-
-  const stepLabels = ["Contact", "Scope", "Frequency", "Date", "Payment", "Confirmed"];
+  // Step 2 is the cadence picker on a recurring booking and an add-ons page on
+  // every other package, so its chip name follows the flow the customer is in.
+  const stepLabels = ["Contact", "Service", isRecurringScope ? "Frequency" : "Extras", "Date", "Payment", "Confirmed"];
 
   // ── House rules data ──────────────────────────────────────────────────────
   const POLICIES = [
@@ -1725,7 +1732,7 @@ export default function BookPage() {
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 10, color: "#6B6860" }}>
-                Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+                Then every {everyLabel(upsellCadence)}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
               </p>
               <p style={{ margin: 0, fontSize: 10, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
               {recurringDate && (
@@ -1836,7 +1843,7 @@ export default function BookPage() {
                     </span>
                   </div>
                   <p style={{ margin: 0, fontSize: 11, color: "#6B6860" }}>
-                    Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+                    Then every {everyLabel(upsellCadence)}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
                   </p>
                   <p style={{ margin: 0, fontSize: 11, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
                   {recurringDate && (
@@ -2555,20 +2562,6 @@ export default function BookPage() {
                       </div>
                     ))}
                   </div>
-                  {/* Always rendered (visibility toggled, not mounted) so the row
-                      reserves its space and content below never reflows when a
-                      stepper crosses the bed/bath threshold. Fixes the mobile
-                      "aimed for 2 baths, got 1 — the row jumped" bug. */}
-                  <p
-                    aria-hidden={!(bedrooms < 1 || bathrooms < 1)}
-                    style={{
-                      fontSize: 12, color: "#B45309", margin: "0 0 14px", fontWeight: 500,
-                      visibility: (bedrooms < 1 || bathrooms < 1) ? "visible" : "hidden",
-                    }}
-                  >
-                    Please enter the number of bedrooms and bathrooms to continue.
-                  </p>
-
                   {showCleanlinessQ && !showStandardAdvisory && (
                     <div style={{ marginBottom: 16 }}>
                       <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 8 }}>
@@ -2804,11 +2797,7 @@ export default function BookPage() {
                               onClick={() => { setUpsellDeclined(true); setUpsellAccepted(false); setRecurringDate(""); setFrequencyStr(""); setRecurringArrivalWindow(""); }}
                               style={{ padding: "12px 20px", background: "#FFFFFF", color: "#6B6860", border: "1px solid #6B6860", borderRadius: 8, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                             >
-                              {upsellContext === "move_in_out"
-                                ? "No thanks, just the Move In/Out clean"
-                                : upsellContext === "standard"
-                                ? "No thanks, just the Standard Clean"
-                                : "No thanks, just the Deep Clean"}
+                              No thanks, just the {packageDisplayName}
                             </button>
                           </div>
                         </>
@@ -2894,7 +2883,25 @@ export default function BookPage() {
                 </div>
               )}
 
-              <div className="bw-nav" style={{ display: isPostConstruction ? "none" : "flex", justifyContent: "space-between", marginTop: 16 }}>
+              {/* Why Continue is dimmed. Always mounted with its space reserved
+                  (visibility, not conditional render) so the button never jumps as
+                  the reason changes or clears — same reflow guard the bed/bath
+                  notice used to carry. */}
+              {!isPostConstruction && (
+                <p
+                  aria-live="polite"
+                  aria-hidden={!step1Block}
+                  style={{
+                    fontSize: 12, color: "#B45309", fontWeight: 500, lineHeight: 1.5,
+                    margin: "16px 0 0", minHeight: 36, textAlign: "center" as const,
+                    visibility: step1Block ? "visible" : "hidden",
+                  }}
+                >
+                  {step1Block ?? ""}
+                </p>
+              )}
+
+              <div className="bw-nav" style={{ display: isPostConstruction ? "none" : "flex", justifyContent: "space-between", marginTop: isPostConstruction ? 16 : 0 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: step1Blocked ? 0.5 : 1 }}
@@ -2934,8 +2941,11 @@ export default function BookPage() {
                 </>
               )}
 
-              {/* Deep Clean + upsell accepted — read-only frequency row */}
-              {isDeepCleanScope && upsellAccepted && (
+              {/* Upsell accepted — read-only frequency row. Gated on
+                  showUpsellConfirmed, not isDeepCleanScope: Move In/Out and
+                  One-Time Standard can accept the same offer, and they used to
+                  land on step 2 with no sign of the cadence they had just picked. */}
+              {showUpsellConfirmed && (
                 <div style={{ marginBottom: 24, padding: "14px 16px", background: "#F7F6F3", borderRadius: 10, border: "1px solid #E5E2DC" }}>
                   <p style={{ margin: "0 0 4px", fontSize: 13, color: "#6B6860", fontWeight: 600 }}>Cleaning Frequency</p>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3336,7 +3346,7 @@ export default function BookPage() {
           {/* ── Step 3: Date Selection ────────────────────────────────────────── */}
           {step === 3 && (
             <div style={s.card}>
-              <p style={s.h2}>{upsellAccepted ? "Schedule your Deep Clean" : "When would you like your first cleaning?"}</p>
+              <p style={s.h2}>{upsellAccepted ? `Schedule your ${packageDisplayName}` : "When would you like your first cleaning?"}</p>
               <p style={s.sub}>All available dates are shown below. Select your preferred date.</p>
 
               <SimpleCalendar
@@ -3565,7 +3575,7 @@ export default function BookPage() {
                   <Row label="Name" value={`${firstName} ${lastName}`} />
                   <Row label="Email" value={email} />
                   <Row label="Phone" value={phone} />
-                  <Row label="Service" value={selectedScope?.name ?? ""} />
+                  <Row label="Service" value={packageDisplayName} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
                   {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
@@ -3663,7 +3673,7 @@ export default function BookPage() {
                 </div>
                 <p style={{ margin: "0 0 10px", fontSize: 28, fontWeight: 800, lineHeight: 1.2, letterSpacing: "-0.02em", color: "#1A1917" }}>Your booking is confirmed!</p>
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>
-                  Thank you, {firstName}. {selectedScope?.name} is scheduled
+                  Thank you, {firstName}. {packageDisplayName} is scheduled
                   {selectedDate ? ` for ${new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` : ""}
                   {arrivalWindow ? ` at ${arrivalWindow}` : ""}.
                 </p>
@@ -3686,9 +3696,9 @@ export default function BookPage() {
                   <Row label="Name" value={`${firstName} ${lastName}`} />
                   <Row label="Email" value={email} />
                   <Row label="Phone" value={phone} />
-                  <Row label="Service" value={selectedScope?.name ?? ""} />
+                  <Row label="Service" value={packageDisplayName} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
-                  {upsellAccepted && <Row label="Frequency" value={wLabel(upsellCadence)} />}
+                  {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                   {upsellAccepted && recurringDate && <Row label="First Recurring Date" value={new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                   {arrivalWindow && <Row label="Preferred Start Time" value={arrivalWindow} />}
