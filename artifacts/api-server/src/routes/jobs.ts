@@ -6287,12 +6287,21 @@ router.post("/:id/reopen", requireAuth, requireRole("owner", "admin", "office", 
       // Same recompute the clock routes run after any write — actual_hours is
       // the span of the CLOSED entries that remain, and NULL once none do, so
       // the efficiency numbers don't keep quoting hours from deleted rows.
+      //
+      // [zero-vs-null 2026-08-18] "NULL once none do" is what the comment always
+      // claimed and what the SQL never did: GREATEST ignores NULL arguments, so
+      // an empty aggregate collapsed to 0 and the job was stamped "worked no
+      // time" instead of "unknown". Reopening a job whose only punches were the
+      // synthetic Mark Complete pair therefore wrote a hard 0 that nothing
+      // later corrected. Matches recomputeJobActualHours in routes/timeclock.ts
+      // — if one changes, both must.
       try {
         await db.execute(sql`
           UPDATE jobs SET actual_hours = sub.h
           FROM (
-            SELECT ROUND(GREATEST(
-                     EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2) AS h
+            SELECT CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(GREATEST(
+                     EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2)
+                   END AS h
             FROM timeclock
             WHERE job_id = ${jobId} AND company_id = ${companyId} AND clock_out_at IS NOT NULL
           ) sub

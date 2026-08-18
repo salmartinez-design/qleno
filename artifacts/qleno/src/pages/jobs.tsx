@@ -3794,10 +3794,29 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           {(() => {
             const ce = job.clock_entry;
             const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : null;
+            // The span the punch itself shows — the same arithmetic the Time
+            // Clock tab below does, so the two halves of this panel can't
+            // contradict each other.
+            const clockSpan = (ce?.clock_in_at && ce?.clock_out_at)
+              ? (new Date(ce.clock_out_at).getTime() - new Date(ce.clock_in_at).getTime()) / 3600000
+              : null;
             let actual: number | null = job.actual_hours != null ? Number(job.actual_hours)
               : (job.billed_hours != null ? Number(job.billed_hours) : null);
-            if (actual == null && ce?.clock_in_at && ce?.clock_out_at) {
-              actual = (new Date(ce.clock_out_at).getTime() - new Date(ce.clock_in_at).getTime()) / 3600000;
+            // [zero-vs-null 2026-08-18] A stored 0 alongside a real closed punch
+            // is not an answer, it's a stale stamp — jobs.actual_hours used to
+            // be written as 0 whenever it was recomputed while nobody had
+            // clocked out yet, and the field clock-out never corrected it. The
+            // fall-back below only fired on null, so the panel printed a
+            // confident "Actual 0.0h · Variance −3.0h" directly above a clock
+            // reading 9:45 AM–1:46 PM (job 20994, Francisco 8/18: "hours and
+            // time clock are not giving the right info").
+            //
+            // The server no longer writes that 0 and repairs the rows that have
+            // it; this keeps the card honest for any that slip through, and
+            // costs nothing when the stored value is right — a genuinely
+            // zero-length punch has clockSpan 0 too.
+            if ((actual == null || actual === 0) && clockSpan != null && clockSpan > 0) {
+              actual = clockSpan;
             }
             if (allowed == null && actual == null && !ce) return null;
             const variance = (allowed != null && actual != null) ? actual - allowed : null;

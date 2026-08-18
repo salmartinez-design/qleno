@@ -715,6 +715,50 @@ async function runStartupMigrations() {
     recordStartupFailure("ensureLateClockInSchema", err);
   }
   try {
+    // [actual-hours-repair 2026-08-18] Re-derive jobs.actual_hours for every job
+    // whose stored value disagrees with its own clock entries.
+    //
+    // Two upstream defects put these rows there, both fixed in this change: the
+    // field app's clock-out never recomputed (so the value never advanced past
+    // whatever the office last left it at), and the recompute wrote 0 rather
+    // than NULL when no punch was closed yet (GREATEST ignores NULL). On the
+    // 8/18 board alone that left six completed jobs at NULL and four at a hard
+    // 0 despite full closed clock pairs — job 20994 punched 9:45 AM → 1:46 PM
+    // and reporting Actual 0.0h.
+    //
+    // Deliberately NARROW: only rows that are NULL or 0 while a closed punch
+    // exists. Those are unambiguously wrong and the correct value is sitting
+    // right there in the timeclock table — this recomputes, it does not
+    // estimate. A job with a non-zero actual_hours is never touched, so an
+    // office correction can't be undone by a redeploy.
+    //
+    // Runs every boot rather than once. It is idempotent (a repaired row no
+    // longer matches the filter) and cheap, and leaving it in place means the
+    // same self-healing sweep is already here if another write path is ever
+    // found skipping the recompute.
+    await withBootTimeout("repairJobActualHours", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      const res = await db.execute(sql`
+        UPDATE jobs j SET actual_hours = tc.h
+        FROM (
+          SELECT job_id, company_id,
+                 ROUND(GREATEST(EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2) AS h
+            FROM timeclock
+           WHERE clock_out_at IS NOT NULL
+           GROUP BY job_id, company_id
+        ) tc
+        WHERE j.id = tc.job_id AND j.company_id = tc.company_id
+          AND tc.h > 0
+          AND (j.actual_hours IS NULL OR j.actual_hours = 0)
+        RETURNING j.id`);
+      const n = (res as any).rows?.length ?? 0;
+      if (n > 0) console.log(`[actual-hours-repair] recomputed actual_hours on ${n} job(s) from their clock entries`);
+    });
+  } catch (err: any) {
+    recordStartupFailure("repairJobActualHours", err);
+  }
+  try {
     // [job-created-audit 2026-08-08] Who booked a visit, and from where. Both
     // nullable with NO backfill — historical jobs genuinely don't know their
     // creator, and inventing one would be worse than an honest blank. The
