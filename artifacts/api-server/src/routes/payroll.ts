@@ -28,6 +28,9 @@ import {
 import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
 import { inIntList } from "../lib/sql-lists.js";
 import { tzOf } from "../lib/company-tz.js";
+// [pay-day 2026-08-17] Every additional_pay window goes through these. Never
+// filter the table on created_at — see lib/pay-day.ts for why.
+import { payDayBetween, payDaySql, payDayNow } from "../lib/pay-day.js";
 // [mileage-unmeasured 2026-08-15] Same coord rule the mileage engine uses, so
 // "this drive has no coordinates" on the summary means exactly what it means to
 // the writer. See lib/job-coords.ts.
@@ -104,8 +107,7 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       .where(and(
         eq(additionalPayTable.company_id, req.auth!.companyId),
         ne(additionalPayTable.status, "voided"),
-        gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
-        lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`))
+        payDayBetween(String(pay_period_start), String(pay_period_end)),
       ))
       .groupBy(additionalPayTable.user_id, additionalPayTable.type);
 
@@ -551,7 +553,7 @@ router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), a
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ error: "Bad Request", message: "from and to are required (YYYY-MM-DD)" });
     const companyId = req.auth!.companyId;
-    const f = String(from), t = String(to), tEnd = `${to} 23:59:59`;
+    const f = String(from), t = String(to);
 
     let row: any = {};
     try {
@@ -572,7 +574,7 @@ router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), a
                AND NOT EXISTS (
                  SELECT 1 FROM additional_pay ap
                  WHERE ap.user_id = j.assigned_user_id AND ap.type = 'tips'
-                   AND ap.created_at BETWEEN ${f} AND ${tEnd})) AS missing_tips
+                   AND ${payDaySql("ap")} BETWEEN ${f} AND ${t})) AS missing_tips
       `);
       row = r.rows[0] || {};
     } catch (e) {
@@ -771,14 +773,14 @@ router.get("/detail", requireAuth, async (req, res) => {
     } catch { /* branches table not in some seeded tenants; rollup degrades to ids */ }
 
     // Get additional pay for the period (tips, mileage — period level, not per job)
-    // Bucket additional pay by its effective date (created_at), inclusive of the
-    // whole end day in UTC so an entry dated on the last day of the period lands
-    // in the period. [additional-pay-date 2026-06-08]
+    // Bucketed by the row's pay day, which is what effective_date carries.
+    // [pay-day 2026-08-17] This used to window created_at against UTC instants,
+    // so anything the office recorded after 7pm Central filed on the next
+    // calendar day and landed in the following week's payroll.
     const addlPayConditions: any[] = [
       eq(additionalPayTable.company_id, companyId),
       ne(additionalPayTable.status, "voided"),
-      gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
-      lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`)),
+      payDayBetween(String(pay_period_start), String(pay_period_end)),
     ];
     if (filterUserId) addlPayConditions.push(eq(additionalPayTable.user_id, filterUserId));
 
@@ -788,13 +790,15 @@ router.get("/detail", requireAuth, async (req, res) => {
       .where(and(...addlPayConditions));
 
     // [addl-pay-day 2026-08-17] Two dates the row itself doesn't carry cleanly:
-    //   created_date — created_at rendered in SQL, not JS. created_at is a
-    //     `timestamp without time zone`, so letting the driver hand back a Date
-    //     and slicing an ISO string re-interprets it against the server's zone
-    //     and can slide an entry a day. to_char() settles it in Postgres.
+    //   created_date — the row's PAY day, rendered in SQL rather than JS.
+    //     effective_date is what carries it now; the COALESCE inside payDaySql
+    //     falls back to created_at::date for anything written before the column
+    //     existed. Rendering it in Postgres also keeps the driver from handing
+    //     back a Date that gets re-read against the server's zone on the way to
+    //     an ISO slice, which slides an entry a day on its own.
     //   leave_date   — PLAWA/PTO pay written by the office-deduct path stamps
-    //     created_at at the LEAVE day, but the approve-a-request path stamps it
-    //     at approval time, which can be a different week than the day off.
+    //     the LEAVE day, but the approve-a-request path stamps approval time,
+    //     which can be a different week than the day off.
     //     Both spellings embed the usage id, so join it back for the true day.
     //     Guarded `~` before the ::int cast — a bare cast on a non-numeric
     //     capture 500s the whole payroll screen. [comm-log-job-id lesson]
@@ -803,7 +807,7 @@ router.get("/detail", requireAuth, async (req, res) => {
       try {
         const dateRows = await db.execute(sql`
           SELECT ap.id,
-                 to_char(ap.created_at, 'YYYY-MM-DD') AS created_date,
+                 to_char(${payDaySql("ap")}, 'YYYY-MM-DD') AS created_date,
                  to_char(lu.date_used, 'YYYY-MM-DD')  AS leave_date
             FROM additional_pay ap
             LEFT JOIN employee_leave_usage lu
@@ -1927,7 +1931,7 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       // tip keyed in on the 28th for a job worked on the 20th landed in the
       // wrong bar — payroll smeared one way while revenue stayed put, and the
       // weekly ratio was wrong in both weeks. Commission has always bucketed by
-      // scheduled_date; this makes pay agree with it. The created_at range is
+      // scheduled_date; this makes pay agree with it. The pay-day range is
       // widened ±31d so a row whose job sits just inside the window still gets
       // picked up (and one whose job sits outside correctly drops out).
       //
@@ -1938,13 +1942,12 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       // silently being wrong in whichever direction we happened to pick.
       try {
         const ap = await db.execute(sql`
-          SELECT ap.amount, ap.created_at::date::text AS created_day,
+          SELECT ap.amount, ${payDaySql("ap")}::text AS created_day,
                  j.scheduled_date::text AS job_date, j.branch_id AS job_branch
           FROM additional_pay ap
           LEFT JOIN jobs j ON j.id = ap.job_id
           WHERE ap.company_id = ${companyId} AND ap.status <> 'voided'
-            AND ap.created_at >= ${addDays(from, -31)}
-            AND ap.created_at <= ${addDays(to, 31) + " 23:59:59"}`);
+            AND ${payDaySql("ap")} BETWEEN ${addDays(from, -31)} AND ${addDays(to, 31)}`);
         for (const r of ap.rows as any[]) {
           const amt = parseFloat(String(r.amount || 0)) || 0;
           if (!amt) continue;
@@ -2104,11 +2107,13 @@ router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), a
     }
     const companyId = req.auth!.companyId;
     const parsedAmount = parseFloat(amount);
-    // Stamp created_at to the effective date (noon UTC) so the entries land in
-    // the intended pay period — same mechanism as the single additional-pay
-    // route. Without this, bulk holiday/tip pay always buckets into "now",
-    // landing in the wrong week for a past-dated adjustment (e.g. 4th of July).
-    const createdAt = date ? new Date(`${date}T12:00:00Z`) : new Date();
+    // [pay-day 2026-08-17] The day the office picked IS the pay day — that's
+    // what effective_date is for, and it's the only thing payroll windows on
+    // now. When they don't pick one, use the tenant's own calendar day rather
+    // than a UTC now() that is already tomorrow after 7pm Central. created_at
+    // keeps its old value for continuity but no longer drives any bucket.
+    const payDay = date ? String(date).slice(0, 10) : payDayNow(companyId);
+    const createdAt = new Date(`${payDay}T12:00:00Z`);
 
     // Verify all employees belong to this company
     const emps = await db
@@ -2128,6 +2133,7 @@ router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), a
       notes: notes || null,
       status: "pending" as const,
       created_at: createdAt,
+      effective_date: payDay,
     }));
 
     await db.insert(additionalPayTable).values(inserts);

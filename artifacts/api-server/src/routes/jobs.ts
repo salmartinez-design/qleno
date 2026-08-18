@@ -6,6 +6,7 @@ import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { ctDate } from "../lib/ct-day.js";
 import { tzOf } from "../lib/company-tz.js";
+import { payDayNow } from "../lib/pay-day.js";
 import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
@@ -5614,8 +5615,12 @@ async function listJobTips(jobId: number, companyId: number) {
 async function resolveTipPeriodDate(
   companyId: number,
   naturalDateStr: string,
-): Promise<{ createdAt: Date; tag: string | null }> {
-  const natural = new Date(`${naturalDateStr}T12:00:00Z`);
+): Promise<{ createdAt: Date; payDay: string; tag: string | null }> {
+  // [pay-day 2026-08-17] payDay is the real answer — the day this tip pays out,
+  // written to additional_pay.effective_date. createdAt is still returned (and
+  // still stamped) so a row written by this build reads identically on an older
+  // one, but nothing filters on it any more. See lib/pay-day.ts.
+  const at = (day: string) => ({ createdAt: new Date(`${day}T12:00:00Z`), payDay: day });
   try {
     const pr = await db.execute(sql`
       SELECT status FROM pay_periods
@@ -5623,7 +5628,10 @@ async function resolveTipPeriodDate(
       ORDER BY start_date DESC LIMIT 1`);
     const p = pr.rows[0] as any;
     if (p && (p.status === "approved" || p.status === "exported")) {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      // The tenant's own calendar day, not the server's. toISOString() here was
+      // already tomorrow for anything the office typed after 7pm Central, which
+      // could reslot a tip past the end of the open period.
+      const todayStr = payDayNow(companyId);
       const op = await db.execute(sql`
         SELECT start_date::text AS start_date, end_date::text AS end_date FROM pay_periods
         WHERE company_id = ${companyId} AND status = 'open'
@@ -5631,14 +5639,13 @@ async function resolveTipPeriodDate(
       const o = op.rows[0] as any;
       if (o) {
         const within = todayStr >= o.start_date && todayStr <= o.end_date;
-        const createdAt = new Date(`${within ? todayStr : o.end_date}T12:00:00Z`);
-        return { createdAt, tag: `[tip reslotted from ${naturalDateStr}: pay period ${p.status}]` };
+        return { ...at(within ? todayStr : o.end_date), tag: `[tip reslotted from ${naturalDateStr}: pay period ${p.status}]` };
       }
       // No open period to receive it — keep the job date but flag it for review.
-      return { createdAt: natural, tag: `[tip on ${naturalDateStr}: pay period ${p.status}]` };
+      return { ...at(naturalDateStr), tag: `[tip on ${naturalDateStr}: pay period ${p.status}]` };
     }
   } catch { /* pay_periods table absent / not in use — natural date stands */ }
-  return { createdAt: natural, tag: null };
+  return { ...at(naturalDateStr), tag: null };
 }
 
 // ── Tip → invoice (the "no manual invoice editing" piece) ───────────────────
@@ -5880,13 +5887,14 @@ router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), a
     }
 
     // Pay the tech(s).
-    const { createdAt, tag } = await resolveTipPeriodDate(companyId, ctx.scheduledDate);
+    const { createdAt, payDay, tag } = await resolveTipPeriodDate(companyId, ctx.scheduledDate);
     const baseNote = note ? String(note).slice(0, 300).trim() : "";
     const finalNote = [baseNote, tag].filter(Boolean).join(" ").trim() || null;
     for (const a of allocs) {
       await db.insert(additionalPayTable).values({
         company_id: companyId, user_id: a.user_id, amount: a.amount.toFixed(2),
-        type: "tips", notes: finalNote, job_id: jobId, status: "pending", created_at: createdAt,
+        type: "tips", notes: finalNote, job_id: jobId, status: "pending",
+        created_at: createdAt, effective_date: payDay,
       });
     }
     try { await logAudit(req, "job_tip.add", "job", jobId, null, { allocations: allocs, note: finalNote, reslotted: !!tag, update_invoice: updateInvoice, charged: chargeCard }); } catch {}

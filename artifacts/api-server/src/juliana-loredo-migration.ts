@@ -169,12 +169,14 @@ async function runJulianaLoredoMigration() {
     `);
     if (exists.rows.length === 0) {
       await db.execute(sql`
-        INSERT INTO additional_pay (company_id, user_id, amount, type, notes, status, created_at)
+        -- [pay-day 2026-08-17] effective_date carries the historical date now;
+        -- created_at keeps the same value so the dedupe guard above still matches.
+        INSERT INTO additional_pay (company_id, user_id, amount, type, notes, status, created_at, effective_date)
         VALUES (
           ${COMPANY_ID}, ${EMPLOYEE_ID}, ${r.amount},
           ${r.type},
           ${r.notes}, 'pending'::additional_pay_status,
-          ${r.date}::date
+          ${r.date}::date, ${r.date}::date
         )
       `);
       payInserted++;

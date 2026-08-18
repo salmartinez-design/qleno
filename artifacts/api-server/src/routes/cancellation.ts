@@ -17,6 +17,7 @@ import {
 } from "../lib/cancellation-tech-pay.js";
 import { tombstoneJobOccurrence } from "../lib/recurring-tombstone.js";
 import { tzOf } from "../lib/company-tz.js";
+import { payDayNow } from "../lib/pay-day.js";
 
 const router = Router();
 
@@ -543,12 +544,20 @@ router.post("/action", requireAuth, async (req, res) => {
         if (techPay.pays_tech && perTechPay > 0) {
           const noteLabel = `${action === "lockout" ? "Lockout" : "Cancel"} pay — ${row.client_name ?? "Customer"} (job #${body.job_id})`;
           for (const tid of techIds) {
+            // [pay-day 2026-08-17] Pays in the week the office records the
+            // cancellation — unchanged behaviour, now stamped from the tenant's
+            // own calendar instead of a UTC now() that is already tomorrow
+            // after 7pm Central. (Deliberately not the job's scheduled_date:
+            // unlike tips, this path has no closed-period guard, so back-dating
+            // could drop the money into an already-exported week and the
+            // cleaner would never be paid it.)
             await tx.execute(sql`
               INSERT INTO additional_pay
-                (company_id, user_id, amount, type, notes, job_id, status)
+                (company_id, user_id, amount, type, notes, job_id, status, effective_date)
               VALUES
                 (${companyId}, ${tid}, ${perTechPay.toFixed(2)},
-                 'cancellation_pay', ${noteLabel}, ${body.job_id}, 'pending')
+                 'cancellation_pay', ${noteLabel}, ${body.job_id}, 'pending',
+                 ${payDayNow(companyId)}::date)
             `);
             techPayWritten.push({ user_id: tid, amount: perTechPay });
           }

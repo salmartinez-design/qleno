@@ -6,6 +6,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, sql, isNull, count, sum, lt, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { payDayOnOrBefore } from "../lib/pay-day.js";
 
 const router = Router();
 
@@ -196,7 +197,10 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       .where(and(
         eq(additionalPayTable.company_id, companyId),
         eq(additionalPayTable.status, "pending"),
-        sql`date(${additionalPayTable.created_at}) <= ${todayStr}`
+        // [pay-day 2026-08-17] Sweep by the day the money belongs to. On
+        // created_at this marked tomorrow's rows paid today — anything typed
+        // after 7pm Central already carried tomorrow's UTC date.
+        payDayOnOrBefore(todayStr)
       ))
       .returning({ id: additionalPayTable.id });
 

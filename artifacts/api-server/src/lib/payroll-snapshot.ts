@@ -4,6 +4,9 @@ import { type ClockEntry } from "./payroll-compute.js";
 import { computePerTechPayRowsDetailed, type JobTechRow } from "./commission-paytype.js";
 import { parseResRatesRow } from "./commission-rates.js";
 import { snapshotToExportRow, type PayExportRow } from "./pay-export.js";
+// [pay-day 2026-08-17] additional_pay is windowed on the day the money belongs
+// to, never on created_at. See lib/pay-day.ts.
+import { payDaySql } from "./pay-day.js";
 
 /**
  * Phase 2 — PUBLISH PAYROLL: snapshot each tech's computed pay for a pay period
@@ -160,12 +163,15 @@ export async function computePeriodPay(companyId: number, start: string, end: st
     paidHoursOverride: paidOv,
   });
 
-  // additional_pay by user + type, bucketed by created_at in the window
+  // additional_pay by user + type, bucketed by the row's pay day in the window.
+  // [pay-day 2026-08-17] Was windowed on created_at against UTC instants, which
+  // filed anything recorded after 7pm Central into the next day — and a
+  // published snapshot then froze that mistake into the record.
   const addlByUser = new Map<number, Record<string, number>>();
   for (const r of (await db.execute(sql`
     SELECT user_id, type, COALESCE(SUM(amount), 0) AS t FROM additional_pay
     WHERE company_id = ${companyId} AND status <> 'voided'
-      AND created_at >= ${start + "T00:00:00Z"} AND created_at <= ${end + "T23:59:59Z"}
+      AND ${payDaySql("additional_pay")} BETWEEN ${start} AND ${end}
     GROUP BY user_id, type`)).rows as any[]) {
     const uid = Number(r.user_id);
     if (!addlByUser.has(uid)) addlByUser.set(uid, {});

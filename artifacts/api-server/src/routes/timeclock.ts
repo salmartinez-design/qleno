@@ -1660,8 +1660,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         // (type 'cancellation_pay'). Surface it per job:tech so the time
         // clock shows the $X the tech is owed for the lockout/cancel
         // instead of a blank "—" (Sal: "no indication of the cancel
-        // impacting Hilda's pay"). Keyed by the JOB's date via job_id, not
-        // additional_pay.created_at (which is when the office reclassified).
+        // impacting Hilda's pay"). Keyed by the JOB's date via job_id, not the
+        // row's pay day (which is when the office reclassified).
         try {
           const cp = await db.execute(sql`
             SELECT job_id, user_id, COALESCE(SUM(amount), 0)::float AS amount

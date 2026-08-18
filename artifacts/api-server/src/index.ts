@@ -1103,6 +1103,25 @@ async function runStartupMigrations() {
   } catch (err: any) {
     recordStartupFailure("ensurePayrollP0Setup", err);
   }
+  // [pay-day 2026-08-17] additional_pay.effective_date — the day a money row
+  // belongs to, split out from created_at (the day it was typed). The column is
+  // schema and goes everywhere; the backfill writes data and is gated to a real
+  // production deploy like every other data migration. Both are idempotent —
+  // the backfill only ever fills NULLs.
+  try {
+    await withBootTimeout("ensurePayDayColumn", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensurePayDayColumn } = await import("./lib/pay-day.js");
+      await ensurePayDayColumn();
+    });
+    if (RUN_DATA_MIGRATIONS) {
+      await withBootTimeout("backfillPayDay", MIGRATION_TIMEOUT_MS, async () => {
+        const { backfillPayDay } = await import("./lib/pay-day.js");
+        await backfillPayDay();
+      });
+    }
+  } catch (err: any) {
+    recordStartupFailure("ensurePayDayColumn", err);
+  }
   try {
     await withBootTimeout("ensurePayrollSnapshotSetup", SCHEMA_TIMEOUT_MS, async () => {
       const { ensurePayrollSnapshotSetup } = await import("./lib/payroll-snapshot.js");
