@@ -12,8 +12,24 @@ import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-displa
 import { ctDateStr } from "../lib/ct-day.js";
 import { tzOf } from "../lib/company-tz.js";
 import { inIntList } from "../lib/sql-lists.js";
+import { jobHasOwnAddress } from "../lib/job-address.js";
 
 const router = Router();
+
+// [partial-override 2026-08-18] The ONE signal every address component switches
+// on. Declared once so the five CASE arms below cannot drift apart — that drift
+// is the [addr-city-state 2026-08-08] hybrid. See lib/job-address.ts.
+const JOB_HAS_OWN_ADDRESS = jobHasOwnAddress(jobsTable);
+
+// [dup-components 2026-08-18] Whole-word containment, NOT substring: "IL" sits
+// inside "Willowcreek" and "Clarendon Hills", and a plain includes() would
+// decide the state was already written and drop it from every address in town.
+function addrHas(haystack: string, needle?: string | null): boolean {
+  const h = (haystack ?? "").trim();
+  const n = (needle ?? "").trim();
+  if (!h || !n) return false;
+  return new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(h);
+}
 
 // [tech-boundary 2026-06-17] All /api/dispatch routes are office-tier
 // only — techs have no business reading the full company dispatch
@@ -128,20 +144,40 @@ async function buildDispatchPayload(
         // stale city and state from the job, corrected zip from the client.
         // Maribel: "the zip code was updated but not the state and city."
         //
-        // The switch is whether the job carries its OWN street — the same signal
-        // PATCH /jobs/:id/address uses to decide a per-job override exists. When
-        // it does, every component comes from the job (a NULL city stays NULL and
-        // is visibly missing, rather than being quietly filled from elsewhere).
-        // Otherwise every component comes from the client.
-        client_zip: sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+        // The switch is whether the job carries a USABLE address of its own.
+        // When it does, every component comes from the job (a NULL city stays
+        // NULL and is visibly missing, rather than being quietly filled from
+        // elsewhere). Otherwise every component comes from the client.
+        //
+        // [partial-override 2026-08-18] "Usable" is the part that was missing,
+        // and it cost Maribel a second report on the same card: "still
+        // happening. it doesnt show the full address."
+        //
+        // The signal used to be street-alone. A job holding ONLY a street —
+        // which is what the booking and quote flows write — then suppressed the
+        // client's city, state and zip as well, because they resolve as a unit.
+        // Cynthiia Lopezz (CL-1533, job 21015, booked 8/18): the client record
+        // reads "17878 Argos Court, Tinley Park, IL 60477" and the card rendered
+        // "17878 Argos Court" and nothing else. Sal's standing rule is that if
+        // an address is shown, the zip is shown (CLAUDE.md), and a street with
+        // no town is not an address a cleaner can drive to.
+        //
+        // A street with no city AND no zip is not an override, it is an
+        // incomplete copy: there is no second location being described, so
+        // there is nothing to protect and the client record wins whole. One
+        // component beyond the street is enough to make it a real site.
+        //
+        // Still resolved as a UNIT — the hybrid this replaces is the
+        // [addr-city-state 2026-08-08] bug and must not come back.
+        client_zip: sql<string | null>`CASE WHEN ${JOB_HAS_OWN_ADDRESS}
                                             THEN ${jobsTable.address_zip} ELSE ${clientsTable.zip} END`,
-        address: sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+        address: sql<string | null>`CASE WHEN ${JOB_HAS_OWN_ADDRESS}
                                          THEN ${jobsTable.address_street} ELSE ${clientsTable.address} END`,
-        city:    sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+        city:    sql<string | null>`CASE WHEN ${JOB_HAS_OWN_ADDRESS}
                                          THEN ${jobsTable.address_city} ELSE ${clientsTable.city} END`,
-        state:   sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+        state:   sql<string | null>`CASE WHEN ${JOB_HAS_OWN_ADDRESS}
                                          THEN ${jobsTable.address_state} ELSE ${clientsTable.state} END`,
-        zip:     sql<string | null>`CASE WHEN NULLIF(BTRIM(${jobsTable.address_street}), '') IS NOT NULL
+        zip:     sql<string | null>`CASE WHEN ${JOB_HAS_OWN_ADDRESS}
                                          THEN ${jobsTable.address_zip} ELSE ${clientsTable.zip} END`,
         // [inline-edit] Raw fields needed by the popover address editor to
         // detect mode (job-level override vs client-level default) before
@@ -979,11 +1015,20 @@ async function buildDispatchPayload(
       // ships to the frontend so there's only one rule. State + zip are
       // mandatory if address is shown — see CLAUDE.md "Address display"
       // invariant.
+      // [dup-components 2026-08-18] Mirrors formatAddress() in the frontend's
+      // lib/format-address.ts, including its no-double-up rule — see the note
+      // there. `clients.address` does not always hold a bare street; plenty of
+      // rows hold a whole formatted line, which is how job 15243 shipped
+      // reading "2333 North Janssen Avenue, Chicago, IL 60614, IL 60614".
       const fmtAddr = (street?: string | null, city?: string | null, state?: string | null, zip?: string | null): string | null => {
         const parts: string[] = [];
         if (street) parts.push(street.trim());
-        if (city) parts.push(city.trim());
-        const stateZip = [state?.trim(), zip?.trim()].filter(Boolean).join(" ");
+        if (city && !addrHas(parts.join(", "), city)) parts.push(city.trim());
+        const soFar = parts.join(", ");
+        const stateZip = [
+          state?.trim() && !addrHas(soFar, state) ? state.trim() : "",
+          zip?.trim() && !addrHas(soFar, zip) ? zip.trim() : "",
+        ].filter(Boolean).join(" ");
         if (stateZip) parts.push(stateZip);
         return parts.length > 0 ? parts.join(", ") : null;
       };

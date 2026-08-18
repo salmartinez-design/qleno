@@ -37,12 +37,43 @@ export function formatAddress(
   const state_ = s(state);
   const zip_ = s(zip);
 
+  // [dup-components 2026-08-18] `clients.address` does not always hold a bare
+  // street. Plenty of rows hold a fully formatted address — Cynthiia Lopezz
+  // (CL-1533) is stored as "17878 Argos Court, Tinley Park, IL 60477" with the
+  // city and state columns empty — because the booking widget, imports and the
+  // office quote form have all written the whole line into that one field over
+  // the years.
+  //
+  // Appending city/state/zip to a street that already contains them is how job
+  // 15243 shipped to production reading
+  //   "2333 North Janssen Avenue, Chicago, IL 60614, IL 60614".
+  //
+  // So a component is skipped when the text so far already contains it. This
+  // never suppresses real information: it only declines to say the same thing
+  // twice. `appendZipIfMissing` below has always worked this way; the rule
+  // simply belongs here too.
+  // Whole-word match, NOT substring. "IL" appears inside "Willowcreek" and
+  // "Clarendon Hills"; a plain includes() would decide the state was already
+  // present and drop it from every address in Clarendon Hills.
+  const already = (haystack: string, needle: string) => {
+    if (!haystack || !needle) return false;
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(haystack);
+  };
+
   const parts: string[] = [];
   if (street_) parts.push(street_);
-  if (city_) parts.push(city_);
+  if (city_ && !already(street_, city_)) parts.push(city_);
+
   // state + zip share a slot joined by a single space; either alone
-  // takes the slot.
-  const stateZip = [state_, zip_].filter(Boolean).join(" ");
+  // takes the slot. Each is dropped independently when the line already
+  // carries it, so a street ending "…, IL 60614" plus state "IL" and zip
+  // "60614" adds nothing rather than doubling both.
+  const soFar = parts.join(", ");
+  const stateZip = [
+    state_ && !already(soFar, state_) ? state_ : "",
+    zip_ && !already(soFar, zip_) ? zip_ : "",
+  ].filter(Boolean).join(" ");
   if (stateZip) parts.push(stateZip);
   return parts.join(", ");
 }
