@@ -30,8 +30,8 @@ export interface ConfirmationEmailParams {
   branchConfig: BranchConfig;
   jobId?: number | null;
   clientId?: number | null;
-  stripeCustomerId?: string | null;
-  stripePaymentMethodId?: string | null;
+  squareCustomerId?: string | null;
+  squareCardId?: string | null;
   bedrooms?: number | null;
   fullBathrooms?: number | null;
   halfBathrooms?: number | null;
@@ -379,8 +379,8 @@ export function buildOfficeNotificationEmail(p: ConfirmationEmailParams): { subj
     <div style="background:${BG};border-radius:6px;padding:10px 14px;font-size:12px;color:${MID};">
       ${p.jobId ? `<span style="margin-right:14px;">Job <strong style="color:${DARK};">#${p.jobId}</strong></span>` : ""}
       ${p.clientId ? `<span style="margin-right:14px;">Client <strong style="color:${DARK};">#${p.clientId}</strong></span>` : ""}
-      ${p.stripeCustomerId ? `<span style="display:block;margin-top:4px;">Stripe customer: <code style="font-size:11px;">${p.stripeCustomerId}</code></span>` : ""}
-      ${p.stripePaymentMethodId ? `<span style="display:block;margin-top:2px;">Payment method: <code style="font-size:11px;">${p.stripePaymentMethodId}</code></span>` : ""}
+      ${p.squareCustomerId ? `<span style="display:block;margin-top:4px;">Square customer: <code style="font-size:11px;">${p.squareCustomerId}</code></span>` : ""}
+      ${p.squareCardId ? `<span style="display:block;margin-top:2px;">Card on file: <code style="font-size:11px;">${p.squareCardId}</code></span>` : ""}
     </div>`;
 
   return { subject, html: emailWrapper(body) };

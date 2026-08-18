@@ -3,6 +3,7 @@ import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { buildBookingCompleteMessage, PARENT_ORIGINS } from "@/lib/booking-conversion";
+import { loadSquareSdk, type SquareEnv } from "@/components/square-card-form";
 
 // ── API base (public, no auth) ───────────────────────────────────────────────
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -582,15 +583,17 @@ export default function BookPage() {
   const [commercialOption, setCommercialOption] = useState<"single" | "walkthrough" | null>(null);
   const [walkthroughBooking, setWalkthroughBooking] = useState(false);
 
-  // Step 4: Stripe card capture
-  const [stripeEnabled, setStripeEnabled] = useState<boolean | null>(null); // null = unknown
-  const [stripeSetupLoading, setStripeSetupLoading] = useState(false);
-  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
-  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
-  const [stripePubKey, setStripePubKey] = useState<string | null>(null);
-  const [stripeInstance, setStripeInstance] = useState<any>(null);
-  const [stripeCardElement, setStripeCardElement] = useState<any>(null);
-  const [stripeCardReady, setStripeCardReady] = useState(false);
+  // Step 4: Square card capture.
+  // [square-booking 2026-08-18] Was Stripe. Square is the house merchant, so the
+  // widget now captures on the same rail the office already uses — one processor,
+  // one card-on-file record, whichever way the customer books.
+  const [sqEnabled, setSqEnabled] = useState<boolean | null>(null); // null = unknown
+  const [sqSetupLoading, setSqSetupLoading] = useState(false);
+  const [sqAppId, setSqAppId] = useState<string | null>(null);
+  const [sqLocationId, setSqLocationId] = useState<string | null>(null);
+  const [sqEnvironment, setSqEnvironment] = useState<SquareEnv>("production");
+  const [sqCard, setSqCard] = useState<any>(null);
+  const [sqCardReady, setSqCardReady] = useState(false);
 
   // Pricing
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
@@ -1089,104 +1092,90 @@ export default function BookPage() {
     })().catch(() => { /* unreachable second net */ });
   }
 
-  // ── Stripe setup: called when entering Step 4 ─────────────────────────────
+  // ── Square setup: called when entering Step 4 ─────────────────────────────
+  //
+  // Square needs no SetupIntent — there is no client_secret to mint, because the
+  // Web Payments SDK tokenizes using only the two PUBLIC ids. So this call is a
+  // config probe: it tells us whether card capture is live and hands over the ids.
   useEffect(() => {
-    if (step !== 4 || !company || stripeClientSecret || stripeEnabled === false || stripeSetupLoading) return;
-    setStripeSetupLoading(true);
+    if (step !== 4 || !company || sqAppId || sqEnabled === false || sqSetupLoading) return;
+    setSqSetupLoading(true);
     setBookError("");
     pubFetch("/api/public/book/setup", {
       method: "POST",
       body: JSON.stringify({ company_id: company.id, email, first_name: firstName, last_name: lastName, phone }),
     })
       .then((res) => {
-        if (!res.stripe_enabled) { setStripeEnabled(false); return; }
-        // NOTE: The publishable key is delivered from the server via this API response.
-        // It is NOT read from import.meta.env / VITE_ prefix vars — no Vite env var is needed.
-        // The Replit secret is stored as STRIPE_PUBLISHABLE_KEY (server-side only).
-        // Stripe's SDK masks keys as pk_live_****xxxx in its own console output — that is normal.
-        console.log("[Stripe] Setup API response received. pubKey prefix:", res.publishable_key?.slice(0, 12));
-        setStripeEnabled(true);
-        setStripePubKey(res.publishable_key);
-        setStripeClientSecret(res.client_secret);
-        setStripeCustomerId(res.customer_id);
+        if (!res.square_enabled || !res.square_application_id || !res.square_location_id) {
+          setSqEnabled(false);
+          return;
+        }
+        // Both ids are PUBLIC merchant identifiers — safe in the browser. The
+        // secret SQUARE_ACCESS_TOKEN never leaves the server.
+        setSqEnabled(true);
+        setSqAppId(res.square_application_id);
+        setSqLocationId(res.square_location_id);
+        setSqEnvironment(res.square_environment === "sandbox" ? "sandbox" : "production");
       })
-      .catch(() => { setStripeEnabled(false); })
-      .finally(() => setStripeSetupLoading(false));
+      .catch(() => { setSqEnabled(false); })
+      .finally(() => setSqSetupLoading(false));
   }, [step, company]);
 
-  // ── Mount Stripe card element — runs whenever step becomes 4 ────────────
+  // ── Mount the Square card field — runs whenever step becomes 4 ──────────
+  //
+  // Uses the shared loadSquareSdk() from components/square-card-form.tsx rather
+  // than a second hand-rolled loader: it retries with backoff, times out instead
+  // of hanging, and never caches a rejection. On the booking widget that matters
+  // more than anywhere else — a card field that fails to appear is a lost sale,
+  // and the customer has no office to fall back on.
   useEffect(() => {
-    if (step !== 4 || !stripeEnabled || !stripeClientSecret || !stripePubKey) return;
+    if (step !== 4 || !sqEnabled || !sqAppId || !sqLocationId) return;
 
-    // Reset card state so the button stays disabled until the new element is ready
-    setStripeCardReady(false);
-    setStripeInstance(null);
-    setStripeCardElement(null);
+    let cancelled = false;
+    let cardInstance: any = null;
+    setSqCardReady(false);
+    setSqCard(null);
 
-    let cardEl: any = null;
-
-    const mountCard = () => {
-      const w = window as any;
-      if (!w.Stripe) return;
-      console.log("[Stripe] Calling w.Stripe() with pubKey prefix:", stripePubKey?.slice(0, 12), "| clientSecret prefix:", stripeClientSecret?.slice(0, 10));
-      const stripe = w.Stripe(stripePubKey);
-      const elements = stripe.elements(); // clientSecret passed to confirmCardSetup, not here
-      cardEl = elements.create("card", {
-        // [link-fix 2026-07-18] Disable Stripe Link on this legacy Card Element.
-        // With Link on, a returning customer's card autofills into Link (shown as
-        // "link VISA ••6613") but NOT into the element's number field — so
-        // confirmCardSetup({ card: cardElement }) throws "incomplete_number" and
-        // the booking fails for every Link-recognized email. Disabling Link forces
-        // the card into the element so confirmCardSetup can read it. (Proper fix
-        // for keeping Link = migrate to the Payment Element + confirmSetup.)
-        disableLink: true,
-        style: {
-          base: {
-            fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
-            fontSize: "15px",
-            color: "#1A1917",
-            "::placeholder": { color: "#9E9B94" },
+    (async () => {
+      try {
+        const Square = await loadSquareSdk(sqEnvironment);
+        if (cancelled) return;
+        const payments = Square.payments(sqAppId, sqLocationId);
+        const card = await payments.card({
+          style: {
+            input: {
+              fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
+              fontSize: "15px",
+              color: "#1A1917",
+            },
           },
-        },
-      });
-      const container = document.getElementById("stripe-card-element-book");
-      if (container) {
+        });
+        if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
+        const container = document.getElementById("square-card-element-book");
+        if (!container) return;
         container.innerHTML = ""; // clear any stale content from a previous mount
-        cardEl.mount("#stripe-card-element-book");
-        cardEl.on("ready", () => setStripeCardReady(true));
-        setStripeInstance(stripe);
-        setStripeCardElement(cardEl);
+        await card.attach("#square-card-element-book");
+        if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
+        cardInstance = card;
+        setSqCard(card);
+        setSqCardReady(true);
+      } catch (err: any) {
+        if (cancelled) return;
+        // Named host + reason: the only way to tell a blocked CDN apart from a
+        // flaky connection when a customer reports a dead card box.
+        console.warn("[square] booking card field failed to mount", err);
+        setSqEnabled(false);
       }
-    };
-
-    const existing = document.getElementById("stripe-js-book");
-    if (existing) {
-      const w = window as any;
-      if (w.Stripe) {
-        mountCard();
-      } else {
-        // Script tag exists but hasn't finished executing yet — poll until ready
-        const poll = setInterval(() => {
-          if ((window as any).Stripe) { clearInterval(poll); mountCard(); }
-        }, 50);
-        return () => clearInterval(poll);
-      }
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "stripe-js-book";
-    script.src = "https://js.stripe.com/v3/";
-    script.onload = mountCard;
-    document.head.appendChild(script);
+    })();
 
     return () => {
-      // Unmount the card element when step changes away from 4
-      if (cardEl) { try { cardEl.unmount(); } catch (_) {} }
+      cancelled = true;
+      if (cardInstance) { try { cardInstance.destroy(); } catch (_) {} }
     };
-  }, [stripeEnabled, stripeClientSecret, stripePubKey, step]);
+  }, [sqEnabled, sqAppId, sqLocationId, sqEnvironment, step]);
 
 
-  // ── Book submission (Stripe path) ─────────────────────────────────────────
+  // ── Book submission (Square card path) ────────────────────────────────────
   async function submitBooking() {
     if (!company) return;
     setBooking(true);
@@ -1205,28 +1194,19 @@ export default function BookPage() {
     const bookingScopeId = recurringFreqScopeMap[bookingFreq] ?? scopeId;
 
     try {
-      // If Stripe is enabled, confirm the SetupIntent first
-      if (stripeEnabled && stripeInstance && stripeCardElement && stripeClientSecret) {
-        console.log("[Stripe] confirmCardSetup — clientSecret prefix:", stripeClientSecret.slice(0, 10), "| cardElement:", stripeCardElement ? "present" : "NULL");
-        const { setupIntent, error } = await stripeInstance.confirmCardSetup(stripeClientSecret, {
-          payment_method: {
-            card: stripeCardElement,
-            billing_details: {
-              name: `${firstName} ${lastName}`,
-              email,
-              phone,
-            },
-          },
-        });
-        if (error) {
-          console.error("[Stripe] confirmCardSetup error:", JSON.stringify(error));
-          setBookError(error.type === "validation_error"
-            ? (error.message ?? "Please check your card details and try again.")
-            : "We were unable to verify your card. Please check your details or use a different card.");
+      // [square-booking 2026-08-18] Tokenize the card with Square first. A bad
+      // number, CVV or expiry fails right here in the browser — the raw PAN is
+      // never sent to us, only the resulting one-time `cnon:` nonce.
+      if (sqEnabled && sqCard) {
+        const tokenResult = await sqCard.tokenize();
+        if (tokenResult.status !== "OK" || !tokenResult.token) {
+          const detail = tokenResult.errors?.[0]?.message;
+          console.error("[square] tokenize failed:", JSON.stringify(tokenResult.errors ?? tokenResult.status));
+          setBookError(detail || "Please check your card details and try again.");
           setBooking(false);
           return;
         }
-        const paymentMethodId = setupIntent.payment_method;
+        const squareSourceId = tokenResult.token;
         const isCommercialSingle = commercialOption === "single";
         const result = await pubFetch(isCommercialSingle ? "/api/public/book/commercial-confirm" : "/api/public/book/confirm", {
           method: "POST",
@@ -1244,8 +1224,7 @@ export default function BookPage() {
             address_verified: addressComponents?.verified ?? false,
             booking_location: bookingLocation,
             preferred_date: selectedDate,
-            payment_method_id: paymentMethodId,
-            stripe_customer_id: stripeCustomerId,
+            square_source_id: squareSourceId,
           } : {
             company_id: company.id,
             first_name: firstName, last_name: lastName, phone, email, zip,
@@ -1287,8 +1266,7 @@ export default function BookPage() {
             address_verified: addressComponents?.verified ?? false,
             booking_location: bookingLocation,
             preferred_date: selectedDate,
-            payment_method_id: paymentMethodId,
-            stripe_customer_id: stripeCustomerId,
+            square_source_id: squareSourceId,
           }),
         });
         setBookResult(result);
@@ -1296,7 +1274,7 @@ export default function BookPage() {
         return;
       }
 
-      // Stripe disabled fallback
+      // Card capture unavailable — book without a card on file.
       const result = await pubFetch("/api/public/book", {
         method: "POST",
         body: JSON.stringify({
@@ -1331,7 +1309,7 @@ export default function BookPage() {
     }
   }
 
-  // ── Walkthrough submission (no Stripe) ───────────────────────────────────
+  // ── Walkthrough submission (no card) ─────────────────────────────────────
   async function submitWalkthroughBooking() {
     if (!company) return;
     setWalkthroughBooking(true);
@@ -3616,28 +3594,34 @@ export default function BookPage() {
               <p style={s.h2}>Secure your appointment</p>
               <p style={s.sub}>Your card is saved securely and billed on the day of service.</p>
 
-              {/* Stripe card form */}
-              {stripeEnabled === false ? (
+              {/* Square card form */}
+              {sqEnabled === false ? (
                 <div style={{ marginBottom: 20, padding: "14px 16px", background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, fontSize: 13, color: "#B3261E" }}>
                   Payment setup is temporarily unavailable. Please call us at (773) 706-6000 to complete your booking.
                 </div>
               ) : (
                 <div style={{ marginBottom: 20 }}>
-                  {stripeSetupLoading || stripeEnabled === null ? (
+                  {sqSetupLoading || sqEnabled === null ? (
                     <div style={{ padding: "20px", textAlign: "center", fontSize: 13, color: "#9E9B94" }}>Setting up secure payment...</div>
                   ) : (
                     <div>
                       <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>Card Details</p>
+                      {/* Square attaches its iframe here. Keep the container
+                          mounted while the field loads so the ref target exists. */}
                       <div
-                        id="stripe-card-element-book"
+                        id="square-card-element-book"
                         style={{
                           border: "1px solid #E5E2DC", borderRadius: 8,
                           padding: "14px 16px", backgroundColor: "#FFFFFF",
                           minHeight: 48,
                         }}
-                      />
+                      >
+                        {!sqCardReady && (
+                          <span style={{ fontSize: 13, color: "#9E9B94" }}>Loading secure card field...</span>
+                        )}
+                      </div>
                       <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>
-                        Secured by Stripe. Your card details are encrypted and never stored on our servers.
+                        Secured by Square. Your card details are encrypted and never stored on our servers.
                       </p>
                     </div>
                   )}
@@ -3685,11 +3669,11 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
-                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
+                  style={{ ...s.btn(), opacity: (booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady)) ? 0.7 : 1 }}
+                  disabled={booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady)}
                   onClick={submitBooking}
                 >
-                  {booking ? "Processing..." : (stripeSetupLoading || stripeEnabled === null) ? "Setting up..." : stripeEnabled ? "Confirm & Book" : "Book It"}
+                  {booking ? "Processing..." : (sqSetupLoading || sqEnabled === null) ? "Setting up..." : sqEnabled ? "Confirm & Book" : "Book It"}
                 </button>
               </div>
             </div>

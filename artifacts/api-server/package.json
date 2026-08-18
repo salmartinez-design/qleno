@@ -29,7 +29,8 @@
     "test:v1-ceiling": "tsx --test src/tests/api-company-ceiling.test.ts",
     "test:mcp-tools": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/mcp-tools.test.ts",
     "test:tenant-scope": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/tenant-scope.test.ts",
-    "test:square-card": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-card-capture.test.ts"
+    "test:square-card": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-card-capture.test.ts",
+    "test:square-booking": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-booking-rail.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

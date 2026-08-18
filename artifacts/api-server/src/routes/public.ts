@@ -17,6 +17,9 @@ import { geocodeWithComponents } from "../lib/geocode";
 import { normalizeReferralSource } from "../lib/referral-source.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 import { adoptOnlineBookingIntoSeries, normalizeBookingFrequency, RECURRING_CADENCES } from "../lib/online-recurring.js";
+import { getSquarePublicConfig } from "../lib/square-config.js";
+import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
+import crypto from "crypto";
 
 const router = Router();
 
@@ -758,78 +761,37 @@ router.post("/calculate", rateLimit, async (req, res) => {
 });
 
 // ── POST /api/public/book/setup ─────────────────────────────────────────────
-// Phase 1: Create Stripe customer + SetupIntent. Returns client_secret for card capture.
-// Does NOT create any DB records yet.
-router.post("/book/setup", rateLimit, async (req, res) => {
+//
+// [square-booking 2026-08-18] The booking widget's card rail is SQUARE.
+//
+// Sal, 2026-08-18: "we just want to unplug stripe and connect Square to take its
+// place." Square is the house merchant — better rate, longer relationship — and
+// the office card-on-file rail has been Square since 2026-07-24. The public
+// widget was the last Stripe holdout, which meant an online booking and a phone
+// booking for the SAME customer landed on two different processors.
+//
+// Square needs no server-side pre-step: unlike a Stripe SetupIntent there is no
+// client_secret to mint, because the Web Payments SDK tokenizes straight to a
+// one-time `cnon:` nonce using only the two PUBLIC ids. So this endpoint is now
+// a pure config probe — it tells the widget whether card capture is live and
+// hands over the ids needed to mount the field. It creates nothing, in Square
+// or in our DB; the durable card-on-file is created at /book/confirm once the
+// client row exists.
+//
+// snake_case on purpose: that is the convention for PUBLIC payment payloads
+// (see routes/payment-links.ts → pay.tsx). The camelCase /api/square/config is
+// the office endpoint and is auth-gated.
+router.post("/book/setup", rateLimit, async (_req, res) => {
   try {
-    const { company_id, email, first_name, last_name, phone } = req.body;
-    if (!company_id || !email) return res.status(400).json({ error: "Missing required fields" });
-
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const pubKey = process.env.STRIPE_PUBLISHABLE_KEY;
-    if (!stripeKey || !pubKey) {
-      return res.json({ stripe_enabled: false });
+    const cfg = getSquarePublicConfig();
+    if (!cfg.configured || !cfg.applicationId || !cfg.locationId) {
+      return res.json({ square_enabled: false });
     }
-
-    const { sql: drizzleSql } = await import("drizzle-orm");
-    const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
-
-    // Check for existing client with Stripe customer
-    const existing = await db.execute(
-      drizzleSql`SELECT id, stripe_customer_id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
-    );
-
-    let customerId: string;
-    if (existing.rows.length > 0 && (existing.rows[0] as any).stripe_customer_id) {
-      customerId = (existing.rows[0] as any).stripe_customer_id;
-    } else {
-      const customer = await stripe.customers.create({
-        email,
-        name: `${first_name || ""} ${last_name || ""}`.trim(),
-        phone: phone || undefined,
-        metadata: { company_id: String(company_id) },
-      });
-      customerId = customer.id;
-    }
-
-    let setupIntent;
-    try {
-      setupIntent = await stripe.setupIntents.create({
-        customer: customerId,
-        payment_method_types: ["card"],
-        usage: "off_session",
-      });
-    } catch (siErr: any) {
-      // A saved stripe_customer_id can be stale (e.g. created under a different
-      // Stripe account or in test mode) → Stripe returns "No such customer".
-      // Recover transparently by minting a fresh customer + repairing the row,
-      // so a returning client can still book instead of hitting a 500.
-      const stale = siErr?.code === "resource_missing" ||
-        siErr?.statusCode === 404 || /no such customer/i.test(siErr?.message || "");
-      if (!stale) throw siErr;
-      const fresh = await stripe.customers.create({
-        email,
-        name: `${first_name || ""} ${last_name || ""}`.trim(),
-        phone: phone || undefined,
-        metadata: { company_id: String(company_id) },
-      });
-      customerId = fresh.id;
-      setupIntent = await stripe.setupIntents.create({
-        customer: customerId,
-        payment_method_types: ["card"],
-        usage: "off_session",
-      });
-      try {
-        await db.execute(drizzleSql`UPDATE clients SET stripe_customer_id = ${customerId} WHERE email = ${email} AND company_id = ${company_id}`);
-      } catch { /* best-effort repair */ }
-    }
-
     return res.json({
-      stripe_enabled: true,
-      publishable_key: pubKey,
-      client_secret: setupIntent.client_secret,
-      customer_id: customerId,
+      square_enabled: true,
+      square_application_id: cfg.applicationId,
+      square_location_id: cfg.locationId,
+      square_environment: cfg.environment,
     });
   } catch (err: any) {
     console.error("POST /public/book/setup:", err);
@@ -859,7 +821,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       address_line2,
       property_vacant, move_in_notes,
       address, preferred_date,
-      payment_method_id, stripe_customer_id,
+      square_source_id,
       booking_location,
       address_street, address_city, address_state, address_zip,
       address_lat, address_lng, address_verified,
@@ -870,38 +832,21 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey || !payment_method_id) {
+    // [square-booking 2026-08-18] Card-on-file is SQUARE. The widget has already
+    // tokenized the card client-side into a one-time `cnon:` nonce, so an invalid
+    // number/CVV never reaches us. What is left is turning that nonce into a
+    // durable card — which needs a client row to hang off, so it happens AFTER
+    // the client is found/created below, not here.
+    if (!process.env.SQUARE_ACCESS_TOKEN || !square_source_id) {
       return res.status(400).json({ error: "Card verification required" });
     }
 
-    const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
-
-    // Retrieve payment method details (card last4, brand)
+    // Filled in by saveSquareCardOnFile once the client exists. They feed the
+    // office email, the confirmation copy, and the response the widget renders.
     let cardLast4: string | null = null;
     let cardBrand: string | null = null;
-    let cardExpiry: string | null = null;
-    try {
-      const pm = await stripe.paymentMethods.retrieve(payment_method_id);
-      cardLast4 = pm.card?.last4 || null;
-      cardBrand = pm.card?.brand || null;
-      cardExpiry = pm.card?.exp_month && pm.card?.exp_year
-        ? `${String(pm.card.exp_month).padStart(2, "0")}/${pm.card.exp_year}`
-        : null;
-      // Attach to customer if not already attached
-      if (stripe_customer_id && !pm.customer) {
-        await stripe.paymentMethods.attach(payment_method_id, { customer: stripe_customer_id });
-        await stripe.customers.update(stripe_customer_id, {
-          invoice_settings: { default_payment_method: payment_method_id },
-        });
-      }
-    } catch (pmErr: any) {
-      console.error("Stripe PM retrieve error:", pmErr);
-      return res.status(422).json({
-        error: "We were unable to verify your card. Please check your details or use a different card.",
-      });
-    }
+    let squareCustomerId: string | null = null;
+    let squareCardId: string | null = null;
 
     const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only: true });
     const { sql: drizzleSql } = await import("drizzle-orm");
@@ -921,15 +866,13 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
+      // No card columns here — saveSquareCardOnFile below owns every one of them
+      // (square_customer_id, square_card_*, card_last_four/brand/expiry,
+      // payment_source='square', and clearing stripe_payment_method_id). Writing
+      // them in two places is how a display last4 drifts from the card that
+      // actually gets charged.
       await db.execute(
         drizzleSql`UPDATE clients SET
-          stripe_customer_id = COALESCE(stripe_customer_id, ${stripe_customer_id || null}),
-          stripe_payment_method_id = ${payment_method_id},
-          payment_source = 'stripe',
-          card_last_four = ${cardLast4},
-          card_brand = ${cardBrand},
-          card_expiry = ${cardExpiry},
-          card_saved_at = NOW(),
           address = COALESCE(NULLIF(address, ''), ${resolvedAddr.street}),
           city    = COALESCE(NULLIF(city, ''),    ${resolvedAddr.city}),
           state   = COALESCE(NULLIF(state, ''),   ${resolvedAddr.state}),
@@ -941,19 +884,46 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         drizzleSql`
           INSERT INTO clients (
             company_id, first_name, last_name, phone, email,
-            referral_source, address, city, state, zip,
-            stripe_customer_id, stripe_payment_method_id, payment_source,
-            card_last_four, card_brand, card_expiry, card_saved_at, created_at
+            referral_source, address, city, state, zip, created_at
           ) VALUES (
             ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-            ${referral_source ? String(referral_source).trim() : null}, ${resolvedAddr.street}, ${resolvedAddr.city}, ${resolvedAddr.state}, ${resolvedAddr.zip},
-            ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
-            ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW()
+            ${referral_source ? String(referral_source).trim() : null}, ${resolvedAddr.street}, ${resolvedAddr.city}, ${resolvedAddr.state}, ${resolvedAddr.zip}, NOW()
           ) RETURNING id
         `
       );
       clientId = (newClient.rows[0] as any).id;
     }
+
+    // ── Save the card on file with Square ───────────────────────────────────
+    //
+    // [square-booking 2026-08-18] Turns the widget's one-time nonce into a
+    // durable Square card-on-file and stamps every card column on the client
+    // (including payment_source='square'), so the day-of-service charge routes
+    // through lib/square-charge.ts exactly like a phone booking does.
+    //
+    // This runs AFTER the client row exists because the Cards API needs a Square
+    // customer, which is keyed off that row. A failure here therefore leaves a
+    // client with no card and no job — the same state an abandoned quote leaves,
+    // and a far better outcome than a booked job nobody can bill. The customer
+    // sees a real error and can retry with another card.
+    const cardSave = await saveSquareCardOnFile({
+      companyId: Number(company_id),
+      clientId,
+      sourceId: square_source_id,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    if (!cardSave.ok) {
+      console.error("[square-booking] card save failed for client", clientId, cardSave.code, cardSave.message);
+      return res.status(cardSave.code === "not_configured" ? 503 : 422).json({
+        error: cardSave.code === "declined"
+          ? "That card was declined. Please check the details or try a different card."
+          : "We were unable to verify your card. Please check your details or use a different card.",
+      });
+    }
+    cardLast4 = cardSave.last4;
+    cardBrand = cardSave.brand;
+    squareCustomerId = cardSave.squareCustomerId;
+    squareCardId = cardSave.cardId;
 
     // [address-dedup 2026-07-19] Reuse an existing home at the SAME address
     // instead of stacking a duplicate property on every booking — repeat
@@ -1450,8 +1420,8 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       jobId,
       quoteId: bookingQuoteId,
       clientId,
-      stripeCustomerId: stripe_customer_id || null,
-      stripePaymentMethodId: payment_method_id || null,
+      squareCustomerId,
+      squareCardId,
       bedrooms: bedrooms ? parseInt(String(bedrooms)) : null,
       fullBathrooms: bathrooms ? parseInt(String(bathrooms)) : null,
       halfBathrooms: half_baths ? parseInt(String(half_baths)) : null,
@@ -1510,7 +1480,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       console.error("[confirm] Office SMS error:", smsErr);
     }
 
-    console.log(`[STRIPE] Booking confirmed — client_id=${clientId} job_id=${jobId}${recurringJobId ? ` recurring_job_id=${recurringJobId}` : ""} PM=${payment_method_id} card=${cardBrand} *${cardLast4} branch=${branchConfig.branch}`);
+    console.log(`[SQUARE] Booking confirmed — client_id=${clientId} job_id=${jobId}${recurringJobId ? ` recurring_job_id=${recurringJobId}` : ""} card_id=${squareCardId} card=${cardBrand} *${cardLast4} branch=${branchConfig.branch}`);
     return res.status(201).json({
       ok: true,
       client_id: clientId,
@@ -1570,8 +1540,12 @@ router.post("/book", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (stripeKey) {
+    // [square-booking 2026-08-18] The no-card fallback. It exists only for the
+    // window where card capture isn't configured at all; whenever Square IS live
+    // this path must stay shut, or a booking could be created with no card on
+    // file. The gate used to read STRIPE_SECRET_KEY — with Stripe unplugged that
+    // would have silently swung open the moment the key was removed.
+    if (getSquarePublicConfig().configured) {
       return res.status(400).json({ error: "Card verification required. Please use the booking widget." });
     }
 
@@ -1830,7 +1804,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     const {
       company_id, first_name, last_name, phone, email, zip,
       referral_source, sms_consent, address, preferred_date,
-      payment_method_id, stripe_customer_id,
+      square_source_id,
       booking_location,
       address_street, address_city, address_state, address_zip,
       address_lat, address_lng, address_verified,
@@ -1840,30 +1814,13 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey || !payment_method_id) {
+    // [square-booking 2026-08-18] Same Square rail as the residential confirm.
+    if (!process.env.SQUARE_ACCESS_TOKEN || !square_source_id) {
       return res.status(400).json({ error: "Card verification required" });
     }
 
-    const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
-
     let cardLast4: string | null = null;
     let cardBrand: string | null = null;
-    let cardExpiry: string | null = null;
-    try {
-      const pm = await stripe.paymentMethods.retrieve(payment_method_id);
-      cardLast4 = pm.card?.last4 || null;
-      cardBrand = pm.card?.brand || null;
-      cardExpiry = pm.card?.exp_month && pm.card?.exp_year
-        ? `${String(pm.card.exp_month).padStart(2, "0")}/${pm.card.exp_year}` : null;
-      if (stripe_customer_id && !pm.customer) {
-        await stripe.paymentMethods.attach(payment_method_id, { customer: stripe_customer_id });
-        await stripe.customers.update(stripe_customer_id, { invoice_settings: { default_payment_method: payment_method_id } });
-      }
-    } catch {
-      return res.status(422).json({ error: "We were unable to verify your card. Please check your details or use a different card." });
-    }
 
     const { sql: drizzleSql } = await import("drizzle-orm");
     const existingClients = await db.execute(
@@ -1872,19 +1829,34 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
-      await db.execute(
-        drizzleSql`UPDATE clients SET stripe_customer_id = COALESCE(stripe_customer_id, ${stripe_customer_id || null}), stripe_payment_method_id = ${payment_method_id}, payment_source = 'stripe', card_last_four = ${cardLast4}, card_brand = ${cardBrand}, card_expiry = ${cardExpiry}, card_saved_at = NOW() WHERE id = ${clientId}`
-      );
     } else {
+      // No card columns here — saveSquareCardOnFile owns all of them.
       const newClient = await db.execute(
         drizzleSql`
-          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, stripe_customer_id, stripe_payment_method_id, payment_source, card_last_four, card_brand, card_expiry, card_saved_at, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source ? String(referral_source).trim() : null}, ${stripe_customer_id || null}, ${payment_method_id}, 'stripe', ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW())
+          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, created_at)
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source ? String(referral_source).trim() : null}, NOW())
           RETURNING id
         `
       );
       clientId = (newClient.rows[0] as any).id;
     }
+
+    const cardSave = await saveSquareCardOnFile({
+      companyId: Number(company_id),
+      clientId,
+      sourceId: square_source_id,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    if (!cardSave.ok) {
+      console.error("[square-booking] commercial card save failed for client", clientId, cardSave.code, cardSave.message);
+      return res.status(cardSave.code === "not_configured" ? 503 : 422).json({
+        error: cardSave.code === "declined"
+          ? "That card was declined. Please check the details or try a different card."
+          : "We were unable to verify your card. Please check your details or use a different card.",
+      });
+    }
+    cardLast4 = cardSave.last4;
+    cardBrand = cardSave.brand;
 
     const jobNotes = `Commercial Single Visit — booked via online widget. Address: ${address || "N/A"}. $180 for up to 3 hours, $60/additional hour.`;
     const cBookLoc = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;

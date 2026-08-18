@@ -378,13 +378,27 @@ files or pays it.)*
 
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
-- Card capture is two-rail: the PUBLIC website booking widget always uses
-  Stripe; ALL office-initiated card-on-file capture (quote builder Review,
-  customer profile, account invoices, leave-a-card links) defaults to Square.
-  *(REVERSED 2026-07-24 by Sal — was "Square is for existing Phes clients
-  only; new bookings always use Stripe." Square is now the house rail for
-  office capture. The widget-stays-Stripe half is unchanged. Gated on
-  SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID env vars — inert until set.)*
+- Card capture is SINGLE-RAIL SQUARE. Every surface that takes a card —
+  the PUBLIC website booking widget, the quote builder Review step, the
+  customer profile, account invoices, leave-a-card links — captures through
+  Square. Gated on SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID +
+  SQUARE_ACCESS_TOKEN; inert until all three are set.
+  *(REVERSED 2026-08-18 by Sal — "we just want to unplug stripe and connect
+  Square to take its place." Square is the house merchant: better rate,
+  longer relationship. This retires the last Stripe holdout, the booking
+  widget, which had meant an online booking and a phone booking for the
+  same customer landed on two different processors. Supersedes the
+  2026-07-24 reversal, which moved office capture to Square but explicitly
+  left the widget on Stripe.)*
+- **Stripe is capture-dead, charge-alive.** No surface creates a NEW Stripe
+  card. But clients who booked online before 2026-08-18 still carry a
+  `stripe_payment_method_id`, and `derivePaymentSource()` routes them to
+  Stripe at charge time — so `lib/charge-invoice.ts`, `routes/payments.ts`,
+  `routes/invoices.ts` and `stripe-webhook.ts` MUST keep working. Do not
+  rip Stripe out of the charge path. Those clients migrate to Square on
+  their next card save (`saveSquareCardOnFile` nulls the Stripe handle).
+  Qleno's OWN SaaS subscription billing (Solo/Team/Pro) is a separate
+  Stripe integration and is untouched by any of this.
 - Schaumburg branch does NOT migrate from MaidCentral
 - Seed files must always use ON CONFLICT DO UPDATE — never plain INSERT
 - COMMS_ENABLED=false gate must never be bypassed — all SMS and email are suppressed until explicitly flipped to true in Railway env vars

@@ -26,7 +26,7 @@ const SDK_SRC: Record<"production" | "sandbox", string> = {
   sandbox: "https://sandbox.web.squarecdn.com/v1/square.js",
 };
 
-type SquareEnv = "production" | "sandbox";
+export type SquareEnv = "production" | "sandbox";
 type Status = "loading" | "ready" | "tokenizing" | "error";
 
 export interface SquareCardFormProps {
@@ -118,7 +118,11 @@ function injectSquareScript(environment: SquareEnv): Promise<any> {
   });
 }
 
-function loadSquareSdk(environment: SquareEnv): Promise<any> {
+// Exported so the public booking widget (pages/book.tsx) mounts its card field
+// through the SAME hardened loader instead of hand-rolling a second one. The
+// widget is the revenue funnel — a one-shot load with a cached rejection there
+// costs bookings, not just an office retry.
+export function loadSquareSdk(environment: SquareEnv): Promise<any> {
   const w = window as any;
   // Only trust an already-loaded global if it came from THIS environment's host.
   if (w.Square && w[LOADED_ENV_KEY] === environment) return Promise.resolve(w.Square);
