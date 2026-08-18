@@ -1399,49 +1399,20 @@ async function computeBusinessHealth(companyId: number): Promise<{
   };
 }
 
-// Payroll % to revenue — TEMPORARY single clean month (April 2026).
-// Cost: the existing reports.ts pay calc (pay_type x hours/rate + fee_split +
-// additional_pay) scoped to April-only completed jobs — April is clean in the
-// jobs table. Revenue denominator: job_history April (clean MC ledger).
-// We deliberately do NOT compute trailing-12 here: that would inherit the May
-// gap and Jan-Mar 2x corruption on the cost side. A true single month beats a
-// corrupt twelve. Widen to trailing-12 once the jobs table is reconciled
-// (known follow-up). Window is hardcoded by design until then.
-const PAYROLL_MONTH_START = "2026-04-01";
-const PAYROLL_MONTH_END = "2026-04-30";
-const PAYROLL_WINDOW_LABEL = "Apr 2026";
-async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct: number; payroll_window: string }> {
-  const [payRow, addPayRow, revRow] = await Promise.all([
-    db.execute(sql`
-      SELECT COALESCE(SUM(
-        CASE u.pay_type
-          WHEN 'hourly'    THEN u.pay_rate::numeric * COALESCE(j.actual_hours, j.allowed_hours, 0)::numeric
-          WHEN 'per_job'   THEN u.pay_rate::numeric
-          WHEN 'fee_split' THEN j.base_fee::numeric * COALESCE(u.fee_split_pct, j.fee_split_pct, 0)::numeric / 100
-          ELSE 0
-        END), 0)::numeric AS payroll
-      FROM jobs j JOIN users u ON u.id = j.assigned_user_id
-      WHERE j.company_id = ${companyId} AND j.status = 'complete'
-        AND j.scheduled_date >= ${PAYROLL_MONTH_START} AND j.scheduled_date <= ${PAYROLL_MONTH_END}
-    `),
-    db.execute(sql`
-      SELECT COALESCE(SUM(amount), 0)::numeric AS add_pay FROM additional_pay
-      WHERE company_id = ${companyId}
-        AND created_at::date >= ${PAYROLL_MONTH_START} AND created_at::date <= ${PAYROLL_MONTH_END}
-    `),
-    db.execute(sql`
-      SELECT COALESCE(SUM(revenue), 0)::numeric AS revenue FROM job_history
-      WHERE company_id = ${companyId}
-        AND job_date >= ${PAYROLL_MONTH_START} AND job_date <= ${PAYROLL_MONTH_END}
-    `),
-  ]);
-  const cost = Number((payRow as any).rows[0]?.payroll ?? 0) + Number((addPayRow as any).rows[0]?.add_pay ?? 0);
-  const revenue = Number((revRow as any).rows[0]?.revenue ?? 0);
-  return {
-    payroll_pct: revenue > 0 ? Math.round((cost / revenue) * 1000) / 10 : 0,
-    payroll_window: PAYROLL_WINDOW_LABEL,
-  };
-}
+// [pay-model-parity 2026-08-17] The April-2026 fallback is gone.
+//
+// When last week has no revenue in the ledger, this card used to fall back to a
+// hardcoded April 2026 window whose cost side was a `CASE users.pay_type`:
+// hourly rate × hours, or base_fee × fee_split_pct. Nothing in Qleno has ever
+// paid anybody that way — Phes pays commission, and every active cleaner still
+// carries a stale `pay_type='hourly'` label. So the card could show a confident
+// percentage that was both four months stale and computed from a pay model that
+// does not exist. A number nobody can act on is worse than no number.
+//
+// Now: no revenue for the week means the percentage is unavailable, and the card
+// says so. Per the reporting spec — "when a report cannot reliably calculate
+// something, display it as unavailable rather than estimating silently."
+const PAYROLL_UNAVAILABLE = { payroll_pct: null, payroll_window: "no revenue recorded" } as const;
 
 // [revenue-connect 2026-06-12] Payroll % — LAST COMPLETED WEEK (Sun–Sat,
 // the tenant's local zone), replacing the April-2026 pin now that the job_history
@@ -1452,7 +1423,7 @@ async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct:
 // the same week. Denominator: job_history revenue for the week. Falls back
 // to the pinned April calc when the week has no ledger revenue (bridge not
 // yet run on this deploy / fresh tenant) so the card never blanks.
-async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_pct: number; payroll_window: string }> {
+async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_pct: number | null; payroll_window: string }> {
   const nowCt = new Date(new Date().toLocaleString("en-US", { timeZone: tzOf(companyId) }));
   const start = new Date(nowCt);
   start.setDate(nowCt.getDate() - nowCt.getDay() - 7); // previous Sunday
@@ -1468,7 +1439,7 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
       AND job_date >= ${d(start)} AND job_date <= ${d(end)}
   `);
   const revenue = Number((revRow as any).rows[0]?.revenue ?? 0);
-  if (revenue <= 0) return computeAprilPayrollPct(companyId);
+  if (revenue <= 0) return PAYROLL_UNAVAILABLE;
 
   // Company comp settings — same resilient waterfall as /payroll/detail.
   let compSettings: any = {

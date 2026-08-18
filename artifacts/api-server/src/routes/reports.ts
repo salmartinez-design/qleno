@@ -11,6 +11,14 @@ import { computePeriodPayLines } from "../lib/period-pay.js";
 // [pay-day 2026-08-17] Tips/mileage/leave rows are windowed on the day the
 // money belongs to, never on created_at. See lib/pay-day.ts.
 import { payDaySql } from "../lib/pay-day.js";
+// [overtime-one-engine 2026-08-17] Overtime on the Payroll Summary report comes
+// from the SAME engine as /payroll/overtime-check. This report used to compute
+// its own: `(clock_hours - 40) * users.pay_rate * 0.5`, hardcoding the federal
+// threshold at a call site and multiplying by an hourly rate nothing has ever
+// paid. See lib/overtime-estimate.ts.
+import { computeOvertimeEstimate } from "../lib/overtime-estimate.js";
+// Mileage is a reimbursement, not wages — keep it out of any pay column.
+import { splitAdditionalPay } from "@workspace/payroll-metrics";
 // [dashboard-parity 2026-08-17] The cutover floor and the MaidCentral merge
 // used to live in this file. They moved to lib/ so routes/dashboard.ts can
 // apply the identical rule — the front page and this report now answer "what
@@ -552,8 +560,7 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
         j.allowed_hours, j.actual_hours,
         c.first_name AS client_first, c.last_name AS client_last,
         c.company_name AS client_company, a.account_name,
-        u.first_name AS emp_first, u.last_name AS emp_last,
-        u.pay_rate, u.pay_type
+        u.first_name AS emp_first, u.last_name AS emp_last
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
@@ -1243,7 +1250,8 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
       // tips/bonuses for now; non-branch view is unchanged.
       const addPayRow = await db.execute(sql`
         SELECT coalesce(sum(amount), 0) AS add_pay FROM additional_pay
-        WHERE company_id=${companyId} AND created_at::date BETWEEN ${w.start} AND ${w.end}
+        WHERE company_id=${companyId} AND status <> 'voided'
+          AND ${payDaySql("additional_pay")} BETWEEN ${w.start} AND ${w.end}
       `);
 
       const revenue = parseF((revRow.rows[0] as any)?.revenue);
@@ -1286,7 +1294,11 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     // requested. Techs without a home_branch (legacy NULLs) are still surfaced
     // when "all" is selected; the per-employee job query below also branch-
     // filters so an Oak Lawn tech who did Schaumburg jobs won't double-count.
-    const employees = await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name, pay_rate: usersTable.pay_rate, pay_type: usersTable.pay_type, fee_split_pct: usersTable.fee_split_pct })
+    // `users.pay_rate` / `pay_type` are deliberately NOT selected. Every active
+    // cleaner carries a stale `pay_type='hourly'` label with a $15–$20 rate
+    // beside it, left over from an early schema; Phes pays commission. Nothing
+    // on this report may compute from those two columns.
+    const employees = await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
       .from(usersTable).where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true), ne(usersTable.role, "owner"), branchCond(req, usersTable.home_branch_id)));
 
     // [pay-model-parity 2026-07-04] Pay comes from the SAME engine that cuts the
@@ -1301,11 +1313,36 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     const allowedHoursByJob = new Map<number, number>(payJobs.map(j => [j.id, parseF(j.allowed_hours ?? j.actual_hours ?? 0)]));
     const basePayByUser = new Map<number, number>();
     const jobIdsByUser = new Map<number, Set<number>>();
+    const basesByUser = new Map<number, Set<string>>();
     for (const l of payLines) {
       if (branchNum != null && l.branch_id !== branchNum) continue;
       basePayByUser.set(l.user_id, (basePayByUser.get(l.user_id) ?? 0) + (l.amount || 0));
       if (!jobIdsByUser.has(l.user_id)) jobIdsByUser.set(l.user_id, new Set());
       jobIdsByUser.get(l.user_id)!.add(l.job_id);
+      if (!basesByUser.has(l.user_id)) basesByUser.set(l.user_id, new Set());
+      basesByUser.get(l.user_id)!.add(l.isCommercial ? "commercial_hourly" : "residential_commission");
+    }
+    // How each person earned, read off the pay lines instead of asserted from a
+    // stale column. Commission is never hourly pay.
+    const payBasisOf = (uid: number): string => {
+      const b = basesByUser.get(uid);
+      if (!b || b.size === 0) return "none";
+      return b.size > 1 ? "mixed" : [...b][0];
+    };
+
+    // [overtime-one-engine 2026-08-17] Overtime premium from the shared engine:
+    // jurisdiction-aware thresholds, hours worked = clocked job time PLUS the
+    // between-jobs drive that counts under 29 CFR 785.38, and a regular rate
+    // derived from what the week actually paid. An ESTIMATE for office review —
+    // Qleno does not run payroll and this moves no money.
+    let premiumByUser = new Map<number, number>();
+    let overtimeAvailable = true;
+    try {
+      premiumByUser = (await computeOvertimeEstimate(companyId, fromStr, toStr)).premiumByUser;
+    } catch (err) {
+      // Never guess a premium. Report it as unavailable instead.
+      console.error("Payroll summary: overtime estimate failed:", err);
+      overtimeAvailable = false;
     }
 
     const rows = await Promise.all(employees.map(async emp => {
@@ -1322,7 +1359,8 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
       const addPayRes = await db.execute(sql`
         SELECT type, coalesce(sum(amount), 0) AS total FROM additional_pay
         WHERE company_id=${companyId} AND user_id=${emp.id}
-          AND created_at::date BETWEEN ${fromStr} AND ${toStr}
+          AND status <> 'voided'
+          AND ${payDaySql("additional_pay")} BETWEEN ${fromStr} AND ${toStr}
         GROUP BY type
       `);
 
@@ -1333,15 +1371,31 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
       const myJobIds = jobIdsByUser.get(emp.id) ?? new Set<number>();
       const base_pay = Math.round((basePayByUser.get(emp.id) ?? 0) * 100) / 100;
       const tips     = addPay.filter(p => p.type === "tips").reduce((s, p) => s + parseF(p.total), 0);
-      const add_pay  = addPay.filter(p => p.type !== "tips").reduce((s, p) => s + parseF(p.total), 0);
+      // Mileage is a reimbursement, not wages (29 CFR 778.217) — it gets its own
+      // column and never lands in a pay figure or an hourly rate.
+      const byType: Record<string, number> = {};
+      for (const p of addPay) if (p.type !== "tips") byType[p.type] = (byType[p.type] ?? 0) + parseF(p.total);
+      const { additional: add_pay, mileage } = splitAdditionalPay(byType);
       const job_hrs  = [...myJobIds].reduce((s, id) => s + (allowedHoursByJob.get(id) ?? 0), 0);
       const clk_hrs  = parseF(clk?.clock_hours);
-      const overtime = Math.max(0, clk_hrs - 40) * parseF(emp.pay_rate || 0) * 0.5;
+      // null, not 0, when the estimate could not run — an unavailable number is
+      // not the same claim as "no overtime is owed".
+      const overtime = overtimeAvailable ? (premiumByUser.get(emp.id) ?? 0) : null;
+      const gross_pay = base_pay + tips + add_pay + (overtime ?? 0);
 
       return {
-        id: emp.id, name: `${emp.first_name} ${emp.last_name}`, pay_type: emp.pay_type,
+        id: emp.id, name: `${emp.first_name} ${emp.last_name}`,
+        // Replaces `pay_type`, which reported the stale schema label.
+        pay_basis: payBasisOf(emp.id),
         days_worked: parseN(clk?.days_worked), job_hours: job_hrs, clock_hours: clk_hrs,
-        base_pay, tips, additional_pay: add_pay, overtime, deductions: 0, gross_pay: base_pay + tips + add_pay + overtime,
+        base_pay, tips, additional_pay: add_pay, mileage, overtime, deductions: 0,
+        // Wages only. Mileage is paid on top and is reported beside it.
+        gross_pay,
+        total_payout: Math.round((gross_pay + mileage) * 100) / 100,
+        // The spec's required label for this figure is "Effective earnings per
+        // recorded job hour" — it is what the commission worked out to, NOT an
+        // hourly wage. Unavailable rather than 0 when nothing was clocked.
+        effective_per_job_hour: clk_hrs > 0 ? Math.round((base_pay / clk_hrs) * 100) / 100 : null,
         missing_clk_outs: parseN(clk?.missing_outs), jobs_count: myJobIds.size,
       };
     }));
@@ -1365,12 +1419,16 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     return res.json({
       range_clamped: rangeClamp,
       from: fromStr, to: toStr, employees: rows,
+      // An estimate the office reviews, not a payroll run. Qleno cuts no checks.
+      overtime_available: overtimeAvailable,
       totals: {
         base_pay: rows.reduce((s, r) => s + r.base_pay, 0),
         tips: rows.reduce((s, r) => s + r.tips, 0),
         additional_pay: rows.reduce((s, r) => s + r.additional_pay, 0),
-        overtime: rows.reduce((s, r) => s + r.overtime, 0),
+        mileage: rows.reduce((s, r) => s + r.mileage, 0),
+        overtime: overtimeAvailable ? rows.reduce((s, r) => s + (r.overtime ?? 0), 0) : null,
         gross_pay: rows.reduce((s, r) => s + r.gross_pay, 0),
+        total_payout: rows.reduce((s, r) => s + r.total_payout, 0),
       },
       flags: {
         missing_clocks: missingClocks.rows,
@@ -1555,7 +1613,8 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
       LEFT JOIN scorecard_entries sc ON sc.employee_id=u.id AND sc.company_id=${companyId}
         AND sc.excluded=false AND sc.dismissed_at IS NULL
         AND sc.entry_date BETWEEN ${fromStr} AND ${toStr}
-      LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ${payDaySql("ap")} BETWEEN ${fromStr} AND ${toStr}
+      LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ap.status <> 'voided'
+        AND ${payDaySql("ap")} BETWEEN ${fromStr} AND ${toStr}
       LEFT JOIN timeclock tc ON tc.user_id=u.id AND tc.clock_in_at::date BETWEEN ${fromStr} AND ${toStr}
       WHERE u.company_id=${companyId} AND u.is_active=true ${empFilter}
       GROUP BY u.id ORDER BY revenue_generated DESC
@@ -1616,6 +1675,7 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
       LEFT JOIN jobs j ON j.id=ap.job_id
       LEFT JOIN clients c ON c.id=j.client_id
       WHERE ap.company_id=${companyId} AND ap.type='tips'
+        AND ap.status <> 'voided'
         AND ${payDaySql("ap")} BETWEEN ${fromStr} AND ${toStr}
         ${branchFilter(req, "j.branch_id")}
         ${userFilter}
