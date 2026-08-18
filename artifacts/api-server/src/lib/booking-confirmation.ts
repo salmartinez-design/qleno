@@ -131,7 +131,7 @@ export async function sendJobScheduledConfirmation(
     if (!channels.length) return;
     const rows = await db.execute(sql`
       SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type,
-             j.allowed_hours, j.estimated_hours,
+             j.allowed_hours, j.estimated_hours, j.frequency, j.recurring_schedule_id, j.job_type, j.account_id,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
              c.stripe_payment_method_id,
@@ -233,6 +233,10 @@ export async function sendJobScheduledConfirmation(
     // other tenant keeps the standard renderer. Future tenant-editable layouts
     // are a separate PR. Gated on company name (covers both Phes branches).
     const isPhes = /phes/i.test(j.company_name || "");
+    // [commercial-confirmation 2026-08-18] Commercial jobs get the same email as
+    // residential, minus the two blocks written for homeowners: the 15%-off
+    // recurring upsell and the $70/hr residential overage fine print.
+    const isCommercialJob = String(j.job_type || "") === "commercial" || j.account_id != null;
     const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
       logoUrl: absLogo,
       companyName: j.company_name || "Phes Schaumburg",
@@ -279,6 +283,17 @@ export async function sendJobScheduledConfirmation(
       // Deep Clean / Move In-Out are flat-rate estimates that can run over on a
       // rougher-than-described home — surface the $70/hr overage terms up front.
       showOverageNote: /deep_clean|move_out|move_in/i.test(String(j.service_type || "")),
+      // [recurring-upsell-gate 2026-08-18] Don't sell recurring to someone who
+      // just bought it. A job belongs to a series if it carries the schedule id
+      // (the engine's own occurrences, and the first visit the booking widget
+      // adopts into the series) or if the booking itself was stamped with a
+      // repeating cadence — check both, because the widget writes the frequency
+      // before the schedule row exists.
+      showRecurringOffer: !(
+        j.recurring_schedule_id != null ||
+        ["weekly", "biweekly", "every_3_weeks", "monthly"].includes(String(j.frequency || ""))
+      ),
+      commercial: isCommercialJob,
       icsUrl,
     });
     const renderEmail = isPhes ? renderPhes : renderStandard;

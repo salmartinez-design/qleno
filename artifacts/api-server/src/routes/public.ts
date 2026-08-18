@@ -16,6 +16,7 @@ import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollFo
 import { geocodeWithComponents } from "../lib/geocode";
 import { normalizeReferralSource } from "../lib/referral-source.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
+import { adoptOnlineBookingIntoSeries, normalizeBookingFrequency, RECURRING_CADENCES } from "../lib/online-recurring.js";
 
 const router = Router();
 
@@ -1142,92 +1143,23 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     // (clients.ts / jobs.ts) — the dup cascade the startup guard warns about was
     // the GLOBAL run; without it the 2 AM cron would be the first time the series
     // appeared. Skip when the upsell block ran, since that builds its own recurring
-    // schedule (no double series). Only the Stripe confirm path is patched here —
-    // Phes runs Stripe-on, so this is the live booking path.
-    if (["weekly", "biweekly", "every_3_weeks", "monthly"].includes(normalizedFreq) && !upsellAcceptedVal) {
-      const firstVisitDate = preferred_date || new Date().toISOString().split("T")[0];
+    // schedule (no double series). [2026-08-18] The body now lives in
+    // lib/online-recurring.ts and the non-Stripe POST /book fallback calls the
+    // same helper, so a Stripe outage can't quietly downgrade recurring bookings.
+    if (RECURRING_CADENCES.includes(normalizedFreq) && !upsellAcceptedVal) {
       const recurHours = pricing.total_hours ?? pricing.base_hours;
-      const recurDurationMin = (recurHours != null && Number(recurHours) > 0) ? Math.round(Number(recurHours) * 60) : null;
-      const recurAllowedHrs = (recurHours != null && Number(recurHours) > 0) ? Number(recurHours).toFixed(2) : null;
-      try {
-        const { recurringSchedulesTable } = await import("@workspace/db/schema");
-
-        // [recurring-uniqueness 2026-08-04] A returning customer who already
-        // repeats must NOT get a second series stood up beside the first — that
-        // is how one house ends up stacked on one day, and the DB now rejects it
-        // outright, which would have failed the whole booking. Adopt them into
-        // the schedule they already have.
-        //
-        // Deliberately reuse WITHOUT overwriting: this is a public, unauthenticated
-        // endpoint, so a widget selection must never rewrite the cadence, price, or
-        // visit length the office negotiated with an existing customer. The booked
-        // visit still lands on the date they picked; the office gets told about the
-        // mismatch rather than the system silently choosing a side.
-        const _existingSchedId = await findActiveScheduleForTarget(db, {
-          companyId: Number(company_id),
-          clientId,
-        });
-        let recurSched: any;
-        if (_existingSchedId) {
-          const existing = await db.execute(drizzleSql`
-            SELECT * FROM recurring_schedules WHERE id = ${_existingSchedId} LIMIT 1
-          `);
-          recurSched = (existing.rows as any[])[0];
-          console.log(`[online-recurring] client ${clientId} already has schedule ${_existingSchedId} (${recurSched?.frequency}) — adopting booking into it instead of creating a second series (widget asked for ${normalizedFreq})`);
-          if (recurSched?.frequency !== normalizedFreq) {
-            try {
-              await db.execute(drizzleSql`
-                INSERT INTO notifications (company_id, type, title, body, link)
-                VALUES (
-                  ${Number(company_id)}, 'recurring_report',
-                  ${"Online booking asked for a different frequency"},
-                  ${`This customer books ${recurSched?.frequency} with us, but chose ${normalizedFreq} online. Their existing schedule was left as-is — confirm which one is right.`},
-                  ${`/clients/${clientId}`}
-                )
-              `);
-            } catch { /* alert is best-effort; never fail a booking over it */ }
-          }
-        } else {
-          [recurSched] = await db.insert(recurringSchedulesTable).values({
-            company_id: Number(company_id),
-            customer_id: clientId,
-            frequency: normalizedFreq as any,
-            day_of_week: null,                 // null → cadence anchors on start_date's weekday
-            start_date: firstVisitDate as any,
-            end_date: null,
-            service_type: serviceTypeEnum,
-            scheduled_time: schedTimeVal as any,
-            duration_minutes: recurDurationMin,
-            base_fee: String(adjustedTotal),   // = the first job's agreed per-visit price
-            notes: `Created from online booking widget — customer selected ${normalizedFreq}.`,
-          }).returning();
-        }
-
-        // Adopt the already-created first visit into the series (dedup skips this
-        // slot; allowed_hours stamped so the first job's hours cell isn't blank).
-        await db.execute(drizzleSql`
-          UPDATE jobs
-             SET recurring_schedule_id = ${recurSched.id},
-                 occurrence_date = ${firstVisitDate}::date,
-                 allowed_hours = COALESCE(allowed_hours, ${recurAllowedHrs})
-           WHERE id = ${jobId} AND company_id = ${Number(company_id)}
-        `);
-
-        // Materialize the upcoming occurrences now so the office sees the full
-        // series immediately (single-schedule generation is safe; the first date
-        // is deduped via the occurrence_date we just stamped on the first job).
-        try {
-          const { generateJobsFromSchedule, DAYS_AHEAD } = await import("../lib/recurring-jobs.js");
-          const genNow = new Date();
-          const genHorizon = new Date(genNow.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
-          const gen = await generateJobsFromSchedule(recurSched as any, genNow, genHorizon, null, addrZip ?? null);
-          console.log(`[online-recurring] schedule ${recurSched.id} client ${clientId} (${normalizedFreq}) — first job ${jobId} adopted, ${gen.created} upcoming visit(s) generated`);
-        } catch (genErr) {
-          console.error("[online-recurring] inline generation failed (schedule created; 2 AM cron will backfill):", genErr);
-        }
-      } catch (recurErr) {
-        console.error("[online-recurring] failed to create recurring_schedule for booking job", jobId, recurErr);
-      }
+      await adoptOnlineBookingIntoSeries({
+        companyId: Number(company_id),
+        clientId,
+        jobId,
+        frequency: normalizedFreq,
+        firstVisitDate: preferred_date || new Date().toISOString().split("T")[0],
+        serviceType: serviceTypeEnum,
+        scheduledTime: schedTimeVal,
+        hours: recurHours != null ? Number(recurHours) : null,
+        perVisitPrice: adjustedTotal,
+        zip: addrZip ?? null,
+      });
     }
 
     // [book-from-quote] If this booking came from a quote email's "Book" link,
@@ -1717,15 +1649,7 @@ router.post("/book", rateLimit, async (req, res) => {
     const legAddrLat = legResolvedAddr.lat;
     const legAddrLng = legResolvedAddr.lng;
     const legAddrVerified = address_verified === true || address_verified === "true" ? true : false;
-    const legNormFreq = (() => {
-      const v = (frequency || "").toLowerCase().replace(/[\s-]/g, "_");
-      if (v === "onetime" || v === "one_time" || v === "one_time_standard") return "on_demand";
-      if (v === "biweekly" || v === "every_2_weeks") return "biweekly";
-      if (v === "every_3_weeks") return "every_3_weeks";
-      if (v === "monthly" || v === "every_4_weeks") return "monthly";
-      if (v === "weekly") return "weekly";
-      return "on_demand";
-    })();
+    const legNormFreq = normalizeBookingFrequency(frequency);
     const jobResult = await db.execute(
       drizzleSql`
         INSERT INTO jobs (
@@ -1767,6 +1691,29 @@ router.post("/book", rateLimit, async (req, res) => {
         )
       `
     );
+
+    // [fallback-parity 2026-08-18] This endpoint is the Stripe-disabled fallback,
+    // and it was missing both halves of what /book/confirm does after the insert:
+    // a recurring booking never became a series, and the customer never got a
+    // confirmation. Dormant while Phes runs Stripe-on — which is exactly why it
+    // has to be right, because the day it fires is a day nobody is watching it.
+    if (RECURRING_CADENCES.includes(legNormFreq)) {
+      await adoptOnlineBookingIntoSeries({
+        companyId: Number(company_id),
+        clientId,
+        jobId,
+        frequency: legNormFreq,
+        firstVisitDate: preferred_date || new Date().toISOString().split("T")[0],
+        serviceType: scopeNameToServiceType(scopeName),
+        scheduledTime: null,
+        hours: pricing.base_hours != null ? Number(pricing.base_hours) : null,
+        perVisitPrice: pricing.final_total,
+        zip: legAddrZip ?? null,
+      });
+    }
+    import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+      sendJobScheduledConfirmation(req, jobId)
+    ).catch(() => {});
 
     // first_visit_total: the booked amount (no condition multiplier on this
     // legacy path) — same field name the confirm path returns, so the widget's
@@ -1969,6 +1916,15 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     // didn't, so paid commercial bookings from the widget never appeared in
     // Leads. Mirror the /book/confirm insert. Non-fatal (never fails a booking).
     await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: cAddrZip, scope: "Commercial Cleaning", source: "booking_widget", status: "booked", jobId, booked: true });
+
+    // [commercial-confirmation 2026-08-18] Send the customer their confirmation.
+    // Residential /book/confirm has done this since GAP1; the commercial path
+    // never did, so a commercial customer paid, got a card verified, and then
+    // heard nothing — no date, no arrival window, no cancellation terms. Same
+    // shared sender, so it respects COMMS_ENABLED and the per-tenant gate.
+    import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+      sendJobScheduledConfirmation(req, jobId)
+    ).catch(() => {});
 
     console.log(`[COMMERCIAL] Single visit confirmed — client_id=${clientId} job_id=${jobId} card=${cardBrand} *${cardLast4}`);
     return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, first_visit_total: 180, card_last4: cardLast4, card_brand: cardBrand });
@@ -2332,6 +2288,18 @@ router.post("/leads", rateLimit, async (req, res) => {
   }
 });
 
+// Human-readable date for the customer acknowledgement — "2026-09-04" reads
+// like a form field; "September 4, 2026" reads like a person wrote it. Falls
+// back to the raw value if the customer typed something we can't parse.
+function fmtLeadDate(raw: string | null | undefined): string {
+  const v = String(raw ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  if (!m) return v;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(d.getTime())) return v;
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
 // ── POST /api/public/leads/post-construction ─────────────────────────────────
 router.post("/leads/post-construction", rateLimit, async (req, res) => {
   try {
@@ -2428,6 +2396,56 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
           html,
           attachments: attachments.length > 0 ? attachments : undefined,
         });
+
+        // [post-construction-ack 2026-08-18] Acknowledge the CUSTOMER too. Until
+        // now only info@phes.io was emailed, so the person who filled in the form
+        // — with photos, square footage, and a completion date — got no proof it
+        // arrived and no idea when a number was coming. Branded, promises a
+        // timeframe and never a price (these are quoted off the photos), and
+        // reads their submission back so mistakes come in by reply, not on site.
+        //
+        // Gated: unlike the office alert above, this is a customer-facing
+        // automated send, so it respects COMMS_ENABLED and the tenant's own
+        // comms_enabled flag exactly like every other customer email.
+        try {
+          const gate = await db.execute(drizzleSql`SELECT comms_enabled, name, logo_url, phone, email FROM companies WHERE id = ${company_id} LIMIT 1`);
+          const co: any = gate.rows[0] ?? {};
+          if (process.env.COMMS_ENABLED !== "true" || !co.comms_enabled) {
+            console.log(`[COMMS BLOCKED] post-construction acknowledgement suppressed for ${email} — company ${company_id}`);
+          } else {
+            const { renderPhesPostConstructionAck } = await import("../lib/phes-lead-acknowledgement.js");
+            const { appBaseUrl } = await import("../lib/app-url.js");
+            const origin = appBaseUrl();
+            const rawLogo = co.logo_url || "/phes-logo.jpeg";
+            const absLogo = /^https?:\/\//i.test(rawLogo) ? rawLogo : `${origin}${rawLogo.startsWith("/") ? "" : "/"}${rawLogo}`;
+            const coPhone = co.phone || "(773) 706-6000";
+            await resend.emails.send({
+              from: `${co.name || "Phes"} <noreply@phes.io>`,
+              to: [email],
+              replyTo: co.email || "info@phes.io",
+              subject: "We got your post-construction cleaning request",
+              html: renderPhesPostConstructionAck({
+                logoUrl: absLogo,
+                companyName: co.name || "Phes",
+                companyPhone: coPhone,
+                companyPhoneTel: String(coPhone).replace(/[^\d+]/g, "") || "+17737066000",
+                companyEmail: co.email || "info@phes.io",
+                website: "phes.io",
+                firstName: String(first_name || "").trim(),
+                address: pcAddressDisplay || "",
+                constructionType: ctLabel,
+                completionDate: fmtLeadDate(completion_date),
+                sqft: sqft ? String(sqft) : "",
+                photoCount: attachments.length,
+                notes: notes ? String(notes) : "",
+              }),
+            });
+          }
+        } catch (ackErr) {
+          // Never fail the lead over the acknowledgement — the office alert
+          // above already landed, so the lead is not lost either way.
+          console.error("[leads/post-construction] customer acknowledgement failed:", ackErr);
+        }
       } catch (emailErr) {
         console.error("[leads/post-construction] Resend error:", emailErr);
       }

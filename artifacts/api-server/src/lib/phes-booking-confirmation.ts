@@ -11,19 +11,11 @@
 // tenant-editable slot layout is a separate, later PR — this is PHES-first.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
-const BRAND = "#5B9BD5";     // PHES brand blue
-const NAVY = "#0A0E1A";
-const BG = "#F7F6F3";
-const INK = "#1A1917";
-const MUTE = "#6B6860";
-const BORDER = "#E5E2DC";
-const RULE = "#D6E3F2";      // hairline under headings
-const GREEN_BG = "#E1F5EE", GREEN_FG = "#0F6E56", GREEN_INK = "#04342C";
-const BLUE_BG = "#E6F1FB", BLUE_FG = "#185FA5", BLUE_INK = "#042C53";
-
-const esc = (s: string) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const escAttr = (s: string) => String(s ?? "").replace(/"/g, "&quot;");
+import {
+  FONT, BRAND, INK, MUTE, BORDER,
+  GREEN_BG, GREEN_FG, GREEN_INK, BLUE_BG, BLUE_FG, BLUE_INK,
+  esc, escAttr, h3, callout, detailRow, phesEmailShell,
+} from "./phes-email-shell.js";
 
 export interface PhesConfOpts {
   logoUrl: string;
@@ -45,6 +37,16 @@ export interface PhesConfOpts {
   hasCardOnFile: boolean;          // true → "charged to your card"; false → "due at service"
   checklistUrl: string;            // TODO: make tenant-configurable (Company Settings)
   showOverageNote?: boolean;       // Deep Clean / Move In-Out: prominent $70/hr overage callout
+  // [recurring-upsell-gate 2026-08-18] False when the customer ALREADY booked a
+  // recurring cadence. The 15%-off block used to render unconditionally, so a
+  // customer who had just signed up for weekly service was told in the very
+  // email confirming it to "book a recurring service" for a discount. Offer it
+  // only to one-time customers, who are the ones it was written for.
+  showRecurringOffer?: boolean;
+  // [commercial-confirmation 2026-08-18] Commercial single visits bill $180 for
+  // up to 3 hours then $60/additional hour, not the residential $70/hr overage —
+  // so the flat-rate fine print would misquote the customer's own contract.
+  commercial?: boolean;
   icsUrl?: string;                 // hosted .ics for the Apple button (email clients block data: URIs)
 }
 
@@ -91,37 +93,6 @@ function calButton(label: string, href: string): string {
   return `<a href="${escAttr(href)}" style="display:inline-block;padding:8px 14px;border:1px solid ${BORDER};border-radius:7px;font-family:${FONT};font-size:13px;font-weight:600;color:${INK};text-decoration:none;background:#ffffff;">${esc(label)}</a>`;
 }
 
-// ── Building blocks ───────────────────────────────────────────────────────────
-function h3(text: string): string {
-  return `<h3 style="font-family:${FONT};font-size:16px;font-weight:700;color:${BRAND};border-bottom:2px solid ${RULE};padding-bottom:6px;margin:28px 0 12px;">${esc(text)}</h3>`;
-}
-function detailRow(label: string, value: string, mapsHref?: string | null): string {
-  const val = mapsHref
-    ? `<a href="${escAttr(mapsHref)}" style="color:${INK};text-decoration:none;font-weight:600;">${esc(value)}</a>`
-    : `<span style="font-weight:600;">${esc(value)}</span>`;
-  return `<tr>
-    <td style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:13px;color:${MUTE};white-space:nowrap;">${esc(label)}</td>
-    <td align="right" style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:14px;color:${INK};">${val}</td>
-  </tr>`;
-}
-function callout(bg: string, fg: string, ink: string, badge: string, title: string, bodyHtml: string): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${bg};border-radius:10px;margin:16px 0;">
-    <tr><td style="padding:18px 20px;font-family:${FONT};">
-      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td width="30" valign="top" style="width:30px;">
-          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-            <td width="26" height="26" align="center" valign="middle" bgcolor="${fg}" style="width:26px;height:26px;border-radius:13px;color:#ffffff;font-size:14px;font-weight:700;font-family:${FONT};mso-line-height-rule:exactly;line-height:26px;">${badge}</td>
-          </tr></table>
-        </td>
-        <td valign="top" style="padding-left:12px;">
-          <div style="font-size:15px;font-weight:700;color:${fg};margin:2px 0 6px;">${esc(title)}</div>
-          <div style="font-size:14px;color:${ink};line-height:1.6;">${bodyHtml}</div>
-        </td>
-      </tr></table>
-    </td></tr>
-  </table>`;
-}
-
 export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
   const mapsHref = o.address ? `https://maps.google.com/?q=${encodeURIComponent(o.address)}` : null;
   const cal = calendarLinks(o);
@@ -160,24 +131,16 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
 
   const checklist = `<p style="margin:14px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;"><strong>Curious what's included?</strong> See our full <a href="${escAttr(o.checklistUrl)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Cleaning Checklist &rarr;</a></p>`;
 
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your cleaning is confirmed</title></head>
-<body style="margin:0;padding:0;background:${BG};font-family:${FONT};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BG};padding:24px 14px;"><tr><td align="center">
-  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid ${BORDER};border-radius:14px;overflow:hidden;">
-
-    <!-- Header: white, centered logo, thin brand underline -->
-    <tr><td align="center" style="padding:28px 32px 22px;border-bottom:3px solid ${BRAND};">
-      <img src="${escAttr(o.logoUrl)}" alt="${escAttr(o.companyName)}" height="80" style="height:80px;width:auto;max-width:300px;display:block;border:0;" />
-    </td></tr>
-
-    <!-- Confirmation banner -->
-    <tr><td style="background:#EAF2FB;padding:16px 32px;text-align:center;">
-      <span style="font-family:${FONT};font-size:16px;font-weight:700;color:${BLUE_INK};">Your cleaning is confirmed for ${esc(o.date)}</span>
-    </td></tr>
-
-    <!-- Body -->
-    <tr><td style="padding:8px 32px 30px;">
+  return phesEmailShell({
+    title: "Your cleaning is confirmed",
+    logoUrl: o.logoUrl,
+    companyName: o.companyName,
+    bannerHtml: `Your cleaning is confirmed for ${esc(o.date)}`,
+    companyPhone: o.companyPhone,
+    companyPhoneTel: o.companyPhoneTel,
+    companyEmail: o.companyEmail,
+    website: o.website,
+    bodyHtml: `
       ${calBlock}
 
       <p style="margin:16px 0 0;text-align:center;font-family:${FONT};font-size:13px;font-style:italic;color:${MUTE};line-height:1.5;">You'll get email and text reminders 3 days and 1 day before your appointment, plus a text the moment your cleaner is on the way.</p>
@@ -210,28 +173,14 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
       ${callout(BLUE_BG, BLUE_FG, BLUE_INK, "&#10003;", "Our 24-hour guarantee",
         `If we miss a spot, tell us within 24 hours and we'll come back and re-clean it at no charge. No questions asked.`)}
 
-      ${callout(GREEN_BG, GREEN_FG, GREEN_INK, "%", "Get 15% OFF your second appointment",
+      ${(o.showRecurringOffer === false || o.commercial) ? "" : callout(GREEN_BG, GREEN_FG, GREEN_INK, "%", "Get 15% OFF your second appointment",
         `Book a recurring service (weekly, biweekly, or monthly) by the end of your appointment day and we'll take 15% off your second visit. You'll also get preferred scheduling and the same technician each visit. Call ${esc(o.companyPhone)} or reply to set it up.`)}
 
       <!-- Fine print -->
-      ${o.showOverageNote ? "" : `<p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> Flat-rate estimates assume the home matches what you described. If conditions differ significantly, we'll send an updated estimate. Extra time bills at $70/hour per cleaner.</p>`}
+      ${o.commercial
+        ? `<p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> This visit is $180 for up to 3 hours of cleaning. Any time beyond that is billed at $60 per additional hour, and we'll confirm with you before going over.</p>`
+        : o.showOverageNote ? "" : `<p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> Flat-rate estimates assume the home matches what you described. If conditions differ significantly, we'll send an updated estimate. Extra time bills at $70/hour per cleaner.</p>`}
       <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Non-solicitation:</strong> By using our services, you agree not to solicit, hire, or contract any Phes staff member privately. Breach terminates your service agreement.</p>
-      <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;">Review our full <a href="https://${escAttr(o.website)}/terms" style="color:${BRAND};text-decoration:underline;">Terms and Conditions</a> and <a href="https://${escAttr(o.website)}/privacy" style="color:${BRAND};text-decoration:underline;">Privacy Policy</a>.</p>
-    </td></tr>
-
-    <!-- Footer: navy band, white text -->
-    <tr><td style="background:${NAVY};padding:22px 32px;text-align:center;">
-      <div style="font-family:${FONT};font-size:15px;font-weight:700;color:#ffffff;margin:0 0 6px;">${esc(o.companyName)}</div>
-      <div style="font-family:${FONT};font-size:13px;color:#9DA3B0;line-height:1.7;">
-        <a href="tel:${escAttr(o.companyPhoneTel)}" style="color:#9DA3B0;text-decoration:none;">${esc(o.companyPhone)}</a>
-        &nbsp;&middot;&nbsp;
-        <a href="mailto:${escAttr(o.companyEmail)}" style="color:#9DA3B0;text-decoration:none;">${esc(o.companyEmail)}</a>
-        &nbsp;&middot;&nbsp;
-        <a href="https://${escAttr(o.website)}" style="color:#9DA3B0;text-decoration:none;">${esc(o.website)}</a>
-      </div>
-    </td></tr>
-
-  </table>
-</td></tr></table>
-</body></html>`;
+      <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;">Review our full <a href="https://${escAttr(o.website)}/terms" style="color:${BRAND};text-decoration:underline;">Terms and Conditions</a> and <a href="https://${escAttr(o.website)}/privacy" style="color:${BRAND};text-decoration:underline;">Privacy Policy</a>.</p>`,
+  });
 }

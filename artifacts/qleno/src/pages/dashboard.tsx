@@ -1561,8 +1561,8 @@ export default function Dashboard() {
 
   const intelligenceValues = [
     kpis?.forecast_next_month,
-    kpis?.avg_ltv,
-    kpis?.avg_nps,
+    kpis?.avg_client_revenue,
+    kpis?.avg_satisfaction,
   ];
   const allIntelDashes = intelligenceValues.every(v => v == null);
 
@@ -1846,8 +1846,23 @@ export default function Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: GAP }}>
             {[
               { label: 'Revenue forecast', value: kpis.forecast_next_month != null ? fmt$(kpis.forecast_next_month) : '—', sub: 'next 30 days' },
-              { label: 'Avg client LTV', value: kpis.avg_ltv != null ? fmt$(kpis.avg_ltv) : '—', sub: 'estimated lifetime' },
-              { label: 'Avg NPS', value: kpis.avg_nps != null ? kpis.avg_nps.toFixed(1) : '—', sub: 'last 90 days' },
+              // Was "Avg client LTV / estimated lifetime". Nothing is estimated
+              // here and nothing is projected forward: this is money already
+              // earned, averaged over the clients who have ever paid, using the
+              // customer profile's own lifetime definition so the two agree.
+              {
+                label: 'Avg revenue per client',
+                value: kpis.avg_client_revenue != null ? fmt$(kpis.avg_client_revenue) : '—',
+                sub: kpis.avg_client_revenue_clients ? `lifetime, ${kpis.avg_client_revenue_clients} clients` : 'lifetime to date',
+              },
+              // Was "Avg NPS". Phes has never recorded an NPS score — the survey
+              // is MaidCentral's 0-4 satisfaction scale — so that label named a
+              // number the business does not collect. Show what is captured.
+              {
+                label: 'Avg satisfaction',
+                value: kpis.avg_satisfaction != null ? `${kpis.avg_satisfaction.toFixed(1)} / ${kpis.satisfaction_scale ?? 4}` : '—',
+                sub: kpis.satisfaction_responses ? `${kpis.satisfaction_responses} responses, last 90 days` : 'last 90 days',
+              },
             ].filter(w => w.value !== '—').map(w => (
               <MoneyCard key={w.label} label={w.label} value={w.value} sub={w.sub} />
             ))}
