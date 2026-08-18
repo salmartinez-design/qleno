@@ -120,13 +120,37 @@ function calculateDistanceFt(lat1: number, lon1: number, lat2: number, lon2: num
 // 'allowed_hours' mode it doesn't change commission $, so it's safe). Called
 // after every office clock write so the clock and pay stay in sync. NULL when
 // no entry is closed yet (actual isn't known until clock-out).
+/**
+ * jobs.actual_hours = the span of this job's CLOSED punches, or NULL when there
+ * are none.
+ *
+ * [zero-vs-null 2026-08-18] That "or NULL" was not what the SQL did.
+ * `GREATEST` ignores NULL arguments in Postgres, so with no closed punch the
+ * aggregate returned NULL, `GREATEST(NULL, 0)` collapsed it to **0**, and the
+ * job was stamped "worked no time" when the truth was "nobody has clocked out
+ * yet". The codebase already draws exactly this distinction for the per-tech
+ * figure on the dispatch card ("null (not 0) when they have no closed punch —
+ * 'hasn't clocked out yet' and 'worked no time' are different facts"); the job
+ * total disagreed with it.
+ *
+ * That is half of what Francisco reported ("hours and time clock are not giving
+ * the right info"): job 20994, Vanessa Hernandez at 100 W Chestnut, punched
+ * 9:45 AM → 1:46 PM and the panel read Actual 0.0h / Variance −3.0h. A stamped
+ * 0 is worse than a blank — it is a confident wrong answer, and it defeated the
+ * card's own fall-back to the clock pair.
+ *
+ * The clamp itself stays: an inverted pair (clock-out before clock-in, which a
+ * mixed-timezone legacy row can produce) must not report negative hours. It is
+ * only the empty case that must stay unknown.
+ */
 async function recomputeJobActualHours(jobId: number, companyId: number): Promise<void> {
   try {
     await db.execute(sql`
       UPDATE jobs SET actual_hours = sub.h
       FROM (
-        SELECT ROUND(GREATEST(
-                 EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2) AS h
+        SELECT CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(GREATEST(
+                 EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2)
+               END AS h
         FROM timeclock
         WHERE job_id = ${jobId} AND company_id = ${companyId} AND clock_out_at IS NOT NULL
       ) sub
@@ -741,6 +765,22 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
     if (!updated) {
       return res.status(404).json({ error: "Not Found", message: "Time clock entry not found" });
     }
+
+    // [actual-hours-field-clockout 2026-08-18] Roll the job's actual_hours
+    // forward. THIS CALL DID NOT EXIST, and it is the main half of Francisco's
+    // "hours and time clock are not giving the right info".
+    //
+    // Every other write to a punch recomputed — the office clock-out, the
+    // per-entry edit, the delete, the timezone backfill — but the field app's
+    // clock-out, which is how virtually every real punch closes, did not. It
+    // computed durationHours for its own JSON response and never wrote it
+    // anywhere. So jobs.actual_hours simply never advanced from whatever it
+    // held when the office last touched the entry.
+    //
+    // Measured on the 8/18 board: six completed jobs with a full closed clock
+    // pair carried actual_hours NULL, and four more carried a stale 0 — job
+    // 20994 among them, punched 9:45 AM → 1:46 PM and reporting Actual 0.0h.
+    await recomputeJobActualHours(updated.job_id, req.auth!.companyId as number);
 
     // [geofence-ticket 2026-07-03] Clock-out recorded outside the fence → office ticket.
     if (geofenceEnabled && outsideGeofence) {
