@@ -401,6 +401,18 @@ function calculateUpsellPrice(sqft: number, cadence: string, discountPct = 15): 
   return { recurringRate, firstVisitRate };
 }
 
+// [recurring-scope-match 2026-08-17] The widget's "Recurring Service" tile means
+// the dated recurring book — "Recurring Cleaning - Weekly / Every 2 Weeks /
+// Every 4 Weeks". "Hourly Recurring Cleaning" also contains "recurring cleaning"
+// but is a different, hourly-priced product that carries a `onetime` frequency
+// row. A bare .includes("recurring cleaning") matched it first (higher id sorts
+// ahead of scope 4), which (a) made the step-1 Continue button permanently dead
+// because the cleanliness gate wanted an answer to a question that scope never
+// renders, and (b) would have priced and booked the visit as one-time. Every
+// place that asks "is this the recurring book?" goes through this one predicate.
+const isRecurringScopeName = (n: string) =>
+  n.includes("recurring cleaning") && !n.includes("hourly");
+
 // ── Main booking widget ──────────────────────────────────────────────────────
 export default function BookPage() {
   const [, params] = useRoute("/book/:slug");
@@ -825,7 +837,7 @@ export default function BookPage() {
     // Detect whether the selected scope is a split recurring scope
     // (e.g. "Recurring Cleaning - Weekly") or a unified one
     const selectedScopeName = company?.active_scopes.find((s: any) => s.id === scopeId)?.name?.toLowerCase() ?? "";
-    const isSplitRecurring = selectedScopeName.includes("recurring cleaning");
+    const isSplitRecurring = isRecurringScopeName(selectedScopeName);
 
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
@@ -837,7 +849,7 @@ export default function BookPage() {
       // For split recurring scopes, load frequencies from ALL recurring sibling scopes
       if (isSplitRecurring && company) {
         const allRecurringScopes = company.active_scopes.filter(
-          (s: any) => s.name.toLowerCase().includes("recurring cleaning") && s.id !== scopeId
+          (s: any) => isRecurringScopeName(s.name.toLowerCase()) && s.id !== scopeId
         );
         // Map the primary scope's freq first
         filteredFreqs.forEach((f: PricingFrequency) => { freqMap[f.frequency] = scopeId; });
@@ -1403,7 +1415,7 @@ export default function BookPage() {
 
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
-  const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase().includes("recurring cleaning");
+  const isRecurringScope = !isCommercial && !!scopeId && isRecurringScopeName((selectedScope?.name ?? "").toLowerCase());
   const isMoveInOut = displayScopeKey === "move_in_out";
   const isDeepClean = displayScopeKey === "deep_clean";
   const isOneTimeStandard = displayScopeKey === "one_time_standard";
@@ -1436,11 +1448,40 @@ export default function BookPage() {
   })();
 
   const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
+  // [cleanliness-gate-parity 2026-08-17] Derived from the SAME flags the step-1
+  // Continue gate reads (isDeepCleanScope / isOneTimeStandard / isRecurringScope),
+  // never from a second string test on the scope name. When these two drifted, the
+  // gate demanded a cleanliness answer for a scope whose question never rendered
+  // and Continue could never be satisfied. Keep them tied to one source.
   const showCleanlinessQ = !isCommercial && !!scopeId && (
-    (scopeNameLower.includes("deep clean") && !scopeNameLower.includes("hourly")) ||
-    scopeNameLower.includes("one-time standard") ||
-    scopeNameLower.startsWith("recurring")
+    isDeepCleanScope || isOneTimeStandard || isRecurringScope
   );
+  // [step1-gate-parity 2026-08-17] ONE expression drives both the Continue
+  // button's disabled state and its opacity. They used to be two copies of the
+  // same ladder and had already drifted (the bedrooms/bathrooms rule existed only
+  // in `disabled`, so the button rendered full-strength mint while dead). Any new
+  // step-1 requirement goes here, once.
+  // Upsell is deliberately non-blocking in all three contexts (deep clean,
+  // one-time standard, move in/out) — the recurring offer must NOT gate the
+  // funnel. Unanswered defaults to "no thanks" (the offer stays visible). The
+  // legal Move In/Out ack + cleanliness (a pricing input) do still gate.
+  const step1Blocked = (() => {
+    if (isCommercial) return !commercialOption;
+    if (!scopeId || !sqft) return true;
+    if (bedrooms < 1 || bathrooms < 1) return true;
+    if (showStandardAdvisory) return true;
+    if (isMoveInOut && !moveInAck) return true;
+    if (showVeryDirtyCard) return true;
+    if (isDeepCleanScope && cleanliness === 0) return true;
+    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return true;
+    if (isRecurringScope && (
+      !lastCleanedResponse ||
+      (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) ||
+      cleanliness === 0
+    )) return true;
+    return false;
+  })();
+
   const conditionMultiplier = 1.0;
 
   // Human-facing package name for the quote breakdown. Derived from
@@ -2115,7 +2156,7 @@ export default function BookPage() {
                     scopes: [
                       { key: "deep_clean",       displayName: "Deep Clean",              match: (n) => n === "deep clean" },
                       { key: "move_in_out",       displayName: "Move In / Move Out",      match: (n) => n === "move in / move out" },
-                      { key: "recurring",         displayName: "Recurring Service",       match: (n) => n.includes("recurring cleaning") },
+                      { key: "recurring",         displayName: "Recurring Service",       match: (n) => isRecurringScopeName(n) },
                       { key: "one_time_standard", displayName: "One-Time Standard Clean", match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
                     ],
                   },
@@ -2856,34 +2897,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: isPostConstruction ? "none" : "flex", justifyContent: "space-between", marginTop: 16 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (() => {
-                    if (isCommercial) return !commercialOption ? 0.5 : 1;
-                    if (!scopeId || !sqft) return 0.5;
-                    if (showStandardAdvisory) return 0.5;
-                    if (isMoveInOut && !moveInAck) return 0.5;
-                    // Upsell is non-blocking in all three contexts (deep clean,
-                    // one-time standard, move in/out) — the recurring offer must NOT
-                    // gate the funnel. Unanswered defaults to "no thanks" (offer stays
-                    // visible). Legal Move In/Out ack + cleanliness (pricing input) still gate.
-                    if (showVeryDirtyCard) return 0.5;
-                    if (isDeepCleanScope && cleanliness === 0) return 0.5;
-                    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return 0.5;
-                    if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return 0.5;
-                    return 1;
-                  })() }}
-                  disabled={(() => {
-                    if (isCommercial) return !commercialOption;
-                    if (!scopeId || !sqft) return true;
-                    if (!isCommercial && (bedrooms < 1 || bathrooms < 1)) return true;
-                    if (showStandardAdvisory) return true;
-                    if (isMoveInOut && !moveInAck) return true;
-                    // Upsell is non-blocking in all three contexts (see opacity note). No upsell gate.
-                    if (showVeryDirtyCard) return true;
-                    if (isDeepCleanScope && cleanliness === 0) return true;
-                    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return true;
-                    if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
-                    return false;
-                  })()}
+                  style={{ ...s.btn(), opacity: step1Blocked ? 0.5 : 1 }}
+                  disabled={step1Blocked}
                   onClick={() => {
                     if (isCommercial) { setStep(3); }
                     else {
@@ -3486,7 +3501,11 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (!selectedDate || !arrivalWindow || !contactMethod || (upsellAccepted && !recurringDate) || (upsellAccepted && recurringDate && !recurringArrivalWindow) || walkthroughBooking) ? 0.5 : 1 }}
+                  // [step3-gate-parity 2026-08-17] `!contactMethod` deliberately does NOT
+                  // dim the button: the click handler below is what surfaces the "pick a
+                  // contact method" error, so the button must look live to invite the tap.
+                  // Dimming it read as a dead end for a step the customer could pass.
+                  style={{ ...s.btn(), opacity: (!selectedDate || !arrivalWindow || (upsellAccepted && !recurringDate) || (upsellAccepted && recurringDate && !recurringArrivalWindow) || walkthroughBooking) ? 0.5 : 1 }}
                   disabled={!selectedDate || !arrivalWindow || (upsellAccepted && !recurringDate) || (upsellAccepted && recurringDate && !recurringArrivalWindow) || walkthroughBooking}
                   onClick={() => {
                     if (!contactMethod) { setContactMethodError(true); return; }
@@ -3581,7 +3600,7 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
+                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
                   disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
                   onClick={submitBooking}
                 >
