@@ -20,6 +20,7 @@ import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
 import { isR2Key, r2SignedGetUrl } from "../lib/r2.js";
 import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
+import { addressChanged, cascadeClientAddressToUpcomingJobs } from "../lib/client-address-cascade.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -899,12 +900,30 @@ router.put("/:id", requireAuth, async (req, res) => {
     // [AH] Snapshot the previous commercial_hourly_rate so we can write a
     // client_audit_log row when it changes. The full audit_log table only
     // captures the new value; this gives proper before/after.
+    //
+    // [address-sync 2026-08-18] The previous ADDRESS is snapshotted here too.
+    // A job's own address snapshot wins over the client record everywhere it is
+    // displayed or texted, and nothing on this route ever moved those
+    // snapshots — so a profile correction left every job card wrong. The
+    // cascade below needs the old address to tell a mirrored copy (safe to
+    // move) from a genuine one-off site (leave alone). See
+    // lib/client-address-cascade.ts.
     const before = await db.select({
       commercial_hourly_rate: clientsTable.commercial_hourly_rate,
+      address: clientsTable.address,
+      city: clientsTable.city,
+      state: clientsTable.state,
+      zip: clientsTable.zip,
     }).from(clientsTable)
       .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId)))
       .limit(1);
     const prevRate = before[0]?.commercial_hourly_rate ?? null;
+    const prevAddress = {
+      address: before[0]?.address ?? null,
+      city: before[0]?.city ?? null,
+      state: before[0]?.state ?? null,
+      zip: before[0]?.zip ?? null,
+    };
     const geo = address !== undefined ? await geocodeAddress(address, city, state, zip) : null;
     const newZoneId = zip !== undefined ? await resolveZoneForZip(req.auth!.companyId, zip) : undefined;
     const updated = await db.update(clientsTable).set({
@@ -1006,6 +1025,45 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     logAudit(req, "UPDATE", "client", clientId, null, updated[0]);
 
+    // [address-sync 2026-08-18] Francisco: "The Client Profile shows the
+    // corrected address. The Job Card still shows the incorrect/original
+    // address ... the client is receiving the wrong address in automated
+    // messages." Correcting the profile now moves the upcoming job cards with
+    // it, so the card, the reminder text, the confirmation and the completion
+    // PDF all read the corrected address. Jobs holding a genuinely DIFFERENT
+    // address are one-off sites and are left alone — the response reports how
+    // many, so the office can see there is something still to look at.
+    //
+    // Never fails the save: the profile edit is the thing the office asked for;
+    // a cascade problem is reported, not thrown.
+    const nextAddress = {
+      address: updated[0].address ?? null,
+      city: updated[0].city ?? null,
+      state: updated[0].state ?? null,
+      zip: updated[0].zip ?? null,
+    };
+    let address_sync: { jobs_synced: number; jobs_kept_own: number } | null = null;
+    if (addressChanged(prevAddress, nextAddress)) {
+      try {
+        address_sync = await cascadeClientAddressToUpcomingJobs({
+          companyId: req.auth!.companyId!,
+          clientId,
+          before: prevAddress,
+          after: nextAddress,
+          coords: geo,
+          zoneId: newZoneId,
+        });
+        if (address_sync.jobs_synced > 0 || address_sync.jobs_kept_own > 0) {
+          console.log(
+            `[address-sync] client ${clientId}: ${address_sync.jobs_synced} upcoming job(s) moved to the corrected address, ` +
+            `${address_sync.jobs_kept_own} left on their own one-off address`,
+          );
+        }
+      } catch (cascadeErr) {
+        console.error(`[address-sync] cascade failed for client ${clientId}:`, cascadeErr);
+      }
+    }
+
     // [AH] Per-field audit row for commercial_hourly_rate. Only writes when
     // the rate actually changed; null↔null is skipped.
     if (commercial_hourly_rate !== undefined) {
@@ -1041,7 +1099,8 @@ router.put("/:id", requireAuth, async (req, res) => {
     // QB sync (fire and forget)
     queueSync(() => syncCustomer(req.auth!.companyId, clientId));
 
-    return res.json(updated[0]);
+    // Additive field — every existing caller reads the client row as before.
+    return res.json({ ...updated[0], address_sync });
   } catch (err) {
     console.error("Update client error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
