@@ -6543,7 +6543,26 @@ export default function CustomerProfilePage() {
 
   const updateMut = useMutation({
     mutationFn: (data: any) => apiFetch(`/api/clients/${clientId}`, { method: "PUT", body: JSON.stringify(data) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["client-profile", clientId] }); refetchProfile(); },
+    // [address-sync 2026-08-18] Say out loud what a corrected address did to
+    // the calendar. The save now moves upcoming job cards onto the new address
+    // (so the reminder texts stop sending the old one) but leaves any job
+    // holding a genuinely different site alone — silence about that second
+    // group is how the office ends up believing everything is fixed when one
+    // job still isn't. Fix those from the job card's "Use client's" button.
+    onSuccess: (resp: any) => {
+      qc.invalidateQueries({ queryKey: ["client-profile", clientId] });
+      refetchProfile();
+      const sync = resp?.address_sync;
+      if (sync && (sync.jobs_synced > 0 || sync.jobs_kept_own > 0)) {
+        const moved = sync.jobs_synced === 1 ? "1 upcoming job" : `${sync.jobs_synced} upcoming jobs`;
+        const kept = sync.jobs_kept_own === 1 ? "1 job keeps" : `${sync.jobs_kept_own} jobs keep`;
+        showToast(
+          sync.jobs_kept_own > 0
+            ? `Address updated on ${moved}. ${kept} their own address — open the job card and tap "Use client's" to move ${sync.jobs_kept_own === 1 ? "it" : "them"} too.`
+            : `Address updated on ${moved}.`,
+        );
+      }
+    },
   });
 
   const { data: loyaltyData, refetch: refetchLoyalty } = useQuery<any>({

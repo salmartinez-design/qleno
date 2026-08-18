@@ -783,10 +783,23 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // The dispatch payload exposes the job's own snapshot as job_address_*, NOT
   // address_* (which is the resolved display string). Reading the wrong one
   // here would silently never show the button.
+  //
+  // [addr-city-state 2026-08-18] All FOUR components, not just the street.
+  // This is the third time the same shortcut has bitten: jobs.ts had it on
+  // 8/8 (Jess Wilhite, CL-1520 — "333 North Jefferson Street" in Brownsburg,
+  // IN vs Chicago, IL: same street, same zip, different city and state), and
+  // the button added on 8/12 to fix that very case was written street-only,
+  // so it stayed hidden in exactly the situation it exists for. Francisco,
+  // 8/18: "yeap, not fixed yet lol."
   const loose = (v: any) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const hasJobOverride = !!String(job.job_address_street ?? "").trim()
     && clientHasAddress
-    && loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0]);
+    && (
+      loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0])
+      || loose(job.job_address_city)  !== loose(job.client_city)
+      || loose(job.job_address_state) !== loose(job.client_state)
+      || loose(job.job_address_zip)   !== loose(job.client_address_zip)
+    );
 
   async function useClientAddress() {
     setInheriting(true);
