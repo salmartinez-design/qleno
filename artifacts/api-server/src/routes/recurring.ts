@@ -7,6 +7,7 @@ import { requireRole } from "../lib/auth.js";
 import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
+import { commercialPricingMismatch, describeCommercialPricingMismatch, hoursFromMinutes } from "@workspace/pricing-rules";
 
 const router = Router();
 
@@ -237,6 +238,99 @@ router.patch("/:id/monthly-charge", requireAuth, requireRole("owner", "admin", "
 // exclude_job_id is the anchor (the job the user has open) so it doesn't
 // double-count toward future or past — the picker labels treat the anchor
 // as "this" separately.
+// ── Commercial price drift ────────────────────────────────────────────────
+//
+// [commercial-price-drift 2026-08-18] Every active commercial schedule whose
+// stored per-visit price no longer agrees with its own hours × hourly rate.
+//
+// This exists because National Able cut from 8 hours a day to 4 and nothing
+// noticed. Their invoices were right — those bill actual hours — but the price
+// on the schedule, and on all 266 visits it had already generated, stayed at the
+// 8-hour figure. Qleno reported $53,100 of revenue that was never coming, for
+// four months, in silence.
+//
+// It reports; it does not repair. Whether the price or the hours is the wrong
+// number is a question about what the customer agreed to, and only the office
+// knows that. Flat-fee schedules — 38 of Phes's 41 — carry no hourly rate and
+// never appear here at all.
+//
+// Office-gated: this is pricing, and pricing is money.
+router.get("/pricing-audit", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    // One query, no per-schedule follow-ups. The future-visit count comes from a
+    // grouped subquery rather than a lateral per row.
+    const rows = await db.execute(sql`
+      SELECT rs.id,
+             rs.duration_minutes,
+             rs.base_fee,
+             rs.commercial_hourly_rate,
+             rs.manual_rate_override,
+             rs.frequency,
+             COALESCE(
+               a.account_name,
+               NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), ''),
+               'Schedule #' || rs.id
+             ) AS name,
+             COALESCE(fj.future_visits, 0) AS future_visits
+        FROM recurring_schedules rs
+   LEFT JOIN accounts a ON a.id = rs.account_id AND a.company_id = rs.company_id
+   LEFT JOIN clients  c ON c.id = rs.customer_id AND c.company_id = rs.company_id
+   LEFT JOIN (
+               SELECT recurring_schedule_id, COUNT(*) AS future_visits
+                 FROM jobs
+                WHERE company_id = ${companyId}
+                  AND scheduled_date >= CURRENT_DATE
+                  AND status <> 'cancelled'
+                  AND recurring_schedule_id IS NOT NULL
+             GROUP BY recurring_schedule_id
+             ) fj ON fj.recurring_schedule_id = rs.id
+       WHERE rs.company_id = ${companyId}
+         AND rs.is_active = true
+         AND rs.commercial_hourly_rate IS NOT NULL
+         AND rs.duration_minutes IS NOT NULL
+         AND rs.duration_minutes > 0
+         AND COALESCE(rs.manual_rate_override, false) = false
+    ORDER BY rs.id
+    `);
+
+    // The mismatch test itself lives in @workspace/pricing-rules so this audit
+    // and the warning the office sees while editing can never disagree.
+    const drifting = rows.rows.flatMap((r: any) => {
+      const m = commercialPricingMismatch({
+        hours: hoursFromMinutes(r.duration_minutes),
+        fee: r.base_fee,
+        rate: r.commercial_hourly_rate,
+        manualRateOverride: !!r.manual_rate_override,
+      });
+      if (!m) return [];
+      return [{
+        schedule_id: Number(r.id),
+        name: String(r.name),
+        frequency: r.frequency ?? null,
+        future_visits: Number(r.future_visits ?? 0),
+        hours: m.hours,
+        rate: m.rate,
+        stored_fee: m.storedFee,
+        expected_fee: m.expectedFee,
+        difference: m.difference,
+        // What the disagreement is worth across everything still on the books.
+        future_difference: Math.round(m.difference * Number(r.future_visits ?? 0) * 100) / 100,
+        message: describeCommercialPricingMismatch(m),
+      }];
+    });
+
+    return res.json({
+      checked: rows.rows.length,
+      drifting_count: drifting.length,
+      schedules: drifting,
+    });
+  } catch (err: any) {
+    console.error("GET /recurring/pricing-audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", detail: err?.message ?? String(err) });
+  }
+});
+
 router.get("/:id/occurrence-counts", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);

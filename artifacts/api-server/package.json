@@ -41,6 +41,7 @@
     "@workspace/db": "workspace:*",
     "@workspace/lms-curriculum": "workspace:*",
     "@workspace/payroll-metrics": "workspace:*",
+    "@workspace/pricing-rules": "workspace:*",
     "@workspace/training": "workspace:*",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",

@@ -25,6 +25,7 @@ import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
+import { commercialPricingMismatch, describeCommercialPricingMismatch } from "@workspace/pricing-rules";
 import multer from "multer";
 import crypto from "node:crypto";
 import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
@@ -3946,10 +3947,24 @@ router.patch("/:id", requireAuth, async (req, res) => {
     const updatedRows = await db.execute(sql`
       SELECT id, status, service_type, frequency, scheduled_date, scheduled_time,
              allowed_hours, base_fee, manual_rate_override, notes, assigned_user_id,
-             recurring_schedule_id
+             recurring_schedule_id, hourly_rate, account_id
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
     const updated = updatedRows.rows[0];
+
+    // [commercial-price-drift 2026-08-18] After the save, does this visit's
+    // price still agree with its hours? Only asked when the visit carries an
+    // hourly rate — a flat-fee commercial visit has nothing to compare and stays
+    // silent (38 of Phes's 41 commercial schedules are flat fee). This NEVER
+    // changes anything; it hands the modal a sentence so the office can decide
+    // which of the two numbers is the wrong one. See lib/pricing-rules for why
+    // deriving the price automatically would be wrong.
+    const pricingMismatch = commercialPricingMismatch({
+      hours: (updated as any)?.allowed_hours,
+      fee: (updated as any)?.base_fee,
+      rate: (updated as any)?.hourly_rate,
+      manualRateOverride: !!(updated as any)?.manual_rate_override,
+    });
 
     // Keep the job's draft invoice (if any) in step with the job state.
     // cancel → void the draft; reschedule → shift due_date; else → sync line items.
@@ -4038,6 +4053,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
         created_schedule_id: createdScheduleId,
         create_recurring: createRecurringFanout,
       },
+      pricing_warning: pricingMismatch
+        ? { ...pricingMismatch, message: describeCommercialPricingMismatch(pricingMismatch) }
+        : null,
     });
   } catch (err: any) {
     console.error("PATCH /jobs/:id error:", err);

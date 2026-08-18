@@ -218,6 +218,9 @@ importers:
       '@workspace/payroll-metrics':
         specifier: workspace:*
         version: link:../../lib/payroll-metrics
+      '@workspace/pricing-rules':
+        specifier: workspace:*
+        version: link:../../lib/pricing-rules
       '@workspace/training':
         specifier: workspace:*
         version: link:../../lib/training
@@ -612,6 +615,9 @@ importers:
       '@workspace/payroll-metrics':
         specifier: workspace:*
         version: link:../../lib/payroll-metrics
+      '@workspace/pricing-rules':
+        specifier: workspace:*
+        version: link:../../lib/pricing-rules
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -789,6 +795,8 @@ importers:
         version: 19.2.14
 
   lib/payroll-metrics: {}
+
+  lib/pricing-rules: {}
 
   lib/training: {}
 

@@ -22,6 +22,9 @@
       "path": "./lib/payroll-metrics"
     },
     {
+      "path": "./lib/pricing-rules"
+    },
+    {
       "path": "./lib/training"
     }
   ]
