@@ -2877,7 +2877,19 @@ export default function EmployeeProfilePage() {
                       // window, not the lifetime job count this used to show.
                       { label:'Scheduled days', value: attnSummary?.days?.scheduled ?? 0 },
                       { label:'Worked', value: attnSummary?.days?.worked ?? 0 },
-                      { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days },
+                      // [late-clockin-record 2026-08-18] Two rows, deliberately.
+                      // "Late" is the disciplinary count — tardy OCCURRENCES,
+                      // one per day at most, first job only, what the write-up
+                      // ladder runs on. "Late clock-ins" is every arrival that
+                      // landed 20+ min after its job's start, third house of
+                      // the day included, read straight off the punch. Maribel
+                      // asked for the second one: "even when we receive a
+                      // notification that a cleaner has a late check-in, the
+                      // late check-in is not being recorded in the cleaner's
+                      // profile." Collapsing them into one number would
+                      // misreport whichever question is being asked.
+                      { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days, hint:'Tardy occurrences on the disciplinary ladder — at most one per day, measured on the first job of the day.' },
+                      { label:'Late clock-ins', value: t?.late_clockins?.count ?? 0, days: t?.late_clockins?.days, hint:'Every punch that landed 20+ minutes after its job\'s scheduled start, including later jobs in the day. Click to see which services. Recorded from 8/18/2026 onward.' },
                       { label:'Absent', value: t?.absent?.count ?? 0, days: t?.absent?.days },
                       { label:'Unexcused', value: t?.unexcused?.count ?? 0, days: t?.unexcused?.days },
                       { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },

@@ -607,6 +607,12 @@ async function buildDispatchPayload(
         clock_in_outside_geofence: timeclockTable.clock_in_outside_geofence,
         clock_out_outside_geofence: timeclockTable.clock_out_outside_geofence,
         source: timeclockTable.source,
+        // [late-clockin-record 2026-08-18] Minutes past the scheduled start,
+        // stamped at clock-in. The board's LATE chip is a LIVE state that
+        // vanishes the second the tech punches in (getJobVisualStatus returns
+        // "active" from then on), so this is the only thing that keeps a late
+        // arrival visible on the card afterwards.
+        late_by_min: timeclockTable.late_by_min,
       })
       .from(timeclockTable)
       .where(sql`${timeclockTable.job_id} = ANY(ARRAY[${sql.raw(idList)}]::int[])`);
@@ -1332,6 +1338,8 @@ async function buildDispatchPayload(
           // GPS unavailable = no coordinates captured at clock-in. Suppressed
           // for synthetic 'estimated' completion stamps (legitimately no GPS).
           gps_missing: flagMissingGps && clock.source !== "estimated" && (clock.clock_in_lat == null || clock.clock_in_lng == null),
+          // Non-null = this punch was recorded as late, by this many minutes.
+          late_by_min: clock.late_by_min ?? null,
         } : null,
         technicians,
         est_hours_per_tech: estHoursPerTech,
