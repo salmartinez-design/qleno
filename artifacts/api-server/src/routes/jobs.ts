@@ -7585,6 +7585,29 @@ async function projectJobBilling(
     newBilled = base + modsTotal;
   }
 
+  // [negative-bill-floor 2026-08-18] A visit can be free. It cannot cost the
+  // customer less than nothing. A credit larger than the job's own price used
+  // to push billed_amount below zero — Lisa Loe's $180 clean took a $200
+  // "Credit" adjustment and came to rest at -$20.00 (job 18550), the only
+  // negative billed_amount in the company's history. A negative price is not a
+  // refund: nothing sends the money back, it just subtracts from every revenue
+  // figure that sums this column, and the invoice builder then floors the
+  // subtotal at $0 anyway, so the extra $20 was invisible everywhere except in
+  // the totals it quietly reduced.
+  //
+  // Floor at zero so the bill matches what the document says. Any credit beyond
+  // the job's price is logged rather than absorbed silently, because the
+  // remainder is a real decision the office still needs to make — carry it to
+  // the next visit or let it go — and it should not be made by rounding.
+  if (newBilled < 0) {
+    console.warn(
+      `[jobs] job ${jobId}: adjustments totalled $${modsTotal.toFixed(2)} against a `
+      + `$${base.toFixed(2)} price, which would bill $${newBilled.toFixed(2)}; floored to $0.00. `
+      + `The extra $${Math.abs(newBilled).toFixed(2)} of credit is not carried forward.`,
+    );
+    newBilled = 0;
+  }
+
   // [commission-optin 2026-07-01] Commission base = the commissionable slice:
   // base (or hrs × the TENANT commercial commission rate) + ONLY the flagged
   // mods/add-ons. The pay engine reads this instead of billed_amount, so an

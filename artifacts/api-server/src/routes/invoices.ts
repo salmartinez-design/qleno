@@ -911,6 +911,25 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
     const total = Math.round((subtotal + tipVal) * 100) / 100;
 
+    // [zero-paid-guard 2026-08-18] "Paid" is a claim that money changed hands.
+    // A $0 invoice cannot have collected anything, so marking one paid records
+    // a collection that never happened and quietly closes the visit out of
+    // A/R — the office stops seeing it, and the work is never billed. That is
+    // exactly how Walter Nunchuck's $195 clean (invoice 6363) came to read
+    // "paid" at $0.00 on 2026-07-04 while nobody was ever charged.
+    //
+    // The auto-charge path in lib/charge-invoice.ts has always refused a zero
+    // total; the two office-facing paths (this endpoint and POST /:id/pay) did
+    // not. A genuinely comped visit still gets its $0 invoice as the record —
+    // it just stays in a status that tells the truth instead of claiming a
+    // payment. Voiding remains available for a document that should not exist.
+    if (status === "paid" && !(total > 0)) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: "This invoice totals $0.00, so it cannot be marked paid. Add the amount that was actually charged, or void the invoice if nothing is owed.",
+      });
+    }
+
     // [manual-edit-detach 2026-07-06] A hand-edit to the document's amounts
     // (line items or tip) detaches the invoice from job mirroring: mark-paid's
     // pre-payment recalc and the job-edit draft re-sync both skip invoices
@@ -1702,6 +1721,18 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
     const payAmount = amount ?? parseFloat(invoice.total || "0");
+
+    // [zero-paid-guard 2026-08-18] Same rule as the PATCH endpoint above: a $0
+    // payment is not a payment. Recording one inserts a $0 row in `payments`,
+    // stamps the invoice paid, and cascades that claim to every member of a
+    // batched invoice — a collection reported on money nobody sent. If a visit
+    // is comped, its $0 invoice is the record; it does not need a payment.
+    if (!(payAmount > 0)) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: "A payment must be greater than $0.00. Enter the amount that was actually collected, or void the invoice if nothing is owed.",
+      });
+    }
 
     await db.insert(paymentsTable).values({
       company_id: req.auth!.companyId,

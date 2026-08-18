@@ -320,6 +320,46 @@ export async function buildJobLineItems(
     scopeUnit = scopeAmount;
   }
 
+  // [zero-price-drop 2026-08-18] A job that carries a real price must never
+  // print a $0 service line.
+  //
+  // recomputeJobBilledAmount stamps billed_amount on EVERY job, so a job whose
+  // billed_amount is literally 0 still has it SET — and `isMetered` above reads
+  // the string "0.00" as truthy, which routes that job down the metered branch.
+  // That branch prints billed_amount verbatim (minus mods) with no fallback, so
+  // the price on the job never reaches the document. Walter Nunchuck's $195
+  // clean (job 5958, base_fee $195, billed_amount 0) invoiced on 2026-07-04 as
+  // one line reading "Standard Clean · $0.00", and the invoice was then marked
+  // paid. The work was done, the customer was never billed for it, and no
+  // screen anywhere said so — it only surfaced in a hand audit six weeks later.
+  //
+  // base_fee is the job's own record of what the work is worth, so it is the
+  // right recovery anchor: subtract the add-ons that are itemized separately
+  // (the same arithmetic the flat branch already uses) and bill that. A job
+  // that really is free has base_fee 0 too, so this can never invent a price
+  // nobody agreed to, and a job zeroed by a credit or a discount keeps a
+  // POSITIVE scope with the offsetting line below it — that case does not
+  // reach here. Logged rather than silent so the upstream cause stays findable.
+  //
+  // Deliberately left as a floor rather than a re-classification: the
+  // [flat-addon-itemize 2026-07-11] guard above scoped itself to positive
+  // billed_amount on purpose, and widening it would move totals on jobs that
+  // are billing correctly today. This moves a total only when it is $0 and the
+  // job says it should not be.
+  const baseFeeNum = parseFloat(String(job.base_fee ?? "0"));
+  if (scopeAmount <= 0 && baseFeeNum > 0) {
+    const recovered = Math.max(0, Math.round((baseFeeNum - addOnsSubtotal) * 100) / 100);
+    if (recovered > 0) {
+      console.warn(
+        `[invoice-line-items] job ${jobId}: scope computed $${scopeAmount.toFixed(2)} but base_fee is `
+        + `$${baseFeeNum.toFixed(2)}; recovered scope to $${recovered.toFixed(2)} so the price is not dropped`,
+      );
+      scopeAmount = recovered;
+      scopeQty = 1;
+      scopeUnit = recovered;
+    }
+  }
+
   const lineItems: InvoiceLineItem[] = [
     { description: scopeDesc, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount, job_id: jobId },
   ];
