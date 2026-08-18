@@ -303,10 +303,14 @@ function drawCertificateChrome(
   // photo logo; Qleno is the canonical SVG-derived mark + wordmark
   // drawn programmatically via drawQlenoMark so the brand stays
   // pixel-perfect at every size (no PNG drift). Both rendered at a
-  // common 44px mark height so the chrome looks balanced. If the
-  // Phes JPEG is missing on disk it just skips drawing.
-  const logoH = 44;
-  const logoY = height - 88;
+  // common 80px mark height so the chrome carries proper brand weight
+  // on the cert. (2026-05-22 Sal: "re-add the Phes logo. Bigger. Then
+  // the Qleno logo as well." — bumped from 44 → 80 to make both marks
+  // read at a glance instead of dissolving into the border chrome.
+  // Body headings below shift down 60px to accommodate.) If the Phes
+  // JPEG is missing on disk it just skips drawing.
+  const logoH = 80;
+  const logoY = height - 124; // top of logo lands at y = height - 44, same as before
   if (logos.phes) {
     const w = logos.phes.width * (logoH / logos.phes.height);
     page.drawImage(logos.phes, { x: 40, y: logoY, width: w, height: logoH });
@@ -327,12 +331,16 @@ function drawCertificateBody(
   const { width } = page.getSize();
   const centerX = width / 2;
 
+  // Body layout — headings shifted down 60px on 2026-05-22 to
+  // accommodate the enlarged logos above (logoH bumped 44→80).
+  // Original y's: 520 / 488 / 430 / 380 / 330 / 290 / 250 / 210.
+
   // Header label
   drawCentered(
     page,
     "CERTIFICATE OF COMPLETION",
     centerX,
-    520,
+    460,
     18,
     helvBold,
     COLORS.navy,
@@ -344,7 +352,7 @@ function drawCertificateBody(
     page,
     input.tenantName.toUpperCase(),
     centerX,
-    488,
+    428,
     11,
     helv,
     COLORS.inkMute,
@@ -358,7 +366,7 @@ function drawCertificateBody(
       ? "Esto certifica que"
       : "This certifies that",
     centerX,
-    430,
+    370,
     13,
     helvItalic,
     COLORS.inkMute,
@@ -369,7 +377,7 @@ function drawCertificateBody(
     page,
     input.employeeName,
     centerX,
-    380,
+    320,
     34,
     helvBold,
     COLORS.ink,
@@ -382,14 +390,14 @@ function drawCertificateBody(
       ? "ha completado con éxito"
       : "has successfully completed",
     centerX,
-    330,
+    270,
     13,
     helvItalic,
     COLORS.inkMute,
   );
 
   // Module title
-  drawCentered(page, input.moduleTitle, centerX, 290, 22, helvBold, COLORS.navy);
+  drawCentered(page, input.moduleTitle, centerX, 230, 22, helvBold, COLORS.navy);
 
   // Score line (if applicable)
   if (input.score !== null) {
@@ -397,7 +405,7 @@ function drawCertificateBody(
       input.locale === "es"
         ? `Puntaje: ${input.score}%`
         : `Score: ${input.score}%`;
-    drawCentered(page, scoreLine, centerX, 250, 14, helv, COLORS.success);
+    drawCentered(page, scoreLine, centerX, 190, 14, helv, COLORS.success);
   }
 
   // Issued date
@@ -405,7 +413,7 @@ function drawCertificateBody(
     input.locale === "es"
       ? `Emitido el ${formatDate(input.issuedAt, "es")}`
       : `Issued ${formatDate(input.issuedAt, "en")}`;
-  drawCentered(page, dateLine, centerX, 210, 12, helv, COLORS.inkMute);
+  drawCentered(page, dateLine, centerX, 150, 12, helv, COLORS.inkMute);
 }
 
 function drawCertificateFooter(
