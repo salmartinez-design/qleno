@@ -6911,8 +6911,9 @@ async function runAleCuervoMigration() {
       const notesWithHours = a.hours > 0 ? `${a.notes}${a.notes ? " " : ""}(${a.hours}h)`.trim() : (a.notes || null);
       const ts = `${a.date} 12:00:00`;
       await db.execute(sql`
-        INSERT INTO additional_pay (company_id, user_id, amount, type, notes, status, created_at)
-        SELECT ${PHES}, ${EID}, ${a.amount}, ${a.type}, ${notesWithHours}, 'paid', ${ts}::timestamp
+        -- [pay-day 2026-08-17] effective_date is the historical pay date.
+        INSERT INTO additional_pay (company_id, user_id, amount, type, notes, status, created_at, effective_date)
+        SELECT ${PHES}, ${EID}, ${a.amount}, ${a.type}, ${notesWithHours}, 'paid', ${ts}::timestamp, ${a.date}::date
         WHERE NOT EXISTS (
           SELECT 1 FROM additional_pay
           WHERE company_id=${PHES} AND user_id=${EID}

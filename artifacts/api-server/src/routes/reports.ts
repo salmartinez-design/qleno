@@ -8,6 +8,9 @@ import {
 import { eq, and, gte, lte, desc, count, avg, sum, sql, lt, inArray, isNull, ne } from "drizzle-orm";
 import { requireAuth, requireRole, isTechnicianRole } from "../lib/auth.js";
 import { computePeriodPayLines } from "../lib/period-pay.js";
+// [pay-day 2026-08-17] Tips/mileage/leave rows are windowed on the day the
+// money belongs to, never on created_at. See lib/pay-day.ts.
+import { payDaySql } from "../lib/pay-day.js";
 // [dashboard-parity 2026-08-17] The cutover floor and the MaidCentral merge
 // used to live in this file. They moved to lib/ so routes/dashboard.ts can
 // apply the identical rule — the front page and this report now answer "what
@@ -1552,7 +1555,7 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
       LEFT JOIN scorecard_entries sc ON sc.employee_id=u.id AND sc.company_id=${companyId}
         AND sc.excluded=false AND sc.dismissed_at IS NULL
         AND sc.entry_date BETWEEN ${fromStr} AND ${toStr}
-      LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ap.created_at::date BETWEEN ${fromStr} AND ${toStr}
+      LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ${payDaySql("ap")} BETWEEN ${fromStr} AND ${toStr}
       LEFT JOIN timeclock tc ON tc.user_id=u.id AND tc.clock_in_at::date BETWEEN ${fromStr} AND ${toStr}
       WHERE u.company_id=${companyId} AND u.is_active=true ${empFilter}
       GROUP BY u.id ORDER BY revenue_generated DESC
@@ -1600,7 +1603,11 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
 
     const rows = await db.execute(sql`
       SELECT
-        ap.id, ap.amount, ap.type, ap.notes, ap.created_at,
+        ap.id, ap.amount, ap.type, ap.notes,
+        -- [pay-day 2026-08-17] The tip's date is the day it PAYS OUT, not the
+        -- moment the office typed it in. Those differ by a day for anything
+        -- recorded after 7pm Central.
+        ${payDaySql("ap")}::text AS pay_day,
         u.first_name AS emp_first, u.last_name AS emp_last,
         c.first_name AS client_first, c.last_name AS client_last,
         j.service_type, j.scheduled_date
@@ -1609,14 +1616,14 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
       LEFT JOIN jobs j ON j.id=ap.job_id
       LEFT JOIN clients c ON c.id=j.client_id
       WHERE ap.company_id=${companyId} AND ap.type='tips'
-        AND ap.created_at::date BETWEEN ${fromStr} AND ${toStr}
+        AND ${payDaySql("ap")} BETWEEN ${fromStr} AND ${toStr}
         ${branchFilter(req, "j.branch_id")}
         ${userFilter}
-      ORDER BY ap.created_at DESC LIMIT 500
+      ORDER BY ${payDaySql("ap")} DESC, ap.id DESC LIMIT 500
     `);
 
     const data = (rows.rows as any[]).map(r => ({
-      id: r.id, date: r.created_at, amount: parseF(r.amount), type: r.type, notes: r.notes,
+      id: r.id, date: r.pay_day, amount: parseF(r.amount), type: r.type, notes: r.notes,
       employee_name: `${r.emp_first} ${r.emp_last}`,
       client_name: r.client_first ? `${r.client_first} ${r.client_last}` : null,
       service_type: r.service_type, job_date: r.scheduled_date,

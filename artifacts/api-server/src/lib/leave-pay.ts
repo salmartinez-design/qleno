@@ -21,9 +21,9 @@
  * [leave-day 2026-08-17] Pay is dated to the DAY OFF, not the day the office
  * clicked Approve. Approval already writes one `employee_leave_usage` row per
  * calendar day of the request, so this pays per usage day and stamps each row's
- * created_at to that day. Two things this fixes, both of which Sal hit on the
- * payroll screen:
- *   - payroll windows additional_pay by created_at, so leave approved in one
+ * effective_date to that day. Two things this fixes, both of which Sal hit on
+ * the payroll screen:
+ *   - payroll windows additional_pay by its pay day, so leave approved in one
  *     week for a day off in the next was landing in the wrong pay week
  *     (live example: $100 stamped 2026-07-23 for leave taken 2026-07-28)
  *   - the day-by-day drawer had nothing to date the entry by, so it fell back
@@ -130,10 +130,15 @@ export async function writeApprovedLeavePay(
     // id. Without a usage row there is nothing finer to key on, so fall back to
     // the request marker — that branch writes at most one row anyway.
     const guardLike = d.id === null ? reqLike : `%[leave_usage:${d.id}]%`;
+    // [pay-day 2026-08-17] effective_date = the day off. That is what this code
+    // was always trying to say by back-dating created_at to noon on the leave
+    // day — the column it needed didn't exist yet. Now it does, and it's the
+    // only thing payroll windows on. created_at keeps the same value so the row
+    // is unchanged for anything still reading it. See lib/pay-day.ts.
     await db.execute(sql`
-      INSERT INTO additional_pay (company_id, user_id, type, amount, notes, status, created_at)
+      INSERT INTO additional_pay (company_id, user_id, type, amount, notes, status, created_at, effective_date)
       SELECT ${companyId}, ${Number(row.user_id)}, ${payType}, ${dayAmount.toFixed(2)}, ${notes}, 'pending',
-             (${d.day} || ' 12:00:00')::timestamp
+             (${d.day} || ' 12:00:00')::timestamp, ${d.day}::date
        WHERE NOT EXISTS (
          SELECT 1 FROM additional_pay
           WHERE company_id = ${companyId}
@@ -194,8 +199,8 @@ export async function voidApprovedLeavePay(
  * Two deliberate differences from the request path:
  *  - Idempotency marker is `[leave_usage:<id>]` (bracketed + colon so a LIKE
  *    on usage 5 can't match usage 50/51…), keyed to the usage-row id.
- *  - created_at is stamped to the LEAVE DATE (date_used), not now — payroll
- *    windows additional_pay by created_at, so the pay must land in the payroll
+ *  - effective_date is stamped to the LEAVE DATE (date_used), not today —
+ *    payroll windows additional_pay by its pay day, so the pay must land in the
  *    period that contains the day off (including back-dated entries), not the
  *    period it happened to be typed in.
  */
@@ -237,12 +242,14 @@ export async function writeUsageLeavePay(
   const notes = `${row.display_name} leave recorded ${marker}${reqSuffix} — ${hours.toFixed(2)}h × $${rate}/hr, ${dateUsed}`;
 
   // Insert only if no non-voided pay row already exists for this usage row.
-  // created_at = noon on the leave date so it lands in that day's payroll
-  // period regardless of when it was recorded.
+  // [pay-day 2026-08-17] effective_date = the leave date, so the pay lands in
+  // that day's payroll period regardless of when it was recorded. This used to
+  // be done by back-dating created_at, which was the closest thing available
+  // before the column existed; created_at still carries the same value.
   await db.execute(sql`
-    INSERT INTO additional_pay (company_id, user_id, type, amount, notes, status, created_at)
+    INSERT INTO additional_pay (company_id, user_id, type, amount, notes, status, created_at, effective_date)
     SELECT ${companyId}, ${Number(row.employee_id)}, ${payType}, ${amount.toFixed(2)}, ${notes}, 'pending',
-           (${dateUsed} || ' 12:00:00')::timestamp
+           (${dateUsed} || ' 12:00:00')::timestamp, ${dateUsed}::date
      WHERE NOT EXISTS (
        SELECT 1 FROM additional_pay
         WHERE company_id = ${companyId}

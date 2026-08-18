@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, timestamp, numeric, text, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, timestamp, numeric, text, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -28,6 +28,22 @@ export const additionalPayTable = pgTable("additional_pay", {
   voided_by: integer("voided_by").references(() => usersTable.id),
   paid_at: timestamp("paid_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
+
+  // [pay-day 2026-08-17] WHICH DAY THIS MONEY BELONGS TO — the payroll filter.
+  //
+  // created_at is an audit stamp: `timestamp WITHOUT time zone` holding a UTC
+  // instant (Drizzle defaultNow() on a UTC server). Payroll windowed on
+  // created_at::date, which reads that UTC wall clock as if it were a local
+  // calendar day, so a tip recorded at 8pm Central filed on tomorrow. The
+  // MaidCentral import made it worse in the other direction: those rows carry
+  // a date at literal midnight, so converting them UTC->Central would push
+  // them BACK a day. One column cannot mean both things.
+  //
+  // So it doesn't. created_at keeps meaning "when the row was typed" and this
+  // means "the day it pays out on" — set from the tenant's own calendar, or to
+  // whatever day the office chooses when they record something after the fact.
+  // Every payroll and report window filters on this; none filter on created_at.
+  effective_date: date("effective_date"),
 });
 
 export const insertAdditionalPaySchema = createInsertSchema(additionalPayTable).omit({ id: true, created_at: true });

@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { payDayNow } from "../lib/pay-day.js";
 import { appBaseUrl } from "../lib/app-url.js";
 import { sendNotification } from "../services/notificationService.js";
 import {
@@ -935,7 +936,9 @@ router.get("/:id/additional-pay", requireAuth, async (req, res) => {
         eq(additionalPayTable.user_id, userId),
         eq(additionalPayTable.company_id, req.auth!.companyId)
       ))
-      .orderBy(desc(additionalPayTable.created_at));
+      // [pay-day 2026-08-17] Newest by PAY DAY, not by when it was typed — the
+      // employee profile lists this next to the payroll weeks it belongs to.
+      .orderBy(sql`COALESCE(${additionalPayTable.effective_date}, (${additionalPayTable.created_at})::date) DESC, ${additionalPayTable.id} DESC`);
 
     return res.json({ data: records, total: records.length });
   } catch (err) {
@@ -950,11 +953,15 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
     const { amount, type, notes, job_id, date } = req.body;
 
     // [additional-pay-date 2026-06-08] Honor the entry's effective date so it
-    // lands in the right pay period. created_at is the field the payroll summary
-    // buckets/filters by (and how migrated entries already carry their date), so
-    // stamping created_at to the chosen date wires the entry straight into the
-    // correct period. Falls back to now() when no date is provided.
-    const createdAt = date ? new Date(`${String(date)}T12:00:00Z`) : undefined;
+    // lands in the right pay period.
+    // [pay-day 2026-08-17] That date now has a column of its own. It used to be
+    // smuggled in by overwriting created_at, because created_at was what payroll
+    // bucketed on — which also meant an entry with NO date given inherited a UTC
+    // now() and filed itself on tomorrow whenever the office typed it after 7pm
+    // Central. effective_date is the bucket now; created_at is set alongside it
+    // only so the row looks the same to anything still reading the old field.
+    const payDay = date ? String(date).slice(0, 10) : payDayNow(req.auth!.companyId!);
+    const createdAt = new Date(`${payDay}T12:00:00Z`);
 
     const record = await db
       .insert(additionalPayTable)
@@ -966,7 +973,8 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
         notes,
         job_id,
         status: "pending",
-        ...(createdAt ? { created_at: createdAt } : {}),
+        created_at: createdAt,
+        effective_date: payDay,
       })
       .returning();
 

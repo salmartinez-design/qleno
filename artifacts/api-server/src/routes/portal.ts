@@ -7,6 +7,7 @@ import {
 import { eq, and, desc, gte, sql } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 import { requirePortalAuth, requireCapability } from "../lib/portal-auth.js";
+import { payDayNow } from "../lib/pay-day.js";
 
 const router = Router();
 
@@ -190,6 +191,10 @@ router.post("/tip", requirePortalAuth, requireResidential, requireCapability("pa
       type: "tips",
       notes: `Client tip via portal for job #${job_id}`,
       job_id,
+      // [pay-day 2026-08-17] A customer tipping at 9pm was landing in the next
+      // day's payroll, because created_at defaulted to a UTC now() already past
+      // midnight. Stamp the tenant's own calendar day.
+      effective_date: payDayNow(job[0].company_id),
     });
 
     return res.json({ success: true, message: `Tip of $${amount} recorded` });

@@ -1465,6 +1465,19 @@ async function computeAndApplyCommission(
     };
   }
 
+  // [pay-day 2026-08-17] A commission row belongs to the day its job was
+  // worked. Every job here was already selected inside [periodStart, periodEnd],
+  // so stamping the service date keeps the row in this period while making the
+  // day-by-day payroll view land it on the right line. Falls back to the period
+  // end for a job with no date rather than to now(), which on a UTC server is
+  // already tomorrow after 7pm Central.
+  const jobDayById = new Map<number, string>();
+  for (const j of jobs as any[]) {
+    if (j.scheduled_date) jobDayById.set(Number(j.id), String(j.scheduled_date).slice(0, 10));
+  }
+  const commissionDay = (jobId: number | null | undefined) =>
+    (jobId != null ? jobDayById.get(Number(jobId)) : undefined) ?? periodEnd;
+
   let inserted = 0;
   let updated = 0;
   let voided = 0;
@@ -1481,6 +1494,7 @@ async function computeAndApplyCommission(
             type: "commission",
             notes: `[commission_auto] period_id=${periodId} basis=${r.basis}`,
             status: "pending" as const,
+            effective_date: commissionDay(r.job_id),
           })),
         )
         .returning({ id: additionalPayTable.id });

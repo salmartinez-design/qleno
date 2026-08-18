@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { mileageRequestsTable, additionalPayTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole, isTechnicianRole } from "../lib/auth.js";
+import { payDayNow } from "../lib/pay-day.js";
 
 const router = Router();
 
@@ -118,6 +119,13 @@ router.post("/:id/approve", requireAuth, requireRole("owner", "admin"), async (r
         amount: request.reimbursement_amount,
         type: "mileage",
         notes: `Mileage reimbursement: ${request.from_client_name} → ${request.to_client_name} (${request.miles} mi @ $${request.rate_per_mile}/mi) on ${request.service_date}`,
+        // [pay-day 2026-08-17] Approved mileage pays in the week it is
+        // APPROVED, which is what this route has always done — the office
+        // reviews a batch and it rides the next check. Stamping the day
+        // explicitly (in the tenant's zone) just stops an evening approval from
+        // sliding into next week. Deliberately NOT request.service_date: that
+        // would re-bucket old drives into closed pay periods.
+        effective_date: payDayNow(companyId),
       })
       .returning();
 
