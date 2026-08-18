@@ -515,7 +515,11 @@ export default function BookPage() {
   const [mobilePoliciesOpen, setMobilePoliciesOpen] = useState(false);
   const [sidebarOpenCats, setSidebarOpenCats] = useState<Set<number>>(new Set());
   const [mobileOpenCats, setMobileOpenCats] = useState<Set<number>>(new Set());
-  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(true);
+  // [sticky-bar-overlay 2026-08-17] Collapsed by default. Expanded, the breakdown
+  // panel is ~200px — on a phone that is a third of the screen, and in the phes.io
+  // embed it sat directly on top of the Continue/Back row. Opening the breakdown is
+  // a deliberate act; the compact bar already carries the number that matters.
+  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(false);
 
   // Upsell state (Deep Clean recurring upsell)
   const [upsellCadence, setUpsellCadence] = useState("");
@@ -676,6 +680,33 @@ export default function BookPage() {
     const t = setTimeout(doScroll, 30);
     return () => clearTimeout(t);
   }, [step]);
+
+  // ── Content height → parent page (lets an embed size its iframe) ───────────
+  // [sticky-bar-overlay 2026-08-17] phes.io renders this widget in an iframe with a
+  // hard-coded min-height of 1500px and no resize listener, which gives the embed a
+  // second scroller nested inside the page scroll: short steps leave a tall empty
+  // box, long steps scroll inside the iframe while the page scrolls around it, and
+  // every step change has to yank the page back to the widget's top. Broadcasting
+  // the real content height lets the host size the iframe to fit and drop the inner
+  // scroller entirely. Inert until a host listens — the parent page needs:
+  //   window.addEventListener("message", e => {
+  //     if (e.origin === "https://app.qleno.com" && e.data?.type === "qleno-booking-height")
+  //       iframeEl.style.height = e.data.height + "px";
+  //   });
+  useEffect(() => {
+    if (window.parent === window) return;
+    let last = 0;
+    const send = () => {
+      const h = Math.ceil(document.documentElement.scrollHeight);
+      if (!h || Math.abs(h - last) < 24) return;
+      last = h;
+      try { window.parent.postMessage({ type: "qleno-booking-height", height: h }, "*"); } catch {}
+    };
+    send();
+    const ro = new ResizeObserver(send);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, []);
 
   // ── Booking-complete conversion signal to the phes.io parent page ──────────
   // [booking-conversion 2026-07-13] The Google Ads / GA4 conversion is fired by
@@ -1916,7 +1947,7 @@ export default function BookPage() {
           .bw-progress-inner { gap: 2px !important; }
           .bw-step-label { display: none !important; }
           .bw-step-label.active { display: inline !important; }
-          .bw-body { flex-direction: column !important; padding: 16px !important; gap: 0 !important; padding-bottom: 80px !important; }
+          .bw-body { flex-direction: column !important; padding: 16px !important; gap: 0 !important; }
           .bw-sidebar { display: none !important; }
           .bw-form { width: 100% !important; }
           .bw-grid2 { grid-template-columns: 1fr !important; }
@@ -1928,12 +1959,19 @@ export default function BookPage() {
           .bw-nav-end button { width: 100% !important; min-height: 52px !important; font-size: 15px !important; }
           .bw-nav-end { justify-content: stretch !important; }
           .bw-policies-mobile { display: block !important; }
+          /* [sticky-bar-overlay 2026-08-17] sticky, NOT fixed. phes.io embeds this
+             widget in a hard-coded 1500px-tall iframe, so a fixed bar pins to the
+             bottom of that 1500px box — which is far below the phone's viewport.
+             On a short step it stranded the bar a thousand pixels under the form;
+             on a tall step it parked on top of the Continue/Back row and no amount
+             of scrolling could clear it, because fixed elements reserve no space.
+             Sticky floats the bar the same way while scrolling but keeps its box in
+             normal flow, so the nav row can always be scrolled out from under it.
+             Do NOT change this back to fixed without also fixing the parent embed. */
           .bw-price-sticky {
             display: block !important;
-            position: fixed !important;
+            position: sticky !important;
             bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
             z-index: 200 !important;
             background: #fff !important;
             border-top: 1px solid #E5E2DC !important;
