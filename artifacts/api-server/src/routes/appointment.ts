@@ -34,7 +34,7 @@ router.get("/:token", async (req, res) => {
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name AS client_first,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
-             co.name AS company_name, co.logo_url AS company_logo,
+             co.name AS company_name, co.arrival_window_minutes, co.logo_url AS company_logo,
              co.brand_color AS company_brand_color, co.phone AS company_phone, co.email AS company_email
       FROM jobs j
       JOIN companies co ON co.id = j.company_id
@@ -76,7 +76,7 @@ router.get("/:token", async (req, res) => {
 // [apple-calendar] Hosted .ics for the confirmation email's "Add to calendar"
 // Apple button. Email clients (Gmail, Apple Mail) block data: URIs, so Apple
 // needs a real https link that returns text/calendar — Google/Outlook use their
-// own web deeplinks. Same 2-hour default window as those links.
+// own web deeplinks. Spans the tenant arrival window, same as those links.
 router.get("/:token/calendar.ics", async (req, res) => {
   try {
     const token = String(req.params.token || "").trim();
@@ -100,7 +100,8 @@ router.get("/:token/calendar.ics", async (req, res) => {
     if (mm) { h = parseInt(mm[1], 10); min = parseInt(mm[2], 10); const ap = mm[3]?.toUpperCase(); if (ap === "PM" && h < 12) h += 12; if (ap === "AM" && h === 12) h = 0; }
     const pad = (n: number) => String(n).padStart(2, "0");
     const start = new Date(Date.UTC(y, mo - 1, d, h, min, 0));
-    const end = new Date(start.getTime() + 2 * 3600 * 1000);
+    const winMins = Number(j.arrival_window_minutes) > 0 ? Number(j.arrival_window_minutes) : 45;
+    const end = new Date(start.getTime() + winMins * 60 * 1000);
     const fmt = (dt: Date) => `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}00`;
     const escIcs = (s: string) => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
     const company = j.company_name || "Phes";

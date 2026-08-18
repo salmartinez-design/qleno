@@ -118,7 +118,7 @@ const PHES_RESIDENTIAL_SCHEMA = [
 ];
 
 const PHES_RESIDENTIAL_TERMS = `ARRIVAL WINDOW
-Our technicians operate within a 2 to 3 hour arrival window. Exact arrival times cannot be guaranteed due to the nature of home cleaning services. We will do our best to accommodate your schedule and notify you when your technician is on the way.
+Your service is scheduled with a 45 minute arrival window. Exact arrival times cannot be guaranteed, because traffic and the home before yours can run long. We will notify you when your technician is on the way.
 
 SERVICE GUIDELINES
 We will begin services on the agreed start date. Your service includes a per-visit minimum and covers all standard cleaning tasks as discussed. Additional hours beyond the base rate are billed at the agreed hourly rate.

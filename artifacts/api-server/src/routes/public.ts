@@ -1362,7 +1362,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailDateStr = preferred_date
       ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
       : "To be scheduled";
-    const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : (arrivalWindowVal || "To be confirmed");
+    // Never quote a two or three hour arrival window. When the customer picked a
+    // half of the day rather than a time, name the half and confirm the window later.
+    const emailWindowLabel = arrivalWindowVal === "morning" ? "morning" : arrivalWindowVal === "afternoon" ? "afternoon" : (arrivalWindowVal || "To be confirmed");
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
 
