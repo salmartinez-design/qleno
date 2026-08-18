@@ -2893,7 +2893,7 @@ export default function BookPage() {
                   aria-hidden={!step1Block}
                   style={{
                     fontSize: 12, color: "#B45309", fontWeight: 500, lineHeight: 1.5,
-                    margin: "16px 0 0", minHeight: 36, textAlign: "right" as const,
+                    margin: "16px 0 0", minHeight: 36, textAlign: "center" as const,
                     visibility: step1Block ? "visible" : "hidden",
                   }}
                 >
