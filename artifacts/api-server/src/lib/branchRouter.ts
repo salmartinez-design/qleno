@@ -69,3 +69,59 @@ export async function getCompanyIdByBranch(branch: string): Promise<number | nul
     return null;
   }
 }
+
+/**
+ * [square-per-branch 2026-08-18] Resolve which BRANCH a zip belongs to, DB-first.
+ *
+ * There are two zip lists in this system and they can drift: the hardcoded
+ * SCHAUMBURG_ZIPS above (which drives comms) and `service_zones.zip_codes` +
+ * `.location` (which the booking widget already shows the customer). Sal edits
+ * the zones, not this file, so the DB wins and the hardcoded set is only the
+ * fallback for a zip no zone covers.
+ *
+ * Returns the branch name only — mapping it to a tenant is getCompanyIdByBranch.
+ */
+export async function resolveBranchByZip(zip: string): Promise<string> {
+  const clean = (zip ?? "").toString().trim().replace(/\D/g, "").slice(0, 5);
+  if (clean.length !== 5) return "oak_lawn";
+  try {
+    const rows = await db.execute(sql`
+      SELECT location FROM service_zones
+      WHERE is_active = true AND zip_codes @> ARRAY[${clean}]::text[]
+      LIMIT 1
+    `);
+    const loc = ((rows as any).rows ?? rows)[0]?.location;
+    if (loc === "schaumburg" || loc === "oak_lawn") return loc;
+  } catch (err) {
+    console.error("[branchRouter] resolveBranchByZip lookup failed:", err);
+  }
+  return getBranchByZip(clean).branch;
+}
+
+/**
+ * Resolve the TENANT a booking for this zip belongs to.
+ *
+ * Oak Lawn and Schaumburg are separate businesses, so a Schaumburg zip must
+ * create its customer and job under the Schaumburg company — and, because
+ * Square credentials hang off the company, capture the card on the Schaumburg
+ * merchant.
+ *
+ * `fallbackCompanyId` is the company the booking widget was loaded under. It is
+ * used when the branch has no tenant yet (the Schaumburg company row not created
+ * so far), which keeps bookings working exactly as they do today instead of
+ * failing. That fallback is logged, because silently booking Schaumburg work
+ * into Oak Lawn's books is the thing this function exists to stop.
+ */
+export async function resolveBookingTenant(
+  zip: string,
+  fallbackCompanyId: number,
+): Promise<{ branch: string; companyId: number; usedFallback: boolean }> {
+  const branch = await resolveBranchByZip(zip);
+  const companyId = await getCompanyIdByBranch(branch);
+  if (companyId != null) return { branch, companyId, usedFallback: false };
+  console.warn(
+    `[branchRouter] zip ${zip} routes to branch '${branch}' but no company matches it — ` +
+    `falling back to company ${fallbackCompanyId}. Create the tenant to split these books.`,
+  );
+  return { branch, companyId: fallbackCompanyId, usedFallback: true };
+}

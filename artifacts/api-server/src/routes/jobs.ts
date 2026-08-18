@@ -4898,6 +4898,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
       // Stable per-job key: a double-click returns the original result instead of
       // double-charging (a job is charged at most once).
       const result = await chargeSquareCard({
+        companyId: companyId as number,
         squareCustomerId: job.square_customer_id,
         amountCents,
         idempotencyKey: `job-${jobId}-${companyId}`,

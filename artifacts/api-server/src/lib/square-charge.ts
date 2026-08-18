@@ -2,29 +2,39 @@
 //
 // Powers the office "Charge card on file" button for Square clients — the mirror
 // of the Stripe off-session charge. Charges the customer's default enabled card
-// in Square for an arbitrary amount. Env-guarded exactly like the invoice charge
-// path (charge-invoice.ts): needs SQUARE_ACCESS_TOKEN and, for real money,
-// SQUARE_ENV=production. Uses the v44 SDK surface (SquareClient / cards.list /
+// in Square for an arbitrary amount. Guarded exactly like the invoice charge
+// path (charge-invoice.ts): needs a resolvable access token and, for real money,
+// a production environment. Uses the v44 SDK surface (SquareClient / cards.list /
 // payments.create) — the same one the invoice charge was fixed to.
+//
+// [square-per-branch 2026-08-18] Credentials are per-COMPANY now, not per
+// process. Oak Lawn and Schaumburg are separate Square merchants.
+import { resolveSquareCredentials } from "./square-credentials.js";
+
 export type SquareChargeResult =
   | { ok: true; paymentId: string; status: string }
   | { ok: false; code: "not_configured" | "no_card" | "declined" | "error"; message: string };
 
 export async function chargeSquareCard(opts: {
+  /** The company that OWNS this client. Square cards are merchant-scoped, so
+      charging a squareCustomerId through the wrong merchant either fails or
+      resolves to a different customer entirely. */
+  companyId: number;
   squareCustomerId: string;
   amountCents: number;
   idempotencyKey: string;
 }): Promise<SquareChargeResult> {
-  const token = process.env.SQUARE_ACCESS_TOKEN;
-  if (!token) {
-    return { ok: false, code: "not_configured", message: "Square is not configured in this environment" };
+  const creds = await resolveSquareCredentials(opts.companyId);
+  const token = creds.accessToken;
+  if (!creds.configured || !token) {
+    return { ok: false, code: "not_configured", message: "Square is not configured for this company" };
   }
   const squareMod: any = await import("square" as any).catch(() => null);
   if (!squareMod?.SquareClient) {
     return { ok: false, code: "not_configured", message: "Square SDK not available" };
   }
   const { SquareClient, SquareEnvironment } = squareMod;
-  const environment = (process.env.SQUARE_ENV === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
+  const environment = (creds.environment === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
   const square = new SquareClient({ token, environment });
   try {
     // Read the customer's default enabled card. (v44: cards.list returns a pager

@@ -265,7 +265,7 @@ router.get("/public/:token", async (req, res) => {
     // saved via /public/:token/save-card-square. The Square customer is created at
     // save time (saveSquareCardOnFile ensures it), so there's nothing to set up here.
     if (link.provider === "square") {
-      const sq = getSquarePublicConfig();
+      const sq = await getSquarePublicConfig(link.company_id);
       return res.json({
         link: { id: link.id, purpose: link.purpose, amount: link.amount, expires_at: link.expires_at },
         company,

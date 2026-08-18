@@ -594,6 +594,13 @@ export default function BookPage() {
   const [sqEnvironment, setSqEnvironment] = useState<SquareEnv>("production");
   const [sqCard, setSqCard] = useState<any>(null);
   const [sqCardReady, setSqCardReady] = useState(false);
+  // [square-per-branch 2026-08-18] Which zip the current Square config was
+  // fetched for. One website serves both branches and the ZIP picks the
+  // merchant, so a customer who corrects their zip after the card field mounted
+  // must get a field pointed at the OTHER account — otherwise the card is saved
+  // to the wrong business and that branch can never charge it.
+  const [sqConfiguredZip, setSqConfiguredZip] = useState<string | null>(null);
+  const [sqBranch, setSqBranch] = useState<string | null>(null);
 
   // Pricing
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
@@ -1098,20 +1105,25 @@ export default function BookPage() {
   // Web Payments SDK tokenizes using only the two PUBLIC ids. So this call is a
   // config probe: it tells us whether card capture is live and hands over the ids.
   useEffect(() => {
-    if (step !== 4 || !company || sqAppId || sqEnabled === false || sqSetupLoading) return;
+    if (step !== 4 || !company || sqSetupLoading) return;
+    // Re-fetch whenever the zip changes, not just once: the zip selects the
+    // branch, and the branch selects the Square merchant.
+    if (sqConfiguredZip !== null && sqConfiguredZip === zip) return;
     setSqSetupLoading(true);
     setBookError("");
     pubFetch("/api/public/book/setup", {
       method: "POST",
-      body: JSON.stringify({ company_id: company.id, email, first_name: firstName, last_name: lastName, phone }),
+      body: JSON.stringify({ company_id: company.id, zip, email, first_name: firstName, last_name: lastName, phone }),
     })
       .then((res) => {
+        setSqConfiguredZip(zip);
+        setSqBranch(res.branch ?? null);
         if (!res.square_enabled || !res.square_application_id || !res.square_location_id) {
           setSqEnabled(false);
           return;
         }
         // Both ids are PUBLIC merchant identifiers — safe in the browser. The
-        // secret SQUARE_ACCESS_TOKEN never leaves the server.
+        // secret access token never leaves the server.
         setSqEnabled(true);
         setSqAppId(res.square_application_id);
         setSqLocationId(res.square_location_id);
@@ -1119,7 +1131,7 @@ export default function BookPage() {
       })
       .catch(() => { setSqEnabled(false); })
       .finally(() => setSqSetupLoading(false));
-  }, [step, company]);
+  }, [step, company, zip]);
 
   // ── Mount the Square card field — runs whenever step becomes 4 ──────────
   //

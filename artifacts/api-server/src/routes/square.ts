@@ -36,11 +36,16 @@ const adminOnly = [requireAuth, requireRole("owner", "admin")] as const;
 //
 // The office "Enter card now" form initializes the Web Payments SDK with these
 // PUBLIC ids (application + location). No secret leaves the server. `configured`
-// is false until SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID (+ SQUARE_ACCESS_TOKEN)
-// are set in the environment, so the UI can show a clean "not set up yet" state
+// is false until the application id, location id and access token are all
+// resolvable for THIS company, so the UI can show a clean "not set up yet" state
 // instead of a broken card form.
-router.get("/config", ...officeOnly, async (_req, res) => {
-  res.json(getSquarePublicConfig());
+//
+// [square-per-branch 2026-08-18] Scoped to the caller's company. An office user
+// entering a card must tokenize against their own branch's Square merchant —
+// handing them the other branch's application id would save the customer's card
+// to the wrong business.
+router.get("/config", ...officeOnly, async (req: any, res) => {
+  res.json(await getSquarePublicConfig(req.auth!.companyId!));
 });
 
 // ── Office: save a card on file to Square ────────────────────────────────────

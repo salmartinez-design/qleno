@@ -273,10 +273,15 @@ async function chargeViaStripe(
 async function chargeViaSquare(
   companyId: number, invoice: any, client: any, amount: number, userId: number | null,
 ): Promise<ChargeResult> {
-  const token = process.env.SQUARE_ACCESS_TOKEN;
-  // Env-guarded: only attempt a live Square charge when both the SDK and creds
+  // [square-per-branch 2026-08-18] Credentials belong to the company that owns
+  // the invoice. A Schaumburg invoice must settle into Schaumburg's Square
+  // account, and its client's card only exists on that merchant.
+  const { resolveSquareCredentials } = await import("./square-credentials.js");
+  const creds = await resolveSquareCredentials(companyId);
+  const token = creds.accessToken;
+  // Guarded: only attempt a live Square charge when both the SDK and creds
   // are present. Otherwise return needs_manual (no crash, no false 'paid').
-  if (!token) {
+  if (!creds.configured || !token) {
     return { outcome: "needs_manual", source: "square", message: "Square charging not configured — collect payment and mark the invoice paid manually", invoiceId: invoice.id, amount };
   }
   if (!client?.square_customer_id) {
@@ -290,7 +295,7 @@ async function chargeViaSquare(
       return { outcome: "needs_manual", source: "square", message: "Square SDK not available — collect payment and mark the invoice paid manually", invoiceId: invoice.id, amount };
     }
     const { SquareClient, SquareEnvironment } = squareMod;
-    const environment = (process.env.SQUARE_ENV === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
+    const environment = (creds.environment === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
     const square = new SquareClient({ token, environment });
     // Charge the customer's card on file. Square needs a stored card id; we read
     // the default enabled card from the customer's cards. (v44: cards.list returns
