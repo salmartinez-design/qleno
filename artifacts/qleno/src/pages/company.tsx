@@ -1300,6 +1300,272 @@ const fractionToPct = (n: number) => String(Math.round(Number(n) * 10000) / 100)
 /** "35" -> 0.35. Rounds at four places, the column's own precision. */
 const pctToFraction = (s: string) => Math.round(parseFloat(s) * 100) / 10000;
 
+// [mileage-rate-editor 2026-08-17] The dated mileage rate, made editable.
+//
+// Measured drive legs have always been priced from the `mileage_rates` table,
+// and until now that table had no screen. The only row each tenant had was the
+// one the cutover seeded, dated 2000-01-01, so the rate could not be corrected
+// without a hand-written database change. That is how Oak Lawn ended up on
+// $0.725 and Schaumburg on $0.700 — same state, same IRS rule, two numbers.
+//
+// The box above this one is a single scalar and cannot express a mid-year
+// change, which 2026 actually had: the IRS opened at 72.5c/mi and revised to
+// 76c/mi on July 1. Dated rows can, and they are what lets a past week
+// recompute at the rate that was really in force then.
+//
+// The re-price control exists because a leg freezes its rate at the moment it
+// is computed. Fixing the rate going forward does not reach the drives already
+// sitting in the review queue — the office would set the right number, see the
+// right number, and still under-reimburse. Only drives still waiting for review
+// are ever touched; anything paid stays exactly as it was paid.
+type MileageRateRow = { id: number; rate: number; effective_date: string; end_date: string | null; is_current: boolean };
+type UnpaidSummary = { legs: number; miles: number; amount: number };
+type RepricePreview = {
+  changes: { leg_id: number }[];
+  skipped: { already_correct: number; split: number; no_rate: number };
+  totals: { old_amount: number; new_amount: number; delta: number; miles: number };
+};
+
+const money = (n: number) => `$${Number(n).toFixed(2)}`;
+/** "2026-07-01" -> "Jul 1, 2026", without letting a Date constructor shift the day. */
+const prettyDate = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+};
+
+function MileageRateHistoryCard({ isOwner, onRateChanged }: { isOwner: boolean; onRateChanged: (rate: number) => void }) {
+  const { toast } = useToast();
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const [rates, setRates] = useState<MileageRateRow[]>([]);
+  const [unpaid, setUnpaid] = useState<UnpaidSummary>({ legs: 0, miles: 0, amount: 0 });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [newRate, setNewRate] = useState('');
+  const [newDate, setNewDate] = useState('');
+  const [doReprice, setDoReprice] = useState(true);
+  const [preview, setPreview] = useState<RepricePreview | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const FF2 = "'Plus Jakarta Sans', sans-serif";
+  const sectionCard: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
+  const fieldLabel = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block', marginBottom: 5, fontFamily: FF2 };
+  const fieldInput: React.CSSProperties = { padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF2, background: '#fff', color: '#1A1917', width: 150, outline: 'none' };
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${BASE}/api/mileage-rates`, { headers: getAuthHeaders() });
+      if (!r.ok) throw new Error(`Server returned ${r.status}`);
+      const d = (await r.json())?.data;
+      if (!d) throw new Error('Server returned no rate history');
+      setRates(d.rates ?? []);
+      setUnpaid(d.unpaid ?? { legs: 0, miles: 0, amount: 0 });
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Could not load the mileage rate history');
+    }
+  }, [BASE]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const post = async (dryRun: boolean) => {
+    const n = parseFloat(newRate);
+    if (!Number.isFinite(n) || n <= 0) {
+      toast({ title: 'Enter a rate per mile greater than 0', variant: 'destructive' });
+      return null;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+      toast({ title: 'Pick the date this rate starts', variant: 'destructive' });
+      return null;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch(`${BASE}/api/mileage-rates`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rate: n, effective_date: newDate, reprice_unpaid: doReprice, dry_run: dryRun }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(body?.message || `Server returned ${r.status}`);
+      return body?.data ?? null;
+    } catch (err) {
+      toast({
+        title: dryRun ? 'Could not preview the change' : 'The rate was NOT saved',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    const d = await post(true);
+    if (!d) return;
+    // With re-pricing off there is nothing to preview, so go straight to the
+    // confirmation state with an empty plan rather than showing a blank panel.
+    setPreview(d.reprice ?? { changes: [], skipped: { already_correct: 0, split: 0, no_rate: 0 }, totals: { old_amount: 0, new_amount: 0, delta: 0, miles: 0 } });
+  };
+
+  const handleApply = async () => {
+    const d = await post(false);
+    if (!d) return;
+    setPreview(null);
+    setNewRate('');
+    setNewDate('');
+    if (typeof d.current_rate === 'number') onRateChanged(d.current_rate);
+    const n = d.repriced_legs ?? 0;
+    toast({
+      title: 'Mileage rate saved',
+      description: n > 0 ? `${n} drive${n === 1 ? '' : 's'} waiting for review were re-priced.` : undefined,
+    });
+    await load();
+  };
+
+  const handleDelete = async (row: MileageRateRow) => {
+    setBusy(true);
+    try {
+      const r = await fetch(`${BASE}/api/mileage-rates/${row.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(body?.message || `Server returned ${r.status}`);
+      if (typeof body?.data?.current_rate === 'number') onRateChanged(body.data.current_rate);
+      toast({ title: 'Rate removed' });
+      await load();
+    } catch (err) {
+      toast({ title: 'The rate was NOT removed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={sectionCard}>
+      <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Mileage Rate History</p>
+      <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>
+        Drives the system measures are paid at the rate in effect on the day they happened, so a past week always
+        recomputes at the rate that was really in force then. Add a new rate with the date it starts — the old rate
+        stays on file and keeps covering the days before it.
+      </p>
+
+      {loadError && (
+        <div style={{ background: '#FDECEC', border: '1px solid #F5C2C2', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, color: '#B42318', fontFamily: FF2 }}>
+            The rate history could not be loaded, so nothing below is your live rate. ({loadError})
+          </span>
+        </div>
+      )}
+
+      <div style={{ border: '1px solid #E5E2DC', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+        {rates.length === 0 && !loadError && (
+          <p style={{ fontSize: 13, color: '#9E9B94', margin: 0, padding: '14px 16px', fontFamily: FF2 }}>No rates on file yet.</p>
+        )}
+        {rates.map((row, i) => (
+          <div key={row.id} style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', fontFamily: FF2,
+            borderTop: i === 0 ? 'none' : '1px solid #E5E2DC',
+            background: row.is_current ? 'rgba(var(--brand-rgb),0.05)' : '#fff',
+          }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', width: 78, fontVariantNumeric: 'tabular-nums' }}>
+              ${row.rate.toFixed(3)}
+            </span>
+            <span style={{ fontSize: 13, color: '#6B6860', flex: 1 }}>
+              from {prettyDate(row.effective_date)}
+              {row.end_date ? ` through ${prettyDate(row.end_date)}` : ''}
+            </span>
+            {row.is_current && (
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#0B6B57', background: '#EAF7F3', borderRadius: 999, padding: '2px 8px' }}>
+                In effect now
+              </span>
+            )}
+            {isOwner && rates.length > 1 && (
+              <button onClick={() => void handleDelete(row)} disabled={busy}
+                style={{ background: 'none', border: 'none', color: '#9E9B94', fontSize: 12, fontFamily: FF2, cursor: busy ? 'not-allowed' : 'pointer', padding: 0 }}>
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {unpaid.legs > 0 && (
+        <p style={{ fontSize: 12, color: '#6B6860', margin: '0 0 16px', fontFamily: FF2 }}>
+          <strong>{unpaid.legs} drive{unpaid.legs === 1 ? '' : 's'}</strong> are waiting for review — {unpaid.miles.toFixed(1)} miles,
+          worth {money(unpaid.amount)} at the rates they were measured under. Nothing has been paid yet.
+        </p>
+      )}
+
+      {!isOwner ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9E9B94', fontSize: 12, fontFamily: FF2 }}>
+          <Lock size={12} />
+          <span>Owner-only — read-only view</span>
+        </div>
+      ) : preview ? (
+        <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, padding: '14px 16px' }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 8px', fontFamily: FF2 }}>
+            Before you save: ${parseFloat(newRate).toFixed(3)} per mile from {prettyDate(newDate)}
+          </p>
+          {preview.changes.length > 0 ? (
+            <p style={{ fontSize: 13, color: '#1A1917', margin: '0 0 8px', fontFamily: FF2 }}>
+              {preview.changes.length} drive{preview.changes.length === 1 ? '' : 's'} waiting for review would be re-priced —
+              {' '}{preview.totals.miles.toFixed(1)} miles, {money(preview.totals.old_amount)} → <strong>{money(preview.totals.new_amount)}</strong>
+              {' '}({preview.totals.delta >= 0 ? '+' : '−'}{money(Math.abs(preview.totals.delta))}).
+            </p>
+          ) : (
+            <p style={{ fontSize: 13, color: '#1A1917', margin: '0 0 8px', fontFamily: FF2 }}>
+              No drives waiting for review would change.
+            </p>
+          )}
+          {(preview.skipped.split > 0 || preview.skipped.no_rate > 0) && (
+            <p style={{ fontSize: 12, color: '#B45309', margin: '0 0 8px', fontFamily: FF2 }}>
+              {preview.skipped.split > 0 && `${preview.skipped.split} shared drive${preview.skipped.split === 1 ? ' is' : 's are'} left alone — a drive split between cleaners has to be re-split, not re-priced on its own. `}
+              {preview.skipped.no_rate > 0 && `${preview.skipped.no_rate} drive${preview.skipped.no_rate === 1 ? ' falls' : 's fall'} on days no rate covers and are left alone.`}
+            </p>
+          )}
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 12px', fontFamily: FF2 }}>
+            Drives that have already been reviewed or paid are never changed.
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void handleApply()} disabled={busy}
+              style={{ padding: '8px 18px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: busy ? 'not-allowed' : 'pointer' }}>
+              {busy ? 'Saving...' : 'Save this rate'}
+            </button>
+            <button onClick={() => setPreview(null)} disabled={busy}
+              style={{ padding: '8px 18px', background: '#fff', color: '#6B6860', border: '1px solid #E5E2DC', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: busy ? 'not-allowed' : 'pointer' }}>
+              Back
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <label style={fieldLabel}>New rate per mile</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+                <input type="number" step="0.001" min="0" value={newRate} onChange={e => setNewRate(e.target.value)}
+                  placeholder="0.760" style={fieldInput} />
+              </div>
+            </div>
+            <div>
+              <label style={fieldLabel}>Starts on</label>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={fieldInput} />
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#1A1917', fontFamily: FF2 }}>
+            <input type="checkbox" checked={doReprice} onChange={e => setDoReprice(e.target.checked)} />
+            Also re-price the drives still waiting for review
+          </label>
+          <button onClick={() => void handlePreview()} disabled={busy}
+            style={{ padding: '9px 20px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: busy ? 'not-allowed' : 'pointer', alignSelf: 'flex-start' }}>
+            {busy ? 'Checking...' : 'Preview this change'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PayrollOptionsTab() {
   const { toast } = useToast();
   const [mileageRate, setMileageRate] = useState('0.700');
@@ -1530,9 +1796,11 @@ function PayrollOptionsTab() {
               disabled={!isOwner}
             />
           </div>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Updated annually to match the IRS standard mileage rate. Applies to mileage the office enters by hand; drive legs the system measures itself are priced from the dated mileage-rate history.</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Updated annually to match the IRS standard mileage rate. Applies to mileage the office enters by hand; drive legs the system measures itself are priced from the dated mileage-rate history below, and this box follows whichever rate is in effect today.</p>
         </div>
       </div>
+
+      <MileageRateHistoryCard isOwner={isOwner} onRateChanged={r => setMileageRate(r.toFixed(4))} />
 
       <div style={sectionCard}>
         <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Training Pay</p>
