@@ -203,7 +203,15 @@ export default function RevenueForecastPage() {
               <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>
                 <strong>{data.unpriced_jobs.toLocaleString()} scheduled visit{data.unpriced_jobs === 1 ? " carries" : "s carry"} no price.</strong>{" "}
                 Each one counts as $0 here, so the months below are an undercount by whatever those visits are worth.
-                {(data.unpriced_sources?.length ?? 0) > 0 && " They come from these recurring schedules — fixing the price on the schedule fixes every visit it generates:"}
+                {(data.unpriced_sources?.length ?? 0) > 0 && (() => {
+                  // The list covers only the visits still ahead, so it can total
+                  // less than the headline — a $0 visit already in the past is
+                  // history and is not something to go re-price. Say which
+                  // number is which rather than letting the two look like a
+                  // contradiction.
+                  const ahead = data.unpriced_sources.reduce((a, u) => a + u.jobs, 0);
+                  return ` ${ahead.toLocaleString()} of them ${ahead === 1 ? "is" : "are"} still ahead and trace back to these recurring schedules — fixing the price on the schedule fixes every visit it generates:`;
+                })()}
               </p>
               {(data.unpriced_sources?.length ?? 0) > 0 && (
                 <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: clr.text, lineHeight: 1.7 }}>
