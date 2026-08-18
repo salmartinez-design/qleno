@@ -388,7 +388,7 @@ export default function AccountDetailPage() {
   // schedule" lands on the Calendar tab, not Overview).
   const [tab, setTab] = useState<Tab>(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    const valid: Tab[] = ["overview", "properties", "rate_cards", "contacts", "calendar", "jobs", "invoices", "activity"];
+    const valid: Tab[] = ["overview", "properties", "rate_cards", "contacts", "calendar", "jobs", "invoices", "messages", "communications", "activity"];
     return t && (valid as string[]).includes(t) ? (t as Tab) : "overview";
   });
   // [account-calendar 2026-07-07] Property preselected on the Calendar tab —
@@ -1120,8 +1120,20 @@ export default function AccountDetailPage() {
     { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
     { key: "invoices", label: "Invoices" },
-    { key: "messages", label: "Messages" },
-    { key: "communications", label: "Communications" },
+    // [tab-labels 2026-08-18] Maribel: "that is labelled wrong, 'Communications'
+    // should be notifications — and communications should be everything,
+    // emails, texts, all that."
+    //
+    // The two tabs were named for what they were BUILT as, not what they hold.
+    // The log of real traffic (texts, emails, invoice sends across the
+    // account's contacts) was called "Messages"; the per-message on/off grid
+    // was called "Communications". So the office clicked Communications
+    // looking for what went out and found a settings screen.
+    //
+    // Labels only — the `messages` / `communications` keys stay as they are so
+    // existing ?tab= deep links keep landing on the same panels.
+    { key: "messages", label: "Communications" },
+    { key: "communications", label: "Notifications" },
     { key: "activity", label: "Activity" },
   ];
 
@@ -1264,7 +1276,7 @@ export default function AccountDetailPage() {
 
             {/* Calendar — front and center. An account's schedule is the first
                 thing the office needs when they open it, especially when it has
-                jobs. Communications moved to its own tab to declutter this view. */}
+                jobs. Notification settings moved to their own tab to declutter this view. */}
             {id && (
               <div className="sm:col-span-2">
                 <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
@@ -1825,10 +1837,11 @@ export default function AccountDetailPage() {
           <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
         )}
 
-        {/* ─── COMMUNICATIONS TAB ─── moved off Overview to declutter it ────── */}
+        {/* ─── NOTIFICATIONS TAB (key: "communications") ─── the per-message
+            on/off grid + master pause. Moved off Overview to declutter it. */}
         {tab === "communications" && (
           <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Communications</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Notifications</p>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-[#0A0E1A]">Automated customer messages</p>
@@ -2136,7 +2149,8 @@ export default function AccountDetailPage() {
           </div>
         )}
 
-        {/* [account-messages 2026-07-09] Read-only communications log — the SMS
+        {/* ─── COMMUNICATIONS TAB (key: "messages") ───
+            [account-messages 2026-07-09] Read-only communications log — the SMS
             + email history across the account's contacts, so the office can see
             what actually went out and whether the customer replied. */}
         {tab === "messages" && id && (
