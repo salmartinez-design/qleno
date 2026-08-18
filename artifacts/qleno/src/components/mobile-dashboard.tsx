@@ -31,7 +31,7 @@ interface CardData {
   leads: number; quotes: number; closed_quotes: number; close_rate: number; monthly_revenue: number;
   quotes_today: number; closed_quotes_today: number; close_rate_today: number;
   avg_bill: number; active_clients: number; rate_trend: number; avg_bill_12mo: number; retention: number;
-  payroll_pct: number; payroll_window: string;
+  payroll_pct: number | null; payroll_window: string;
 }
 
 const money = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
@@ -91,7 +91,7 @@ const RENDERERS: Record<string, CardRenderer> = {
   active_clients: d => <Big t={String(d.active_clients)} />,
   rate_trend: d => <Big t={signPct(d.rate_trend)} c={d.rate_trend < 0 ? RED : MINT} />,
   retention: d => <Big t={`${d.retention}%`} c={MINT} />,
-  payroll_pct: d => <Big t={`${d.payroll_pct}%`} />,
+  payroll_pct: d => <Big t={d.payroll_pct == null ? "—" : `${d.payroll_pct}%`} />,
 };
 
 // Only registry cards this surface can actually draw. A registry entry with no

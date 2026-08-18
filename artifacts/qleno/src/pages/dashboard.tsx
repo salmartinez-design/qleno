@@ -1497,7 +1497,7 @@ export default function Dashboard() {
 
   // BUSINESS HEALTH cards (rate trend, payroll %, retention) — sourced from
   // job_history via the shared backend calc, NOT the corrupted jobs table.
-  const [bizHealth, setBizHealth] = useState<{ rate_trend: number; avg_bill_12mo: number; retention: number; payroll_pct: number; payroll_window: string } | null>(null);
+  const [bizHealth, setBizHealth] = useState<{ rate_trend: number; avg_bill_12mo: number; retention: number; payroll_pct: number | null; payroll_window: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1870,7 +1870,7 @@ export default function Dashboard() {
             />
             <MoneyCard
               label={cardDef("payroll_pct")!.label}
-              value={bizHealth == null ? '—' : `${bizHealth.payroll_pct}%`}
+              value={bizHealth == null || bizHealth.payroll_pct == null ? '—' : `${bizHealth.payroll_pct}%`}
               sub={`payroll cost / revenue, ${bizHealth?.payroll_window ?? '—'}`}
             />
             <MoneyCard
