@@ -1848,6 +1848,7 @@ export default function QuoteBuilderPage() {
             onToken={saveSquareCard}
             submitLabel="Save card on file"
             busyLabel="Saving…"
+            fallbackHint={<>Still failing? Close this and use <strong>Text link</strong> or <strong>Email link</strong> — the customer enters the card themselves and it lands on file the same way.</>}
           />
         ) : (
           <div style={{ fontSize: 13, color: "#BA7517", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px" }}>

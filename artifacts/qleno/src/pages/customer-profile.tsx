@@ -13,7 +13,7 @@ import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOff
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
-  Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
+  Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp, CheckCircle,
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
   MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench, GitMerge,
   Download,
@@ -2785,6 +2785,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                   onToken={saveSquareCard}
                   submitLabel="Save Card on File"
                   busyLabel="Saving…"
+                  fallbackHint={<>Still failing? Close this and use <strong>Send Link via Email</strong> or <strong>Send Link via SMS</strong> — the client enters the card themselves and it lands on file the same way.</>}
                 />
               ) : (
                 <div style={{ padding: "12px 14px", border: "1px solid #F1D0CB", background: "#FCEBEA", borderRadius: 8, fontSize: 13, color: "#B3261E" }}>
