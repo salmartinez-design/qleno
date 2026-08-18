@@ -455,7 +455,7 @@ router.get("/revenue-forecast", requireAuth, ROLE, async (req, res) => {
     // from the first of the current month forward is in scope.
     const rev = jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`);
 
-    const [monthRows, horizonRow, next30Row] = await Promise.all([
+    const [monthRows, horizonRow, next30Row, unpricedRows] = await Promise.all([
       db.execute(sql`
         SELECT to_char(date_trunc('month', t.scheduled_date), 'YYYY-MM') AS month,
                COUNT(*)::int AS jobs,
@@ -500,6 +500,37 @@ router.get("/revenue-forecast", requireAuth, ROLE, async (req, res) => {
             AND j.scheduled_date <  ${today}::date + INTERVAL '30 days'
             ${branchFilter(req, "j.branch_id")}
         ) t
+      `),
+      // [unpriced-sources 2026-08-18] A count of unpriced visits is an alarm
+      // with no address on it. Every one of these traces back to a template
+      // whose price is blank, so the report names the templates instead — the
+      // office fixes four schedules, not a hundred jobs one at a time. Only
+      // visits still ahead are listed; a $0 job already in the past is history
+      // and re-pricing it would rewrite what was billed.
+      db.execute(sql`
+        SELECT t.recurring_schedule_id AS schedule_id,
+               COUNT(*)::int AS jobs,
+               to_char(MIN(t.scheduled_date), 'YYYY-MM-DD') AS first_date,
+               to_char(MAX(t.scheduled_date), 'YYYY-MM-DD') AS last_date,
+               COALESCE(MAX(t.account_name), MAX(t.client_name)) AS name
+        FROM (
+          SELECT j.scheduled_date, j.recurring_schedule_id,
+                 a.account_name,
+                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), '') AS client_name,
+                 ${rev} AS rev
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          LEFT JOIN accounts a ON a.id = j.account_id
+          WHERE j.company_id = ${companyId}
+            AND j.status != 'cancelled'
+            AND j.scheduled_date >= ${today}::date
+            AND j.scheduled_date <  date_trunc('month', ${today}::date) + (${months} || ' months')::interval
+            ${branchFilter(req, "j.branch_id")}
+        ) t
+        WHERE COALESCE(t.rev, 0) <= 0
+        GROUP BY 1
+        ORDER BY jobs DESC
+        LIMIT 20
       `),
     ]);
 
@@ -566,6 +597,13 @@ router.get("/revenue-forecast", requireAuth, ROLE, async (req, res) => {
         through: countable.length ? countable[countable.length - 1].month : null,
       },
       unpriced_jobs: rows.reduce((s, r) => s + r.unpriced_jobs, 0),
+      unpriced_sources: (unpricedRows.rows as any[]).map(r => ({
+        schedule_id: r.schedule_id == null ? null : Number(r.schedule_id),
+        name: (r.name as string) || "Unnamed",
+        jobs: num(r.jobs),
+        first_date: r.first_date as string,
+        last_date: r.last_date as string,
+      })),
       months_data: rows,
     });
   } catch (err) {

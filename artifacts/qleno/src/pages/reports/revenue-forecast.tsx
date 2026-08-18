@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { AlertTriangle } from "lucide-react";
-import { fmt$, fmt$c, clr, ReportHeader, KpiCard, DataTable, ReportError, useReportData } from "./_shared";
+import { fmt$, fmt$c, fmtDate, clr, ReportHeader, KpiCard, DataTable, ReportError, useReportData } from "./_shared";
 
 // [revenue-forecast 2026-08-18] Reads GET /api/reports/revenue-forecast.
 //
@@ -31,7 +31,15 @@ interface Forecast {
   next_30_days: { jobs: number; revenue: number };
   scheduled_ahead: { revenue: number; jobs: number; through: string | null };
   unpriced_jobs: number;
+  unpriced_sources: UnpricedSource[];
   months_data: MonthRow[];
+}
+interface UnpricedSource {
+  schedule_id: number | null;
+  name: string;
+  jobs: number;
+  first_date: string;
+  last_date: string;
 }
 
 const monthLabel = (m: string) => {
@@ -194,8 +202,20 @@ export default function RevenueForecastPage() {
               <AlertTriangle size={15} color={clr.amber} style={{ flexShrink: 0, marginTop: 1 }} />
               <p style={{ margin: 0, fontSize: 12, color: clr.text, lineHeight: 1.55 }}>
                 <strong>{data.unpriced_jobs.toLocaleString()} scheduled visit{data.unpriced_jobs === 1 ? " carries" : "s carry"} no price.</strong>{" "}
-                Each one counts as $0 here, so the months below are an undercount by whatever those visits are worth. Price them on the job and the totals correct themselves.
+                Each one counts as $0 here, so the months below are an undercount by whatever those visits are worth.
+                {(data.unpriced_sources?.length ?? 0) > 0 && " They come from these recurring schedules — fixing the price on the schedule fixes every visit it generates:"}
               </p>
+              {(data.unpriced_sources?.length ?? 0) > 0 && (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: clr.text, lineHeight: 1.7 }}>
+                  {data.unpriced_sources.map(u => (
+                    <li key={`${u.schedule_id ?? "one-time"}-${u.name}`}>
+                      <strong>{u.name}</strong> — {u.jobs.toLocaleString()} visit{u.jobs === 1 ? "" : "s"},{" "}
+                      {fmtDate(u.first_date)} to {fmtDate(u.last_date)}
+                      {u.schedule_id == null && <span style={{ color: clr.secondary }}> (one-off visits, not a schedule)</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
