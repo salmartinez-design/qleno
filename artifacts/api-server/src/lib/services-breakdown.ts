@@ -39,7 +39,7 @@ export function renderServicesBreakdown(items: BreakdownItem[], totalLabel = "Fi
     const amt = Number(it.total) || 0;
     const isDiscount = amt < 0;
     const isBase = i === 0;
-    const sign = isBase ? "" : isDiscount ? "−" : "+";
+    const sign = isBase ? "" : isDiscount ? "-" : "+";
     const color = isDiscount ? `color:${MONEY_GREEN};` : "";
     return `<tr><td style="padding:8px;">${esc(it.description)}</td>` +
       `<td style="padding:8px;text-align:right;${color}">${sign}$${money(amt)}</td></tr>`;

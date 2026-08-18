@@ -28,7 +28,7 @@ export interface QuoteOption {
   title: string;        // service, e.g. "Deep Clean"
   freqLabel: string;    // "One-time" / "Every 2 weeks" (may be "")
   estTime?: string;     // "~3.5 hours" ("" / omitted hides the line)
-  rows: { label: string; amount: string }[]; // itemized: base + each add-on (amount incl. "$"/"−$")
+  rows: { label: string; amount: string }[]; // itemized: base + each add-on (amount incl. "$"/"-$")
   total: string;        // "$698.00"
   bookUrl: string;      // deep-link into the booking flow for THIS quote (may be "")
 }
