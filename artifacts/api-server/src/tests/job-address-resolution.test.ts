@@ -84,9 +84,39 @@ describe("dispatch resolves an address as a unit", () => {
   });
 
   it("all four components switch on the same signal", () => {
-    // Whether the job carries its own STREET — the same signal
-    // PATCH /jobs/:id/address uses to decide an override exists.
-    const cases = block.match(/CASE WHEN NULLIF\(BTRIM\(\$\{jobsTable\.address_street\}\), ''\) IS NOT NULL/g) ?? [];
+    // [partial-override 2026-08-18] The signal is now the shared
+    // JOB_HAS_OWN_ADDRESS expression (lib/job-address.ts) rather than a
+    // hand-repeated CASE. What matters is unchanged and is what this asserts:
+    // every arm switches on the SAME thing, so no component can pick its own
+    // source and blend two addresses.
+    const cases = block.match(/CASE WHEN \$\{JOB_HAS_OWN_ADDRESS\}/g) ?? [];
     assert.equal(cases.length, 5, "client_zip + address + city + state + zip");
+  });
+});
+
+describe("a street with nothing else is not an override", () => {
+  // [partial-override 2026-08-18] Maribel, second report on the same card:
+  // "still happening. it doesnt show the full address." The booking and quote
+  // flows write a street and no city/state/zip; because the components resolve
+  // as a unit, that partial snapshot suppressed the CLIENT's city, state and
+  // zip too. Cynthiia Lopezz (CL-1533, job 21015) rendered "17878 Argos Court"
+  // while her profile read "17878 Argos Court, Tinley Park, IL 60477".
+  const jobAddress = read("../lib/job-address.ts");
+
+  it("requires a city or a zip beyond the street", () => {
+    const fn = jobAddress.slice(jobAddress.indexOf("export function jobHasOwnAddress"));
+    assert.ok(fn.includes("address_street"), "street is still necessary");
+    assert.ok(
+      /address_city[\s\S]*OR[\s\S]*address_zip/.test(fn),
+      "and one component beyond it — otherwise it is an incomplete copy, not a second location",
+    );
+  });
+
+  it("dispatch uses the shared signal rather than its own copy", () => {
+    assert.ok(dispatch.includes("jobHasOwnAddress(jobsTable)"));
+    assert.ok(
+      !/CASE WHEN NULLIF\(BTRIM\(\$\{jobsTable\.address_street\}\), ''\) IS NOT NULL\s*\n\s*THEN \$\{jobsTable\.address_/.test(dispatch),
+      "the old street-only signal must not survive anywhere in the resolver",
+    );
   });
 });
