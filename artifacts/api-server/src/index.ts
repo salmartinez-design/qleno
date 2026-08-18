@@ -701,6 +701,20 @@ async function runStartupMigrations() {
     recordStartupFailure("ensureAutoIssueOverrideSchema", err);
   }
   try {
+    // [late-clockin-record 2026-08-18] Persist how late a punch was, so a late
+    // arrival survives the tech clocking in. Nullable, no backfill: a historical
+    // punch's frame is ambiguous (see the tz_normalized note in
+    // routes/timeclock.ts) and inventing minutes for it would be worse than an
+    // honest blank. The record starts at deploy.
+    await withBootTimeout("ensureLateClockInSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE timeclock ADD COLUMN IF NOT EXISTS late_by_min integer`);
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureLateClockInSchema", err);
+  }
+  try {
     // [job-created-audit 2026-08-08] Who booked a visit, and from where. Both
     // nullable with NO backfill — historical jobs genuinely don't know their
     // creator, and inventing one would be worse than an honest blank. The

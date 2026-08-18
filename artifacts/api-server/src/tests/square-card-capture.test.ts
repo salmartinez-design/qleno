@@ -27,6 +27,8 @@ const notify = read("../lib/notify.ts");
 const alertLib = read("../lib/card-saved-alert.ts");
 const quoteBuilder = read("../../../qleno/src/pages/quote-builder.tsx");
 const customerProfile = read("../../../qleno/src/pages/customer-profile.tsx");
+const cardForm = read("../../../qleno/src/components/square-card-form.tsx");
+const payPage = read("../../../qleno/src/pages/pay.tsx");
 
 describe("square public config — key casing contract", () => {
   it("the server emits camelCase ids", () => {
@@ -120,5 +122,83 @@ describe("office alert whenever a card lands on file", () => {
     // The card is already saved by the time this runs; a failed alert must not
     // turn a successful save into a 500 for whoever just took a customer's card.
     assert.match(alertLib, /export async function alertCardSaved[\s\S]*try\s*\{[\s\S]*catch \(e\)/);
+  });
+});
+
+// [square-sdk-retry 2026-08-18] The office reported "Square SDK failed to load"
+// with a dead, greyed-out button on the quote builder. The load itself is a
+// network call and will occasionally fail; what made it unrecoverable was the
+// code around it — one attempt, the REJECTION cached forever under
+// sdkPromises[env], and a UI that offered nothing to do about it. Reopening the
+// modal replayed the same dead promise, so the only cure was a page reload that
+// nothing on screen suggested. These assertions hold that shape closed.
+describe("square SDK loading is recoverable, never a dead end", () => {
+  it("a failed load is evicted from the promise cache", () => {
+    // The whole bug in one line: without this, one blip poisons the session.
+    assert.match(cardForm, /delete sdkPromises\[environment\]/);
+  });
+
+  it("the dead <script> is removed so the retry re-injects", () => {
+    // Re-using an element that already fired `error` means the new listeners
+    // never fire and the promise hangs on "Loading secure card field..."
+    assert.match(cardForm, /getElementById\(`square-js-\$\{environment\}`\)\?\.remove\(\)/);
+  });
+
+  it("retries with backoff rather than giving up on the first failure", () => {
+    assert.match(cardForm, /SDK_LOAD_ATTEMPTS\s*=\s*[2-9]/);
+    assert.ok(cardForm.includes("SDK_RETRY_DELAY_MS"));
+  });
+
+  it("times out instead of spinning forever", () => {
+    // A request that never settles left the form in `loading` with no error.
+    assert.ok(cardForm.includes("SDK_LOAD_TIMEOUT_MS"));
+    assert.ok(cardForm.includes("timed out while loading"));
+  });
+
+  it("only reuses window.Square when it came from the SAME environment", () => {
+    // window.Square is one global. A sandbox script already on the page would
+    // otherwise satisfy a production mount and tokenize the wrong merchant.
+    assert.match(cardForm, /w\.Square && w\[LOADED_ENV_KEY\] === environment/);
+  });
+
+  it("the failure state offers a retry, not just a disabled button", () => {
+    assert.ok(cardForm.includes("Try again"));
+    assert.match(cardForm, /onClick=\{retry\}/);
+  });
+
+  it("keeps the card container mounted while the SDK is down", () => {
+    // Unmounting it nulls containerRef, so the retry has nothing to attach to.
+    assert.match(cardForm, /display: sdkFailed \? "none" : "block"/);
+  });
+
+  it("logs the real URL and error for diagnosis", () => {
+    // The on-screen copy is deliberately plain; without this there is nothing
+    // to tell a blocked host apart from a flaky connection.
+    assert.match(cardForm, /console\.warn\(/);
+    assert.ok(cardForm.includes("SDK_SRC[environment]"));
+  });
+
+  it("every surface tells the operator what to do instead", () => {
+    // A retry that keeps failing still has to leave someone with a next step —
+    // the office has the text/email card link, the customer has a reload.
+    for (const [name, src] of [
+      ["quote-builder", quoteBuilder],
+      ["customer-profile", customerProfile],
+      ["pay", payPage],
+    ] as const) {
+      assert.ok(src.includes("fallbackHint"), `${name} must pass a fallbackHint`);
+    }
+    assert.ok(quoteBuilder.includes("Text link"));
+    assert.ok(customerProfile.includes("Send Link via Email"));
+  });
+});
+
+describe("the card modals render only icons they imported", () => {
+  // `CheckCircle` was used in customer-profile's "Enter card on file" success
+  // state and never imported — so the card SAVED and then the page threw at the
+  // exact moment it tried to say so. tsc flagged it; nothing else did.
+  it("customer-profile imports CheckCircle", () => {
+    const imports = customerProfile.slice(0, customerProfile.indexOf('from "lucide-react"'));
+    assert.ok(imports.includes("CheckCircle"), "CheckCircle is rendered but not imported");
   });
 });

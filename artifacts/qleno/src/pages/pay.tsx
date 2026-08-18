@@ -317,6 +317,7 @@ export default function PayPage() {
                     busyLabel="Saving..."
                     accent={brand}
                     disabled={state === "saving"}
+                    fallbackHint={<>If it keeps failing, reload this page. Still stuck? Reply to the message this link came from and we will take the card another way.</>}
                   />
                 ) : (
                   <div style={{ padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", fontSize: 13, color: "#9E9B94" }}>

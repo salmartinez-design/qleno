@@ -79,7 +79,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 };
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
+interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; /* [late-clockin-record 2026-08-18] Minutes past the scheduled start, stamped at clock-in. Non-null = this punch was recorded as late. The board's LATE chip is a live state that disappears the moment the tech clocks in, so this is what keeps it on the card afterwards. */ late_by_min?: number | null; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; /* [per-tech-actual 2026-08-14] What this cleaner actually clocked on this job, from their own punches (unioned, so a duplicate pair can't double-count). NULL — not 0 — while they are still clocked in: "hasn't clocked out" and "worked no time" are different facts. */ actual_hours?: number | null; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [batch-tip-mislabel 2026-08-13] invoice_is_batch marks a COMBINED invoice whose total covers other visits too — never render it as this job's total. invoice_tips is the real tip from invoices.tips; the card used to infer one by subtracting the service amount from the invoice total, which on a combined invoice made the other visits read as a tip. */ invoice_number?: string | null; invoice_is_batch?: boolean; invoice_tips?: number | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
@@ -783,10 +783,23 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   // The dispatch payload exposes the job's own snapshot as job_address_*, NOT
   // address_* (which is the resolved display string). Reading the wrong one
   // here would silently never show the button.
+  //
+  // [addr-city-state 2026-08-18] All FOUR components, not just the street.
+  // This is the third time the same shortcut has bitten: jobs.ts had it on
+  // 8/8 (Jess Wilhite, CL-1520 — "333 North Jefferson Street" in Brownsburg,
+  // IN vs Chicago, IL: same street, same zip, different city and state), and
+  // the button added on 8/12 to fix that very case was written street-only,
+  // so it stayed hidden in exactly the situation it exists for. Francisco,
+  // 8/18: "yeap, not fixed yet lol."
   const loose = (v: any) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const hasJobOverride = !!String(job.job_address_street ?? "").trim()
     && clientHasAddress
-    && loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0]);
+    && (
+      loose(job.job_address_street) !== loose(String(job.client_address ?? "").split(",")[0])
+      || loose(job.job_address_city)  !== loose(job.client_city)
+      || loose(job.job_address_state) !== loose(job.client_state)
+      || loose(job.job_address_zip)   !== loose(job.client_address_zip)
+    );
 
   async function useClientAddress() {
     setInheriting(true);
@@ -6197,9 +6210,17 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
               </div>
             )}
             {job.clock_entry?.clock_in_at && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0F7A63", fontWeight: 600 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600,
+                // [late-clockin-record 2026-08-18] A late arrival colours the
+                // whole clock-in line, not just an appended word — "Clocked in
+                // 9:55 AM" in the same green as an on-time punch is what let a
+                // 55-minute late start read as normal at a glance.
+                color: job.clock_entry.late_by_min != null ? "#B45309" : "#0F7A63",
+              }}>
                 <Clock size={11} />
                 Clocked in {fmtClock(job.clock_entry.clock_in_at)}
+                {job.clock_entry.late_by_min != null && ` · ${job.clock_entry.late_by_min} min late`}
               </div>
             )}
           </div>
@@ -6974,6 +6995,23 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
                 <div>
                   <span style={{ color: "#9E9B94" }}>In:</span>{" "}
                   {fmtClock(liveClock.clock_in_at)}
+                  {/* [late-clockin-record 2026-08-18] Maribel: "Add a clearly
+                      visible indicator/mark on the service or Job Card when a
+                      check-in is recorded as late." The dispatch LATE chip is a
+                      live state — getJobVisualStatus returns "active" from the
+                      punch onward — so before this the card carried no trace of
+                      a late arrival once the tech showed up. This one is
+                      stamped on the punch and stays. */}
+                  {liveClock.late_by_min != null && (
+                    <span style={{
+                      marginLeft: 8, padding: "1px 7px", borderRadius: 6,
+                      background: "#FDF3E4", border: "1px solid #F2DFB8",
+                      color: "#B45309", fontSize: 11, fontWeight: 700,
+                      textTransform: "uppercase", letterSpacing: "0.03em",
+                    }}>
+                      Late · {liveClock.late_by_min} min
+                    </span>
+                  )}
                   {d != null && (
                     <span style={{ color: liveClock.clock_in_outside_geofence ? "#B45309" : "#9E9B94", marginLeft: 6 }}>
                       ({Math.round(d)} ft{liveClock.clock_in_outside_geofence ? " · outside" : ""})

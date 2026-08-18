@@ -519,6 +519,36 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     // don't shift historical payroll attribution.
     const stampedBranchId = jobRow.branch_id ?? 1;
 
+    // ── How late is this punch? ──────────────────────────────────────────────
+    // [late-fix 2026-07-15] Measured against the job's ACTUAL scheduled_time
+    // (Sal: the rule is 20 min, but this was firing at 8 min). The old code
+    // compared to the generic arrival window — hardcoded 8:00 AM for "morning" —
+    // so ANY clock-in after 8:20 AM was flagged late regardless of the job's
+    // real time. Now: real scheduled start + the shared LATE_THRESHOLD_MINUTES
+    // (20), the same rule as the dispatch late count.
+    //
+    // [late-clockin-record 2026-08-18] Computed BEFORE the insert now, because
+    // the number is stored on the punch as well as announced. Maribel: "Even
+    // when we receive a notification that a cleaner has a late check-in, the
+    // late check-in is not being recorded in the cleaner's profile or service
+    // history." It fired a notification into a feed and wrote nothing down —
+    // and the instant the tech clocked in, the dispatch tile flipped from LATE
+    // to ACTIVE, so the last trace of it disappeared from the board too.
+    //
+    // One computation, two consumers: the stored column and the notification
+    // can no longer disagree about who was late and by how much.
+    let lateByMin: number | null = null;
+    try {
+      const scheduledDate = jobRow.scheduled_date ? String(jobRow.scheduled_date).slice(0, 10) : null;
+      const scheduledStart = scheduledStartWallClock(scheduledDate, (jobRow as any).scheduled_time ?? null);
+      if (scheduledStart) {
+        const delta = Math.floor((clockInAt.getTime() - scheduledStart.getTime()) / 60000);
+        if (delta >= LATE_THRESHOLD_MINUTES) lateByMin = delta;
+      }
+    } catch (lateErr) {
+      console.error("[late_clockin] could not measure lateness:", lateErr);
+    }
+
     const [entry] = await db
       .insert(timeclockTable)
       .values({
@@ -527,6 +557,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
         company_id: req.auth!.companyId,
         branch_id: stampedBranchId,
         clock_in_at: clockInAt,
+        late_by_min: lateByMin,
         tz_normalized: true, // stored as Central wall-clock above — exclude from backfill
         clock_in_lat: empLat !== null ? String(empLat) : null,
         clock_in_lng: empLng !== null ? String(empLng) : null,
@@ -553,32 +584,25 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     });
 
     // ── Late clock-in notification ───────────────────────────────────────────
-    // [late-fix 2026-07-15] Measure lateness against the job's ACTUAL
-    // scheduled_time (Sal: the rule is 20 min, but this was firing at 8 min).
-    // The old code compared to the generic arrival window — hardcoded 8:00 AM
-    // for "morning" — so ANY clock-in after 8:20 AM was flagged late regardless
-    // of the job's real time. Now: real scheduled start + the shared
-    // LATE_THRESHOLD_MINUTES (20), same rule as the dispatch late count.
-    try {
-      const scheduledDate = jobRow.scheduled_date ? String(jobRow.scheduled_date).slice(0, 10) : null;
-      const scheduledStart = scheduledStartWallClock(scheduledDate, (jobRow as any).scheduled_time ?? null);
-      if (scheduledStart) {
-        const lateByMin = Math.floor((clockInAt.getTime() - scheduledStart.getTime()) / 60000);
-        if (lateByMin >= LATE_THRESHOLD_MINUTES) {
-          const techRow = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
-            .from(usersTable).where(eq(usersTable.id, effectiveUserId)).limit(1);
-          const techName = techRow[0] ? `${techRow[0].first_name} ${techRow[0].last_name}` : "A technician";
-          const clientName = job[0].clients ? `${(job[0].clients as any).first_name} ${(job[0].clients as any).last_name}` : "a client";
-          const notifTitle = `Late Clock-In — ${techName}`;
-          const notifBody = `${techName} clocked in ${lateByMin} min late for ${clientName}'s job.`;
-          await db.execute(
-            sql`INSERT INTO notifications (company_id, type, title, body, link, meta)
-              VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: effectiveUserId, tech_name: techName, late_by_min: lateByMin })}::jsonb)`
-          );
-        }
+    // Announces the same `lateByMin` that was just written onto the punch — the
+    // record is the source, the notification is a copy of it. The alert links
+    // to the job card, which now carries the mark permanently, so "I saw a
+    // notification, where do I go" has an answer.
+    if (lateByMin != null) {
+      try {
+        const techRow = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+          .from(usersTable).where(eq(usersTable.id, effectiveUserId)).limit(1);
+        const techName = techRow[0] ? `${techRow[0].first_name} ${techRow[0].last_name}` : "A technician";
+        const clientName = job[0].clients ? `${(job[0].clients as any).first_name} ${(job[0].clients as any).last_name}` : "a client";
+        const notifTitle = `Late Clock-In — ${techName}`;
+        const notifBody = `${techName} clocked in ${lateByMin} min late for ${clientName}'s job.`;
+        await db.execute(
+          sql`INSERT INTO notifications (company_id, type, title, body, link, meta)
+            VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: effectiveUserId, tech_name: techName, late_by_min: lateByMin })}::jsonb)`
+        );
+      } catch (notifErr) {
+        console.error("[late_clockin notify] failed:", notifErr);
       }
-    } catch (notifErr) {
-      console.error("[late_clockin notify] failed:", notifErr);
     }
 
     // [geofence-ticket 2026-07-03] Punch recorded outside the fence → office ticket.
@@ -896,7 +920,12 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : centralWallClock(new Date(), tzOf(req.auth!.companyId));
     if (isNaN(clockInAt.getTime())) return res.status(400).json({ error: "Invalid clock_in_at" });
 
-    const [jobRow] = await db.select({ id: jobsTable.id, branch_id: jobsTable.branch_id })
+    const [jobRow] = await db.select({
+      id: jobsTable.id, branch_id: jobsTable.branch_id,
+      // [late-clockin-record 2026-08-18] Needed to measure the punch against
+      // the job's scheduled start.
+      scheduled_date: jobsTable.scheduled_date, scheduled_time: jobsTable.scheduled_time,
+    })
       .from(jobsTable).where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, companyId))).limit(1);
     if (!jobRow) return res.status(404).json({ error: "Job not found" });
     const [techRow] = await db.select({ id: usersTable.id })
@@ -974,10 +1003,27 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       });
     }
 
+    // [late-clockin-record 2026-08-18] An office-keyed punch is measured by the
+    // same rule as a field punch. Both times are wall-clock here, so the
+    // subtraction is frame-safe. No notification: this is the office typing in
+    // a time it already knows about, so alerting itself would be noise.
+    let officeLateByMin: number | null = null;
+    try {
+      const schedStart = scheduledStartWallClock(
+        jobRow.scheduled_date ? String(jobRow.scheduled_date).slice(0, 10) : null,
+        (jobRow as any).scheduled_time ?? null,
+      );
+      if (schedStart) {
+        const delta = Math.floor((clockInAt.getTime() - schedStart.getTime()) / 60000);
+        if (delta >= LATE_THRESHOLD_MINUTES) officeLateByMin = delta;
+      }
+    } catch { /* an unmeasurable punch is simply not marked late */ }
+
     const [entry] = await db.insert(timeclockTable).values({
       job_id, user_id, company_id: companyId,
       branch_id: jobRow.branch_id ?? 1,
       clock_in_at: clockInAt,
+      late_by_min: officeLateByMin,
       tz_normalized: true, // office-typed = wall-clock; exclude from backfill
       override_approved: true,
       source: "punched",

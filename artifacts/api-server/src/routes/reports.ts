@@ -17,6 +17,11 @@ import { payDaySql } from "../lib/pay-day.js";
 // threshold at a call site and multiplying by an hourly rate nothing has ever
 // paid. See lib/overtime-estimate.ts.
 import { computeOvertimeEstimate } from "../lib/overtime-estimate.js";
+// [revenue-forecast 2026-08-18] Canonical money-per-job expression (commercial
+// hourly x allowed beats a stale billed_amount cache) and the tenant's own
+// calendar date, so "still ahead" is measured in Chicago, not UTC.
+import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
+import { companyDateStr } from "../lib/company-tz.js";
 // Mileage is a reimbursement, not wages — keep it out of any pay column.
 import { splitAdditionalPay } from "@workspace/payroll-metrics";
 // [dashboard-parity 2026-08-17] The cutover floor and the MaidCentral merge
@@ -413,6 +418,196 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     });
   } catch (err) {
     console.error("Revenue report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── REVENUE FORECAST (scheduled work, month by month) ───────────────────────
+// [revenue-forecast 2026-08-18] The dashboard has carried a "Revenue forecast ·
+// next 30 days" tile since it was built, reading `kpis.forecast_next_month`.
+// No server route has ever produced that field, and the tile hides itself when
+// the value is missing — so it silently rendered nothing for its whole life.
+// This is the surface behind it, and it goes further than 30 days.
+//
+// It is deliberately NOT a predictive model. Every dollar here is a visit
+// already written on the calendar: the recurring engine generates a rolling
+// 365 days ahead, so the book of scheduled work genuinely runs a year out and
+// there is nothing to guess at. That matters because the reporting spec says
+// not to present speculative forecasts as guaranteed outcomes — the honest
+// answer is to report what is booked and label the edges where the calendar
+// runs out, which is exactly what `state` and `generated_through` do.
+//
+// Three month states, and the difference is load-bearing:
+//   in_progress — the current month. Part earned, part still ahead.
+//   scheduled   — fully inside the generation horizon. The book is complete.
+//   partial     — past the horizon. The engine has not written these visits
+//                 yet, so the figure is an undercount and MUST NOT be summed
+//                 into a headline. The page dims it and says so.
+router.get("/revenue-forecast", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const today = companyDateStr(companyId);
+
+    const monthsRaw = parseInt((req.query.months as string) || "12", 10);
+    const months = Number.isFinite(monthsRaw) ? Math.min(24, Math.max(1, monthsRaw)) : 12;
+
+    // Cancelled work is never booked revenue. Everything else on the calendar
+    // from the first of the current month forward is in scope.
+    const rev = jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`);
+
+    const [monthRows, horizonRow, next30Row, unpricedRows] = await Promise.all([
+      db.execute(sql`
+        SELECT to_char(date_trunc('month', t.scheduled_date), 'YYYY-MM') AS month,
+               COUNT(*)::int AS jobs,
+               COUNT(*) FILTER (WHERE t.scheduled_date >= ${today}::date)::int AS remaining_jobs,
+               COUNT(*) FILTER (WHERE COALESCE(t.rev, 0) <= 0)::int AS unpriced_jobs,
+               ROUND(COALESCE(SUM(t.rev), 0), 2)::numeric AS booked,
+               ROUND(COALESCE(SUM(t.rev) FILTER (WHERE t.scheduled_date >= ${today}::date), 0), 2)::numeric AS remaining,
+               ROUND(COALESCE(SUM(t.rev) FILTER (WHERE t.recurring_schedule_id IS NOT NULL), 0), 2)::numeric AS recurring,
+               ROUND(COALESCE(SUM(t.rev) FILTER (WHERE t.recurring_schedule_id IS NULL), 0), 2)::numeric AS one_time
+        FROM (
+          SELECT j.scheduled_date, j.recurring_schedule_id, ${rev} AS rev
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          WHERE j.company_id = ${companyId}
+            AND j.status != 'cancelled'
+            AND j.scheduled_date >= date_trunc('month', ${today}::date)
+            AND j.scheduled_date <  date_trunc('month', ${today}::date) + (${months} || ' months')::interval
+            ${branchFilter(req, "j.branch_id")}
+        ) t
+        GROUP BY 1
+        ORDER BY 1
+      `),
+      // How far the recurring engine has actually written. One-time jobs can be
+      // booked past it, so only engine-generated rows define the horizon.
+      db.execute(sql`
+        SELECT to_char(MAX(j.scheduled_date), 'YYYY-MM-DD') AS d
+        FROM jobs j
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.recurring_schedule_id IS NOT NULL
+          ${branchFilter(req, "j.branch_id")}
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS jobs, ROUND(COALESCE(SUM(t.rev), 0), 2)::numeric AS revenue
+        FROM (
+          SELECT ${rev} AS rev
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          WHERE j.company_id = ${companyId}
+            AND j.status != 'cancelled'
+            AND j.scheduled_date >= ${today}::date
+            AND j.scheduled_date <  ${today}::date + INTERVAL '30 days'
+            ${branchFilter(req, "j.branch_id")}
+        ) t
+      `),
+      // [unpriced-sources 2026-08-18] A count of unpriced visits is an alarm
+      // with no address on it. Every one of these traces back to a template
+      // whose price is blank, so the report names the templates instead — the
+      // office fixes four schedules, not a hundred jobs one at a time. Only
+      // visits still ahead are listed; a $0 job already in the past is history
+      // and re-pricing it would rewrite what was billed.
+      db.execute(sql`
+        SELECT t.recurring_schedule_id AS schedule_id,
+               COUNT(*)::int AS jobs,
+               to_char(MIN(t.scheduled_date), 'YYYY-MM-DD') AS first_date,
+               to_char(MAX(t.scheduled_date), 'YYYY-MM-DD') AS last_date,
+               COALESCE(MAX(t.account_name), MAX(t.client_name)) AS name
+        FROM (
+          SELECT j.scheduled_date, j.recurring_schedule_id,
+                 a.account_name,
+                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), '') AS client_name,
+                 ${rev} AS rev
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          LEFT JOIN accounts a ON a.id = j.account_id
+          WHERE j.company_id = ${companyId}
+            AND j.status != 'cancelled'
+            AND j.scheduled_date >= ${today}::date
+            AND j.scheduled_date <  date_trunc('month', ${today}::date) + (${months} || ' months')::interval
+            ${branchFilter(req, "j.branch_id")}
+        ) t
+        WHERE COALESCE(t.rev, 0) <= 0
+        GROUP BY 1
+        ORDER BY jobs DESC
+        LIMIT 20
+      `),
+    ]);
+
+    const num = (v: unknown) => (v == null ? 0 : Number(v) || 0);
+    const generatedThrough = (horizonRow.rows[0] as any)?.d as string | null ?? null;
+    const currentMonth = today.slice(0, 7);
+
+    // A month is fully written only when its LAST day is on or before the
+    // horizon. 2027-08-18 as a horizon means July is the last complete month.
+    const monthEnd = (m: string) => {
+      const [y, mo] = m.split("-").map(Number);
+      return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+    };
+
+    // The month series is built as an unbroken run from the current month, then
+    // the aggregate rows are laid onto it. Building it straight off GROUP BY
+    // instead would silently drop any month with nothing on the calendar, and a
+    // bar chart of non-adjacent months reads as if they were consecutive — one
+    // stray job booked far ahead would sit next to the horizon tail looking like
+    // the very next month. An empty month past the horizon is not "$0 of work";
+    // it is work the engine has not written yet, which is exactly what `partial`
+    // already says, so it carries that state and stays out of every total.
+    const byMonth = new Map((monthRows.rows as any[]).map(r => [String(r.month), r]));
+    const [cy, cm] = currentMonth.split("-").map(Number);
+
+    const rows = Array.from({ length: months }, (_, i) => {
+      const d = new Date(Date.UTC(cy, cm - 1 + i, 1));
+      const month = d.toISOString().slice(0, 7);
+      const r = byMonth.get(month);
+
+      let state: "in_progress" | "scheduled" | "partial";
+      if (month === currentMonth) state = "in_progress";
+      else if (!generatedThrough || monthEnd(month) <= generatedThrough) state = "scheduled";
+      else state = "partial";
+
+      return {
+        month,
+        state,
+        jobs: num(r?.jobs),
+        remaining_jobs: num(r?.remaining_jobs),
+        unpriced_jobs: num(r?.unpriced_jobs),
+        booked: num(r?.booked),
+        remaining: num(r?.remaining),
+        recurring: num(r?.recurring),
+        one_time: num(r?.one_time),
+      };
+    });
+
+    // The headline counts only what is still ahead AND fully written. A partial
+    // month's number is real but incomplete, so adding it in would understate
+    // the total while looking like a total.
+    const countable = rows.filter(r => r.state !== "partial");
+    const n30 = next30Row.rows[0] as any;
+
+    return res.json({
+      today,
+      current_month: currentMonth,
+      generated_through: generatedThrough,
+      months_requested: months,
+      next_30_days: { jobs: num(n30?.jobs), revenue: num(n30?.revenue) },
+      scheduled_ahead: {
+        revenue: countable.reduce((s, r) => s + r.remaining, 0),
+        jobs: countable.reduce((s, r) => s + r.remaining_jobs, 0),
+        through: countable.length ? countable[countable.length - 1].month : null,
+      },
+      unpriced_jobs: rows.reduce((s, r) => s + r.unpriced_jobs, 0),
+      unpriced_sources: (unpricedRows.rows as any[]).map(r => ({
+        schedule_id: r.schedule_id == null ? null : Number(r.schedule_id),
+        name: (r.name as string) || "Unnamed",
+        jobs: num(r.jobs),
+        first_date: r.first_date as string,
+        last_date: r.last_date as string,
+      })),
+      months_data: rows,
+    });
+  } catch (err) {
+    console.error("Revenue forecast report error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

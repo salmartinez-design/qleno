@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { ctDate, ctToday, ctDateStr } from "../lib/ct-day.js";
-import { tzOf } from "../lib/company-tz.js";
+import { tzOf, companyDateStr } from "../lib/company-tz.js";
 import { scheduledTimeToMins, clockInMinsLocal } from "../lib/auto-tardy.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
@@ -449,6 +449,18 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     // Next 7 days window
     const next7Start = todayStr;
     const next7End = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    // [revenue-forecast 2026-08-18] Feeds the dashboard's "Revenue forecast ·
+    // next 30 days" tile, which has asked for `forecast_next_month` since it was
+    // built and never got it — so it filtered itself out and rendered nothing.
+    // Not a projection: it is the non-cancelled work already on the calendar.
+    //
+    // This window is defined identically to /api/reports/revenue-forecast's
+    // next_30_days: anchored on the tenant's OWN calendar date (not UTC, which
+    // rolls over at 7pm here) and half-open, so "next 30 days" is exactly 30
+    // days. The two surfaces show the same figure and must not drift apart.
+    const fcStart = companyDateStr(companyId);
+    const fcEnd = new Date(new Date(`${fcStart}T00:00:00Z`).getTime() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString().split("T")[0];
 
     const [
       jhWeekRev,
@@ -471,6 +483,11 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       // Next 7 days
       next7Rev,
       next7Count,
+      // Next 30 days revenue (dashboard forecast tile)
+      next30Rev,
+      // Intelligence strip: lifetime revenue per client, and satisfaction
+      clientLifetime,
+      satisfaction90,
       // Recurring count
       recurringCount,
       // Outstanding AR
@@ -651,6 +668,69 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
+      // Next 30 days revenue
+      db.execute(sql`
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${fcStart}
+          AND j.scheduled_date <  ${fcEnd}
+      `),
+
+      // [intel-strip 2026-08-18] Average revenue per client, lifetime to date.
+      // The tile used to ask for `avg_ltv` / "estimated lifetime" and no server
+      // code produced it, so it hid itself — same dead field as the forecast.
+      // Nothing here is estimated: it is money already earned, and it uses the
+      // customer profile's own definition so the two agree. That means imported
+      // MaidCentral visits PLUS live completed work, with a live job dropped
+      // when an imported row already covers that client on that date — the
+      // dual-running weeks around the cutover are the same visit twice.
+      db.execute(sql`
+        WITH hist AS (
+          SELECT customer_id AS client_id, SUM(COALESCE(revenue, 0)) AS rev
+          FROM job_history
+          WHERE company_id = ${companyId}
+          GROUP BY 1
+        ),
+        live AS (
+          SELECT j.client_id, SUM(COALESCE(j.billed_amount, 0)) AS rev
+          FROM jobs j
+          WHERE j.company_id = ${companyId}
+            AND j.client_id IS NOT NULL
+            AND j.status::text IN ('complete', 'invoiced')
+            AND NOT EXISTS (
+              SELECT 1 FROM job_history h
+              WHERE h.company_id = ${companyId}
+                AND h.customer_id = j.client_id
+                AND h.job_date = j.scheduled_date
+            )
+          GROUP BY 1
+        ),
+        per_client AS (
+          SELECT COALESCE(h.rev, 0) + COALESCE(l.rev, 0) AS lifetime
+          FROM hist h FULL OUTER JOIN live l ON l.client_id = h.client_id
+        )
+        SELECT ROUND(AVG(lifetime), 2)::numeric AS avg_rev, COUNT(*)::int AS clients
+        FROM per_client WHERE lifetime > 0
+      `),
+
+      // [intel-strip 2026-08-18] Satisfaction over the last 90 days. The tile
+      // used to say "Avg NPS" — Phes has never recorded a single NPS score and
+      // the survey moved to MaidCentral's 0-4 scale, so that label described a
+      // number the business does not collect. Same class of error as calling
+      // commission pay hourly. This reports the score actually captured.
+      db.execute(sql`
+        SELECT ROUND(AVG(survey_score), 2)::numeric AS avg_score, COUNT(*)::int AS responses
+        FROM satisfaction_surveys
+        WHERE company_id = ${companyId}
+          AND suppressed = false
+          AND responded_at IS NOT NULL
+          AND survey_score IS NOT NULL
+          AND responded_at >= now() - INTERVAL '90 days'
+      `),
+
       // Recurring schedules active count
       db.select({ count: count() }).from(recurringSchedulesTable)
         .where(and(
@@ -742,6 +822,18 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     const clientsAtRisk = atRiskRaw;
 
     const next7RevNum = parseFloat(rowStr(next7Rev.rows[0], 'total'));
+    const next30RevNum = parseFloat(rowStr(next30Rev.rows[0], 'total'));
+
+    // Both stay null when there is nothing behind them, so the tile shows a dash
+    // rather than a confident zero. The spec is explicit: unavailable beats
+    // estimated, and "$0 average client" / "0.0 satisfaction" would read as a
+    // finding rather than as an absence of data.
+    const ltvRow = clientLifetime.rows[0] as any;
+    const avgClientRevenue = ltvRow?.avg_rev != null ? Number(ltvRow.avg_rev) : null;
+    const ltvClients = Number(ltvRow?.clients ?? 0);
+    const satRow = satisfaction90.rows[0] as any;
+    const satResponses = Number(satRow?.responses ?? 0);
+    const avgSatisfaction = satResponses > 0 && satRow?.avg_score != null ? Number(satRow.avg_score) : null;
     const next7CountNum = Number(next7Count[0]?.c || 0);
     const recurringCountNum = Number(recurringCount[0]?.count || 0);
 
@@ -856,6 +948,12 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       churn_configured: true,
       next7_revenue: next7RevNum,
       next7_jobs: next7CountNum,
+      forecast_next_month: next30RevNum,
+      avg_client_revenue: avgClientRevenue,
+      avg_client_revenue_clients: ltvClients,
+      avg_satisfaction: avgSatisfaction,
+      satisfaction_responses: satResponses,
+      satisfaction_scale: 4,
       action_items: actions.slice(0, 8),
       // HouseCall Pro KPI bar
       hcp: {
