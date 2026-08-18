@@ -135,8 +135,8 @@ function fmtDay(ymd: string): string {
 function dateLabel(c: LeaveCtx): string {
   const base = c.start_date === c.end_date
     ? fmtDay(c.start_date)
-    : `${fmtDay(c.start_date)} – ${fmtDay(c.end_date)}`;
-  return c.start_time && c.end_time ? `${base}, ${fmt12(c.start_time)}–${fmt12(c.end_time)}` : base;
+    : `${fmtDay(c.start_date)} to ${fmtDay(c.end_date)}`;
+  return c.start_time && c.end_time ? `${base}, ${fmt12(c.start_time)} to ${fmt12(c.end_time)}` : base;
 }
 
 /** Merge vars available to every leave email template. */
@@ -147,7 +147,7 @@ function mergeVars(c: LeaveCtx): Record<string, string> {
     bucket_name: c.bucket_name,
     dates: dateLabel(c),
     hours: Number(c.hours).toFixed(2),
-    time_window: c.start_time && c.end_time ? `${fmt12(c.start_time)}–${fmt12(c.end_time)}` : "",
+    time_window: c.start_time && c.end_time ? `${fmt12(c.start_time)} to ${fmt12(c.end_time)}` : "",
     note: c.note ?? "",
     decision_note: c.decision_note ?? "",
     // The SPA route is /payroll/leave-review — the old /leave-review 404'd

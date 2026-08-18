@@ -132,7 +132,7 @@ async function sendEmailRaw(
   <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
 </div>
 ${inner}
-<p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &mdash; ${brandPhone} &mdash; ${brandEmail}</p>
+<p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &nbsp;&middot;&nbsp; ${brandPhone} &nbsp;&middot;&nbsp; ${brandEmail}</p>
 ${unsub?.footerHtml ?? ""}
 </div></div>`;
   const ccList = (cc ?? []).filter((e) => e && e.toLowerCase() !== to.toLowerCase());

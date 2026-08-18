@@ -14,7 +14,7 @@
 import {
   FONT, BRAND, INK, MUTE, BORDER,
   GREEN_BG, GREEN_FG, GREEN_INK, BLUE_BG, BLUE_FG, BLUE_INK,
-  esc, escAttr, h3, callout, detailRow, phesEmailShell,
+  esc, escAttr, h3, callout, detailRow, detailRowNote, phesEmailShell,
 } from "./phes-email-shell.js";
 
 export interface PhesConfOpts {
@@ -90,7 +90,7 @@ function calendarLinks(o: PhesConfOpts): { google: string; apple: string; outloo
   return { google, apple, outlook };
 }
 function calButton(label: string, href: string): string {
-  return `<a href="${escAttr(href)}" style="display:inline-block;padding:8px 14px;border:1px solid ${BORDER};border-radius:7px;font-family:${FONT};font-size:13px;font-weight:600;color:${INK};text-decoration:none;background:#ffffff;">${esc(label)}</a>`;
+  return `<a class="calbtn" href="${escAttr(href)}" style="display:inline-block;padding:9px 16px;border:1px solid ${BORDER};border-radius:7px;font-family:${FONT};font-size:13px;font-weight:600;color:${INK};text-decoration:none;background:#ffffff;">${esc(label)}</a>`;
 }
 
 export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
@@ -98,25 +98,26 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
   const cal = calendarLinks(o);
 
   const calBlock = cal ? `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:16px 0 0;">
-      <div style="font-family:${FONT};font-size:12px;color:${MUTE};margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;">Add to calendar</div>
-      <table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr>
-        <td style="padding:0 4px;">${calButton("Google", cal.google)}</td>
-        <td style="padding:0 4px;">${calButton("Apple", cal.apple)}</td>
-        <td style="padding:0 4px;">${calButton("Outlook", cal.outlook)}</td>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:14px 0 0;">
+      <div style="font-family:${FONT};font-size:11px;font-weight:700;color:${MUTE};margin:0 0 9px;text-transform:uppercase;letter-spacing:.06em;">Add to calendar</div>
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        <td class="calcell" style="padding:0 8px 0 0;">${calButton("Google", cal.google)}</td>
+        <td class="calcell" style="padding:0 8px 0 0;">${calButton("Apple", cal.apple)}</td>
+        <td class="calcell" style="padding:0;">${calButton("Outlook", cal.outlook)}</td>
       </tr></table>
     </td></tr></table>` : "";
 
-  const paymentRow = o.paymentTotal ? `<tr>
-      <td colspan="2" style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:13px;color:${INK};line-height:1.5;">
-        <strong style="color:${MUTE};">Payment:</strong> ${o.hasCardOnFile
-          ? `<strong>${esc(o.paymentTotal)}</strong> will be charged to your card on the day of service.`
-          : `<strong>${esc(o.paymentTotal)}</strong> due at service. We accept card.`}
-      </td>
-    </tr>` : "";
+  // A full-width colspan row here used to run past the label/value grid and
+  // break the card's right edge. Keep it in the grid with the qualifier tucked
+  // under the amount.
+  const paymentRow = o.paymentTotal
+    ? detailRowNote("Payment", o.paymentTotal, o.hasCardOnFile
+        ? "Charged to your card on the day of service"
+        : "Due at service. We accept card.")
+    : "";
 
   const detailsCard = `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDER};border-radius:10px;padding:2px 18px;margin:0 0 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDER};border-radius:10px;padding:4px 18px;margin:0 0 6px;">
       ${detailRow("Date", o.date)}
       ${detailRow("Arrival window", o.arrivalWindow)}
       ${detailRow("Service", o.service)}
@@ -141,23 +142,23 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
     companyEmail: o.companyEmail,
     website: o.website,
     bodyHtml: `
-      ${calBlock}
-
-      <p style="margin:16px 0 0;text-align:center;font-family:${FONT};font-size:13px;font-style:italic;color:${MUTE};line-height:1.5;">You'll get email and text reminders 3 days and 1 day before your appointment, plus a text the moment your cleaner is on the way.</p>
-
-      <p style="margin:22px 0 18px;font-family:${FONT};font-size:15px;color:${INK};line-height:1.6;">Hi ${esc(o.firstName) || "there"}, thanks for booking with ${esc(o.companyName)}. Here are your details:</p>
+      <p style="margin:22px 0 16px;font-family:${FONT};font-size:15px;color:${INK};line-height:1.6;">Hi ${esc(o.firstName) || "there"}, thanks for booking with ${esc(o.companyName)}. Here are your details:</p>
 
       ${detailsCard}
+      ${calBlock}
+
+      <p style="margin:16px 0 0;font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;">We'll email and text you reminders 3 days and 1 day before your appointment, plus a text the moment your cleaner is on the way.</p>
+
       ${breakdown}
       ${checklist}
 
       ${h3("Cancellation & rescheduling")}
-      <p style="margin:0 0 10px;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">We hold this time exclusively for you. Please give us at least <strong>48 business hours</strong> notice to cancel or reschedule — Sundays don't count.</p>
+      <p style="margin:0 0 10px;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">We hold this time exclusively for you. Please give us at least <strong>48 business hours</strong> notice to cancel or reschedule. Sundays don't count.</p>
       <ul style="margin:0 0 8px;padding-left:20px;font-family:${FONT};font-size:14px;color:${INK};line-height:1.9;">
         <li>Monday appointments: notify us by <strong>Friday 6:00 PM CT</strong>.</li>
         <li>Tuesday appointments: notify us by <strong>Saturday 12:00 PM CT</strong>.</li>
         <li>Late cancels and no-shows are billed at 100%.</li>
-        <li><strong>Only ONE reschedule allowed per appointment, total.</strong> Any additional reschedule request is treated as a late cancel and billed at 100% of the service fee — <strong>regardless of how much notice you give</strong>.</li>
+        <li><strong>Only ONE reschedule allowed per appointment, total.</strong> Any additional reschedule request is treated as a late cancel and billed at 100% of the service fee, <strong>regardless of how much notice you give</strong>.</li>
         <li>20-minute lockout limit. If we can't reach you, the visit is forfeited and billed.</li>
       </ul>
 
@@ -168,7 +169,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
       </ul>
 
       ${o.showOverageNote ? callout("#FEF7ED", "#D97706", "#92400E", "!", "If your home needs extra time",
-        `Deep cleans and move in/out cleans are flat-rate estimates based on the condition you described. If the home needs more time than we expected, <strong>we'll contact you first</strong> before doing any extra work — additional time is billed at <strong>$70/hour per cleaner</strong>.`) : ""}
+        `Deep cleans and move in/out cleans are flat-rate estimates based on the condition you described. If the home needs more time than we expected, <strong>we'll contact you first</strong> before doing any extra work. Additional time is billed at <strong>$70/hour per cleaner</strong>.`) : ""}
 
       ${callout(BLUE_BG, BLUE_FG, BLUE_INK, "&#10003;", "Our 24-hour guarantee",
         `If we miss a spot, tell us within 24 hours and we'll come back and re-clean it at no charge. No questions asked.`)}

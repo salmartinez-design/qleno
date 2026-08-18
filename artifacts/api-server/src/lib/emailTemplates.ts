@@ -88,7 +88,7 @@ function emailWrapper(body: string): string {
   // wordmark (no transparency) into a dark bar — it rendered as a white
   // rectangle even when it loaded, and the redundant "Phes" text sat beside it.
   const logoImg = LOGO_URL
-    ? `<img src="${LOGO_URL}" alt="Phes — Residential &amp; Commercial Cleaning" height="52" style="height:52px;width:auto;max-width:220px;display:block;border:0;" />`
+    ? `<img src="${LOGO_URL}" alt="Phes Residential and Commercial Cleaning" height="52" style="height:52px;width:auto;max-width:220px;display:block;border:0;" />`
     : `<span style="color:${DARK};font-size:20px;font-weight:800;${BASE};">Phes</span>`;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};">
@@ -185,7 +185,7 @@ function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurri
 <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
   <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Deep Clean: What to Expect</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;">A deep clean is more thorough than a standard service and covers areas often skipped in routine cleanings (inside appliances if selected, baseboards, light fixtures, etc.).</p>
-  <p style="margin:0 0 6px;color:${DARK};font-size:13px;"><strong>Please have your home decluttered</strong> before we arrive — cleared countertops, sinks, and floors let our team focus on the actual cleaning rather than tidying.</p>
+  <p style="margin:0 0 6px;color:${DARK};font-size:13px;"><strong>Please have your home decluttered</strong> before we arrive. Cleared countertops, sinks, and floors let our team focus on the actual cleaning rather than tidying.</p>
   <p style="margin:0;color:${DARK};font-size:13px;"><strong>Condition note:</strong> If the home's condition significantly differs from what was selected, we will contact you before proceeding with any additional charges. Extra time beyond the estimate is billed at $70/hr per cleaner.</p>
 </div>`;
   }
@@ -194,7 +194,7 @@ function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurri
 <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
   <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Move In / Out Clean: What to Expect</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;">The property should be empty of furniture and personal belongings. We will work around any items left behind, but cleaning quality around those items cannot be guaranteed and no adjustment will be issued for those areas.</p>
-  <p style="margin:0;color:${DARK};font-size:13px;"><strong>Utilities must be active</strong> — running water, electricity, and sufficient lighting are required. If utilities are off, we reserve the right to cancel and the full fee still applies.</p>
+  <p style="margin:0;color:${DARK};font-size:13px;"><strong>Utilities must be active</strong>. Running water, electricity, and sufficient lighting are required. If utilities are off, we reserve the right to cancel and the full fee still applies.</p>
 </div>`;
   }
   if (kind === "standard") {
@@ -213,10 +213,10 @@ function condensedPolicies(): string {
   <h3 style="color:${DARK};font-size:15px;font-weight:700;margin:0 0 12px;border-bottom:1px solid ${BORDER};padding-bottom:8px;">Policies &amp; Terms</h3>
 
   <p style="margin:0 0 4px;font-weight:700;font-size:13px;color:${DARK};">Cancellation &amp; Rescheduling</p>
-  <p style="margin:0 0 10px;font-size:13px;color:${MID};">We require <strong>48 business hours</strong> notice for all cancellations and reschedules (Sundays excluded). Monday appointments: notify us by Friday 6 PM CT. Tuesday appointments: by Saturday 12 PM CT. Late cancellations and no-shows are charged in full. Each appointment allows <strong>one reschedule — provided the 48-hour notice window is met</strong>. Rescheduling with less than 48 hours notice is treated as a late cancellation regardless. Additional reschedule requests beyond the first are also treated as late cancellations. Our team waits up to 20 minutes for access; if we cannot enter, the appointment is forfeited and billed.</p>
+  <p style="margin:0 0 10px;font-size:13px;color:${MID};">We require <strong>48 business hours</strong> notice for all cancellations and reschedules (Sundays excluded). Monday appointments: notify us by Friday 6 PM CT. Tuesday appointments: by Saturday 12 PM CT. Late cancellations and no-shows are charged in full. Each appointment allows <strong>one reschedule, provided the 48-hour notice window is met</strong>. Rescheduling with less than 48 hours notice is treated as a late cancellation regardless. Additional reschedule requests beyond the first are also treated as late cancellations. Our team waits up to 20 minutes for access; if we cannot enter, the appointment is forfeited and billed.</p>
 
   <p style="margin:0 0 4px;font-weight:700;font-size:13px;color:${DARK};">Our 24-Hour Guarantee</p>
-  <p style="margin:0 0 10px;font-size:13px;color:${MID};">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no cost. As a labor-based service we do not offer refunds — re-cleaning is our remedy for any quality concern.</p>
+  <p style="margin:0 0 10px;font-size:13px;color:${MID};">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no cost. As a labor-based service we do not offer refunds. Re-cleaning is our remedy for any quality concern.</p>
 
   <p style="margin:0 0 4px;font-weight:700;font-size:13px;color:${DARK};">Safety &amp; Exclusions</p>
   <p style="margin:0 0 10px;font-size:13px;color:${MID};">We do not clean biohazards (waste, blood, infestations). Cleaners may adjust climate controls to a safe working temperature. Our liability for any damage is limited to the cost of your service. We do not perform bed-making, laundry, dishwashing, wall spot-cleaning, or move heavy furniture.</p>
@@ -237,7 +237,7 @@ function recurringUpsellSection(branchConfig: BranchConfig): string {
     <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Priority scheduling. Your slot is held weekly or biweekly.</td></tr>
     <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Lower per-visit rate than one-time bookings.</td></tr>
   </table>
-  <p style="margin:0;color:${DARK};font-size:13px;">Call or text <strong>${branchConfig.clientPhoneFormatted}</strong> or reply to this email — mention this offer and we will apply the 15% to your second visit when you set up your plan.</p>
+  <p style="margin:0;color:${DARK};font-size:13px;">Call or text <strong>${branchConfig.clientPhoneFormatted}</strong> or reply to this email and mention this offer and we will apply the 15% to your second visit when you set up your plan.</p>
 </div>`;
 }
 
@@ -395,11 +395,11 @@ export function buildReminderEmail(p: ReminderEmailParams): { subject: string; h
 
   const bodyIntro = is72
     ? `<p style="margin:0 0 16px;color:${DARK};">Hi <strong>${p.firstName}</strong>, this is a friendly reminder that your Phes cleaning is coming up in <strong>3 days</strong>.</p>
-       <p style="margin:0 0 16px;color:${MID};">If you need to reschedule, please contact us at least 48 business hours before your appointment. Remember — Sundays do not count toward this window.</p>
+       <p style="margin:0 0 16px;color:${MID};">If you need to reschedule, please contact us at least 48 business hours before your appointment. Remember, Sundays do not count toward this window.</p>
        <p style="margin:0 0 8px;color:${MID};">Monday appointments: notify us by Friday before 6:00 PM CT.</p>
        <p style="margin:0 0 16px;color:${MID};">Tuesday appointments: notify us by Saturday before 12:00 PM CT.</p>`
     : `<p style="margin:0 0 16px;color:${DARK};">Hi <strong>${p.firstName}</strong>, your Phes cleaning is <strong>tomorrow!</strong></p>
-       <p style="margin:0 0 16px;color:${MID};">Your team will arrive during your <strong>${p.arrivalWindow}</strong> window. Please ensure your home is accessible and all utilities are active — running water, electricity, and sufficient lighting must be available.</p>
+       <p style="margin:0 0 16px;color:${MID};">Your team will arrive during your <strong>${p.arrivalWindow}</strong> window. Please ensure your home is accessible and all utilities are active: running water, electricity, and sufficient lighting must be available.</p>
        <div style="margin-bottom:16px;">
          <strong style="color:${DARK};">Home Access Reminder:</strong>
          <ul style="margin:8px 0;padding-left:20px;color:${MID};">
@@ -407,7 +407,7 @@ export function buildReminderEmail(p: ReminderEmailParams): { subject: string; h
            <li>Ensure your key, entry code, or lockbox is ready for our team</li>
          </ul>
        </div>
-       <p style="margin:0 0 16px;color:${MID};">Questions or need to make a change? Contact us immediately — please note our 48-hour cancellation policy applies.</p>`;
+       <p style="margin:0 0 16px;color:${MID};">Questions or need to make a change? Contact us immediately. Please note our 48-hour cancellation policy applies.</p>`;
 
   const body = `
     <div style="background:#EBF7F4;border:1px solid #B2E8DB;border-radius:8px;overflow:hidden;margin-bottom:24px;">

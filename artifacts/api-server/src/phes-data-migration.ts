@@ -7189,7 +7189,7 @@ async function runNotificationTemplateSeed() {
 <p style="margin:0 0 8px;font-weight:600;color:#1A1917">Cancellation &amp; reschedule policy</p>
 <p style="margin:0 0 20px;color:#1A1917">We require 48 business hours notice to cancel or reschedule (Sundays do not count). Monday appointments: notify us by Friday 6 PM CT; Tuesday: by Saturday noon CT. Cancellations within 48 hours, lockouts, or no-shows are charged 100% of the service fee. One reschedule per appointment.</p>
 <p style="margin:0 0 8px;font-weight:600;color:#1A1917">Our satisfaction guarantee</p>
-<p style="margin:0 0 24px;color:#1A1917">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no charge. As a labor-based service we do not offer refunds &mdash; the re-clean is our remedy.</p>
+<p style="margin:0 0 24px;color:#1A1917">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no charge. As a labor-based service we do not offer refunds. The re-clean is our remedy.</p>
 <p style="margin:0 0 4px;color:#1A1917">Questions? Call or text <strong>{{company_phone}}</strong> or email <strong>{{company_email}}</strong>.</p>
 <p style="margin:24px 0 0">The {{company_name}} Team</p>`,
         body_text: "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for {{appointment_date}} at {{appointment_time}} — {{service_type}} at {{service_address}}. 48-hour notice required to reschedule (Sundays excluded). Questions? {{company_phone}}. — The {{company_name}} Team",
