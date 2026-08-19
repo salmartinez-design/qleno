@@ -80,12 +80,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // and because the effect never reaches its catch, Try again cannot recover it.
 // Every await against the SDK is therefore bounded: a hang becomes a visible,
 // retryable error instead of a spinner nobody can get out of.
-const ATTACH_TIMEOUT_MS = 20_000;
+export const ATTACH_TIMEOUT_MS = 20_000;
 // How long a re-init waits for the OUTGOING card to finish destroying before it
 // mounts the new one. Bounded so a wedged destroy() can't block the retry.
-const TEARDOWN_WAIT_MS = 4_000;
+export const TEARDOWN_WAIT_MS = 4_000;
 
-function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
     p.then(

@@ -3,7 +3,7 @@ import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { buildBookingCompleteMessage, PARENT_ORIGINS } from "@/lib/booking-conversion";
-import { loadSquareSdk, type SquareEnv } from "@/components/square-card-form";
+import { loadSquareSdk, withTimeout, ATTACH_TIMEOUT_MS, TEARDOWN_WAIT_MS, type SquareEnv } from "@/components/square-card-form";
 
 // ── API base (public, no auth) ───────────────────────────────────────────────
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -594,6 +594,16 @@ export default function BookPage() {
   const [sqEnvironment, setSqEnvironment] = useState<SquareEnv>("production");
   const [sqCard, setSqCard] = useState<any>(null);
   const [sqCardReady, setSqCardReady] = useState(false);
+  // [square-attach-hang 2026-08-19] A failed mount shows a retryable message
+  // instead of silently removing the card step. sqCardRetry re-runs the mount.
+  const [sqCardError, setSqCardError] = useState("");
+  const [sqCardRetry, setSqCardRetry] = useState(0);
+  // The card iframe goes into a node created fresh per attempt, never into the
+  // React-rendered container itself — see the mount effect.
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  // Serialises teardown against the next mount, so a zip-driven merchant switch
+  // does not race the iframe it is replacing.
+  const teardownRef = useRef<Promise<void>>(Promise.resolve());
   // [square-per-branch 2026-08-18] Which zip the current Square config was
   // fetched for. One website serves both branches and the ZIP picks the
   // merchant, so a customer who corrects their zip after the card field mounted
@@ -1206,44 +1216,84 @@ export default function BookPage() {
     let cardInstance: any = null;
     setSqCardReady(false);
     setSqCard(null);
+    setSqCardError("");
 
     (async () => {
       try {
+        // Let the OUTGOING card finish dying before mounting the next one. This
+        // effect re-runs whenever the merchant ids change — i.e. every time the
+        // customer's zip moves them between Oak Lawn and Schaumburg — so a
+        // second mount racing the first one is the normal case here, not an edge.
+        await Promise.race([
+          teardownRef.current,
+          new Promise<void>((r) => setTimeout(r, TEARDOWN_WAIT_MS)),
+        ]);
+        if (cancelled) return;
         const Square = await loadSquareSdk(sqEnvironment);
         if (cancelled) return;
+        const host = hostRef.current;
+        if (!host) throw new Error("Square card container is not mounted");
+        // A FRESH node per attempt. Re-attaching to an element the SDK has
+        // already used is what wedges it, and the old code both reused the same
+        // fixed id and tore the previous iframe out with innerHTML = "" while
+        // the SDK still held a reference to it.
+        const mount = document.createElement("div");
+        host.replaceChildren(mount);
         const payments = Square.payments(sqAppId, sqLocationId);
-        const card = await payments.card({
-          style: {
-            input: {
-              fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
-              fontSize: "15px",
-              color: "#1A1917",
+        const card: any = await withTimeout<any>(
+          payments.card({
+            style: {
+              input: {
+                fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
+                fontSize: "15px",
+                color: "#1A1917",
+              },
             },
-          },
-        });
+          }),
+          ATTACH_TIMEOUT_MS,
+          "Square timed out while creating the card field",
+        );
         if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
-        const container = document.getElementById("square-card-element-book");
-        if (!container) return;
-        container.innerHTML = ""; // clear any stale content from a previous mount
-        await card.attach("#square-card-element-book");
+        // Bounded: card.attach() does not reject when it lands on a container
+        // that still holds a dying iframe — it never settles at all. Unbounded,
+        // that leaves the customer staring at an empty card box forever with no
+        // error and no retry, at the last step before they book.
+        await withTimeout(
+          card.attach(mount),
+          ATTACH_TIMEOUT_MS,
+          "Square timed out while mounting the card field",
+        );
         if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
         cardInstance = card;
         setSqCard(card);
         setSqCardReady(true);
+        setSqCardError("");
       } catch (err: any) {
         if (cancelled) return;
         // Named host + reason: the only way to tell a blocked CDN apart from a
         // flaky connection when a customer reports a dead card box.
         console.warn("[square] booking card field failed to mount", err);
-        setSqEnabled(false);
+        // Do NOT setSqEnabled(false) — that silently removes card capture from
+        // the page and the customer never learns why. Keep the step, show a
+        // retry: a lost card is recoverable, a vanished form is a lost sale.
+        setSqCardError("The secure card field couldn't load. Check your connection and try again.");
       }
     })();
 
     return () => {
       cancelled = true;
-      if (cardInstance) { try { cardInstance.destroy(); } catch (_) {} }
+      const c = cardInstance;
+      if (c) {
+        // Chained, not fire-and-forget: the next mount awaits this. Both links
+        // swallow their own errors so one bad teardown can't poison the chain.
+        teardownRef.current = teardownRef.current
+          .catch(() => { /* noop */ })
+          .then(() => c.destroy())
+          .then(() => undefined)
+          .catch(() => { /* noop */ });
+      }
     };
-  }, [sqEnabled, sqAppId, sqLocationId, sqEnvironment, step]);
+  }, [sqEnabled, sqAppId, sqLocationId, sqEnvironment, step, sqCardRetry]);
 
 
   // ── Book submission (Square card path) ────────────────────────────────────
@@ -3687,10 +3737,30 @@ export default function BookPage() {
                           minHeight: 48,
                         }}
                       >
-                        {!sqCardReady && (
+                        {!sqCardReady && !sqCardError && (
                           <span style={{ fontSize: 13, color: "#9E9B94" }}>Loading secure card field...</span>
                         )}
+                        {/* React never renders into this node; the mount effect
+                            owns its children so the SDK always gets a fresh
+                            element. Keep it empty here. */}
+                        <div ref={hostRef} />
                       </div>
+                      {sqCardError && (
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 12, color: "#B3261E" }}>{sqCardError}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSqCardRetry((n) => n + 1)}
+                            style={{
+                              background: "none", border: "1px solid #E5E2DC", borderRadius: 6,
+                              padding: "4px 10px", fontSize: 12, fontWeight: 700, color: "#1A1917",
+                              cursor: "pointer", fontFamily: "inherit",
+                            }}
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      )}
                       <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>
                         Secured by Square. Your card details are encrypted and never stored on our servers.
                       </p>
@@ -3740,8 +3810,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady)) ? 0.7 : 1 }}
-                  disabled={booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady)}
+                  style={{ ...s.btn(), opacity: (booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady && !sqCardError)) ? 0.7 : 1 }}
+                  disabled={booking || sqSetupLoading || sqEnabled === null || sqEnabled === false || (sqEnabled === true && !sqCardReady && !sqCardError)}
                   onClick={submitBooking}
                 >
                   {booking ? "Processing..." : (sqSetupLoading || sqEnabled === null) ? "Setting up..." : sqEnabled ? "Confirm & Book" : "Book It"}
