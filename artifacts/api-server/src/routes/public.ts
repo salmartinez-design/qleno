@@ -18,6 +18,7 @@ import { normalizeReferralSource } from "../lib/referral-source.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 import { adoptOnlineBookingIntoSeries, normalizeBookingFrequency, RECURRING_CADENCES } from "../lib/online-recurring.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
+import { resolveSquareCredentials } from "../lib/square-credentials.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
 import crypto from "crypto";
 
@@ -875,7 +876,14 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     // number/CVV never reaches us. What is left is turning that nonce into a
     // durable card — which needs a client row to hang off, so it happens AFTER
     // the client is found/created below, not here.
-    if (!process.env.SQUARE_ACCESS_TOKEN || !square_source_id) {
+    // [square-per-branch 2026-08-19] Gate on the merchant that will actually
+    // receive this card, not on the ambient one. The widget swaps the whole
+    // tenant when a Schaumburg zip is typed, so company_id here can be 4 — and
+    // checking Oak Lawn's token would refuse a Schaumburg booking whenever Oak
+    // Lawn's token is absent, while waving through a Schaumburg booking whose own
+    // token is missing so it dies later at the card save with the job half-made.
+    const bookingCreds = await resolveSquareCredentials(Number(company_id));
+    if (!bookingCreds.accessToken || !square_source_id) {
       return res.status(400).json({ error: "Card verification required" });
     }
 
@@ -1857,7 +1865,14 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     }
 
     // [square-booking 2026-08-18] Same Square rail as the residential confirm.
-    if (!process.env.SQUARE_ACCESS_TOKEN || !square_source_id) {
+    // [square-per-branch 2026-08-19] Gate on the merchant that will actually
+    // receive this card, not on the ambient one. The widget swaps the whole
+    // tenant when a Schaumburg zip is typed, so company_id here can be 4 — and
+    // checking Oak Lawn's token would refuse a Schaumburg booking whenever Oak
+    // Lawn's token is absent, while waving through a Schaumburg booking whose own
+    // token is missing so it dies later at the card save with the job half-made.
+    const bookingCreds = await resolveSquareCredentials(Number(company_id));
+    if (!bookingCreds.accessToken || !square_source_id) {
       return res.status(400).json({ error: "Card verification required" });
     }
 

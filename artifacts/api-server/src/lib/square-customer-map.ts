@@ -23,6 +23,7 @@
 // instead of being auto-linked. The matcher never guesses.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { resolveSquareCredentials } from "./square-credentials.js";
 
 const SQUARE_API = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-10-17";
@@ -430,8 +431,12 @@ export type SyncSummary = {
 
 export async function syncSquareCustomerMap(opts: { companyId: number; dryRun?: boolean; token?: string }): Promise<{ summary: SyncSummary; rows: MapRow[] }> {
   const { companyId, dryRun = false } = opts;
-  const token = opts.token ?? process.env.SQUARE_ACCESS_TOKEN;
-  if (!token) throw new Error("SQUARE_ACCESS_TOKEN is not configured");
+  // [square-per-branch 2026-08-19] Default to the merchant THIS company transacts
+  // on. The ambient token meant a company-4 sync walked Oak Lawn's customer book
+  // and then wrote those square_customer_ids onto Schaumburg clients — handles
+  // Schaumburg's own merchant cannot charge, on rows that look linked.
+  const token = opts.token ?? (await resolveSquareCredentials(companyId)).accessToken;
+  if (!token) throw new Error("Square is not configured for this branch");
 
   const [customers, cards] = await Promise.all([fetchSquareCustomers(token), fetchSquareCards(token)]);
 
