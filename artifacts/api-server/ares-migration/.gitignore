@@ -1,0 +1,5 @@
+# The migration inputs are CUSTOMER DATA — names, addresses, phones, emails, and
+# (in the raw Ares export) plaintext payment card numbers. None of it belongs in
+# git. Only RUN.md is tracked.
+*.sql
+*.csv

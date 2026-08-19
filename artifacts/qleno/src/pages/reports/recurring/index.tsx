@@ -2,20 +2,14 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useReportData } from "../_shared";
+// [ares-cohesion 2026-08-18] Palette + primitives come from ONE place now, so
+// the page and every tab render the same system. See _ui.tsx.
+import { C, FF, money, card, eyebrow } from "./_ui";
+import Commissions from "./commissions";
 
 // [recurring-revenue 2026-07-12] Recurring Revenue module — Phase 1, RESIDENTIAL.
 // Reads GET /api/recurring/overview (SELECT-only) and renders the live Data
 // Health + Dashboard. Analytics / Growth / Commissions / Capture land next.
-
-const C = {
-  card: "#FFFFFF", ink: "#1A1917", grey: "#6B6860", faint: "#9A968E",
-  line: "#E5E2DC", lineSoft: "#EEEBE4", tint: "#FAF9F6", tint2: "#F3F1EC",
-  mint: "#00C9A0", mintDeep: "#0A8F76", mintBg: "#E7F7F2",
-  amber: "#C6791A", amberBg: "#FBF1E1", red: "#B3261E", redBg: "#FBEBEB",
-};
-const FF = "'Plus Jakarta Sans', sans-serif";
-const money = (n: number | null | undefined) =>
-  n == null ? "—" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 interface Issue { severity: "blocker" | "high"; key: string; title: string; detail: string; count: number; }
 interface Overview {
@@ -50,7 +44,7 @@ const TABS = [
   { k: "dash", label: "Dashboard", live: true },
   { k: "analytics", label: "Analytics", live: true },
   { k: "growth", label: "Growth", live: false },
-  { k: "commissions", label: "Commissions", live: false },
+  { k: "commissions", label: "Commissions", live: true },
 ];
 
 export default function RecurringRevenuePage() {
@@ -70,7 +64,7 @@ export default function RecurringRevenuePage() {
             <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>Ares</h1>
             <p style={{ color: C.grey, fontSize: 14, margin: "3px 0 0" }}>Recurring revenue, retention &amp; VA commission — computed from your own data.</p>
           </div>
-          <span style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: "#fff", borderRadius: 999, padding: "7px 6px 7px 14px", fontSize: 13, fontWeight: 700, display: "inline-flex", gap: 10, alignItems: "center" }}>
+          <span style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: C.card, borderRadius: 999, padding: "7px 6px 7px 14px", fontSize: 13, fontWeight: 700, display: "inline-flex", gap: 10, alignItems: "center" }}>
             <span style={{ background: C.mintBg, color: C.mintDeep, borderRadius: 999, padding: "3px 11px", fontSize: 12 }}>Residential</span>
             <span style={{ color: C.faint, fontWeight: 600, fontSize: 12 }}>Commercial</span>
           </span>
@@ -98,7 +92,7 @@ export default function RecurringRevenuePage() {
           <>
             {loading && <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring data…</div>}
             {error && !loading && (
-              <div style={{ background: C.redBg, border: `1px solid #F1C9C9`, borderRadius: 14, padding: "18px 20px", color: C.red, fontWeight: 600 }}>
+              <div style={{ background: C.redBg, border: "1px solid color-mix(in srgb, var(--danger) 28%, transparent)", borderRadius: 14, padding: "18px 20px", color: C.red, fontWeight: 600 }}>
                 Couldn't load this view: {error}. Try refreshing — if it persists, tell me.
               </div>
             )}
@@ -106,7 +100,9 @@ export default function RecurringRevenuePage() {
           </>
         )}
 
-        {["growth", "commissions"].includes(tab) && (
+        {tab === "commissions" && <Commissions />}
+
+        {tab === "growth" && (
           <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "40px 28px", textAlign: "center", color: C.grey }}>
             <div style={{ fontWeight: 800, color: C.ink, marginBottom: 4 }}>Building this next</div>
             <div style={{ fontSize: 13.5 }}>{TABS.find(t => t.k === tab)?.label} runs on the same live data — coming right after this.</div>
@@ -117,12 +113,6 @@ export default function RecurringRevenuePage() {
   );
 }
 
-function card(): React.CSSProperties {
-  return { background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: "0 1px 2px rgba(20,18,14,.04), 0 10px 30px rgba(20,18,14,.05)" };
-}
-function eyebrow(): React.CSSProperties {
-  return { fontSize: 11, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: C.faint };
-}
 
 function Dashboard({ db }: { db: Overview["dashboard"] }) {
   const cell = (big: string, lab: string, sub: string, mut?: boolean) => (
@@ -135,7 +125,7 @@ function Dashboard({ db }: { db: Overview["dashboard"] }) {
   return (
     <>
       {!db.capture_started && (
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", borderRadius: 14, padding: "16px 18px", fontSize: 13.5, background: C.mintBg, border: "1px solid #C4EFE3", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", borderRadius: 14, padding: "16px 18px", fontSize: 13.5, background: C.mintBg, border: "1px solid color-mix(in srgb, var(--ok) 28%, transparent)", marginBottom: 16 }}>
           <div><b style={{ fontWeight: 800 }}>Capture starts today.</b> Paused, lost, and acquisition numbers fill in from here forward — they can't be back-computed, which is why capture ships before the dashboards. MRR below is live now.</div>
         </div>
       )}

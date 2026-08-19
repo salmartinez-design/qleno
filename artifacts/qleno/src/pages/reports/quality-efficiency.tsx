@@ -44,7 +44,7 @@ export default function QualityEfficiencyReport() {
       {PERIODS.map(p => (
         <button key={p.id} onClick={() => setPeriod(p.id)}
           style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: period === p.id ? 600 : 400, cursor: "pointer",
-            border: `1px solid ${period === p.id ? clr.brand : clr.border}`, background: period === p.id ? `${clr.brand}14` : "#FFFFFF", color: period === p.id ? clr.brand : clr.secondary }}>
+            border: `1px solid ${period === p.id ? clr.brand : clr.border}`, background: period === p.id ? "color-mix(in srgb, var(--brand) 8%, transparent)" : "var(--bg-card)", color: period === p.id ? clr.brand : clr.secondary }}>
           {p.label}
         </button>
       ))}

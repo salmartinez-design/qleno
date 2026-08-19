@@ -227,6 +227,40 @@ function startNotificationCron() {
           console.error("[cron] annual_cycle_auto_open error:", e),
         );
     }
+    // [ares-parity 2026-08-18] 7 AM CT → VA sales-commission chargeback sweep.
+    // Step 2 of the 3-step clawback: promotes chargeback_pending →
+    // chargeback_confirmed once the 14-day dispute window has closed. Still no
+    // money moves — the deduction happens at payout (step 3).
+    //
+    // Idempotent twice over: the fired[] stamp keeps it to once per day, and
+    // the query itself only ever touches rows whose deadline has already
+    // passed, so a re-run is a no-op. Gated per-tenant by the presence of any
+    // commission rows, and killable with ARES_COMMISSIONS_ENABLED=off — the
+    // same pattern as the recurring engine, because a money sweep should never
+    // be un-stoppable in production.
+    if (ctH === 7 && fired["ares_chargeback_sweep"] !== `${ctDate}-7`) {
+      fired["ares_chargeback_sweep"] = `${ctDate}-7`;
+      if (process.env.ARES_COMMISSIONS_ENABLED === "off") {
+        console.log("[cron] ares_chargeback_sweep: skipped (ARES_COMMISSIONS_ENABLED=off)");
+      } else {
+        (async () => {
+          const { db } = await import("@workspace/db");
+          const { sql } = await import("drizzle-orm");
+          const { promoteExpiredChargebacks } = await import("./lib/sales-commission.js");
+          // Only tenants that actually have commissions — no reason to sweep
+          // a company that has never used the module.
+          const rows = await db.execute(sql`
+            SELECT DISTINCT company_id FROM commissions WHERE status = 'chargeback_pending'
+          `);
+          let total = 0;
+          for (const r of rows.rows as Array<{ company_id: number }>) {
+            const out = await promoteExpiredChargebacks(r.company_id);
+            total += out.promoted;
+          }
+          if (total > 0) console.log(`[cron] ares_chargeback_sweep: ${total} chargeback(s) confirmed`);
+        })().catch((e: Error) => console.error("[cron] ares_chargeback_sweep error:", e));
+      }
+    }
   };
 
   setInterval(tick, 60 * 1000); // check every minute

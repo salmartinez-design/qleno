@@ -304,6 +304,13 @@ router.use("/lms/annual-ack", lmsAnnualAckRouter);
 router.use("/lms-settings", lmsSettingsRouter);
 router.use("/lms/admin-audit", lmsAdminAuditRouter);
 router.use("/lms/onboarding-intake", lmsOnboardingIntakeRouter);
+// [ares 2026-08-19] Mounted at the SAME prefix as recurringRouter above, and
+// deliberately second. Express falls through, so /recurring/commissions/* only
+// reaches here because recurring.ts declares no bare `GET /:id` or
+// `POST /:id` — it has PUT /:id, PATCH /:id/monthly-charge,
+// GET /:id/occurrence-counts and DELETE /:id, none of which the commissions
+// router uses. If you ever add a bare GET or POST "/:id" to recurring.ts, it
+// will swallow every commissions endpoint silently. Move this mount above it.
 router.use("/recurring", recurringRevenueRouter);
 
 export default router;

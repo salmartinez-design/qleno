@@ -413,7 +413,16 @@ files or pays it.)*
   emails a real customer even while COMMS_ENABLED=false mutes everything else.
   These are the ONLY additions to this rule; anything automated or scheduled
   still respects the gate.
-- Never mix the Ares project with Qleno/Phes
+- ~~Never mix the Ares project with Qleno/Phes~~
+  *(REVERSED 2026-08-18 by Sal — Ares is being brought INTO Qleno. The legacy
+  Replit app at `@salmartinez1/Ares` is retired; its engine now lives natively
+  here. Customers are NOT duplicated: the module reads `clients` +
+  `recurring_schedules` live, so a customer edit in Qleno is reflected in Ares
+  with nothing to sync. Ares-owned state lives in its own additive tables —
+  `recurring_subscriptions`, `subscription_lifecycle_events`,
+  `sales_attribution`, and the `commission*` set. The old rule still holds in
+  one narrower sense: do NOT import the legacy app's `subscriptions` table or
+  its second auth system — those are what "mixing" meant.)*
 
 ## Database Rules
 - All data scoped by company_id — every query must filter by company_id
