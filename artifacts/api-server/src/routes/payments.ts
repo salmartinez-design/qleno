@@ -102,6 +102,7 @@ router.post("/charge-card", requireAuth, requireRole("owner", "admin", "office")
         ? `inv-${invoiceId}-${companyId}`
         : `chg-${clientId}-${companyId}-${Date.now()}`;
       const result = await chargeSquareCard({
+        companyId: companyId as number,
         squareCustomerId: client.square_customer_id,
         amountCents: Math.round(amount * 100),
         idempotencyKey,

@@ -9,7 +9,7 @@ import {
 } from "@workspace/db/schema";
 import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getBranchByZip } from "../lib/branchRouter";
+import { getBranchByZip, resolveBookingTenant } from "../lib/branchRouter";
 import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
@@ -781,17 +781,55 @@ router.post("/calculate", rateLimit, async (req, res) => {
 // snake_case on purpose: that is the convention for PUBLIC payment payloads
 // (see routes/payment-links.ts → pay.tsx). The camelCase /api/square/config is
 // the office endpoint and is auth-gated.
-router.post("/book/setup", rateLimit, async (_req, res) => {
+router.post("/book/setup", rateLimit, async (req, res) => {
   try {
-    const cfg = getSquarePublicConfig();
+    // [square-per-branch 2026-08-18] The card must be tokenized against the
+    // merchant that will KEEP it. One website serves both branches, so the ZIP
+    // the customer typed — not the widget's slug — decides which Square account
+    // the card field talks to. Get this wrong and a Schaumburg customer's card
+    // is saved onto Oak Lawn's merchant, where Schaumburg can never charge it.
+    const { company_id, zip } = req.body ?? {};
+    const fallbackCompanyId = Number(company_id);
+    if (!Number.isFinite(fallbackCompanyId)) {
+      return res.status(400).json({ error: "company_id required" });
+    }
+    const tenant = await resolveBookingTenant(String(zip ?? ""), fallbackCompanyId);
+
+    // [square-per-branch 2026-08-18] The slug is what lets the widget RELOAD the
+    // owning tenant, and reloading is the whole point. Handing over only the
+    // Square ids would tokenize the card on Schaumburg's merchant while the
+    // widget still priced the job from Oak Lawn's catalog and posted
+    // company_id=1 to /book/confirm — the card save would then be attempted with
+    // Oak Lawn's token against a Schaumburg nonce and EVERY booking in that
+    // branch would fail at the card step. The tenant has to move as one piece:
+    // catalog, prices and merchant together. So this is returned unconditionally,
+    // including when Square is not configured — a branch whose credentials are
+    // still missing must not silently keep selling the other branch's prices.
+    const { sql: drSql } = await import("drizzle-orm");
+    const slugRow = await db.execute(
+      drSql`SELECT slug FROM companies WHERE id = ${tenant.companyId} LIMIT 1`
+    );
+    const bookingSlug = ((slugRow as any).rows ?? slugRow)[0]?.slug ?? null;
+
+    const cfg = await getSquarePublicConfig(tenant.companyId);
     if (!cfg.configured || !cfg.applicationId || !cfg.locationId) {
-      return res.json({ square_enabled: false });
+      return res.json({
+        square_enabled: false,
+        branch: tenant.branch,
+        booking_company_id: tenant.companyId,
+        booking_company_slug: bookingSlug,
+      });
     }
     return res.json({
       square_enabled: true,
       square_application_id: cfg.applicationId,
       square_location_id: cfg.locationId,
       square_environment: cfg.environment,
+      // Echoed so the widget can remount the card field when the branch changes,
+      // and so the office can see which books a booking landed in.
+      branch: tenant.branch,
+      booking_company_id: tenant.companyId,
+      booking_company_slug: bookingSlug,
     });
   } catch (err: any) {
     console.error("POST /public/book/setup:", err);
@@ -1545,7 +1583,11 @@ router.post("/book", rateLimit, async (req, res) => {
     // this path must stay shut, or a booking could be created with no card on
     // file. The gate used to read STRIPE_SECRET_KEY — with Stripe unplugged that
     // would have silently swung open the moment the key was removed.
-    if (getSquarePublicConfig().configured) {
+    // [square-per-branch 2026-08-18] Checked against the branch this zip routes
+    // to, so the gate can't be bypassed by booking a zip whose tenant happens to
+    // have no Square creds while the other branch does.
+    const fallbackGateTenant = await resolveBookingTenant(String(zip ?? address_zip ?? ""), Number(company_id));
+    if ((await getSquarePublicConfig(fallbackGateTenant.companyId)).configured) {
       return res.status(400).json({ error: "Card verification required. Please use the booking widget." });
     }
 

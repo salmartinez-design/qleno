@@ -22,6 +22,11 @@ export const companiesTable = pgTable("companies", {
   stripe_customer_id: text("stripe_customer_id"),
   stripe_subscription_id: text("stripe_subscription_id"),
   square_oauth_token: text("square_oauth_token"),
+  // [square-per-branch 2026-08-18] Names WHICH Square merchant this company
+  // transacts on — not the credential itself. NULL = the default (unsuffixed)
+  // SQUARE_* env vars; 'SCHAUMBURG' = the SQUARE_*_SCHAUMBURG set. The secrets
+  // stay in Railway; see lib/square-credentials.ts for why they are not columns.
+  square_account_key: text("square_account_key"),
   subscription_status: subscriptionStatusEnum("subscription_status").notNull().default("trialing"),
   plan: planEnum("plan").notNull().default("starter"),
   // [ai-access 2026-08-15] Master switch for Qleno Connect (REST API) and

@@ -14,6 +14,7 @@
 import { db } from "@workspace/db";
 import { clientsTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
+import { resolveSquareCredentials } from "./square-credentials.js";
 
 export type SaveSquareCardResult =
   | {
@@ -33,9 +34,13 @@ export async function saveSquareCardOnFile(opts: {
   sourceId: string; // the `cnon:` nonce from Square Web Payments SDK tokenize()
   idempotencyKey: string;
 }): Promise<SaveSquareCardResult> {
-  const token = process.env.SQUARE_ACCESS_TOKEN;
-  if (!token) {
-    return { ok: false, code: "not_configured", message: "Square is not configured in this environment" };
+  // [square-per-branch 2026-08-18] The merchant is the CLIENT'S company, not the
+  // process environment. Saving a Schaumburg customer's card onto the Oak Lawn
+  // account would put the card — and every later charge — in the wrong business.
+  const creds = await resolveSquareCredentials(opts.companyId);
+  const token = creds.accessToken;
+  if (!creds.configured || !token) {
+    return { ok: false, code: "not_configured", message: "Square is not configured for this company" };
   }
   if (!opts.sourceId || !String(opts.sourceId).trim()) {
     return { ok: false, code: "no_source", message: "No card token provided" };
@@ -45,7 +50,7 @@ export async function saveSquareCardOnFile(opts: {
     return { ok: false, code: "not_configured", message: "Square SDK not available" };
   }
   const { SquareClient, SquareEnvironment } = squareMod;
-  const environment = process.env.SQUARE_ENV === "production" ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
+  const environment = creds.environment === "production" ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
   const square = new SquareClient({ token, environment });
 
   try {

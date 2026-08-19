@@ -131,6 +131,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "payment_links.amount", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS amount NUMERIC(10,2)" },
     { label: "payment_links.stripe_setup_intent_id", stmt: "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS stripe_setup_intent_id TEXT" },
 
+    // ── [square-per-branch 2026-08-18] Per-company Square merchant ─────────
+    // Oak Lawn and Schaumburg are separate businesses on separate Square
+    // ACCOUNTS, so money must settle to different merchants. This column names
+    // which credential set a company uses; NULL keeps today's behavior (the
+    // unsuffixed SQUARE_* env vars), so Oak Lawn is unaffected by its addition.
+    { label: "companies.square_account_key", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS square_account_key TEXT" },
+
     // ── [customer-portal 2026-08-05] Portal identity ──────────────────────
     // See docs/CUSTOMER_PORTAL_DESIGN.md. Residential and commercial customers
     // share ONE login surface; who they are is here, what they may do is

@@ -79,7 +79,10 @@ describe("the booking widget captures with Square, not Stripe", () => {
     // POST /api/public/book creates a booking with NO card on file. Its guard
     // used to read STRIPE_SECRET_KEY — with Stripe unplugged, removing that key
     // would have swung the path open and let jobs book uncollectably.
-    assert.match(publicRoutes, /if \(getSquarePublicConfig\(\)\.configured\) \{[\s\S]{0,160}Card verification required/);
+    // [square-per-branch 2026-08-18] The gate is now company-scoped and async —
+    // it asks whether the BRANCH THIS ZIP ROUTES TO has Square, so it can't be
+    // slipped by booking a zip whose tenant lacks creds.
+    assert.match(publicRoutes, /if \(\(await getSquarePublicConfig\([^)]*\)\)\.configured\) \{[\s\S]{0,160}Card verification required/);
     // Match the env READ, not the word — the comment above that guard explains
     // what it used to read, and should not fail its own test.
     assert.ok(!publicRoutes.includes("process.env.STRIPE_SECRET_KEY"));
