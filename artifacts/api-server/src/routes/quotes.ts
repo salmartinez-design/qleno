@@ -211,6 +211,9 @@ async function getQuoteWithDetails(id: number, companyId: number) {
       special_instructions: quotesTable.special_instructions,
       internal_memo: quotesTable.internal_memo,
       client_notes: quotesTable.client_notes,
+      // [client-facing-notes 2026-08-19] Whether `notes` (the builder's
+      // "Client-Facing Notes" box) rides into the confirmation email on convert.
+      notes_on_confirmation: quotesTable.notes_on_confirmation,
       call_notes: quotesTable.call_notes,
       manual_hours: quotesTable.manual_hours,
       office_notes: quotesTable.office_notes,
@@ -338,7 +341,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       scope_id, pricing_method, frequency, estimated_hours, manual_hours,
       base_price, total_price, discount_amount, discount_code, addons, hourly_rate_override,
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
-      special_instructions, internal_memo, client_notes, notes, status,
+      special_instructions, internal_memo, client_notes, notes, notes_on_confirmation, status,
       unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
     } = req.body;
 
@@ -383,6 +386,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       dirt_level: dirt_level || "standard",
       pets: pets || 0,
       special_instructions, internal_memo, client_notes, notes,
+      notes_on_confirmation: notes_on_confirmation !== false,
       office_notes: office_notes || null,
       // [call-notes-fix 2026-07-08] POST dropped call_notes entirely, so a
       // freshly-created quote's Call Notes never reached the column — and thus
@@ -419,7 +423,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const id = parseInt(req.params.id);
     const allowed = [
       "status", "base_price", "total_price", "estimated_hours", "manual_hours", "hourly_rate_override",
-      "notes", "client_notes", "internal_memo", "special_instructions", "call_notes",
+      "notes", "client_notes", "notes_on_confirmation", "internal_memo", "special_instructions", "call_notes",
       "frequency", "scope_id", "pricing_method", "addons", "service_type_slug",
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
@@ -1180,6 +1184,28 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         }
       } catch (e) { console.warn("[quote convert] office-notes stamp failed:", e); }
 
+      // [client-facing-notes 2026-08-19] The client-facing note goes on the
+      // FIRST visit only, not on all of them like the office notes above. An
+      // office note is context for the crew and is fine to repeat; a note
+      // addressed to the customer is almost always about this booking ("we'll
+      // do the garage this time", "bring the extra supplies"), and repeating it
+      // on every visit for the next year would be wrong. Later visits can get
+      // their own note from the job modal.
+      try {
+        const firstVisitNote = String((q as any).notes ?? "").trim();
+        if (firstVisitNote) {
+          await db.execute(sql`
+            UPDATE jobs
+               SET client_facing_notes = ${firstVisitNote},
+                   client_facing_notes_on_confirmation = ${(q as any).notes_on_confirmation !== false}
+             WHERE id = (
+               SELECT id FROM jobs
+                WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+                ORDER BY scheduled_date ASC, id ASC LIMIT 1
+             )`);
+        }
+      } catch (e) { console.warn("[quote convert] client-notes stamp failed:", e); }
+
       if (reusedSchedule) {
         // Reused schedule: move every UPCOMING visit to the agreed all-in price
         // and give it the new add-on line items. Past/completed visits are left
@@ -1275,6 +1301,15 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     const jobOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
       .filter((x: any) => x && String(x).trim())
       .join("\n\n") || null;
+    // [client-facing-notes 2026-08-19] The quote builder's "Client-Facing Notes"
+    // box writes quotes.notes. Convert carried the tech memo and the call notes
+    // but never this one, so the only note actually addressed to the customer
+    // died with the quote. Francisco: "In the quoting tool, where do the
+    // client-facing notes go? If they aren't being used anywhere, they should
+    // be included in the email confirmation." Carry it, along with the office's
+    // decision about whether the customer reads it.
+    const jobClientNotes = String((q as any).notes ?? "").trim() || null;
+    const jobClientNotesOnConf = (q as any).notes_on_confirmation !== false;
     // [quote-address-cascade 2026-08-19] Resolve the service address into its
     // parts, and the zone from its zip, BEFORE the insert.
     //
@@ -1310,7 +1345,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, billing_method,
+        frequency, notes, office_notes, client_facing_notes, client_facing_notes_on_confirmation,
+        allowed_hours, estimated_hours, hourly_rate, billing_method,
         -- [quote-address-cascade 2026-08-19] All FOUR components and the zone,
         -- not just the street. Convert used to write address_street alone and
         -- leave city/state/zip and zone_id NULL, so a converted quote produced a
@@ -1335,6 +1371,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
         ${jobOfficeNotes},
+        ${jobClientNotes},
+        ${jobClientNotesOnConf},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${jobHourlyRate},

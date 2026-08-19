@@ -149,6 +149,15 @@ export const jobsTable = pgTable("jobs", {
   // show "Edited by X · date". Stamped by the PATCH /jobs/:id handler.
   office_notes_updated_by: integer("office_notes_updated_by"),
   office_notes_updated_at: timestamp("office_notes_updated_at"),
+  // [client-facing-notes 2026-08-19] The note the CUSTOMER is allowed to read.
+  // Distinct from `notes` (the technician's field-app instructions) and
+  // `office_notes` (internal only). Carried from the quote's Client-Facing
+  // Notes box on convert, and editable afterwards from the job modal, because
+  // the office takes these on a phone call. Rendered in the booking
+  // confirmation email only when client_facing_notes_on_confirmation is true — the
+  // office decides per job whether the customer sees it.
+  client_facing_notes: text("client_facing_notes"),
+  client_facing_notes_on_confirmation: boolean("client_facing_notes_on_confirmation").notNull().default(true),
   flagged: boolean("flagged").notNull().default(false),
   // [AG] Set true when a user manually overrides the calculated base_fee in
   // the edit modal. Cleared when scope/freq/add-ons change AND base_fee is

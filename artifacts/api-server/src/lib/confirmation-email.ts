@@ -105,7 +105,17 @@ export type ConfEmailOpts = {
   // authored body, so an inserted breakdown chip would silently vanish on the
   // ONE email it matters most for — pass it through and render it explicitly.
   servicesBreakdownHtml?: string | null;
+  // [client-facing-notes 2026-08-19] The office's client-facing note for THIS
+  // visit. Gated upstream on the job's client_notes_on_confirmation switch, so
+  // a value here means "show it". Empty / omitted renders nothing.
+  clientNote?: string | null;
 };
+
+// Plain text out of a textarea: escape it and keep the author's line breaks.
+const escText = (s: string) =>
+  String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br />");
 
 export function renderConfirmationEmail(o: ConfEmailOpts): string {
   const FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
@@ -150,6 +160,18 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
       ${o.servicesBreakdownHtml}
     </div>` : "";
 
+  // The office's note for this visit, in a quiet bordered panel under the
+  // booking details. Deliberately plain: it carries service-specific facts the
+  // customer needs, so it should not read as a promotional callout.
+  const noteText = String(o.clientNote ?? "").trim();
+  const clientNote = noteText ? `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 0;border:1px solid ${BORDER};border-left:3px solid ${MINT};border-radius:8px;">
+      <tr><td style="padding:14px 16px;font-family:${FONT};">
+        <div style="font-size:11px;font-weight:700;color:${MUTE};text-transform:uppercase;letter-spacing:.06em;margin:0 0 6px;">A note about your visit</div>
+        <div style="font-size:14px;color:${INK};line-height:1.6;">${escText(noteText)}</div>
+      </td></tr>
+    </table>` : "";
+
   const cta = o.link ? `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto 4px;"><tr>
       <td bgcolor="${MINT}" align="center" style="border-radius:8px;">
@@ -187,6 +209,8 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
       </table>
 
       ${breakdown}
+
+      ${clientNote}
 
       ${cta}
 
