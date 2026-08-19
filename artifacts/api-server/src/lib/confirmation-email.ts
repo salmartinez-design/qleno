@@ -106,7 +106,7 @@ export type ConfEmailOpts = {
   // ONE email it matters most for — pass it through and render it explicitly.
   servicesBreakdownHtml?: string | null;
   // [client-facing-notes 2026-08-19] The office's client-facing note for THIS
-  // visit. Gated upstream on the job's client_notes_on_confirmation switch, so
+  // visit. Gated upstream on the job's client_facing_notes_on_confirmation switch, so
   // a value here means "show it". Empty / omitted renders nothing.
   clientNote?: string | null;
 };

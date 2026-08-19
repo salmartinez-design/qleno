@@ -54,7 +54,7 @@ export interface PhesConfOpts {
   icsUrl?: string;                 // hosted .ics for the Apple button (email clients block data: URIs)
   // [client-facing-notes 2026-08-19] The office's client-facing note for THIS
   // visit, taken on the booking call. Already gated by the caller on the job's
-  // client_notes_on_confirmation switch, so a value here means "show it".
+  // client_facing_notes_on_confirmation switch, so a value here means "show it".
   // Empty / omitted renders nothing at all.
   clientNote?: string | null;
 }
