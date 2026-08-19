@@ -1998,6 +1998,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // be a side effect of rescheduling.
   const [chargeLateFee, setChargeLateFee] = useState(false);
   const [lateFeeAmount, setLateFeeAmount] = useState("");
+  // [reschedule-fee-mode 2026-08-19] Maribel, asked what the fee box should be:
+  // "yes, there should be a window showing an editable text box where we can
+  // either select % or dolar amount for the fee." Same two-way choice the
+  // cancellation fee already offers, so the control reads the same in both
+  // places. Dollars first — it is the answer to "how much", stated plainly.
+  const [lateFeeMode, setLateFeeMode] = useState<"dollar" | "pct">("dollar");
+  const [lateFeePct, setLateFeePct] = useState("");
   // Blank = the tenant default ($60 flat, or the configured percent). Typing an
   // amount overrides it for this cancellation only.
   const [techPayAmount, setTechPayAmount] = useState<string>("");
@@ -2952,6 +2959,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       // a fee; other actions send no override.
       const jobAmt = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
       const isCharging = cancelAction === "cancel" || cancelAction === "lockout";
+      // [reschedule-fee-mode 2026-08-19] % and $ both land as dollars.
+      const resolvedLateFee = lateFeeMode === "pct"
+        ? Math.round(jobAmt * (Math.max(0, Math.min(100, parseFloat(lateFeePct) || 0)) / 100) * 100) / 100
+        : Math.max(0, parseFloat(lateFeeAmount) || 0);
       let chargeOverrideVal: number | undefined = undefined;
       if (isCharging) {
         if (cancelFeeMode === "waive") chargeOverrideVal = 0;
@@ -2996,9 +3007,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // this flag can ask for a fee but can never declare one owed.
           charge_reschedule_fee:
             (cancelAction === "move" || cancelAction === "bump") && chargeLateFee ? true : undefined,
+          // Always dollars on the wire. A percentage is a way of SAYING an
+          // amount; resolving it here means the server, the invoice and the
+          // number the office just read on screen are the same figure.
           reschedule_fee_amount:
-            (cancelAction === "move" || cancelAction === "bump") && chargeLateFee && parseFloat(lateFeeAmount) > 0
-              ? Math.max(0, parseFloat(lateFeeAmount))
+            (cancelAction === "move" || cancelAction === "bump") && chargeLateFee && resolvedLateFee > 0
+              ? resolvedLateFee
               : undefined,
         }),
       });
@@ -5593,7 +5607,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         // through with `||` so a literal 0 doesn't pin the fee preview to $0.
         const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
-        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(true); setCancelFeeMode("full"); setCancelFeePct(""); setChargeLateFee(false); setLateFeeAmount(""); };
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(true); setCancelFeeMode("full"); setCancelFeePct(""); setChargeLateFee(false); setLateFeeAmount(""); setLateFeeMode("dollar"); setLateFeePct(""); };
         const needsDate = selected?.reschedules === true;
         // [late-reschedule-fee 2026-08-19] Hours of notice, measured to the
         // ORIGINAL start — the customer is being charged for the warning they
@@ -5609,7 +5623,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           ? (originalStart.getTime() - Date.now()) / 3600000
           : null;
         const isLateReschedule = hoursNotice != null && hoursNotice < LATE_RESCHEDULE_WINDOW_HOURS;
-        const lateFeeVal = Math.max(0, parseFloat(lateFeeAmount) || 0);
+        // The fee resolves to DOLLARS either way — a percentage is just a way of
+        // saying an amount, and the office should always see the number the
+        // customer will actually be invoiced before they confirm.
+        const lateFeePctNum = Math.max(0, Math.min(100, parseFloat(lateFeePct) || 0));
+        const lateFeeVal = lateFeeMode === "pct"
+          ? Math.round(jobAmount * (lateFeePctNum / 100) * 100) / 100
+          : Math.max(0, parseFloat(lateFeeAmount) || 0);
         const lateFeeMissing = !!selected?.reschedules && isLateReschedule && chargeLateFee && !(lateFeeVal > 0);
         // [cancel-fee-policy 2026-07-01] Resolve what the customer is charged
         // from the selected fee mode. 'full' = 100% of the job (default).
@@ -5830,31 +5850,76 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         </span>
                       </div>
                       {chargeLateFee && (
-                        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={lateFeeAmount}
-                              onChange={e => setLateFeeAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                              placeholder="0.00"
-                              autoFocus
-                              style={{ width: 110, height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
-                            />
+                        <>
+                          {/* [reschedule-fee-mode 2026-08-19] Maribel: "there should
+                              be a window showing an editable text box where we can
+                              either select % or dolar amount for the fee." Same pill
+                              pair the cancellation fee uses, so the control reads the
+                              same wherever a fee is set. */}
+                          <div style={{ display: "flex", gap: 6, marginTop: 10, marginBottom: 8 }}>
+                            {([
+                              { m: "dollar", label: "Dollar amount" },
+                              { m: "pct", label: "% of visit" },
+                            ] as { m: "dollar" | "pct"; label: string }[]).map(opt => {
+                              const on = lateFeeMode === opt.m;
+                              return (
+                                <button key={opt.m} type="button" onClick={() => setLateFeeMode(opt.m)}
+                                  style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, fontFamily: FF, cursor: "pointer",
+                                    border: `1px solid ${on ? "#B45309" : "#E5E2DC"}`,
+                                    background: on ? "#FFFFFF" : "transparent",
+                                    color: on ? "#B45309" : "#6B6860" }}>
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
                           </div>
-                          <button type="button" onClick={() => setLateFeeAmount(jobAmount.toFixed(2))}
-                            style={{ padding: "5px 10px", border: "1px solid #F2DFB8", background: "#FFFFFF", color: "#B45309", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                            Use visit total (${jobAmount.toFixed(2)})
-                          </button>
-                        </div>
-                      )}
-                      {chargeLateFee && (
-                        <div style={{ marginTop: 8, fontSize: 11.5, color: "#6B6860", lineHeight: 1.45 }}>
-                          {lateFeeVal > 0
-                            ? <>A separate invoice for <strong>${lateFeeVal.toFixed(2)}</strong> is raised for this customer. The visit keeps its own price and invoices when it completes.</>
-                            : "Enter an amount to charge."}
-                        </div>
+                          {lateFeeMode === "dollar" ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={lateFeeAmount}
+                                  onChange={e => setLateFeeAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                                  placeholder="0.00"
+                                  autoFocus
+                                  style={{ width: 110, height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
+                                />
+                              </div>
+                              <button type="button" onClick={() => setLateFeeAmount(jobAmount.toFixed(2))}
+                                style={{ padding: "5px 10px", border: "1px solid #F2DFB8", background: "#FFFFFF", color: "#B45309", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                                Use visit total (${jobAmount.toFixed(2)})
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={lateFeePct}
+                                onChange={e => setLateFeePct(e.target.value.replace(/[^0-9.]/g, ""))}
+                                placeholder="e.g. 50"
+                                autoFocus
+                                style={{ width: 90, height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
+                              />
+                              <span style={{ fontSize: 13, color: "#6B6860" }}>% of the ${jobAmount.toFixed(2)} visit</span>
+                              <div style={{ display: "flex", gap: 5 }}>
+                                {[25, 50, 100].map(p => (
+                                  <button key={p} type="button" onClick={() => setLateFeePct(String(p))}
+                                    style={{ padding: "4px 9px", border: "1px solid #F2DFB8", background: "#FFFFFF", color: "#B45309", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                                    {p}%
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div style={{ marginTop: 8, fontSize: 11.5, color: "#6B6860", lineHeight: 1.45 }}>
+                            {lateFeeVal > 0
+                              ? <>A separate invoice for <strong>${lateFeeVal.toFixed(2)}</strong> is raised for this customer. The visit keeps its own price and invoices when it completes.</>
+                              : lateFeeMode === "pct" ? "Enter a percentage to charge." : "Enter an amount to charge."}
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -6007,7 +6072,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </div>
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); setCancelFeeMode("full"); setCancelFeePct(""); setPayTechForCancel(true); setChargeLateFee(false); setLateFeeAmount(""); }} disabled={busy}
+                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); setCancelFeeMode("full"); setCancelFeePct(""); setPayTechForCancel(true); setChargeLateFee(false); setLateFeeAmount(""); setLateFeeMode("dollar"); setLateFeePct(""); }} disabled={busy}
                       style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>← Back</button>
                     <button onClick={cancelJob} disabled={confirmDisabled}
                       style={{
