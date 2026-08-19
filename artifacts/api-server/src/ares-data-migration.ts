@@ -39,10 +39,13 @@ const COMPANY_ID = Number(arg("company") ?? NaN);
 const BRANCH_ID = arg("branch") ? Number(arg("branch")) : null;
 const REPORT = arg("report");
 const MATCHES = arg("matches");
+// Opt-in, human-curated exception to "never create a client". Takes a CSV the
+// operator reviewed by hand — never inferred, never automatic.
+const CREATE_MISSING = arg("create-missing");
 const COMMIT = flag("commit");
 
 if (!FILE || !Number.isFinite(COMPANY_ID)) {
-  console.error("usage: tsx src/ares-data-migration.ts --file <dump.sql> --company <id> [--branch <id>] [--report out.csv] [--matches reviewed.csv] [--commit]");
+  console.error("usage: tsx src/ares-data-migration.ts --file <dump.sql> --company <id> [--branch <id>] [--report out.csv] [--matches reviewed.csv] [--create-missing new-clients.csv] [--commit]");
   process.exit(1);
 }
 
@@ -199,6 +202,37 @@ const CSTATUS: Record<string, string> = {
   chargeback_pending: "chargeback_pending", chargeback_confirmed: "chargeback_confirmed",
   recouped: "recouped",
 };
+
+// ── Card-data scrub ──────────────────────────────────────────────────────────
+// The Ares export contains PAYMENT CARD NUMBERS in plaintext client notes —
+// 7 Luhn-valid PANs across 6 clients, found on 2026-08-18. Storing a PAN in a
+// free-text notes field is a PCI-DSS violation, and migrating it would carry
+// the violation into Qleno and widen its blast radius.
+//
+// Nothing this script writes may contain one. Every free-text field it copies
+// goes through scrubCards() — Luhn-checked runs are removed outright, and any
+// remaining 13+ digit run is removed too, because a mistyped card is still a
+// card. This is deliberately aggressive: a lost note is recoverable from Ares,
+// a leaked PAN is not.
+function luhnValid(digits: string): boolean {
+  const ds = [...digits].filter(c => c >= "0" && c <= "9").map(Number);
+  if (ds.length < 13 || ds.length > 19) return false;
+  let sum = 0;
+  ds.reverse().forEach((d, i) => {
+    if (i % 2) { d *= 2; if (d > 9) d -= 9; }
+    sum += d;
+  });
+  return sum % 10 === 0;
+}
+export function scrubCards(v: string | null | undefined): string | null {
+  if (!v) return v ?? null;
+  let out = v;
+  const runs = v.match(/(?<!\d)(?:\d[ -]?){13,19}(?!\d)/g) ?? [];
+  for (const r of runs) {
+    if (luhnValid(r.replace(/\D/g, ""))) out = out.split(r).join("[card number removed on migration]");
+  }
+  return out.replace(/(?<!\d)(?:\d[ -]?){13,}(?!\d)/g, "[long number removed on migration]");
+}
 
 // ── Matching ─────────────────────────────────────────────────────────────────
 
@@ -367,6 +401,59 @@ async function main() {
   const srcMrr = act.reduce((t, s) => t + money(s.monthly), 0);
   console.log(`\n[ares] SOURCE TOTALS  active ${act.length} · lost ${lost.length} · MRR $${srcMrr.toFixed(2)}`);
 
+  // ── Optional: create the clients that exist in Ares but not in Qleno ──────
+  // This is the ONE place the migration writes to `clients`, it is opt-in, and
+  // it only ever creates rows from a file a human curated. Runs BEFORE matching
+  // so the new clients are matchable in the same pass.
+  if (CREATE_MISSING) {
+    if (!existsSync(CREATE_MISSING)) { console.error(`--create-missing file not found: ${CREATE_MISSING}`); process.exit(1); }
+    const lines = readFileSync(CREATE_MISSING, "utf8").split(/\r?\n/).filter(Boolean);
+    const head = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim());
+    const col = (r: string[], n: string) => { const i = head.indexOf(n); return i < 0 ? null : (r[i] || null); };
+    const wanted = lines.slice(1).map(splitCsv);
+    console.log(`\n[ares] --create-missing: ${wanted.length} rows to create as Qleno clients`);
+
+    for (const r of wanted) {
+      const name = (col(r, "ares_name") ?? "").trim();
+      if (!name) continue;
+      const email = col(r, "email"), phone = col(r, "phone");
+
+      // Idempotent: never create the same client twice, however this is re-run.
+      const dupe = await db.execute(sql`
+        SELECT id FROM clients
+         WHERE company_id = ${COMPANY_ID}
+           AND ( (${email}::text IS NOT NULL AND lower(email) = lower(${email}))
+              OR (${phone}::text IS NOT NULL AND right(regexp_replace(phone,'\\D','','g'),10) = right(regexp_replace(${phone},'\\D','','g'),10))
+              OR lower(trim(coalesce(company_name, first_name || ' ' || last_name))) = lower(trim(${name})) )
+         LIMIT 1
+      `);
+      if (dupe.rows.length) { console.log(`  skip (already exists) ${name}`); continue; }
+
+      // A business name goes in company_name, not split across first/last — the
+      // Ares row carries one free-text name and guessing a surname out of
+      // "Weiss-Kunz & Oliver LLC" produces nonsense on every screen that
+      // renders it.
+      const isBusiness = /\b(llc|inc|corp|condominium|association|realty|properties|property|services|management|group|co)\b/i.test(name)
+        || /\d/.test(name.split(" ")[0] ?? "");
+      const parts = name.split(/\s+/);
+      const first = isBusiness ? name : (parts[0] ?? name);
+      const last = isBusiness ? "" : parts.slice(1).join(" ");
+
+      if (!COMMIT) { console.log(`  would create  ${name}${isBusiness ? "  [as company_name]" : ""}`); continue; }
+      const ins = await db.execute(sql`
+        INSERT INTO clients (company_id, branch_id, first_name, last_name, company_name,
+                             email, phone, address, city, state, zip, client_type, is_active, notes)
+        VALUES (${COMPANY_ID}, ${BRANCH_ID}, ${isBusiness ? name : first}, ${isBusiness ? "" : last},
+                ${isBusiness ? name : null}, ${email}, ${phone},
+                ${col(r, "address")}, ${col(r, "city")}, ${col(r, "state")}, ${col(r, "zip")},
+                ${((col(r, "client_type") ?? "residential").toLowerCase() === "commercial" ? "commercial" : "residential")}::client_type,
+                true, ${"Created by the Ares migration — this client existed in Ares but not in Qleno."})
+        RETURNING id
+      `);
+      console.log(`  created #${(ins.rows[0] as { id: number }).id}  ${name}`);
+    }
+  }
+
   const clientRows = await db.execute(sql`
     SELECT id, first_name, last_name, company_name, email, phone, branch_id
       FROM clients WHERE company_id = ${COMPANY_ID}
@@ -471,7 +558,7 @@ async function main() {
         VALUES
           (${COMPANY_ID}, ${branch}, ${newId}, 'loss',
            ${day(s.loss_date ?? s.cancel_date)},
-           ${`Migrated from Ares${s.loss_reason ? ` — reason recorded as "${s.loss_reason}"` : ""}`},
+           ${scrubCards(`Migrated from Ares${s.loss_reason ? ` — reason recorded as "${s.loss_reason}"` : ""}`)},
            'captured', now())
       `);
     }
@@ -502,7 +589,7 @@ async function main() {
          ${c.cadence}, ${c.base_commission ?? "0"}, ${c.commercial_source_bonus ?? "0"},
          ${c.deep_clean_bonus ?? "0"}, ${c.total_commission ?? "0"},
          ${day(c.created_at)}, ${day(c.first_cleaning_date)}, ${day(c.chargeback_eligible_until)},
-         ${day(c.paid_date)}, ${`Migrated from Ares${c.notes ? ` — ${c.notes}` : ""}`},
+         ${day(c.paid_date)}, ${scrubCards(`Migrated from Ares${c.notes ? ` — ${c.notes}` : ""}`)},
          COALESCE(${c.created_at}::timestamptz, now()))
       RETURNING id
     `);
@@ -537,7 +624,7 @@ async function main() {
             : l.entry_type === "chargeback" ? "chargeback"
             : l.entry_type === "payout" ? "payout"
             : l.entry_type === "base" ? "base" : "adjustment")}::commission_ledger_entry_type,
-         ${l.amount ?? "0"}, ${l.description ?? "Migrated from Ares"}, ${l.related_period},
+         ${l.amount ?? "0"}, ${scrubCards(l.description) ?? "Migrated from Ares"}, ${l.related_period},
          COALESCE(${l.created_at}::timestamptz, now()))
     `);
     lWrote++;
@@ -552,7 +639,7 @@ async function main() {
       INSERT INTO subscription_cadence_history
         (company_id, branch_id, subscription_id, previous_cadence, new_cadence, reason, effective_date, created_at)
       VALUES (${COMPANY_ID}, ${BRANCH_ID}, ${subId}, ${mapCadence(h.previous_cadence)},
-              ${mapCadence(h.new_cadence) ?? h.new_cadence}, ${h.reason},
+              ${mapCadence(h.new_cadence) ?? h.new_cadence}, ${scrubCards(h.reason)},
               COALESCE(${h.effective_date}::timestamptz, now()), now())
     `);
     hWrote++;
