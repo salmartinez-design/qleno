@@ -2666,7 +2666,7 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
                 {!checkingZip && suggestedTechs.length === 0 && zipZone && zipZone !== "uncovered" && !zoneOverride && (
-                  <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No techs in zone — will be unassigned</span>
+                  <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No techs mapped to this zone — pick anyone on the Review step</span>
                 )}
 
                 {/* How did you hear about us? — required for new leads */}
@@ -3880,32 +3880,48 @@ export default function QuoteBuilderPage() {
                           {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>
                       )}
-                      {/* Tech chips. Prefer the zone-matched techs; if the
-                          zone has none mapped, fall back to the full active
-                          roster so the office can always assign someone. */}
+                      {/* Tech chips. The zone SUGGESTS, it never restricts.
+                          [zone-suggests 2026-08-19] This used to fall back to
+                          the full roster only when the zone had ZERO techs
+                          mapped, so a zone with exactly one mapped tech showed
+                          exactly one chip and the office could not assign
+                          anybody else. Maribel, on Chicago Central: "when the
+                          job is from this zone, it would only let me schedule
+                          it to Lupe." Sparse zone mappings are the norm after
+                          the MaidCentral migration, so the one-tech zone is the
+                          common case, not an edge case.
+
+                          Zone techs still come first and are labelled, because
+                          the suggestion is genuinely useful — but the rest of
+                          the active roster always follows it. Who covers a zone
+                          is a routing hint; who can be assigned is the office's
+                          call. */}
                       {(() => {
-                        const usingFallback = suggestedTechs.length === 0;
-                        const pickList = usingFallback ? allTechs : suggestedTechs;
-                        const chips = pickList.filter(t => t.id !== preferredTech?.id);
+                        const zoneIds = new Set(suggestedTechs.map(t => t.id));
+                        const zoneChips = suggestedTechs.filter(t => t.id !== preferredTech?.id);
+                        const otherChips = allTechs.filter(t => !zoneIds.has(t.id) && t.id !== preferredTech?.id);
+                        const chip = (tech: { id: number; name: string }, inZone: boolean) => {
+                          const isSel = selectedTechIds.includes(tech.id);
+                          return (
+                            <button key={tech.id} onClick={() => toggleTech(tech.id)}
+                              title={inZone ? "Covers this zone" : "Not mapped to this zone"}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: inZone || isSel ? "#1A1917" : "#6B6860", cursor: "pointer", fontFamily: FF }}
+                            >
+                              <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
+                              {tech.name}
+                            </button>
+                          );
+                        };
                         return (
                           <>
-                            {chips.map(tech => {
-                              const isSel = selectedTechIds.includes(tech.id);
-                              return (
-                                <button key={tech.id} onClick={() => toggleTech(tech.id)}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
-                                >
-                                  <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
-                                  {tech.name}
-                                </button>
-                              );
-                            })}
-                            {usingFallback && chips.length > 0 && (
-                              <span style={{ width: "100%", fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
-                                No techs mapped to this zone — showing all technicians.
+                            {zoneChips.map(t => chip(t, true))}
+                            {zoneChips.length > 0 && otherChips.length > 0 && (
+                              <span style={{ width: "100%", fontSize: 11, color: "#9E9B94", fontFamily: FF, margin: "4px 0 0" }}>
+                                Above cover this zone. Anyone below can be assigned too.
                               </span>
                             )}
-                            {!preferredTech && chips.length === 0 && (
+                            {otherChips.map(t => chip(t, false))}
+                            {!preferredTech && zoneChips.length === 0 && otherChips.length === 0 && (
                               <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "4px 0" }}>No techs available — will be unassigned</span>
                             )}
                           </>
