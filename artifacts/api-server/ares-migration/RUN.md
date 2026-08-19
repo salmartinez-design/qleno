@@ -5,6 +5,21 @@ Everything the script needs is in this folder. You supply only DATABASE_URL.
     cd ~/Desktop/qleno-fixes/artifacts/api-server
     export DATABASE_URL='<from Railway → Variables>'
 
+## 0. Create the 11 tables the module needs — REQUIRED FIRST
+
+Do NOT use `drizzle-kit push`. The live DB has 212 tables; the Drizzle schema
+defines 153, so push asks "created, or renamed from one of these 59?" for every
+missing table — and a wrong pick renames a live production table out of
+existence. Use this instead. It executes exactly the statements in
+`lib/db/migrations/2026-08-19-ares-tables-create-only.sql` and refuses to run
+if that file contains a drop, truncate, delete or rename.
+
+    npx tsx ares-migration/apply-ares-tables.ts            # dry run — lists the 30 statements
+    npx tsx ares-migration/apply-ares-tables.ts --commit   # apply
+    npx tsx ares-migration/check-schema.ts                 # expect 15/15 present
+
+Idempotent — safe to re-run.
+
 ## 1. Dry run — writes NOTHING
 
     npx tsx src/ares-data-migration.ts \

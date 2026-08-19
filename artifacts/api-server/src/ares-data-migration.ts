@@ -378,7 +378,43 @@ const money = (v?: string | null) => { const n = Number(v); return Number.isFini
 const ACTIVE = new Set(["active", "on-demand", "on demand"]);
 const day = (v?: string | null) => (v ? String(v).slice(0, 10) : null);
 
+// Fail loudly and early on a bad DATABASE_URL. Without this the first query
+// throws a raw `getaddrinfo ENOTFOUND <garbage>` from deep inside the pg driver,
+// which tells you nothing about which of the several plausible mistakes you made.
+function preflight() {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) {
+    console.error("\nDATABASE_URL is not set.\n  export DATABASE_URL='postgresql://user:pass@host:5432/dbname'\n");
+    process.exit(1);
+  }
+  // Match the placeholder ONLY by its angle brackets. An earlier version also
+  // grepped for the word "Railway" — which rejected every real Railway URL,
+  // because Railway's default database is NAMED `railway` and shows up as the
+  // last path segment. A guard that rejects the correct value is worse than no
+  // guard at all.
+  if (/^\s*[<'"]?\s*</.test(raw) || raw.includes(">") || raw.includes("→")) {
+    console.error(`\nDATABASE_URL still contains the placeholder text, not a real connection string:\n  ${raw.slice(0, 60)}…\n\nCopy the actual value from Railway → your Postgres service → Variables.\n`);
+    process.exit(1);
+  }
+  let u: URL;
+  try { u = new URL(raw); } catch {
+    console.error(`\nDATABASE_URL is not a parseable URL. The usual cause is an unquoted value —\nzsh splits it on spaces and special characters. Wrap it in SINGLE quotes:\n  export DATABASE_URL='postgresql://...'\n`);
+    process.exit(1);
+  }
+  if (!/^postgres(ql)?:$/.test(u.protocol)) {
+    console.error(`\nDATABASE_URL protocol is "${u.protocol}" — expected postgres:// or postgresql://\n`);
+    process.exit(1);
+  }
+  if (!u.hostname || !u.hostname.includes(".")) {
+    console.error(`\nDATABASE_URL host is "${u.hostname}", which is not a real hostname.\n\nIf your password contains @ / : or ? it breaks URL parsing and the host ends up\nas a fragment of the password. Percent-encode it, or copy the URL Railway shows\nverbatim rather than assembling it by hand.\n`);
+    process.exit(1);
+  }
+  // Masked, so it is safe to read out loud or paste into a chat.
+  console.log(`[ares] DATABASE_URL host ${u.hostname}:${u.port || 5432} db ${u.pathname.slice(1)} user ${u.username || "?"}`);
+}
+
 async function main() {
+  preflight();
   const text = readFileSync(FILE!, "utf8");
   const subsAll = parseTable(text, "subscriptions");
   const aresUsers = parseTable(text, "users");
@@ -506,6 +542,23 @@ async function main() {
   for (const au of aresUsers) {
     const m = vaByAresId.get(au.id!);
     if (m && au.name) vaByName.set(normName(au.name), m);
+  }
+
+  // Re-entrancy guard. The subscription insert is not idempotent — a second
+  // --commit run doubles every row, and the parity check only catches it after
+  // the damage is done. Refuse instead, and say how to recover.
+  {
+    const existing = Number(((await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM recurring_subscriptions WHERE company_id = ${COMPANY_ID}
+    `)).rows[0] as any).n);
+    if (existing > 0 && !flag("force")) {
+      console.error(`\n[ares] REFUSING TO COMMIT — recurring_subscriptions already holds ${existing} rows for company ${COMPANY_ID}.`);
+      console.error(`       This import is not idempotent; running it again would double them.`);
+      console.error(`       To redo the import cleanly:`);
+      console.error(`         npx tsx ares-migration/reset-ares-import.ts --company ${COMPANY_ID} --commit`);
+      console.error(`       Then re-run this command. Use --force only if you know why you want to append.\n`);
+      process.exit(1);
+    }
   }
 
   console.log(`\n[ares] committing ${importable.length} subscriptions…`);
