@@ -2450,9 +2450,25 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // creating a duplicate job (Francisco). Gated on a REAL change so a
       // tech-only / notes-only edit (which still echoes base_fee back) never
       // clobbers a completed job's actually-invoiced amount.
-      if (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) {
-        setParts.billed_amount = String(base_fee);
-      }
+      //
+      // [adjustment-wipe 2026-08-19] It used to assign
+      // `billed_amount = base_fee` outright, which is the base price with EVERY
+      // ADJUSTMENT DELETED FROM IT. billed_amount is defined as
+      // base_fee + SUM(job_rate_mods.amount) — the flat assignment silently
+      // dropped the sum.
+      //
+      // Cheryl McCarthy, job 21080 (Maribel, 8/19): a Compass quote carried a
+      // −$417 discount, the office corrected the base rate afterwards, and the
+      // discount vanished from the total — the card read $2,780 where the
+      // customer's own quote said the visit came to $2,363. "but it's not
+      // taking the discount." Editing the price is exactly when the office is
+      // looking at the total, so the number they were checking was the wrong
+      // one.
+      //
+      // No billed_amount is written here at all now. The post-commit block below
+      // already re-derives "did the price change" and refreshes the cache from
+      // base_fee + SUM(mods) — the same refresh the 2026-07-08 fix wanted, plus
+      // the adjustments it forgot.
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
@@ -3902,6 +3918,38 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // via lib/commission-base-sync.ts. This one stays hand-rolled because it
         // already knows both the old and new price in JS; the shared expression
         // is for statements that write base_fee and commission_base at once.
+        // [adjustment-wipe 2026-08-19] Refresh billed_amount too, and refresh it
+        // as base_fee + SUM(adjustments) — which is what billed_amount MEANS.
+        //
+        // The PATCH used to assign `billed_amount = base_fee` flat, i.e. the base
+        // price with every adjustment deleted from it. Commercial jobs were saved
+        // by the full recompute above; residential fell through to this branch and
+        // kept the wiped figure.
+        //
+        // Cheryl McCarthy, job 21080 (Maribel, 8/19): a Compass quote carried a
+        // −$417 discount; the office corrected the base rate afterwards and the
+        // discount disappeared from the total. The card read $2,780 against the
+        // customer's own quote of $2,363. "but it's not taking the discount."
+        //
+        // Deliberately NOT recomputeJobBilledAmount: that writes commission_base
+        // from scratch, and the delta logic below exists precisely because a
+        // from-scratch residential commission_base double-counts add-ons and
+        // OVERPAYS the cleaner. This touches the one column that was wrong.
+        //
+        // base_fee is all-in for residential (the editor sends base + add-ons), so
+        // adding the mods on top is the whole price. Floored at zero for the same
+        // reason projectJobBilling floors it: a credit larger than the job cannot
+        // make the visit cost less than nothing.
+        try {
+          await db.execute(sql`
+            UPDATE jobs j
+               SET billed_amount = GREATEST(0, (j.base_fee)::numeric + COALESCE((
+                     SELECT SUM(m.amount) FROM job_rate_mods m
+                      WHERE m.job_id = j.id AND m.company_id = j.company_id), 0))
+             WHERE j.id = ${jobId} AND j.company_id = ${companyId}`);
+        } catch (e) {
+          console.warn(`[adjustment-wipe] billed_amount recompute failed for job ${jobId}:`, (e as any)?.message ?? e);
+        }
         try {
           const delta = Number(base_fee) - Number(before.base_fee ?? 0);
           if (Number.isFinite(delta) && delta !== 0) {
