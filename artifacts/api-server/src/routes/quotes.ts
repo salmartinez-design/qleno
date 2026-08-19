@@ -7,7 +7,7 @@ import { fillAddressGaps } from "../lib/parse-address.js";
 import { resolveZoneForZip } from "./zones.js";
 import { logAudit } from "../lib/audit.js";
 import { resolveBranchForCompany } from "../lib/branchRouter";
-import { randomBytes, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 import { resolveServiceType } from "../lib/serviceType.js";
@@ -564,66 +564,16 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
   try {
     const id = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
-    const [q] = await db.update(quotesTable)
-      .set({ status: "sent", sent_at: new Date() })
-      .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, companyId)))
-      .returning();
-    if (!q) return res.status(404).json({ error: "Not found" });
-
-    // Ensure a public sign_token exists so the customer-facing quote page
-    // (app.qleno.com/estimate/<token>, served by the estimates public endpoint
-    // with a quote fallback) resolves instead of 404ing. Generated once and
-    // reused; idempotent on re-send.
-    if (!(q as any).sign_token) {
-      const tok = randomBytes(24).toString("hex");
-      await db.execute(sql`UPDATE quotes SET sign_token = ${tok} WHERE id = ${id}`);
-      (q as any).sign_token = tok;
-    }
-    console.log(`[QUOTE SENT] id=${id} lead_email=${q.lead_email}`);
-    // [multi-frequency] Snapshot the comparison tiers BEFORE the cadence sends
-    // the link, so the public page has stable options when the customer opens it.
-    try {
-      const { snapshotQuoteFrequencyOptions } = await import("../lib/quote-pricing.js");
-      await snapshotQuoteFrequencyOptions(companyId!, id);
-    } catch { /* non-fatal — page falls back to single total */ }
-    // [quote-send-now 2026-07-17] Enroll in the quote_followup sequence AND fire
-    // the Day-0 quote email immediately (was cron-only, up to 30 min late). We
-    // AWAIT it so the response can carry the send outcome — if the email failed
-    // (unverified domain, comms gate, opt-out) the office finds out NOW instead
-    // of a silent never-arrives. Best-effort: a comms error never fails /send.
-    let emailResult: any = null;
-    try {
-      const { enrollForQuoteSent, fireQuoteEmailNow } = await import("../services/followUpService.js");
-      await enrollForQuoteSent(
-        companyId,
-        id,
-        (q as any).client_id ?? null,
-        (q as any).lead_name?.split(" ")[0] || "",
-        (q as any).lead_email ?? null,
-        (q as any).lead_phone ?? null,
-      );
-      emailResult = await fireQuoteEmailNow(companyId!, id);
-    } catch (e) {
-      console.error("[quote send-now] error:", e);
-    }
-    // Quote→lead: advance the lead to Quoted + link the enrollment (non-blocking).
-    import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage, linkEnrollmentToLead }) => {
-      const leadId = await upsertLeadForQuote(companyId, q);
-      if (leadId) {
-        await advanceLeadStage(companyId, leadId, "quoted", { quoteAmount: (q as any).total_price ?? (q as any).base_price ?? null, userId: req.auth!.userId });
-        await linkEnrollmentToLead(companyId, id, leadId);
-      }
-    }).catch(() => {});
-    // NOTE: the quote email + SMS are delivered by the quote-followup CADENCE
-    // (touch 1 = the MaidCentral-styled quote email, touch 2 = the quote SMS),
-    // enrolled just above via enrollForQuoteSent. The old immediate `quote_sent`
-    // notification was removed — it was the source of the broken Replit link and
-    // the wrong (global-env Oak Lawn) SMS number, and it double-sent on top of
-    // cadence touch 1. The cadence renders the link from sign_token via the
-    // per-tenant sender (resolveSender), so this consolidates quote comms onto a
-    // single correct path.
-    return res.json({ success: true, quote: q, email: emailResult });
+    // [mcp-writes 2026-08-19] The sequence itself now lives in lib/quote-send.ts
+    // so /api/v1 (and the MCP tool behind it) runs the identical steps in the
+    // identical order. Read that file for why the order matters.
+    const { sendQuoteNow } = await import("../lib/quote-send.js");
+    const result = await sendQuoteNow(companyId!, id, req.auth!.userId ?? null);
+    if (!result) return res.status(404).json({ error: "Not found" });
+    logAudit(req, "SEND", "quote", id, null, { status: "sent" });
+    return res.json({ success: true, quote: result.quote, email: result.email });
   } catch (err) {
+    console.error("[quote send]", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

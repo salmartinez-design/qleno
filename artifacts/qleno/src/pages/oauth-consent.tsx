@@ -69,8 +69,19 @@ const SCOPE_LABELS: Record<string, string> = {
 // advertises, so it arrives on real connections, and before this it was
 // classified as a read scope, displayed to the tenant under "read", and granted
 // without a box. It reaches nothing today. That is luck, not design.
-const isWriteScope = (s: string) => s.endsWith(":write");
-const OFFERED_WRITE_SCOPES = ["jobs:write", "clients:write"] as const;
+// [mcp-writes 2026-08-19] Suffix matching alone was the hole the comment above
+// describes: `comms:send` does not end in ":write", so it read as a read scope
+// and would have been listed under "can see" and granted with no box. Now that
+// `quotes:send` exists and IS offered, the suffix test is not enough on its own
+// — anything that acts on the outside world is named here explicitly.
+const ALWAYS_WRITE = ["comms:send", "quotes:send", "payments:charge"];
+const isWriteScope = (s: string) => s.endsWith(":write") || ALWAYS_WRITE.includes(s);
+// Offered, in the order an owner weighs them: the everyday ones first, then the
+// two that reach a customer or a person's account.
+const OFFERED_WRITE_SCOPES = [
+  "jobs:write", "clients:write", "quotes:write", "schedules:write",
+  "quotes:send", "employees:write",
+] as const;
 
 const WRITE_LABELS: Record<string, { title: string; note: string }> = {
   "jobs:write": {
@@ -80,6 +91,22 @@ const WRITE_LABELS: Record<string, { title: string; note: string }> = {
   "clients:write": {
     title: "Update customer contact details",
     note: "Change a customer's phone number or email address.",
+  },
+  "quotes:write": {
+    title: "Write up a quote",
+    note: "Save a quote as a draft at a price you give it. It cannot work out a price on its own, and a draft is not sent to anyone.",
+  },
+  "schedules:write": {
+    title: "Start repeating service",
+    note: "Put a customer on a repeating schedule, which puts real visits on the board for the next 90 days.",
+  },
+  "quotes:send": {
+    title: "Email a quote to the customer",
+    note: "Send a quote that is already written, to the address already on it. It cannot change the price or send it to anyone else.",
+  },
+  "employees:write": {
+    title: "Add and remove employees",
+    note: "Add a new employee account. Switching an employee off stays owner only, whatever is ticked here.",
   },
 };
 
@@ -366,18 +393,36 @@ export default function OAuthConsentPage() {
             changes. So it tracks the boxes above rather than being written once.
 
             MAINTENANCE: these lines name what the granted scopes genuinely
-            cannot reach TODAY. `cancel_job` is planned under jobs:write; the
-            day it ships, the first line below stops being true and has to move.
-            Sending and charging are not scopes at all — they are built as
-            proposals a person approves inside Qleno — so those two lines hold
-            regardless of what is ticked. */}
+            cannot reach TODAY. `cancel_job` is planned under jobs:write; the day
+            it ships, that line stops being true and has to move.
+
+            [mcp-writes 2026-08-19] Two of these lines used to be unconditional
+            and are not any more, so they are computed rather than written out.
+            `quotes:send` puts a real email in a customer's inbox, so "send any
+            message to a customer" is false the moment that box is ticked — it
+            narrows to the only message it can send. `employees:write` reaches
+            employee records, so that line splits: pricing and payroll are still
+            out of reach, employee records no longer are. Charging is the one
+            claim that holds no matter what, because there is no scope on this
+            page that can move money. If a line here is ever wrong, the tenant
+            agreed to something they were told could not happen. */}
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "13px 14px", marginBottom: 18, background: BG }}>
           <span style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 9 }}>It will not be able to</span>
           <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
             {(chosenWrites.length === 0
               ? ["Change, cancel, or create anything"]
-              : ["Cancel a visit or create a new one", "Change pricing, payroll, or employee records"]
-            ).concat(["Send any message to a customer", "Charge a card or move money"]).map((t) => (
+              : [
+                  "Cancel a visit or create a new one",
+                  chosenWrites.includes("employees:write")
+                    ? "Change pricing or payroll"
+                    : "Change pricing, payroll, or employee records",
+                ]
+            ).concat([
+              chosenWrites.includes("quotes:send")
+                ? "Send a customer anything other than a quote already written for them"
+                : "Send any message to a customer",
+              "Charge a card or move money",
+            ]).map((t) => (
               <li key={t} style={{ fontSize: 13, lineHeight: 1.45, color: MUTED }}>{t}</li>
             ))}
           </ul>

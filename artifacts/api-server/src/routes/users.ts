@@ -19,15 +19,9 @@ import {
 
 const router = Router();
 
-// [onboarding-password 2026-06-16] Until COMMS is enabled (so the temp-password
-// email actually sends), a new hire can't receive a random temp and can't log
-// in. While comms are off, new accounts get a known default the office hands out
-// in person (Sal: "chicago23"). Env-overridable; the moment COMMS_ENABLED=true
-// it reverts to a random per-user temp automatically.
-function onboardingTempPassword(): string {
-  if (process.env.COMMS_ENABLED === "true") return Math.random().toString(36).slice(-8);
-  return process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23";
-}
+// [onboarding-password 2026-06-16] The while-comms-are-off temp-password rule
+// moved to lib/employee-admin.ts (onboardingTempPassword) when POST / started
+// sharing its implementation with /api/v1. Unchanged in behaviour; see that file.
 
 router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   // [tech-isolation 2026-07-10] Office-only — full roster incl. every
@@ -494,47 +488,25 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office", "super_adm
       personal_email, address, city, state, zip, skills,
     } = req.body;
 
-    // Guard required fields — an undefined email previously threw on
-    // .toLowerCase() and surfaced as an opaque 500 / apparent hang.
-    if (!email || !first_name) {
-      return res.status(400).json({ error: "email and first_name are required" });
+    // [mcp-writes 2026-08-19] Onboarding now runs through lib/employee-admin so
+    // the office UI and /api/v1 create people the same way — same required
+    // fields, same owner-role guard, same duplicate-email refusal, same temp
+    // password rule. The lib returns a typed refusal instead of throwing, so the
+    // opaque-500 failure mode that an undefined email used to cause is gone on
+    // both surfaces at once.
+    const { createEmployee } = await import("../lib/employee-admin.js");
+    const created = await createEmployee({
+      companyId: req.auth!.companyId,
+      email, first_name, last_name, role, phone,
+      pay_rate, pay_type, hire_date,
+      personal_email, address, city, state, zip,
+      skills: Array.isArray(skills) ? skills : null,
+    }, req.auth!.role);
+    if (!created.ok) {
+      return res.status(created.status).json({ error: created.error, message: created.message });
     }
 
-    // [office-admin-parity 2026-06-26] Office/admin may onboard any role EXCEPT
-    // owner — only the owner/super_admin can mint another owner account, so
-    // office can never create a peer that outranks (or matches) the owner.
-    const effectiveRole = role || "technician";
-    if (effectiveRole === "owner" && !OUTRANKS_OWNER(req.auth!.role)) {
-      return res.status(403).json({ error: "Forbidden", message: "Only the owner can create an owner account." });
-    }
-
-    const tempPassword = onboardingTempPassword();
-    const password_hash = await bcrypt.hash(tempPassword, 10);
-
-    const newUser = await db
-      .insert(usersTable)
-      .values({
-        company_id: req.auth!.companyId,
-        email: String(email).toLowerCase(),
-        password_hash,
-        first_name,
-        last_name,
-        role: effectiveRole,
-        // Empty-string numerics would error on a NUMERIC column.
-        ...(pay_rate !== undefined && pay_rate !== "" && { pay_rate }),
-        ...(pay_type && { pay_type }),
-        ...(hire_date && { hire_date }),
-        ...(phone !== undefined && { phone }),
-        ...(personal_email !== undefined && { personal_email }),
-        ...(address !== undefined && { address }),
-        ...(city !== undefined && { city }),
-        ...(state !== undefined && { state }),
-        ...(zip !== undefined && { zip }),
-        ...(Array.isArray(skills) && { skills }),
-      })
-      .returning();
-
-    const { password_hash: _, ...safeUser } = newUser[0];
+    const safeUser = created.user;
     logAudit(req, "CREATE_EMPLOYEE", "employee", safeUser.id, null, safeUser);
     return res.status(201).json({ ...safeUser, productivity_pct: null });
   } catch (err) {
@@ -794,77 +766,40 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
-router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+// [owner-only-deactivate 2026-08-19] Sal: "The only one at office that can
+// delete employees is me." Office and admin are OFF this route entirely — they
+// were previously admin-tier here under [office-admin-parity 2026-06-26], which
+// this deliberately reverses for this one action. Everything else office and
+// admin could do with an employee record (create, edit, pay rate, zones) is
+// unchanged; only removing a person from the board is now the owner's alone.
+//
+// The gate is enforced twice on purpose. requireRole() stops the request at the
+// door; canDeactivateEmployees() inside deactivateEmployee() re-checks the live
+// role, which is what protects the machine surface — an API key or OAuth grant
+// carries the role of the user who minted it, so an office-minted connection is
+// refused by the same check without the MCP layer needing to know the rule.
+router.delete("/:id", requireAuth, requireRole("owner", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
-    const callerRole = req.auth!.role;
-
-    // [office-admin-parity 2026-06-26] Office is admin-tier: it may deactivate
-    // any non-owner account, but never the owner — and never itself.
-    if (callerRole === "office") {
-      if (userId === req.auth!.userId) {
-        return res.status(403).json({ error: "Forbidden", message: "You cannot deactivate your own account." });
-      }
-      if (await targetIsOwner(userId, req.auth!.companyId)) {
-        return res.status(403).json({ error: "Forbidden", message: "Only the owner can deactivate the owner account." });
-      }
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "Bad Request", message: "Invalid employee id" });
     }
 
-    // 2026-05-22 (Sal): admins cannot deactivate themselves OR another
-    // admin (same counterpart rule as PUT / lms-edit). Only the owner
-    // can deactivate an admin.
-    if (callerRole === "admin") {
-      if (userId === req.auth!.userId) {
-        return res.status(403).json({
-          error: "Forbidden",
-          message: "Admins cannot deactivate their own account. Ask the owner.",
-        });
-      }
-      const peer = await db
-        .select({ role: usersTable.role })
-        .from(usersTable)
-        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
-        .limit(1);
-      if (peer[0]?.role === "admin") {
-        return res.status(403).json({
-          error: "Forbidden",
-          message: "Admins cannot deactivate another admin. Ask the owner.",
-        });
-      }
-    }
-
-    // [inactive-tech-unassigned 2026-06-04] Release this tech's open (not-yet-
-    // completed) jobs so they fall to Unassigned on the dispatch board instead
-    // of disappearing with the deactivated user. Completed jobs keep their
-    // assignment (payroll/history). The dispatch board also guards defensively,
-    // but clearing the source here keeps the data clean (assignment-mirror
-    // invariant: jobs.assigned_user_id is the dispatch source of truth).
-    const released = await db.execute(sql`
-      UPDATE jobs SET assigned_user_id = NULL
-      WHERE assigned_user_id = ${userId}
-        AND company_id = ${req.auth!.companyId}
-        AND status <> 'complete'
-    `);
-    try {
-      await db.execute(sql`
-        DELETE FROM job_technicians jt
-        USING jobs j
-        WHERE jt.job_id = j.id AND jt.user_id = ${userId}
-          AND j.company_id = ${req.auth!.companyId} AND j.status <> 'complete'
-      `);
-    } catch (e) { console.error("[deactivate] job_technicians cleanup skipped:", (e as any)?.message); }
-
-    await db
-      .update(usersTable)
-      .set({ is_active: false })
-      .where(and(
-        eq(usersTable.id, userId),
-        eq(usersTable.company_id, req.auth!.companyId)
-      ));
-    logAudit(req, "DELETE_EMPLOYEE", "employee", userId, null, {
-      is_active: false, jobs_released_to_unassigned: (released as any)?.rowCount ?? undefined,
+    const { deactivateEmployee } = await import("../lib/employee-admin.js");
+    const result = await deactivateEmployee({
+      companyId: req.auth!.companyId,
+      targetUserId: userId,
+      callerUserId: req.auth!.userId ?? null,
+      callerRole: req.auth!.role,
     });
-    return res.json({ success: true, message: "User deactivated" });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error, message: result.message });
+    }
+
+    logAudit(req, "DELETE_EMPLOYEE", "employee", userId, null, {
+      is_active: false, jobs_released_to_unassigned: result.jobsReleased,
+    });
+    return res.json({ success: true, message: "User deactivated", jobs_released_to_unassigned: result.jobsReleased });
   } catch (err) {
     console.error("Delete user error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete user" });

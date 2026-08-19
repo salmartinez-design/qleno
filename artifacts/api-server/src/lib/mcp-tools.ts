@@ -606,6 +606,232 @@ export const MCP_TOOLS: McpTool[] = [
       };
     },
   },
+  // ── Quotes ─────────────────────────────────────────────────────────────────
+  {
+    name: "create_quote",
+    description:
+      "Write up a quote and save it as a DRAFT. It is not sent to anyone — send_quote does that, as a separate deliberate step. " +
+      "This tool does NOT calculate a price. Qleno's pricing depends on square footage, scope, add-ons and the customer's history, none of which this tool reads: you must pass total_price, which is the number the office decided on. Never invent one, and never quote a figure back to a customer that the office did not give you. " +
+      "For an existing customer pass client_id so the quote lands in their profile; for a brand new lead pass lead_name and their contact details instead. " +
+      "alternate_options is the second-price mechanism — the customer sees the main price plus each alternate as its own card, which is how a 3-times-a-week quote also shows what 5 times a week would cost. Each alternate needs a total in US dollars; scope_name and frequency are what the customer reads on the card. " +
+      "Money is US dollars. Returns the new quote's id, which send_quote takes.",
+    scope: "quotes:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_id: { type: "integer", description: "An existing customer's numeric id, from find_client. Omit for a new lead and pass lead_name instead." },
+        lead_name: { type: "string", description: "The person or organization being quoted. Required unless client_id is given." },
+        lead_email: { type: "string", description: "Where the quote will be emailed. Without it the quote can be written but never sent." },
+        lead_phone: { type: "string", description: "Contact phone." },
+        address: { type: "string", description: "The service address, written out in full including the zip code." },
+        service_type: { type: "string", description: "What is being quoted, in the office's own words — for example \"Commercial cleaning\" or \"Post construction\"." },
+        frequency: { type: "string", description: "How often, in plain words — for example \"3 times per week\" or \"one time\"." },
+        total_price: { type: "number", description: "The price the customer is being quoted, in US dollars. Required. This tool does not compute it." },
+        base_price: { type: "number", description: "The price before add-ons, in US dollars. Defaults to total_price." },
+        notes: { type: "string", description: "Anything the customer should read on the quote, or the office should remember about it." },
+        alternate_options: {
+          type: "array",
+          description: "Extra prices shown alongside the main one, each as its own card on the quote.",
+          items: {
+            type: "object",
+            properties: {
+              scope_name: { type: "string", description: "What this option is called on the card." },
+              frequency: { type: "string", description: "How often this option runs." },
+              total: { type: "number", description: "This option's price in US dollars. An option without one is dropped." },
+            },
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+    build: (a) => ({
+      path: "/quotes",
+      query: {},
+      method: "POST",
+      body: {
+        client_id: a.client_id == null || a.client_id === "" ? undefined : Number(a.client_id),
+        lead_name: str(a.lead_name),
+        lead_email: str(a.lead_email),
+        lead_phone: str(a.lead_phone),
+        address: str(a.address),
+        service_type: str(a.service_type),
+        frequency: str(a.frequency),
+        total_price: num(a.total_price),
+        base_price: num(a.base_price),
+        notes: str(a.notes),
+        alternate_options: Array.isArray(a.alternate_options) ? a.alternate_options : undefined,
+      },
+    }),
+  },
+  {
+    name: "send_quote",
+    description:
+      "Email an existing quote to the customer it was written for. " +
+      "The recipient is the address already on the quote — this tool cannot send it anywhere else, and it cannot change a word of what the quote says. " +
+      "Sending marks the quote sent, stamps the time, and starts the follow-up sequence, so a second call is a re-send the customer will notice. A quote the customer has already accepted is refused rather than re-sent. " +
+      "Read the reply before reporting success: if email_delivered comes back false the quote IS marked sent in Qleno but no message left the building, because the company's messaging is switched off. Say so plainly rather than telling anyone the customer has their prices.",
+    scope: "quotes:send",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        quote_id: { type: "integer", description: "The quote's numeric id, from create_quote." },
+      },
+      required: ["quote_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.quote_id);
+      if (id === null) return { error: "quote_id must be a positive whole number" };
+      return { path: `/quotes/${id}/send`, query: {}, method: "POST", body: {} };
+    },
+  },
+
+  // ── Recurring service ──────────────────────────────────────────────────────
+  {
+    name: "create_recurring_schedule",
+    description:
+      "Put a customer on repeating service, and write the next 90 days of visits onto the dispatch board straight away. This is not a draft — real visits appear on real days and the crew will be sent to them. " +
+      "For several times a week use frequency \"custom_days\" with days_of_week, for example [1,3,5] for Monday, Wednesday and Friday. For once a week use \"weekly\", every other week \"biweekly\", every four weeks \"monthly\". " +
+      "A customer can only have ONE repeating schedule. Calling this for someone who already repeats CHANGES their cadence rather than adding a second series, and the reply says which happened. Visits the office already deleted stay deleted. " +
+      "duration_minutes is how long each visit is budgeted for, in minutes. On a commercial account it is required and refused if missing, because commercial pay is the hourly rate times that budgeted time, so a blank budget pays the crew nothing every single visit. " +
+      "start_date is YYYY-MM-DD and cannot be in the past. base_fee is US dollars per visit.",
+    scope: "schedules:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_id: { type: "integer", description: "The customer's numeric id, from find_client." },
+        frequency: {
+          type: "string",
+          description: "One of: weekly, biweekly, every_3_weeks, monthly, semi_monthly, monthly_weekday, daily, weekdays, custom_days, custom. Use custom_days with days_of_week for several times a week.",
+        },
+        start_date: { type: "string", description: "First visit, as YYYY-MM-DD. Cannot be in the past." },
+        days_of_week: {
+          type: "array",
+          description: "Which days it runs, 0=Sunday through 6=Saturday. Required with custom_days. Ignored on weekly.",
+          items: { type: "integer" },
+        },
+        day_of_week: { type: "string", description: "The single weekday for a weekly cadence, spelled out — for example \"tuesday\". Ignored when days_of_week is passed." },
+        end_date: { type: "string", description: "Last day the schedule runs, as YYYY-MM-DD. Omit for open-ended." },
+        scheduled_time: { type: "string", description: "Start time of each visit, 24-hour HH:MM." },
+        assigned_employee_id: { type: "integer", description: "Who cleans it. Omit to leave the visits unassigned for dispatch to fill." },
+        service_type: { type: "string", description: "What service each visit is." },
+        duration_minutes: { type: "integer", description: "Budgeted length of each visit in MINUTES, not hours. Required for commercial accounts." },
+        base_fee: { type: "number", description: "Price per visit in US dollars." },
+        notes: { type: "string", description: "Anything the crew needs to know at every visit." },
+      },
+      required: ["client_id", "frequency", "start_date"],
+      additionalProperties: false,
+    },
+    build: (a) => ({
+      path: "/recurring-schedules",
+      query: {},
+      method: "POST",
+      body: {
+        client_id: a.client_id == null || a.client_id === "" ? undefined : Number(a.client_id),
+        frequency: str(a.frequency),
+        start_date: date(a.start_date),
+        days_of_week: Array.isArray(a.days_of_week) ? a.days_of_week : undefined,
+        day_of_week: str(a.day_of_week),
+        end_date: date(a.end_date),
+        scheduled_time: str(a.scheduled_time),
+        assigned_employee_id: a.assigned_employee_id == null || a.assigned_employee_id === "" ? undefined : Number(a.assigned_employee_id),
+        service_type: str(a.service_type),
+        duration_minutes: a.duration_minutes == null || a.duration_minutes === "" ? undefined : Number(a.duration_minutes),
+        base_fee: num(a.base_fee),
+        notes: str(a.notes),
+      },
+    }),
+  },
+
+  // ── Staff ──────────────────────────────────────────────────────────────────
+  {
+    name: "create_employee",
+    description:
+      "Add a new employee. They get a real account they can sign in to, so this is hiring paperwork, not a note — do not create one to test something. " +
+      "role defaults to technician. Office and admin can add anyone except an owner; only the owner creates another owner. pay_rate, if you set one, is in US dollars. " +
+      "The account's starting password is NOT returned here and must not be guessed at or repeated — the office hands it over in person. " +
+      "An email that already belongs to someone here is refused, and if that person is inactive the refusal says so, because the right move is to bring their account back rather than open a second one.",
+    scope: "employees:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Work email. Becomes their sign-in and must not already belong to anyone here." },
+        first_name: { type: "string", description: "First name." },
+        last_name: { type: "string", description: "Last name." },
+        role: { type: "string", description: "technician, office, admin, or owner. Defaults to technician." },
+        phone: { type: "string", description: "US phone number." },
+        pay_rate: { type: "number", description: "Their pay rate. US dollars." },
+        pay_type: { type: "string", description: "How they are paid — for example hourly or commission." },
+        hire_date: { type: "string", description: "Start date, as YYYY-MM-DD." },
+      },
+      required: ["email", "first_name"],
+      additionalProperties: false,
+    },
+    build: (a) => ({
+      path: "/employees",
+      query: {},
+      method: "POST",
+      body: {
+        email: str(a.email),
+        first_name: str(a.first_name),
+        last_name: str(a.last_name),
+        role: str(a.role),
+        phone: str(a.phone),
+        pay_rate: num(a.pay_rate),
+        pay_type: str(a.pay_type),
+        hire_date: date(a.hire_date),
+      },
+    }),
+  },
+  {
+    name: "deactivate_employee",
+    description:
+      "Take an employee off the board. Qleno has no way to erase a person and this does not add one: their account is switched off, and everything they already worked stays exactly as it is so payroll and job history remain true. " +
+      "Their upcoming visits are released to Unassigned, so somebody has to re-staff them. Completed visits keep their name on them. " +
+      "ONLY THE OWNER can do this. A connection made by anyone else is refused no matter what it is asked — that refusal is the point, not a fault to work around. " +
+      "The reply says how many visits fell to Unassigned. It is reversible with reactivate_employee, which does NOT put those visits back on them.",
+    scope: "employees:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        employee_id: { type: "integer", description: "The employee's numeric id." },
+      },
+      required: ["employee_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.employee_id);
+      if (id === null) return { error: "employee_id must be a positive whole number" };
+      return { path: `/employees/${id}`, query: {}, method: "DELETE" };
+    },
+  },
+  {
+    name: "reactivate_employee",
+    description:
+      "Switch a deactivated employee's account back on, so they can sign in and be assigned work again. " +
+      "It does NOT give them back the visits that were released when they were deactivated — those went to Unassigned and stay there until dispatch decides who takes them. " +
+      "Someone who is already active is refused rather than touched.",
+    scope: "employees:write",
+    writes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        employee_id: { type: "integer", description: "The employee's numeric id." },
+      },
+      required: ["employee_id"],
+      additionalProperties: false,
+    },
+    build: (a) => {
+      const id = pathId(a.employee_id);
+      if (id === null) return { error: "employee_id must be a positive whole number" };
+      return { path: `/employees/${id}/reactivate`, query: {}, method: "POST", body: {} };
+    },
+  },
 ];
 
 export const TOOLS_BY_NAME: ReadonlyMap<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

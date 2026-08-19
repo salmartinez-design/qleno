@@ -75,10 +75,15 @@ const SCOPE_COPY: Record<string, { label: string; detail: string }> = {
   "invoices:read": { label: "Invoices", detail: "Amounts, status, what is still owed" },
   "payroll:read": { label: "Payroll", detail: "Named people's pay, hours, and commission" },
   "reports:read": { label: "Reports", detail: "Revenue, KPIs, efficiency" },
+  "quotes:read": { label: "Quotes", detail: "Quotes written, their prices and status" },
   "jobs:write": { label: "Change jobs", detail: "Create, reschedule, assign" },
   "clients:write": { label: "Change customers", detail: "Edit customer records" },
   "invoices:write": { label: "Change invoices", detail: "Create and edit invoices" },
   "comms:send": { label: "Message customers", detail: "Send real texts and emails" },
+  "quotes:write": { label: "Write quotes", detail: "Draft a quote at a price you give it" },
+  "quotes:send": { label: "Email quotes", detail: "Send a written quote to the customer" },
+  "schedules:write": { label: "Start repeating service", detail: "Put a customer on a repeating schedule" },
+  "employees:write": { label: "Change employees", detail: "Add staff, and deactivate them if you are the owner" },
   "payments:charge": { label: "Charge cards", detail: "Move real money" },
 };
 
@@ -465,8 +470,12 @@ function KeyActivity({ id }: { id: number }) {
 
 // ── Create ───────────────────────────────────────────────────────────────────
 
-const READ_SCOPES = ["jobs:read", "clients:read", "invoices:read", "reports:read", "payroll:read"];
-const WRITE_SCOPES = ["jobs:write", "clients:write", "invoices:write", "comms:send", "payments:charge"];
+const READ_SCOPES = ["jobs:read", "clients:read", "invoices:read", "reports:read", "payroll:read", "quotes:read"];
+// [mcp-writes 2026-08-19] Ordered by how hard an owner should think before
+// ticking it: the everyday changes, then the two that reach outside the
+// building — a quote landing in a customer inbox, and an employee account
+// being switched off — then the two that were already the gravest.
+const WRITE_SCOPES = ["jobs:write", "clients:write", "invoices:write", "quotes:write", "schedules:write", "quotes:send", "employees:write", "comms:send", "payments:charge"];
 
 function CreateKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (m: Minted) => void }) {
   const { toast } = useToast();
