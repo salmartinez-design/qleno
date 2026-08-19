@@ -2201,43 +2201,57 @@ export default function QuoteBuilderPage() {
             {/* Card on file (Square) */}
             <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Payment Method</div>
-              {selectedClientId ? (
-                cardSaved ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600 }}>
-                    <CheckCircle2 size={16} /> Card saved on file.
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <button type="button" onClick={openCardModal}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                      <CreditCard size={16} /> Save card on file now
-                    </button>
-                    <div style={{ fontSize: 12, color: "#9E9B94" }}>Or send a link for the customer to add it:</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input value={cardLinkPhone} onChange={e => { cardLinkPhoneEdited.current = true; setCardLinkPhone(e.target.value); if (linkSent === "sms") setLinkSent(null); }}
-                        placeholder="Mobile number" type="tel" inputMode="tel"
-                        style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
-                      <button type="button" onClick={() => sendCardLink("sms")} disabled={linkSending !== null}
-                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "sms" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
-                        {linkSending === "sms" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "sms" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
-                        {linkSent === "sms" ? "Sent" : "Text"}
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input value={cardLinkEmail} onChange={e => { cardLinkEmailEdited.current = true; setCardLinkEmail(e.target.value); if (linkSent === "email") setLinkSent(null); }}
-                        placeholder="Email" type="email" inputMode="email"
-                        style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
-                      <button type="button" onClick={() => sendCardLink("email")} disabled={linkSending !== null}
-                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "email" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
-                        {linkSending === "email" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "email" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
-                        {linkSent === "email" ? "Sent" : "Email"}
-                      </button>
-                    </div>
-                  </div>
-                )
+              {/* [lead-card-capture-mobile 2026-08-19] The desktop Review step
+                  was opened up to new leads on 2026-08-08; this mobile branch
+                  was missed and still swapped the whole Payment Method block
+                  for "select an existing client above". So on a narrow window
+                  the office had no way to take a card on the call for a NEW
+                  customer — not by typing it, and not even by texting a link,
+                  because the link buttons lived inside the same gate. Mirror
+                  desktop: entry always, links always. `saveSquareCard` already
+                  parks the nonce for a lead and Convert attaches it. */}
+              {cardSaved ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600 }}>
+                  <CheckCircle2 size={16} /> {selectedClientId ? "Card saved on file." : "Card captured — saves when you book."}
+                </div>
               ) : (
-                <div style={{ fontSize: 13, color: "#9E9B94" }}>
-                  Select an existing client to save a card on file — new leads can add one from their profile after converting.
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {existingCardLast4 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12.5, color: "#6B6860", fontFamily: FF }}>
+                      <CreditCard size={14} />
+                      <span>Card on file: {existingCardBrand ? `${existingCardBrand} ` : ""}•••• {existingCardLast4}. Saving a new one replaces it.</span>
+                    </div>
+                  )}
+                  <button type="button" onClick={openCardModal}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    <CreditCard size={16} /> {existingCardLast4 ? "Replace card on file" : "Save card on file now"}
+                  </button>
+                  {!selectedClientId && (
+                    <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF, marginTop: -4 }}>
+                      New customer — the card is held securely and saves the moment you book the job.
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: "#9E9B94" }}>Or send a link for the customer to add it:</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input value={cardLinkPhone} onChange={e => { cardLinkPhoneEdited.current = true; setCardLinkPhone(e.target.value); if (linkSent === "sms") setLinkSent(null); }}
+                      placeholder="Mobile number" type="tel" inputMode="tel"
+                      style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                    <button type="button" onClick={() => sendCardLink("sms")} disabled={linkSending !== null}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "sms" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {linkSending === "sms" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "sms" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
+                      {linkSent === "sms" ? "Sent" : "Text"}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input value={cardLinkEmail} onChange={e => { cardLinkEmailEdited.current = true; setCardLinkEmail(e.target.value); if (linkSent === "email") setLinkSent(null); }}
+                      placeholder="Email" type="email" inputMode="email"
+                      style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                    <button type="button" onClick={() => sendCardLink("email")} disabled={linkSending !== null}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "email" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {linkSending === "email" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "email" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
+                      {linkSent === "email" ? "Sent" : "Email"}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
