@@ -239,7 +239,7 @@ export async function sendJobScheduledConfirmation(
     const isCommercialJob = String(j.job_type || "") === "commercial" || j.account_id != null;
     const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
       logoUrl: absLogo,
-      companyName: j.company_name || "Phes Schaumburg",
+      companyName: j.company_name,
       clientFirst: (j.first_name || "").trim(),
       apptDate: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "Your scheduled date",
       apptTime: fmtTime12h(j.scheduled_time),
@@ -262,7 +262,7 @@ export async function sendJobScheduledConfirmation(
       : String(j.scheduled_date || "").slice(0, 10);
     const renderPhes = (): string => renderPhesBookingConfirmation({
       logoUrl: absLogo,
-      companyName: j.company_name || "Phes",
+      companyName: j.company_name,
       companyPhone: cPhone, companyPhoneTel: cPhoneTel, companyEmail: cEmail,
       website: "phes.io",
       firstName: (j.first_name || "").trim(),

@@ -103,11 +103,15 @@ router.get("/:token/calendar.ics", async (req, res) => {
     const end = new Date(start.getTime() + 2 * 3600 * 1000);
     const fmt = (dt: Date) => `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}00`;
     const escIcs = (s: string) => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
-    const company = j.company_name || "Phes";
+    const company = j.company_name;
     const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
     const loc = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");
     const ics = [
-      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Phes//Booking//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+      // [phes-is-a-tenant 2026-08-19] PRODID names the SOFTWARE that produced the
+      // file, not the business — that is Qleno for every tenant. It was "Phes",
+      // which put one customer's name inside the calendar entry every other
+      // tenant's clients save to their phone.
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Qleno//Booking//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
       "BEGIN:VEVENT", `UID:${token}@qleno`, `DTSTAMP:${fmt(start)}`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
       `SUMMARY:${escIcs(`${company} cleaning`)}`,
       `LOCATION:${escIcs(loc)}`,

@@ -51,7 +51,9 @@ export function wrapEmailHtml(
     email?: string | null;
   },
 ): string {
-  const name = brand?.companyName || "Phes";
+  // [phes-is-a-tenant 2026-08-19] No house name. The caller passes the tenant's
+  // own; an empty header is a visible bug, another tenant's name is a silent one.
+  const name = brand?.companyName || "";
   // [email-brand-unify 2026-08-09] Accent comes from companies.brand_color so a
   // tenant that changes its brand color changes its email too. BRAND.accent is
   // only the fallback. Do NOT hardcode a hex here again — that is exactly how
@@ -247,10 +249,19 @@ export async function sendNotification(
       .where(eq(companiesTable.id, companyId))
       .limit(1);
 
+    // [phes-is-a-tenant 2026-08-19] These three used to fall back to one
+    // customer's name, Chicago phone number and info@ address. On any other
+    // tenant that is not a cosmetic slip — it tells a stranger's client to ring
+    // Phes. The row is fetched by primary key and `name` is NOT NULL, so the
+    // fallback only ever masked a missing company; blank is visibly broken,
+    // which is the correct failure.
+    if (!company) {
+      console.error(`[notify] company ${companyId} not found — sending with no branding`);
+    }
     const fullVars: Record<string, string> = {
-      company_name:  company?.name  || "Phes",
-      company_phone: company?.phone || "(773) 706-6000",
-      company_email: company?.email || "info@phes.io",
+      company_name:  company?.name  || "",
+      company_phone: company?.phone || "",
+      company_email: company?.email || "",
       // [email-brand-unify 2026-08-09] Every template CTA renders
       // background:{{brand_color}} instead of a literal hex, so buttons follow
       // companies.brand_color and can never drift from the app again.
@@ -553,7 +564,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       const mergeVars: Record<string, string> = {
         first_name: job.first_name || "there",
         client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
-        company_name: job.company_name || "Phes",
+        company_name: job.company_name,
         company_phone: branchConfig.clientPhone,
         company_email: branchConfig.officeEmail,
         service_type: serviceType,
@@ -825,7 +836,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         const vars: Record<string, string> = {
           first_name: job.first_name || "there",
           client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
-          company_name: job.company_name || "Phes",
+          company_name: job.company_name,
           company_phone: branchConfig.clientPhone,
           company_email: branchConfig.officeEmail,
           service_type: labelServiceType(job.service_type),

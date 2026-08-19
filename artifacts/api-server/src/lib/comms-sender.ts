@@ -1,7 +1,5 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getBranchByZip } from "./branchRouter";
-
 export interface ResolvedSender {
   enabled: boolean;               // company twilio_enabled gate (Twilio go-live)
   company_comms_enabled: boolean; // per-TENANT comms master (companies.comms_enabled)
@@ -62,18 +60,34 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   // When env-var creds are present, treat twilio_enabled as on — env presence IS
   // the go-live signal when the DB column hasn't been explicitly set.
   const enabled = !!(c.twilio_enabled || (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN));
-  // If from_number is still null and we have env-var creds, use the Oak Lawn
-  // primary number as the default sender. Event-driven sends don't carry zip
-  // context so we can't route per-branch here; callers that DO have zip should
-  // call getBranchByZip() upstream and pass the resolved branchId instead.
+  // [phes-is-a-tenant 2026-08-19] Last resort: a DEPLOYMENT-level default, never
+  // another tenant's phone number.
+  //
+  // This branch used to read `getBranchByZip("").twilioFrom`, which returns the
+  // Oak Lawn number — a specific customer's Twilio line, compiled in. Any tenant
+  // holding Twilio credentials in env vars but no configured from-number would
+  // have texted THEIR customers from PHES'S PHONE. Replies would have landed in
+  // Phes's inbox, and the recipient would have seen a Chicago number they had
+  // never dealt with.
+  //
+  // TWILIO_FROM_NUMBER is legitimate config for a single-tenant deployment: it
+  // belongs to whoever operates the instance, the same way the account SID does.
+  // Absent it we resolve nothing and the send is suppressed with
+  // 'no_from_number' — a message that does not go out is recoverable, a message
+  // sent from the wrong company is not.
   if (!from_number && account_sid) {
-    from_number = getBranchByZip("").twilioFrom; // empty string → Oak Lawn default
+    from_number = process.env.TWILIO_FROM_NUMBER?.trim() || null;
+    if (!from_number) {
+      console.warn(
+        `[comms-sender] company ${companyId}: Twilio creds present but no from-number — ` +
+        `set one on the company, on a branch, or as TWILIO_FROM_NUMBER. Suppressing the send.`,
+      );
+    }
   }
   const company_comms_enabled = !!c.comms_enabled;
   // Branch gate ONLY applies when the passed branchId actually maps to a branch
   // of THIS company. When no branch is specified — OR a branchId is passed that
-  // doesn't belong to this company (e.g. the legacy getBranchByZip 1/2 mapping
-  // hitting a tenant whose branches have different ids, like co4) — fall back to
+  // doesn't belong to this company (a stale or foreign branch id) — fall back to
   // the company-level gate so a stale/foreign branchId can't falsely suppress a
   // tenant whose company gate is open. Tenants with real matching branches keep
   // per-branch gating unchanged.
