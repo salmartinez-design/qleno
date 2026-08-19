@@ -124,6 +124,7 @@ import translateRouter from "./translate.js";
 import messageToneRouter from "./message-tone.js";
 import helpMeWriteRouter from "./help-me-write.js";
 import clientSuspensionRouter from "./client-suspension.js";
+import accountSuspensionRouter from "./account-suspension.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
 import guidesRouter from "./guides.js";
@@ -222,6 +223,9 @@ router.use("/leave", leaveRouter);
 router.use("/attendance-overlay", attendanceOverlayRouter);
 router.use("/hr-quality", hrQualityRouter);
 router.use("/accounts", accountsRouter);
+// [suspension-commercial 2026-08-19] Commercial twin of the client hold.
+// POST /api/accounts/:id/suspend {until?, reason?, notify?}, POST /:id/resume.
+router.use("/accounts", accountSuspensionRouter);
 router.use("/branches", branchesRouter);
 router.use("/document-templates", documentTemplatesRouter);
 router.use("/document-requests", documentRequestsRouter);

@@ -1001,6 +1001,11 @@ async function runStartupMigrations() {
     await withBootTimeout("runSuspensionMigration", SCHEMA_TIMEOUT_MS, async () => {
       const { runSuspensionMigration } = await import("./lib/suspension.js");
       await runSuspensionMigration();
+      // [suspension-email-shell 2026-08-19] Move un-edited hold copy onto the
+      // reskinned layout. Guarded on a byte-for-byte match with the old seed,
+      // so an office edit is never overwritten; a no-op after the first run.
+      const { runSuspensionCopyUpgrade } = await import("./lib/suspension-email.js");
+      await runSuspensionCopyUpgrade();
     });
   } catch (err: any) {
     recordStartupFailure("runSuspensionMigration", err);
