@@ -153,6 +153,40 @@ async function runBookingSchemaGuard(): Promise<void> {
       UPDATE companies SET branch_key = 'schaumburg'
        WHERE branch_key IS NULL AND UPPER(TRIM(COALESCE(square_account_key,''))) = 'SCHAUMBURG'` },
 
+    // ── [office-branch-toggle 2026-08-19] One login, both branches ──────────
+    // Sal: "ensure that Francisco and Maribel can keep their logins and the
+    // branch toggle is their only access needed between locations."
+    //
+    // The switcher in the header is driven ENTIRELY by user_companies:
+    // POST /auth/login lists it, and POST /auth/switch-company 403s without a
+    // row. Maribel and Francisco had none at all, so Schaumburg was invisible
+    // to them and only Sal could work it. Nothing about their credentials
+    // changes here — `users.company_id` stays 1 and `users.role` stays
+    // 'office', and that role is what the reissued token carries into either
+    // branch, so they are the same office user on both.
+    //
+    // BOTH rows are required, not just the Schaumburg one. `users.company_id`
+    // is the tenant they LAND in at login, but it is not itself a membership,
+    // so granting only company 4 would give them a dropdown that could reach
+    // Schaumburg and never get back to Oak Lawn.
+    //
+    // Deliberately ONE-WAY: Oak Lawn office staff reach Schaumburg, but this
+    // never grants a Schaumburg user Oak Lawn. The two branches are separately
+    // owned (Sal vs Sal+Ivan) — Ivan must not inherit Oak Lawn's books just for
+    // being an owner on co4. Role-scoped rather than id-scoped so the next Oak
+    // Lawn office hire is covered without another migration; technicians are
+    // excluded because a tech's cross-branch work is an assignment, not a login.
+    { label: "grant Oak Lawn office staff the Schaumburg branch toggle", stmt: `
+      INSERT INTO user_companies (user_id, company_id, role)
+      SELECT u.id, c.id, u.role
+        FROM users u
+        CROSS JOIN companies c
+       WHERE u.company_id = 1
+         AND u.is_active
+         AND u.role IN ('owner', 'admin', 'office')
+         AND c.id IN (1, 4)
+      ON CONFLICT (user_id, company_id) DO NOTHING` },
+
     // ── [customer-portal 2026-08-05] Portal identity ──────────────────────
     // See docs/CUSTOMER_PORTAL_DESIGN.md. Residential and commercial customers
     // share ONE login surface; who they are is here, what they may do is
