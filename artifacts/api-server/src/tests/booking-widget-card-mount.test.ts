@@ -84,6 +84,27 @@ describe("booking widget card field", () => {
     );
   });
 
+  // [square-invalid-styles 2026-08-19] Found by driving the fix above: surfacing
+  // the error honestly revealed that the card field had ALREADY been dead in
+  // production on both branches, for an unrelated reason. Square validates
+  // `style` at attach() time against the fonts it hosts in its own iframe.
+  // Measured against the live production SDK: Arial / Helvetica / serif /
+  // sans-serif / inherit pass; "Plus Jakarta Sans" in every form, plus Roboto
+  // and system-ui, throw InvalidStylesError and kill the whole mount. The brand
+  // font cannot reach a cross-origin iframe that never loads it. Before the
+  // retry work this failure was swallowed by setSqEnabled(false), so every
+  // online booking silently captured NO card.
+  it("does not ask Square's iframe for a font it will reject", () => {
+    const mount = book.slice(book.indexOf("payments.card({"), book.indexOf("card.attach(mount)"));
+    assert.ok(
+      !/fontFamily\s*:/.test(mount),
+      "no fontFamily may be passed to payments.card() — Square rejects every non-hosted family at attach() and the whole card field dies",
+    );
+    // The brand font must still own the surrounding page; only the third-party
+    // iframe is exempt.
+    assert.ok(book.includes("'Plus Jakarta Sans', sans-serif"));
+  });
+
   it("still re-fetches the merchant when the zip changes branch", () => {
     // The routing this whole fix exists to protect.
     assert.ok(book.includes("sqConfiguredZip"));

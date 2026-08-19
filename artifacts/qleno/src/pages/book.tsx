@@ -1244,7 +1244,16 @@ export default function BookPage() {
           payments.card({
             style: {
               input: {
-                fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
+                // NO fontFamily. Square validates this at attach() time against
+                // the fonts it hosts inside its own iframe, and rejects the whole
+                // mount with InvalidStylesError for anything else. Measured
+                // against the live production SDK: Arial / Helvetica / serif /
+                // sans-serif / inherit pass; "Plus Jakarta Sans" (quoted, bare,
+                // or in a stack), Roboto and system-ui all fail. The brand font
+                // cannot reach a cross-origin iframe that never loads it, so
+                // asking for it only broke card capture outright. Naming Arial
+                // instead would break the brand rule for no visual gain — the
+                // iframe renders its own default either way. Do not re-add this.
                 fontSize: "15px",
                 color: "#1A1917",
               },
