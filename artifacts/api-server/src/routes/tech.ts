@@ -29,6 +29,7 @@ import {
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, or, sql, inArray, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { jobVisitStillHappens } from "../lib/job-visit.js";
 import { computeCompositeForEmployee } from "../lib/scorecard-composite.js";
 
 const router = Router();
@@ -150,6 +151,13 @@ router.get("/today", requireAuth, async (req, res) => {
             sql`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})`,
           ),
           eq(jobsTable.scheduled_date, date),
+          // [no-visit 2026-08-19] Maribel: "When we skip a service with fee, it
+          // doesn't disappear from the cleaners schedule ... They can still see
+          // it." A charged cancellation is stored as status='complete' (so the
+          // fee lands in revenue), which made it indistinguishable from a real
+          // completed visit here — this route filtered on no status at all.
+          // See lib/job-visit.ts.
+          jobVisitStillHappens(jobsTable.id, userId),
         ),
       )
       .orderBy(asc(jobsTable.scheduled_time), asc(jobsTable.id));
