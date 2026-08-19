@@ -1991,6 +1991,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // billFeeNow defaults ON — a fee that gets charged and never billed was the
   // bug — but unchecking leaves it for the office to bill by hand.
   const [billFeeNow, setBillFeeNow] = useState(true);
+  // [late-reschedule-fee 2026-08-19] Maribel: "when rescheduling a job within 48
+  // hours, we should be able to charge fee or to generate an invoice ... doesnt
+  // make sense to have to cancel it and schedule it again, this messes with the
+  // stats." Off by default — a move has always been free, and a fee must never
+  // be a side effect of rescheduling.
+  const [chargeLateFee, setChargeLateFee] = useState(false);
+  const [lateFeeAmount, setLateFeeAmount] = useState("");
   // Blank = the tenant default ($60 flat, or the configured percent). Typing an
   // amount overrides it for this cancellation only.
   const [techPayAmount, setTechPayAmount] = useState<string>("");
@@ -2983,6 +2990,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             isCharging && cancelFeeMode !== "waive" && payTechForCancel && techPayAmount.trim() !== "" && Number.isFinite(parseFloat(techPayAmount))
               ? Math.max(0, parseFloat(techPayAmount))
               : undefined,
+          // [late-reschedule-fee 2026-08-19] Short-notice fee on a move/bump.
+          // The server re-checks the 48-hour window against the job's own
+          // scheduled date/time and 422s if the move isn't actually late, so
+          // this flag can ask for a fee but can never declare one owed.
+          charge_reschedule_fee:
+            (cancelAction === "move" || cancelAction === "bump") && chargeLateFee ? true : undefined,
+          reschedule_fee_amount:
+            (cancelAction === "move" || cancelAction === "bump") && chargeLateFee && parseFloat(lateFeeAmount) > 0
+              ? Math.max(0, parseFloat(lateFeeAmount))
+              : undefined,
         }),
       });
       if (!res.ok) {
@@ -2991,6 +3008,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       }
       const body = await res.json();
       const charge = Number(body.charge_amount || 0);
+      const lateFee = Number(body.reschedule_fee || 0);
       const moveDateLabel = cancelNewDate
         ? new Date(cancelNewDate + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
         : "";
@@ -3001,9 +3019,18 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         lockout: "Lockout recorded with full fee",
         cancel_service: `Service cancelled (${body.future_cancelled_count} future jobs ended)`,
       };
+      // A late fee is billed, not charged — say which, and say whether the
+      // invoice actually appeared. A fee decided and never billed is the exact
+      // failure the cancel-fee invoice work was written to close.
+      const lateFeeNote = lateFee > 0
+        ? (body.fee_invoice
+            ? `Late reschedule fee $${lateFee.toFixed(2)} — invoice ${body.fee_invoice.status === "sent" ? "sent" : "drafted"}.`
+            : `Late reschedule fee $${lateFee.toFixed(2)} — invoice NOT created, bill it by hand.`)
+        : null;
       toast({
         title: labelByAction[cancelAction] ?? "Cancellation recorded",
-        description: charge > 0 ? `Customer charged $${charge.toFixed(2)}` : undefined,
+        description: lateFeeNote ?? (charge > 0 ? `Customer charged $${charge.toFixed(2)}` : undefined),
+        variant: lateFee > 0 && !body.fee_invoice ? "destructive" : undefined,
       });
       setCancelOpen(false);
       setCancelAction(null);
@@ -5566,8 +5593,24 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         // through with `||` so a literal 0 doesn't pin the fee preview to $0.
         const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
-        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(true); setCancelFeeMode("full"); setCancelFeePct(""); };
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(true); setCancelFeeMode("full"); setCancelFeePct(""); setChargeLateFee(false); setLateFeeAmount(""); };
         const needsDate = selected?.reschedules === true;
+        // [late-reschedule-fee 2026-08-19] Hours of notice, measured to the
+        // ORIGINAL start — the customer is being charged for the warning they
+        // gave, which is about the appointment they are moving away from, not
+        // the one they are moving to. The server re-checks this from the job's
+        // own row before it will bill anything; this copy only decides whether
+        // to OFFER the fee.
+        const LATE_RESCHEDULE_WINDOW_HOURS = 48;
+        const originalStart = job.scheduled_date
+          ? new Date(`${job.scheduled_date}T${(job.scheduled_time || "00:00").slice(0, 5)}`)
+          : null;
+        const hoursNotice = originalStart && !isNaN(originalStart.getTime())
+          ? (originalStart.getTime() - Date.now()) / 3600000
+          : null;
+        const isLateReschedule = hoursNotice != null && hoursNotice < LATE_RESCHEDULE_WINDOW_HOURS;
+        const lateFeeVal = Math.max(0, parseFloat(lateFeeAmount) || 0);
+        const lateFeeMissing = !!selected?.reschedules && isLateReschedule && chargeLateFee && !(lateFeeVal > 0);
         // [cancel-fee-policy 2026-07-01] Resolve what the customer is charged
         // from the selected fee mode. 'full' = 100% of the job (default).
         const cancelFeeAmount = !selected?.charges ? 0
@@ -5582,7 +5625,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           (cancelFeeMode === "pct"    && !(parseFloat(cancelFeePct) > 0)) ||
           (cancelFeeMode === "custom" && !(parseFloat(chargeOverride) >= 0 && chargeOverride.trim() !== ""))
         );
-        const confirmDisabled = busy || (needsDate && !cancelNewDate) || feeInputMissing;
+        const confirmDisabled = busy || (needsDate && !cancelNewDate) || feeInputMissing || lateFeeMissing;
         return (
           <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(10,14,26,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF, padding: 16 }}>
             <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: "22px 24px 20px", width: 560, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(10,14,26,0.28)" }}>
@@ -5683,7 +5726,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {selected.reschedules && (
                       <>
                         <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Reschedule · No charge
+                          {chargeLateFee && lateFeeVal > 0 ? `Reschedule · $${lateFeeVal.toFixed(2)} fee` : "Reschedule · No charge"}
                         </div>
                         <div style={{ fontSize: 13, color: "#1A1917" }}>
                           Pick the new date{cancelNewTime ? " and time" : ""}. The job stays scheduled and just moves.
@@ -5751,6 +5794,68 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {/* [late-reschedule-fee 2026-08-19] Short-notice fee on a move.
+                      Maribel: "when rescheduling a job within 48 hours, we should be
+                      able to charge fee or to generate an invoice ... doesnt make
+                      sense to have to cancel it and schedule it again, this messes
+                      with the stats and isn't practical."
+
+                      Only offered inside the window, and OFF unless the office turns
+                      it on — a move has always been free and a fee must never be a
+                      side effect of rescheduling. The amount starts empty on purpose:
+                      there is no tenant default for this yet, and prefilling the full
+                      visit price would make a mis-tap bill $240. The visit total is
+                      shown beside it as the reference. */}
+                  {selected.reschedules && isLateReschedule && (
+                    <div style={{ marginBottom: 14, padding: "12px 12px 10px", background: "#FDF3E4", borderRadius: 10, border: "1px solid #F2DFB8" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                        {hoursNotice != null && hoursNotice < 0
+                          ? "Visit has already passed"
+                          : `Short notice — ${Math.max(0, Math.floor(hoursNotice ?? 0))}h before the visit`}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "#1A1917", lineHeight: 1.45, marginBottom: 10 }}>
+                        Inside the {LATE_RESCHEDULE_WINDOW_HOURS}-hour window. The visit still moves and still bills its
+                        full price on the new date — a fee here is an extra charge on its own invoice.
+                      </div>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}
+                        onClick={() => setChargeLateFee(v => !v)}>
+                        <input type="checkbox" checked={chargeLateFee} onChange={e => setChargeLateFee(e.target.checked)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#B45309", flexShrink: 0, marginTop: 2 }} />
+                        <span style={{ fontSize: 12.5, color: "#1A1917", fontWeight: 600 }}>
+                          Charge a late reschedule fee
+                        </span>
+                      </div>
+                      {chargeLateFee && (
+                        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={lateFeeAmount}
+                              onChange={e => setLateFeeAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                              placeholder="0.00"
+                              autoFocus
+                              style={{ width: 110, height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
+                            />
+                          </div>
+                          <button type="button" onClick={() => setLateFeeAmount(jobAmount.toFixed(2))}
+                            style={{ padding: "5px 10px", border: "1px solid #F2DFB8", background: "#FFFFFF", color: "#B45309", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                            Use visit total (${jobAmount.toFixed(2)})
+                          </button>
+                        </div>
+                      )}
+                      {chargeLateFee && (
+                        <div style={{ marginTop: 8, fontSize: 11.5, color: "#6B6860", lineHeight: 1.45 }}>
+                          {lateFeeVal > 0
+                            ? <>A separate invoice for <strong>${lateFeeVal.toFixed(2)}</strong> is raised for this customer. The visit keeps its own price and invoices when it completes.</>
+                            : "Enter an amount to charge."}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -5902,7 +6007,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </div>
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); setCancelFeeMode("full"); setCancelFeePct(""); setPayTechForCancel(true); }} disabled={busy}
+                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); setCancelFeeMode("full"); setCancelFeePct(""); setPayTechForCancel(true); setChargeLateFee(false); setLateFeeAmount(""); }} disabled={busy}
                       style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>← Back</button>
                     <button onClick={cancelJob} disabled={confirmDisabled}
                       style={{
