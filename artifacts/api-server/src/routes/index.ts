@@ -50,6 +50,7 @@ import quoteScopesRouter from "./quote-scopes.js";
 import closeDayRouter from "./close-day.js";
 import paymentLinksRouter from "./payment-links.js";
 import zonesRouter from "./zones.js";
+import addressRepairRouter from "./address-repair.js";
 import recurringRouter from "./recurring.js";
 import cancellationRouter from "./cancellation.js";
 import commLogRouter from "./communication-log.js";
@@ -199,6 +200,9 @@ router.use("/quote-scopes", quoteScopesRouter);
 router.use("/close-day", closeDayRouter);
 router.use("/payment-links", paymentLinksRouter);
 router.use("/zones", zonesRouter);
+// [quote-address-cascade 2026-08-19] Preview-then-apply repair for addresses
+// saved incomplete before #1513, and zones never assigned. See the file header.
+router.use("/address-repair", addressRepairRouter);
 router.use("/recurring", recurringRouter);
 router.use("/cancellations", cancellationRouter);
 router.use("/comms", commLogRouter);
