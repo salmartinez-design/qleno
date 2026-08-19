@@ -72,7 +72,7 @@ export async function syncJobInvoiceDraft(
 ): Promise<void> {
   try {
     const [existing] = await db
-      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms, manually_edited_at: invoicesTable.manually_edited_at })
+      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms, manually_edited_at: invoicesTable.manually_edited_at, total: invoicesTable.total })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
@@ -108,7 +108,15 @@ export async function syncJobInvoiceDraft(
     // real time, always. Only line items + totals are re-derived; invoice-level
     // metadata (bill-to, notes) is left untouched. Paid/void invoices are still
     // frozen by the guard above. ("Recalc from Job" stays as a manual re-sync.)
-    const built = await buildJobLineItems(companyId, jobId);
+    //
+    // [rebuild-context 2026-08-18] This is a REBUILD, so hand the builder the
+    // total already on the document. That is the only thing standing between a
+    // comped $0 invoice and a job edit silently putting the price back on it —
+    // the comp lives in the invoice's own line_items, not in job_discounts, so
+    // it cannot survive a rebuild on its own.
+    const built = await buildJobLineItems(companyId, jobId, db, {
+      existingTotal: existing.total == null ? null : parseFloat(String(existing.total)),
+    });
     if (!built) return;
 
     const updateFields: Record<string, unknown> = {

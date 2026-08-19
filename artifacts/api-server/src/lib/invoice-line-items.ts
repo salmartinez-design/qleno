@@ -23,10 +23,19 @@ import { ensureAutoPromosForJob } from "./auto-promos.js";
 // folded into a merged/account invoice shows "No invoice yet" on its card.
 export type InvoiceLineItem = { description: string; quantity: number; unit_price: number; total: number; job_id?: number };
 
+// [rebuild-context 2026-08-18] Callers that are REBUILDING an existing document
+// pass its current total. Callers that are CREATING one pass nothing. The
+// distinction matters exactly once, at the zero-price-drop guard below: a fresh
+// $0 line is a bug worth correcting, while a $0 line on a document that already
+// totals $0 is far more likely to be a deliberate zero the office typed in, and
+// "correcting" it re-bills a customer who was told the visit was free.
+export type BuildLineItemsOpts = { existingTotal?: number | null };
+
 export async function buildJobLineItems(
   companyId: number,
   jobId: number,
   exec: any = db,
+  opts?: BuildLineItemsOpts,
 ): Promise<{ lineItems: InvoiceLineItem[]; subtotal: number } | null> {
   // [auto-promos 2026-06-21] Single chokepoint: ensure the job carries exactly
   // the auto-promo it's entitled to (15% off 2nd recurring visit / any deep
@@ -337,19 +346,62 @@ export async function buildJobLineItems(
   // right recovery anchor: subtract the add-ons that are itemized separately
   // (the same arithmetic the flat branch already uses) and bill that. A job
   // that really is free has base_fee 0 too, so this can never invent a price
-  // nobody agreed to, and a job zeroed by a credit or a discount keeps a
-  // POSITIVE scope with the offsetting line below it — that case does not
-  // reach here. Logged rather than silent so the upstream cause stays findable.
+  // nobody agreed to. Logged rather than silent so the upstream cause stays
+  // findable.
   //
   // Deliberately left as a floor rather than a re-classification: the
   // [flat-addon-itemize 2026-07-11] guard above scoped itself to positive
   // billed_amount on purpose, and widening it would move totals on jobs that
   // are billing correctly today. This moves a total only when it is $0 and the
   // job says it should not be.
+  //
+  // [zero-price-drop CORRECTION 2026-08-18] The original note here claimed "a
+  // job zeroed by a credit or a discount keeps a POSITIVE scope with the
+  // offsetting line below it — that case does not reach here." That is FALSE,
+  // and the mistake was mine. A comped clean is typed straight onto the
+  // invoice: the discount lands in invoices.line_items as hand-entered JSON and
+  // NOTHING is written to job_discounts. So on a rebuild, modsTotal is 0,
+  // billed_amount is "0.00", the metered branch computes scope 0 - 0 = 0, this
+  // guard sees base_fee $180 and recovers it, and no discount line comes back
+  // to offset it. Michael Baffoe's free clean (job 8657, invoice 7402) would
+  // have rebuilt as a $180 bill to a customer who was told it was free. That is
+  // a worse failure than the silent $0 this guard exists to prevent: under-
+  // billing costs the company money, over-billing costs the customer's trust.
+  //
+  // So the guard only fires when the document does not already state a zero.
+  // Creating an invoice: recover, because a fresh $0 line is the Walter bug.
+  // Rebuilding one that already totals $0: leave it alone and log, because the
+  // office put that zero there on purpose and it is not this function's place
+  // to overrule it. See the [rebuild-context 2026-08-18] note on the signature.
+  // Read the job's discounts here rather than at their render loop below: the
+  // guard needs to know whether the job can explain a zero on its own.
+  const jobDisc = await exec.select().from(jobDiscountsTable)
+    .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
+  const jobDiscountTotal = jobDisc.reduce(
+    (s: number, d: any) => s + parseFloat(String(d.amount ?? "0")),
+    0,
+  );
+
   const baseFeeNum = parseFloat(String(job.base_fee ?? "0"));
   if (scopeAmount <= 0 && baseFeeNum > 0) {
+    // Suppression is only for a zero the job CANNOT account for. Once the comp
+    // is a job_discounts row (mirrorInvoiceDiscountToJob below), the job explains
+    // itself: the scope line is restored to the real price and the discount line
+    // takes it back off, which is both the honest document and the same total.
+    // Suppressing in that case would print "Standard Clean $0.00" above
+    // "Discount -$180.00", which nets correctly but reads as nonsense.
+    const documentAlreadyZero = opts?.existingTotal != null
+      && opts.existingTotal <= 0
+      && jobDiscountTotal <= 0;
     const recovered = Math.max(0, Math.round((baseFeeNum - addOnsSubtotal) * 100) / 100);
-    if (recovered > 0) {
+    if (documentAlreadyZero) {
+      console.warn(
+        `[invoice-line-items] job ${jobId}: scope computed $${scopeAmount.toFixed(2)} and base_fee is `
+        + `$${baseFeeNum.toFixed(2)}, but the invoice being rebuilt already totals `
+        + `$${Number(opts?.existingTotal ?? 0).toFixed(2)}; leaving the zero alone rather than re-billing `
+        + `$${recovered.toFixed(2)} (a comp or zero week explains it)`,
+      );
+    } else if (recovered > 0) {
       console.warn(
         `[invoice-line-items] job ${jobId}: scope computed $${scopeAmount.toFixed(2)} but base_fee is `
         + `$${baseFeeNum.toFixed(2)}; recovered scope to $${recovered.toFixed(2)} so the price is not dropped`,
@@ -388,15 +440,18 @@ export async function buildJobLineItems(
     lineItems.push({ description: label, quantity: 1, unit_price: amt, total: amt });
   }
 
-  const jobDisc = await exec.select().from(jobDiscountsTable)
-    .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
   for (const d of jobDisc) {
     const amt = parseFloat(String(d.amount));
     runningTotal -= amt;
     // Auto-promo rows (code AUTO_*) carry a human label in `reason` — show that
     // alone so the invoice reads "Deep Clean Promo (15% off)", not the internal
     // AUTO_ code. Other discounts keep the existing code/percent labeling.
-    const isAuto = typeof d.code === "string" && d.code.startsWith("AUTO_");
+    // [invoice-edit-mirror 2026-08-18] INVOICE_EDIT rows carry the office's own
+    // wording in `reason` (see mirrorInvoiceDiscountToJob below) — print it
+    // verbatim, same as an auto-promo, so a comp reads back exactly as it was
+    // typed instead of being re-wrapped in a second "Discount — " prefix every
+    // time the document is rebuilt.
+    const isAuto = typeof d.code === "string" && (d.code.startsWith("AUTO_") || d.code === INVOICE_EDIT_DISCOUNT_CODE);
     const label = isAuto && d.reason
       ? String(d.reason)
       : `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
@@ -427,4 +482,113 @@ export async function buildJobLineItems(
   }
 
   return { lineItems, subtotal };
+}
+
+// ── Mirroring a hand-typed discount back onto the job ────────────────────────
+//
+// [invoice-edit-mirror 2026-08-18] Why this exists.
+//
+// The office comps a clean by typing a negative line straight onto the invoice:
+// "$180 Standard Clean" and "-$180 Discount". That reads correctly and the
+// customer is told it is free. But the comp lived ONLY in invoices.line_items,
+// as hand-entered JSON — nothing was ever written against the job. The job kept
+// its $180 price, and the two documents disagreed with no way to tell which was
+// right.
+//
+// That disagreement is only survivable while the invoice is never rebuilt. The
+// moment it is — a job edit re-syncs it, the office presses Recalc from Job —
+// the builder above reads the job, sees $180 and no discount anywhere in
+// job_discounts, and prints a $180 bill. The comp is gone and the customer who
+// was told the visit was free gets charged for it. Michael Baffoe's invoice
+// 7402 is exactly this shape and was one rebuild away from it.
+//
+// The [always-mirror 2026-07-24] rule is not the problem and is not being
+// weakened: job pricing IS the source of truth, and job edits SHOULD flow to the
+// unpaid invoice in real time. The problem was that a comp is a pricing fact
+// that was never allowed to reach the job. So put it there. Once the discount
+// is a job_discounts row, "the invoice mirrors the job" and "the comp survives"
+// stop being in tension — the rebuild reproduces the comp because the job now
+// knows about it.
+//
+// How the amount is decided: rebuild the job's lines with the previous mirror
+// row removed, and compare how much discount the invoice shows against how much
+// the job can already account for on its own. The difference is what would be
+// lost, and only that difference is written. Matching by label was the obvious
+// alternative and it is worse — an auto-promo whose wording drifts by a
+// character would be mirrored a second time and quietly double the discount.
+// Comparing totals cannot double-count.
+export const INVOICE_EDIT_DISCOUNT_CODE = "INVOICE_EDIT";
+
+export async function mirrorInvoiceDiscountToJob(opts: {
+  companyId: number;
+  jobId: number;
+  invoiceLineItems: InvoiceLineItem[];
+  userId?: number | null;
+  exec?: any;
+}): Promise<{ mirrored: number }> {
+  const { companyId, jobId, invoiceLineItems, userId = null, exec = db } = opts;
+
+  const negLines = invoiceLineItems.filter((li) => Number(li.total) < 0);
+  const invoiceDiscount = Math.round(
+    negLines.reduce((s, li) => s - Number(li.total), 0) * 100,
+  ) / 100;
+
+  return await exec.transaction(async (tx: any) => {
+    // Clear the previous mirror FIRST so the rebuild below sees the job exactly
+    // as it stands without our own bookkeeping, and the comparison stays a
+    // comparison rather than an echo. This is what makes repeated saves
+    // idempotent: the same edit saved twice writes the same single row.
+    await tx.delete(jobDiscountsTable).where(and(
+      eq(jobDiscountsTable.job_id, jobId),
+      eq(jobDiscountsTable.company_id, companyId),
+      eq(jobDiscountsTable.code, INVOICE_EDIT_DISCOUNT_CODE),
+    ));
+
+    const built = await buildJobLineItems(companyId, jobId, tx);
+    if (!built) return { mirrored: 0 };
+    const builtDiscount = Math.round(
+      built.lineItems.filter((li) => li.total < 0).reduce((s, li) => s - li.total, 0) * 100,
+    ) / 100;
+
+    const delta = Math.round((invoiceDiscount - builtDiscount) * 100) / 100;
+    if (delta < 0.01) {
+      // Either the job already explains every discount on the invoice (nothing
+      // to do), or the invoice shows LESS discount than the job carries. The
+      // second case is left alone on purpose: removing a discount is a decision
+      // about the job's price, and an invoice screen is not where job pricing
+      // gets deleted. Logged so it is findable if it ever turns out to matter.
+      if (delta <= -0.01) {
+        console.warn(
+          `[invoice-edit-mirror] job ${jobId}: invoice shows $${invoiceDiscount.toFixed(2)} of discount but the `
+          + `job carries $${builtDiscount.toFixed(2)}; leaving the job's discounts alone (remove them on the job)`,
+        );
+      }
+      return { mirrored: 0 };
+    }
+
+    // One un-mirrored line keeps its own wording, which is what the office typed
+    // and what the customer already read. Several collapse to a neutral label —
+    // guessing which of them the leftover dollars belong to would put words on a
+    // customer's bill that nobody wrote.
+    const label = negLines.length === 1
+      ? String(negLines[0].description || "Discount").slice(0, 200)
+      : "Invoice adjustment";
+
+    await tx.insert(jobDiscountsTable).values({
+      company_id: companyId,
+      job_id: jobId,
+      code: INVOICE_EDIT_DISCOUNT_CODE,
+      type: "flat",
+      value: delta.toFixed(2),
+      amount: delta.toFixed(2),
+      reason: label,
+      applied_by: userId,
+    });
+
+    console.warn(
+      `[invoice-edit-mirror] job ${jobId}: recorded $${delta.toFixed(2)} ("${label}") on the job so a rebuild `
+      + `reproduces it instead of re-billing the customer`,
+    );
+    return { mirrored: delta };
+  });
 }

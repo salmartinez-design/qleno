@@ -868,7 +868,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     // live on the combined parent, so editing it here would silently desync the
     // two. Split the batch first, then edit.
     const [current] = await db
-      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips, line_items: invoicesTable.line_items })
+      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips, line_items: invoicesTable.line_items, job_id: invoicesTable.job_id })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
@@ -911,24 +911,22 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
     const total = Math.round((subtotal + tipVal) * 100) / 100;
 
-    // [zero-paid-guard 2026-08-18] "Paid" is a claim that money changed hands.
-    // A $0 invoice cannot have collected anything, so marking one paid records
-    // a collection that never happened and quietly closes the visit out of
-    // A/R — the office stops seeing it, and the work is never billed. That is
-    // exactly how Walter Nunchuck's $195 clean (invoice 6363) came to read
-    // "paid" at $0.00 on 2026-07-04 while nobody was ever charged.
+    // [zero-paid-ok 2026-08-18] A $0 invoice CAN be marked paid, deliberately.
+    // An earlier revision of this file blocked it, on the reasoning that "paid"
+    // is a claim money moved. That was wrong about how the business actually
+    // runs, and it broke real work. A commercial account that bills the month
+    // on one visit shows $0 on the others, and those documents get closed out
+    // as settled. A comped clean nets to $0 against its own discount line and
+    // is likewise settled, not owed. Invoices 7038 (Cucci zero week), 7402
+    // (Baffoe, comped) and 7020 (Loe, credit) are all legitimately $0 and paid;
+    // forcing them to be voided instead would erase the record that the visit
+    // happened, which is the opposite of what the document is for.
     //
-    // The auto-charge path in lib/charge-invoice.ts has always refused a zero
-    // total; the two office-facing paths (this endpoint and POST /:id/pay) did
-    // not. A genuinely comped visit still gets its $0 invoice as the record —
-    // it just stays in a status that tells the truth instead of claiming a
-    // payment. Voiding remains available for a document that should not exist.
-    if (status === "paid" && !(total > 0)) {
-      return res.status(400).json({
-        error: "Bad Request",
-        message: "This invoice totals $0.00, so it cannot be marked paid. Add the amount that was actually charged, or void the invoice if nothing is owed.",
-      });
-    }
+    // Nothing is protected by a rule at this point in the flow. The case it was
+    // meant to catch — a job that carries a price whose invoice came out empty
+    // anyway — is caught where the document is BUILT (lib/invoice-line-items.ts),
+    // before a wrong $0 total can exist to be paid. Re-guarding it here only
+    // blocks the legitimate zeros, and those are most of them.
 
     // [manual-edit-detach 2026-07-06] A hand-edit to the document's amounts
     // (line items or tip) detaches the invoice from job mirroring: mark-paid's
@@ -966,6 +964,30 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     if (!updated) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
     logAudit(req, "UPDATE", "invoice", invoiceId, { status: current.status }, { line_items, tips: tipVal, total });
+
+    // [invoice-edit-mirror 2026-08-18] A discount typed onto the invoice is a
+    // pricing decision about the visit, so record it against the visit. Until
+    // now it lived only in this document's jsonb, which meant the next rebuild
+    // — a job edit, a Recalc from Job — silently put the customer's price back
+    // on and the comp was gone. Writing it to job_discounts is what lets the
+    // "invoice mirrors the job" rule and "the comp survives" both be true.
+    // Single-job invoices only: on a combined/account invoice a negative line
+    // cannot be attributed to one visit, so there is nothing honest to write.
+    // Never allowed to fail the save — the office's edit is already stored, and
+    // an invoice must not be held hostage to bookkeeping behind it.
+    if (amountsEdited && normLineItems && current.job_id) {
+      try {
+        const { mirrorInvoiceDiscountToJob } = await import("../lib/invoice-line-items.js");
+        await mirrorInvoiceDiscountToJob({
+          companyId: req.auth!.companyId as number,
+          jobId: current.job_id,
+          invoiceLineItems: normLineItems as any,
+          userId: req.auth!.userId ?? null,
+        });
+      } catch (e) {
+        console.error("[invoice-edit-mirror] non-fatal:", e);
+      }
+    }
 
     // QB re-push on edit (fire and forget, one-way; no-op when not connected).
     queueSync(() => syncInvoice(req.auth!.companyId, invoiceId));
@@ -1692,14 +1714,21 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
     // amount the office deliberately set, not clobber it back to the
     // job-derived figure. Explicit "Recalc from job" re-attaches.
     const [pre] = await db
-      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips, manually_edited_at: invoicesTable.manually_edited_at })
+      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips, manually_edited_at: invoicesTable.manually_edited_at, total: invoicesTable.total })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)))
       .limit(1);
     const preJobId: number | null = pre?.job_id ?? null;
     if (preJobId != null && !pre?.manually_edited_at && !["paid", "void", "superseded", "batched"].includes((pre?.status ?? "") as string)) {
       try {
-        const built = await buildJobLineItems(req.auth!.companyId as number, preJobId);
+        // [rebuild-context 2026-08-18] Pass the total already on the document.
+        // This recalc is automatic and it fires at the exact moment money is
+        // recorded, so it is the last place a silent re-price should be allowed
+        // to happen: a $0 comped visit being closed out must bank $0, not the
+        // job's underlying price. See lib/invoice-line-items.ts.
+        const built = await buildJobLineItems(req.auth!.companyId as number, preJobId, db, {
+          existingTotal: pre.total == null ? null : parseFloat(String(pre.total)),
+        });
         if (built) {
           const tipVal = parseFloat(pre.tips || "0");
           const freshTotal = Math.round((built.subtotal + tipVal) * 100) / 100;
@@ -1722,17 +1751,10 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
 
     const payAmount = amount ?? parseFloat(invoice.total || "0");
 
-    // [zero-paid-guard 2026-08-18] Same rule as the PATCH endpoint above: a $0
-    // payment is not a payment. Recording one inserts a $0 row in `payments`,
-    // stamps the invoice paid, and cascades that claim to every member of a
-    // batched invoice — a collection reported on money nobody sent. If a visit
-    // is comped, its $0 invoice is the record; it does not need a payment.
-    if (!(payAmount > 0)) {
-      return res.status(400).json({
-        error: "Bad Request",
-        message: "A payment must be greater than $0.00. Enter the amount that was actually collected, or void the invoice if nothing is owed.",
-      });
-    }
+    // [zero-paid-ok 2026-08-18] Same correction as the PATCH endpoint above: a
+    // $0 invoice may be settled, and closing out a zero week or a comped visit
+    // is ordinary office work. The $0 payment rows already on file (161, 444,
+    // 454) are the record of exactly that.
 
     await db.insert(paymentsTable).values({
       company_id: req.auth!.companyId,
@@ -1947,6 +1969,15 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
       await recomputeJobBilledAmount(inv.job_id, req.auth!.companyId!);
     } catch (e) { console.error("[invoice-recalc] billed_amount refresh non-fatal:", e); }
 
+    // [rebuild-context 2026-08-18] Deliberately does NOT pass existingTotal,
+    // unlike the job-edit sync and the mark-paid recalc. Those two fire on their
+    // own, so if they re-priced a $0 comp back up to the job's figure nobody
+    // would see it happen. This one is a button the office pressed, on a screen
+    // showing the result, meaning "make this invoice match the job" — and it is
+    // the repair action for the Walter Nunchuck shape, a real price that printed
+    // as $0. Suppressing recovery here would take that repair away. Paid
+    // invoices are already refused above, so the legitimate $0 documents on file
+    // cannot be reached by this path at all.
     const built = await buildJobLineItems(req.auth!.companyId, inv.job_id);
     if (!built) return res.status(404).json({ error: "Not Found", message: "Linked job not found" });
 
