@@ -35,6 +35,27 @@ export const CHARGING_ACTIONS: ReadonlySet<CancelAction> = new Set(["cancel", "l
 /** Actions that terminate the recurring schedule (affects future jobs). */
 export const FUTURE_AFFECTING_ACTIONS: ReadonlySet<CancelAction> = new Set(["cancel_service"]);
 
+/**
+ * Actions after which NOBODY GOES TO THE PROPERTY.
+ *
+ * Distinct from CHARGING_ACTIONS, and the distinction is the whole point:
+ * whether the customer was billed is a question for the office, whether a
+ * cleaner should drive there is a question for the cleaner. A charged cancel
+ * bills $195 and sends no one; a free skip bills nothing and also sends no one.
+ * Both belong off the tech's schedule.
+ *
+ * `move` and `bump` are deliberately absent — that visit still happens, just on
+ * another day, and it must keep appearing on the day it moved to.
+ *
+ * Read by the tech-facing schedule filter in lib/job-visit.ts. The reopen route
+ * in routes/cancellation.ts deletes exactly these four log actions when it puts
+ * a job back on the board — if that list and this one ever disagree, a reopened
+ * job stays invisible to the cleaner it was just handed back to.
+ */
+export const NO_VISIT_ACTIONS: ReadonlySet<CancelAction> = new Set([
+  "skip", "cancel", "lockout", "cancel_service",
+]);
+
 export interface PolicyInput {
   action: CancelAction;
   /** Effective amount on the job (billed_amount ?? base_fee). */

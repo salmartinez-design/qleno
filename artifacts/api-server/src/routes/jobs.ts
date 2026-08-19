@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { inIntList } from "../lib/sql-lists.js";
+import { jobVisitStillHappens } from "../lib/job-visit.js";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable, additionalPayTable } from "@workspace/db/schema";
 import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
@@ -1134,6 +1135,14 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
           sql`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})`,
         ),
         eq(jobsTable.scheduled_date, reqDate),
+        // [no-visit 2026-08-19] A called-off visit is not this cleaner's work.
+        // The free ones were only ever hidden by a client-side
+        // `status !== "cancelled"`; a CHARGED cancellation is stored as
+        // status='complete' so the fee reaches revenue, and slipped straight
+        // through that check looking like a live job — Peggy Hanlon's 1–4 PM
+        // still on the board with `[cancel_fee_charged: $195.00 (100%)]` in its
+        // notes (Maribel, 8/19). See lib/job-visit.ts.
+        jobVisitStillHappens(jobsTable.id, userId),
       ))
       .orderBy(jobsTable.scheduled_time);
 
