@@ -40,6 +40,26 @@ describe("card capture for a brand-new customer", () => {
     assert.ok(builder.includes("saves the moment you book"));
   });
 
+  // [lead-card-capture-mobile 2026-08-19] The 2026-08-08 fix above landed on
+  // the DESKTOP Review tree only. quote-builder.tsx has two complete return
+  // trees — `if (isMobile)` and the desktop one below it — and the mobile
+  // branch carried its own copy of the gate, worded differently, so the
+  // assertion above sailed past it. Under 768px a new caller therefore got
+  // neither card entry nor a text/email link, because the link buttons sat
+  // INSIDE the same gate. Pin both trees, not the copy of one of them.
+  it("the mobile Review tree is not gated on an existing client either", () => {
+    assert.ok(
+      !builder.includes("new leads can add one from their profile after converting"),
+      "the mobile dead-end copy must be gone",
+    );
+    const entryButtons = builder.match(/: "Save card on file now"/g) || [];
+    assert.equal(
+      entryButtons.length,
+      2,
+      "card entry must render in BOTH the mobile and the desktop return tree",
+    );
+  });
+
   it("the nonce is parked client-side and shipped with the convert", () => {
     assert.ok(builder.includes("pendingCardToken"));
     assert.ok(builder.includes("square_card_token: pendingCardToken"));
