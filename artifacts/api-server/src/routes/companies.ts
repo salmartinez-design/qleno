@@ -73,7 +73,7 @@ router.get("/me", requireAuth, async (req, res) => {
 const W9_S = (v: unknown): string | null => { const s = String(v ?? "").trim(); return s ? s.slice(0, 200) : null; };
 
 // Save the tenant's W-9 tax info.
-router.put("/w9", requireAuth, async (req, res) => {
+router.put("/w9", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     if (!companyId) return res.status(403).json({ error: "Forbidden" });
@@ -130,7 +130,7 @@ router.get("/w9.pdf", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/me", requireAuth, async (req, res) => {
+router.put("/me", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     if (!req.auth!.companyId) {
       return res.status(403).json({ error: "Forbidden", message: "No company to update" });
@@ -181,7 +181,7 @@ router.put("/me", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/me", requireAuth, async (req, res) => {
+router.patch("/me", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     if (!req.auth!.companyId) {
       return res.status(403).json({ error: "Forbidden" });
@@ -368,7 +368,7 @@ router.patch("/me", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/logo", requireAuth, (req, res) => {
+router.post("/logo", requireAuth, requireRole("owner", "admin", "office"), (req, res) => {
   if (!req.auth!.companyId) {
     return res.status(403).json({ error: "Forbidden", message: "No company for this user" });
   }
@@ -396,6 +396,7 @@ router.post("/logo", requireAuth, (req, res) => {
       return res.status(500).json({ error: "Failed to update company logo" });
     }
   });
+  return;
 });
 
 // ── GET /api/companies/booking-settings ──────────────────────────────────────
@@ -425,7 +426,7 @@ router.get("/booking-settings", requireAuth, async (req, res) => {
 });
 
 // ── PUT /api/companies/booking-settings ──────────────────────────────────────
-router.put("/booking-settings", requireAuth, async (req, res) => {
+router.put("/booking-settings", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { sql: drSql } = await import("drizzle-orm");
     const companyId = req.auth!.companyId;
@@ -511,7 +512,7 @@ router.get("/cancellation-policy", requireAuth, async (req, res) => {
 });
 
 // ── PUT /api/companies/cancellation-policy ───────────────────────────────────
-router.put("/cancellation-policy", requireAuth, async (req, res) => {
+router.put("/cancellation-policy", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { sql: drSql } = await import("drizzle-orm");
     const companyId = req.auth!.companyId;
