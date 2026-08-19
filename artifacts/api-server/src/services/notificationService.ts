@@ -1127,9 +1127,12 @@ export function computeArrivalWindow(
       return `${fmtTime(startMins)} to ${fmtTime(endMins)}`;
     }
   }
-  // Legacy fallback when no scheduled_time is stored on the job
-  if (arrivalWindowStr === "morning") return "9:00 AM to 12:00 PM";
-  if (arrivalWindowStr === "afternoon") return "12:00 PM to 2:00 PM";
+  // Legacy fallback when no scheduled_time is stored on the job. These used to
+  // print "9:00 AM to 12:00 PM" / "12:00 PM to 2:00 PM", which quoted the customer
+  // a two or three hour arrival window. Phes never gives one. With no start time
+  // on the job there is no window to state, so say the half of the day we know.
+  if (arrivalWindowStr === "morning") return "morning";
+  if (arrivalWindowStr === "afternoon") return "afternoon";
   // [time-picker 2026-07-15] arrival_window now holds a specific requested time
   // (e.g. "10:00 AM") — surface it directly rather than the generic fallback.
   if (arrivalWindowStr && arrivalWindowStr.trim()) return arrivalWindowStr.trim();

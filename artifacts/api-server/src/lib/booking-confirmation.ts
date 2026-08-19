@@ -275,7 +275,8 @@ export async function sendJobScheduledConfirmation(
       estimatedTime: estTimeLabel(j.allowed_hours) || estTimeLabel(j.estimated_hours),
       servicesBreakdownHtml: mv.services_breakdown || "",
       scheduledDateISO,
-      scheduledTimeRaw: j.scheduled_time,
+      scheduledTimeRaw: effectiveTime,
+      windowMinutes: arrivalWinMins,
       paymentTotal,
       hasCardOnFile: !!j.stripe_payment_method_id,
       // TODO: make the checklist URL tenant-configurable (Company Settings).

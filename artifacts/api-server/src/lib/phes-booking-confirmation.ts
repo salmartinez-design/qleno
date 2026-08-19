@@ -47,6 +47,10 @@ export interface PhesConfOpts {
   // up to 3 hours then $60/additional hour, not the residential $70/hr overage —
   // so the flat-rate fine print would misquote the customer's own contract.
   commercial?: boolean;
+  // [arrival-window 2026-08-18] Width of the customer arrival window in minutes
+  // (companies.arrival_window_minutes, 45). The add-to-calendar event spans this,
+  // so the block on the customer's calendar matches the window we quoted them.
+  windowMinutes?: number;
   icsUrl?: string;                 // hosted .ics for the Apple button (email clients block data: URIs)
 }
 
@@ -61,14 +65,16 @@ function parseHM(raw: string | null | undefined): { h: number; m: number } {
   return { h, m: min };
 }
 // Google URL template + Outlook deeplink + an inline .ics (data URI) for Apple.
-// Event = start (scheduled date + time) to +2h. Floating local time (no TZ) —
-// interpreted in the customer's own calendar, which is the local service tz.
+// Event = start (scheduled date + time) to start + the arrival window. Floating
+// local time (no TZ), interpreted in the customer's own calendar, which is the
+// local service tz.
 function calendarLinks(o: PhesConfOpts): { google: string; apple: string; outlook: string } | null {
   const [y, mo, d] = String(o.scheduledDateISO ?? "").slice(0, 10).split("-").map(Number);
   if (!y || !mo || !d) return null;
   const { h, m } = parseHM(o.scheduledTimeRaw);
   const start = new Date(Date.UTC(y, mo - 1, d, h, m, 0));
-  const end = new Date(start.getTime() + 2 * 3600 * 1000);
+  const winMins = Number(o.windowMinutes) > 0 ? Number(o.windowMinutes) : 45;
+  const end = new Date(start.getTime() + winMins * 60 * 1000);
   const floatUTC = (dt: Date) => `${dt.getUTCFullYear()}${cpad(dt.getUTCMonth() + 1)}${cpad(dt.getUTCDate())}T${cpad(dt.getUTCHours())}${cpad(dt.getUTCMinutes())}00`;
   const isoUTC = (dt: Date) => `${dt.getUTCFullYear()}-${cpad(dt.getUTCMonth() + 1)}-${cpad(dt.getUTCDate())}T${cpad(dt.getUTCHours())}:${cpad(dt.getUTCMinutes())}:00`;
   const s = floatUTC(start), e = floatUTC(end);

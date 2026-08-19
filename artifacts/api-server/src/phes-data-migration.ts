@@ -5855,6 +5855,7 @@ export async function runPhesDataMigration(): Promise<void> {
   // office turns it on. Idempotent (skips if estimate_followup already exists).
   await runEstimateSequenceSeed();
   await runAgreementTemplateSeed();
+  await runArrivalWindowTermsFix();
 
   // [lead-drip 2026-06-28] Seed the two lead-capture drip sequences.
   // is_active=FALSE by default — inert until office turns them on.
@@ -6077,6 +6078,35 @@ The Service Provider will maintain general liability insurance for the duration 
 
 7. ENTIRE AGREEMENT
 This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties. By signing, the Client acknowledges they have read and agree to this Agreement, and the individual signing represents they have authority to bind the Client.`;
+
+// ── Arrival window: the agreement said 2 to 3 hours, Phes gives 45 minutes ──
+// [arrival-window 2026-08-18] The seeded residential agreement told every
+// customer "a 2-3 hour arrival window". That has never been what Phes does; the
+// window is 45 minutes (companies.arrival_window_minutes). The seed above only
+// INSERTs, so fixing the constant in the source left the rows already sitting in
+// form_templates still promising the old window to everyone who signs.
+//
+// Rewrites only that one paragraph, matched on its exact old wording, so an
+// agreement the office has customised elsewhere keeps every other edit. Matching
+// on the old sentence is also what makes this idempotent: once rewritten the
+// WHERE stops matching, so re-runs on later boots are no-ops.
+async function runArrivalWindowTermsFix(): Promise<void> {
+  const OLD =
+    "Our technicians operate within a 2.{0,3}3 hour arrival window\\. Exact arrival times cannot be guaranteed due to the nature of home cleaning services\\. We will do our best to accommodate your schedule and notify you when your technician is on the way\\.";
+  const NEW =
+    "Your service is scheduled with a 45 minute arrival window. Exact arrival times cannot be guaranteed, because traffic and the home before yours can run long. We will notify you when your technician is on the way.";
+  try {
+    const r: any = await db.execute(sql`
+      UPDATE form_templates
+         SET terms_body = regexp_replace(terms_body, ${OLD}, ${NEW}, 'g')
+       WHERE terms_body ~ 'Our technicians operate within a 2.{0,3}3 hour arrival window'
+    `);
+    const n = (r as any).rowCount ?? 0;
+    if (n > 0) console.log(`[arrival-window] rewrote the arrival window paragraph on ${n} agreement template(s).`);
+  } catch (err) {
+    console.error("[arrival-window] terms fix error (non-fatal):", err);
+  }
+}
 
 async function runAgreementTemplateSeed(): Promise<void> {
   const PHES = 1;

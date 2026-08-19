@@ -216,7 +216,7 @@ function renderQuoteOption(q: any, showHeading: boolean): string {
   // Discount + manual adjustment lines so base + add-ons ± adjustments = Total.
   for (const adj of quoteAdjustmentLines(q)) {
     const color = adj.negative ? "#0F7A63" : "#1A1917";
-    const amt = `${adj.negative ? "−$" : "+$"}${adj.amount.toFixed(2)}`;
+    const amt = `${adj.negative ? "-$" : "+$"}${adj.amount.toFixed(2)}`;
     rows.push(`<tr><td style="padding:6px 0;color:${color};">${adj.label}</td><td style="padding:6px 0;text-align:right;color:${color};">${amt}</td></tr>`);
   }
   const est = estTimeLabel(q.manual_hours) || estTimeLabel(q.estimated_hours);
@@ -332,7 +332,7 @@ function quoteAsOption(qq: any): QuoteOption {
   // [discount-email 2026-07-27] Itemize the discount + manual adjustments so the
   // card's rows reconcile to the Total (was hiding the discount entirely).
   for (const adj of quoteAdjustmentLines(qq)) {
-    rows.push({ label: adj.label, amount: `${adj.negative ? "−$" : "+$"}${adj.amount.toFixed(2)}` });
+    rows.push({ label: adj.label, amount: `${adj.negative ? "-$" : "+$"}${adj.amount.toFixed(2)}` });
   }
   return {
     title: qq.service_type || "Cleaning service",

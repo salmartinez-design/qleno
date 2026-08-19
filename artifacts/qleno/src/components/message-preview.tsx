@@ -11,7 +11,7 @@ export const PREVIEW_SAMPLE: Record<string, string> = {
   service_type: "Standard Cleaning", scope: "Standard Cleaning",
   date: "Friday, June 27, 2026", appointment_date: "Friday, June 27, 2026",
   time: "9:00 AM", appointment_time: "9:00 AM",
-  arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
+  arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
   appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
   quote_link: "https://phes.io/quote", estimate_link: "https://phes.io/estimate",

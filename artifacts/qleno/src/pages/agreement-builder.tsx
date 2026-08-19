@@ -140,7 +140,7 @@ function TemplateCard({ template, onEdit, onDuplicate, onDelete, onSend }: any) 
 }
 
 const POLICY_BLOCKS = [
-  { key: "arrival_window", label: "Arrival Window", description: "2–3 hour arrival window policy" },
+  { key: "arrival_window", label: "Arrival Window", description: "45 minute arrival window policy" },
   { key: "service_guidelines", label: "Service Guidelines", description: "Per-visit minimum, base rate, add-on pricing" },
   { key: "addons_policy", label: "Add-Ons and Trades Policy", description: "Extra services and subcontracting policy" },
   { key: "lockout_policy", label: "Lockout Policy", description: "Fee for inaccessible property" },
