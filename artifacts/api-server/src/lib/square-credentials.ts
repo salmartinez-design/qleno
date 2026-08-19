@@ -136,3 +136,69 @@ export function publicPart(c: SquareCredentials) {
     environment: c.environment,
   };
 }
+
+/**
+ * The webhook signature key for a credential set.
+ *
+ * Each Square merchant signs with its OWN key, so a second branch is not just a
+ * second subscription — it is a second secret. Suffixed the same way as the rest
+ * of the set: SQUARE_WEBHOOK_SIGNATURE_KEY_SCHAUMBURG.
+ */
+export function webhookSignatureKey(accountKey: string | null): string | null {
+  const suffix = accountKey ? `_${accountKey}` : "";
+  return process.env[`SQUARE_WEBHOOK_SIGNATURE_KEY${suffix}`]?.trim() || null;
+}
+
+/**
+ * Every distinct Square account key in use, default (null) first.
+ *
+ * Used by the webhook, which has no session and no tenant hint it can trust —
+ * the only trustworthy signal is which merchant's key actually verifies the
+ * signature, so it has to be able to enumerate them.
+ */
+export async function listSquareAccountKeys(): Promise<(string | null)[]> {
+  const keys: (string | null)[] = [null];
+  try {
+    const rows = await db.execute(
+      sql`SELECT DISTINCT square_account_key FROM companies WHERE square_account_key IS NOT NULL`,
+    );
+    for (const r of ((rows as any).rows ?? []) as any[]) {
+      const k = (r.square_account_key || "").trim();
+      if (k && VALID_KEY.test(k) && !keys.includes(k)) keys.push(k);
+    }
+  } catch (err: any) {
+    console.error("[square-credentials] account key enumeration failed:", err?.message ?? err);
+  }
+  return keys;
+}
+
+/**
+ * Which company transacts on a given Square account key.
+ *
+ * Returns null rather than guessing. The webhook credits invoices, so an
+ * unattributable payment must land in Needs Review under no company at all
+ * rather than be credited against the wrong branch's books.
+ */
+export async function companyForAccountKey(accountKey: string | null): Promise<number | null> {
+  try {
+    const rows = accountKey
+      ? await db.execute(sql`SELECT id FROM companies WHERE square_account_key = ${accountKey} ORDER BY id LIMIT 2`)
+      : await db.execute(sql`SELECT id FROM companies WHERE square_account_key IS NULL ORDER BY id LIMIT 2`);
+    const list = ((rows as any).rows ?? []) as any[];
+    // The unsuffixed set is shared by every company that has never been given an
+    // explicit key, so a match there is ambiguous by construction. Fall back to
+    // the pin rather than picking the lowest id.
+    if (!accountKey) {
+      const pinned = Number(process.env.SQUARE_COMPANY_ID ?? 1);
+      return Number.isFinite(pinned) ? pinned : null;
+    }
+    if (list.length !== 1) {
+      console.error(`[square-credentials] account key '${accountKey}' maps to ${list.length} companies — cannot attribute`);
+      return null;
+    }
+    return Number(list[0].id);
+  } catch (err: any) {
+    console.error("[square-credentials] company lookup failed:", err?.message ?? err);
+    return null;
+  }
+}

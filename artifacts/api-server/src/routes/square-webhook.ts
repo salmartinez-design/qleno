@@ -7,6 +7,11 @@
 // Notification URL: https://<host>/api/square/webhook
 // Then set SQUARE_WEBHOOK_SIGNATURE_KEY (dashboard → the subscription's key).
 //
+// PER BRANCH: every Square merchant needs its OWN subscription to this same
+// URL and its own signing secret, suffixed to match companies.square_account_key
+// — e.g. SQUARE_WEBHOOK_SIGNATURE_KEY_SCHAUMBURG. A merchant with no key set
+// here still takes payments; they simply never reconcile.
+//
 // MOUNTED WITH express.raw() BEFORE express.json() — Square's signature is an
 // HMAC over the EXACT bytes of the body, so a re-serialized JSON object will not
 // verify. Same constraint as the Stripe webhook above it in app.ts.
@@ -15,6 +20,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { reconcileSquarePayment, squareAmountToCents } from "../lib/square-payment-reconcile.js";
+import { listSquareAccountKeys, webhookSignatureKey, companyForAccountKey } from "../lib/square-credentials.js";
 
 const router = Router();
 
@@ -33,7 +39,6 @@ function verifySquareSignature(rawBody: Buffer, signature: string, url: string, 
 }
 
 router.post("/", async (req: Request, res: Response) => {
-  const sigKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const rawBody = req.body as Buffer;
 
   if (!Buffer.isBuffer(rawBody)) {
@@ -41,22 +46,45 @@ router.post("/", async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Webhook misconfigured" });
   }
 
-  // Signature verification. Unlike the Stripe route, there is NO unsigned dev
-  // fallback: this endpoint moves invoices to paid, so an unauthenticated caller
-  // could mark arbitrary invoices settled. Without a key configured it accepts
-  // nothing.
-  if (!sigKey) {
-    console.warn("[square-webhook] SQUARE_WEBHOOK_SIGNATURE_KEY not set — rejecting event");
-    return res.status(503).json({ error: "Square webhook not configured" });
-  }
   const sig = req.headers["x-square-hmacsha256-signature"] as string | undefined;
   const url = process.env.SQUARE_WEBHOOK_URL;
   if (!url) {
     console.warn("[square-webhook] SQUARE_WEBHOOK_URL not set — cannot verify signature");
     return res.status(503).json({ error: "Square webhook not configured" });
   }
-  if (!sig || !verifySquareSignature(rawBody, sig, url, sigKey)) {
-    console.error("[square-webhook] signature verification failed");
+
+  // [square-per-branch 2026-08-19] Two separately owned branches means two Square
+  // merchants, two subscriptions to this same URL, and two signing secrets — so
+  // there is no single key to check against any more.
+  //
+  // The merchant that signed the event is ALSO how we know which company's books
+  // to credit. Nothing in the payload can be trusted for that: the body is
+  // attacker-controlled until a signature verifies, and this endpoint marks
+  // invoices paid. So the account key that verifies IS the tenant identification,
+  // and it costs one HMAC per configured merchant to find it.
+  //
+  // Unlike the Stripe route there is no unsigned dev fallback. With no key
+  // configured this accepts nothing.
+  const accountKeys = await listSquareAccountKeys();
+  let signedBy: string | null = null;
+  let verified = false;
+  let anyKeyConfigured = false;
+  for (const key of accountKeys) {
+    const secret = webhookSignatureKey(key);
+    if (!secret) continue;
+    anyKeyConfigured = true;
+    if (sig && verifySquareSignature(rawBody, sig, url, secret)) {
+      signedBy = key;
+      verified = true;
+      break;
+    }
+  }
+  if (!anyKeyConfigured) {
+    console.warn("[square-webhook] no SQUARE_WEBHOOK_SIGNATURE_KEY* configured — rejecting event");
+    return res.status(503).json({ error: "Square webhook not configured" });
+  }
+  if (!verified) {
+    console.error("[square-webhook] signature verification failed against all configured merchants");
     return res.status(401).json({ error: "Invalid signature" });
   }
 
@@ -77,10 +105,18 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   try {
-    // Tenant resolution by Square location. Phes prod is one location
-    // (HAKBWTJAKNS2R); SQUARE_COMPANY_ID pins the tenant explicitly so a future
-    // second location can't silently reconcile into the wrong company's books.
-    const companyId = Number(process.env.SQUARE_COMPANY_ID ?? 1);
+    // Tenant resolution follows the merchant whose key just verified the
+    // signature. For the unsuffixed/default set that is still SQUARE_COMPANY_ID
+    // (many companies can share it, so it is genuinely ambiguous); for an
+    // explicit key it is the single company carrying that key. A payment we
+    // cannot attribute is dropped unreconciled rather than credited to whichever
+    // company sorts first — crediting the wrong branch's invoice is worse than
+    // leaving a payment for a human to place.
+    const companyId = await companyForAccountKey(signedBy);
+    if (companyId == null) {
+      console.error(`[square-webhook] cannot attribute payment ${payment.id} (account key ${signedBy ?? "default"}) to a company`);
+      return res.status(202).json({ received: true, unattributed: true });
+    }
     const amountCents = squareAmountToCents(payment.amount_money);
     const customerId: string | null = payment.customer_id ?? null;
     const card = payment.card_details?.card ?? {};

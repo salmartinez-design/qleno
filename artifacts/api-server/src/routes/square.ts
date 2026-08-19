@@ -21,6 +21,7 @@ import { logAudit } from "../lib/audit.js";
 import { reconcileSquarePayment, decimalToCents } from "../lib/square-payment-reconcile.js";
 import { syncSquareCustomerMap, fetchSquareCustomers, fetchSquareCards } from "../lib/square-customer-map.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
+import { resolveSquareCredentials } from "../lib/square-credentials.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
 import { alertCardSaved } from "../lib/card-saved-alert.js";
 import crypto from "crypto";
@@ -160,8 +161,14 @@ router.post("/clients/:id/refresh-card", ...officeOnly, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const clientId = parseInt(req.params.id, 10);
-    const token = process.env.SQUARE_ACCESS_TOKEN;
-    if (!token) return res.status(400).json({ error: "Square is not configured on this environment." });
+    // [square-per-branch 2026-08-19] Read the token for THIS tenant, never the
+    // ambient one. Square customers and cards are merchant-scoped, so matching a
+    // company-4 (Schaumburg) client against Oak Lawn's Square book returns either
+    // nothing or — far worse — a same-named stranger's card, which then gets
+    // written onto the client as chargeable. resolveSquareCredentials returns
+    // NOT_CONFIGURED rather than falling back to the default merchant.
+    const { accessToken: token } = await resolveSquareCredentials(companyId);
+    if (!token) return res.status(400).json({ error: "Square is not configured for this branch." });
 
     const cr = (await db.execute(sql`
       SELECT id, first_name, last_name, company_name, email, square_customer_id
@@ -255,8 +262,14 @@ router.post("/clients/:id/link-card", ...officeOnly, async (req, res) => {
     const clientId = parseInt(req.params.id, 10);
     const { square_customer_id, card_id } = req.body ?? {};
     if (!square_customer_id || !card_id) return res.status(400).json({ error: "square_customer_id and card_id are required" });
-    const token = process.env.SQUARE_ACCESS_TOKEN;
-    if (!token) return res.status(400).json({ error: "Square is not configured on this environment." });
+    // [square-per-branch 2026-08-19] Read the token for THIS tenant, never the
+    // ambient one. Square customers and cards are merchant-scoped, so matching a
+    // company-4 (Schaumburg) client against Oak Lawn's Square book returns either
+    // nothing or — far worse — a same-named stranger's card, which then gets
+    // written onto the client as chargeable. resolveSquareCredentials returns
+    // NOT_CONFIGURED rather than falling back to the default merchant.
+    const { accessToken: token } = await resolveSquareCredentials(companyId);
+    if (!token) return res.status(400).json({ error: "Square is not configured for this branch." });
 
     const cr = (await db.execute(sql`
       SELECT id FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1`) as any).rows;
