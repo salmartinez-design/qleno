@@ -18,6 +18,7 @@ const REPORT_GROUPS = [
       { title: "Job Costing",          desc: "Revenue vs labor cost with gross profit margins.",       url: "/reports/job-costing",       icon: Clipboard },
       { title: "Client Profitability", desc: "Gross profit and margin per customer, plus the cut by service type, zone and frequency.", url: "/reports/client-profitability", icon: Users },
       { title: "Commercial Accounts",  desc: "Every commercial account ranked — revenue, budgeted hours vs hours worked, efficiency and gross profit.", url: "/reports/commercial-accounts", icon: Building2 },
+      { title: "Sales Commissions",    desc: "The Ares commission portal — approval queue, payouts, chargebacks and per-VA statements.", url: "/reports/commissions", icon: DollarSign },
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
       { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
       { title: "Fees Collected",       desc: "Cancellation and lockout fees billed in a period — labeled subset of revenue.", url: "/reports/fees", icon: Banknote },
