@@ -73,6 +73,28 @@ const sdkPromises: Partial<Record<SquareEnv, Promise<any>>> = {};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// [square-attach-hang 2026-08-19] Square's `card.attach()` does NOT reject when
+// it lands on a container that still holds a previous card's dying iframe — it
+// simply never settles. Neither does `payments.card()`. An unresolved promise
+// leaves the form stuck on "Loading secure card field..." with a dead button,
+// and because the effect never reaches its catch, Try again cannot recover it.
+// Every await against the SDK is therefore bounded: a hang becomes a visible,
+// retryable error instead of a spinner nobody can get out of.
+const ATTACH_TIMEOUT_MS = 20_000;
+// How long a re-init waits for the OUTGOING card to finish destroying before it
+// mounts the new one. Bounded so a wedged destroy() can't block the retry.
+const TEARDOWN_WAIT_MS = 4_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /** One injection attempt. Resolves with window.Square, or rejects. */
 function injectSquareScript(environment: SquareEnv): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -168,7 +190,14 @@ export function SquareCardForm({
   fallbackHint,
 }: SquareCardFormProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The card iframe goes into a node React re-creates on every attempt (see the
+  // key below), never into `containerRef` itself. Re-attaching into the SAME
+  // element is what wedges the SDK, and a retry is exactly when that happens.
+  const mountRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<any>(null);
+  // Serialises teardown against the next mount. Cleanup used to fire destroy()
+  // and drop the promise, so a retry raced the iframe it was replacing.
+  const teardownRef = useRef<Promise<void>>(Promise.resolve());
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
   // Separates "the secure field never loaded" (retryable, and the office should
@@ -190,12 +219,25 @@ export function SquareCardForm({
     setStatus("loading");
     (async () => {
       try {
+        // Let the outgoing card finish dying first — see teardownRef.
+        await Promise.race([teardownRef.current, sleep(TEARDOWN_WAIT_MS)]);
+        if (cancelled) return;
         const Square = await loadSquareSdk(environment);
         if (cancelled) return;
+        const mount = mountRef.current;
+        if (!mount) throw new Error("Square card container is not mounted");
         const payments = Square.payments(applicationId, locationId);
-        const card = await payments.card();
+        const card: any = await withTimeout<any>(
+          payments.card(),
+          ATTACH_TIMEOUT_MS,
+          "Square timed out while creating the card field",
+        );
         if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
-        await card.attach(containerRef.current);
+        await withTimeout(
+          card.attach(mount),
+          ATTACH_TIMEOUT_MS,
+          "Square timed out while mounting the card field",
+        );
         if (cancelled) { try { await card.destroy(); } catch { /* noop */ } return; }
         cardInstance = card;
         cardRef.current = card;
@@ -211,8 +253,16 @@ export function SquareCardForm({
     return () => {
       cancelled = true;
       const c = cardInstance || cardRef.current;
-      if (c) { try { c.destroy(); } catch { /* noop */ } }
       cardRef.current = null;
+      if (c) {
+        // Chained, not fire-and-forget: the next mount awaits this. Both links
+        // swallow their own errors so one bad teardown can't poison the chain.
+        teardownRef.current = teardownRef.current
+          .catch(() => { /* noop */ })
+          .then(() => c.destroy())
+          .then(() => undefined)
+          .catch(() => { /* noop */ });
+      }
     };
     // Re-init when the Square identity changes, or on an explicit retry.
   }, [applicationId, locationId, environment, reloadKey]);
@@ -268,6 +318,10 @@ export function SquareCardForm({
         }}
       >
         {status === "loading" && <span style={{ fontSize: 13, color: "#9E9B94" }}>Loading secure card field...</span>}
+        {/* Keyed on the full Square identity plus the retry counter, so React
+            throws this node away and builds a new one for every attempt. The
+            SDK then never sees a container it has already attached to. */}
+        <div key={`${applicationId}|${locationId}|${environment}|${reloadKey}`} ref={mountRef} />
       </div>
 
       {/* When the SDK is down there is no field to fill in — an empty bordered
