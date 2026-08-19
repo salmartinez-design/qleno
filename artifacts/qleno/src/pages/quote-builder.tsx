@@ -3880,13 +3880,27 @@ export default function QuoteBuilderPage() {
                           {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>
                       )}
-                      {/* Tech chips. Prefer the zone-matched techs; if the
-                          zone has none mapped, fall back to the full active
-                          roster so the office can always assign someone. */}
+                      {/* [assign-unrestricted 2026-08-19] Tech chips. The zone
+                          list is a SUGGESTION, never a gate. Assignment is
+                          deliberately unrestricted under the branch ownership
+                          model: money follows the JOB's branch and attendance
+                          follows the TECH's home branch, but who may be sent
+                          where follows nobody.
+
+                          The previous fallback opened the roster only when a
+                          zone had NOBODY mapped, so a zone with exactly one
+                          mapped tech offered exactly one chip and the office
+                          could not assign anyone else. Maribel hit this on
+                          Chicago Central, which has only Guadalupe Mejia
+                          mapped: a real quote could only be scheduled to her
+                          (report 2026-08-19). Show the zone's techs first,
+                          then everyone else, so the zone signal survives
+                          without hiding the roster. */}
                       {(() => {
-                        const usingFallback = suggestedTechs.length === 0;
-                        const pickList = usingFallback ? allTechs : suggestedTechs;
-                        const chips = pickList.filter(t => t.id !== preferredTech?.id);
+                        const zoneIds = new Set(suggestedTechs.map(t => t.id));
+                        const inZone = suggestedTechs.filter(t => t.id !== preferredTech?.id);
+                        const others = allTechs.filter(t => !zoneIds.has(t.id) && t.id !== preferredTech?.id);
+                        const chips = [...inZone, ...others];
                         return (
                           <>
                             {chips.map(tech => {
@@ -3900,9 +3914,14 @@ export default function QuoteBuilderPage() {
                                 </button>
                               );
                             })}
-                            {usingFallback && chips.length > 0 && (
+                            {inZone.length > 0 && others.length > 0 && (
                               <span style={{ width: "100%", fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
-                                No techs mapped to this zone — showing all technicians.
+                                {`First ${inZone.length === 1 ? "name is" : `${inZone.length} names are`} mapped to this zone. Any technician can be assigned.`}
+                              </span>
+                            )}
+                            {inZone.length === 0 && chips.length > 0 && (
+                              <span style={{ width: "100%", fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
+                                No technicians are mapped to this zone. Showing everyone.
                               </span>
                             )}
                             {!preferredTech && chips.length === 0 && (
