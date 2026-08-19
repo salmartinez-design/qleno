@@ -73,6 +73,19 @@ describe("billing coverage — one writer, one predicate (design D-3 / S-1 / S-2
     "routes/invoices.ts",
     // Demo/seed fixtures, never a tenant's real billing.
     "seed-demo.ts",
+    // [late-reschedule-fee 2026-08-19] Same ad-hoc shape as routes/invoices.ts,
+    // and admitted here for the same reason: client_id + one explicit line item,
+    // `job_id: null`, and no visit to claim. A short-notice reschedule fee is a
+    // charge for the NOTICE, not for a cleaning — the visit it relates to is
+    // still on the calendar and still bills its own full price when it
+    // completes.
+    //
+    // That is exactly why it must NOT write coverage: claiming the visit here
+    // would make ensureInvoiceForCompletedJob find live coverage on the new
+    // date and skip it, and the cleaning would never be billed at all. The
+    // absence of setInvoiceCoverage in this file is deliberate and is asserted
+    // by late-reschedule-fee.test.ts.
+    "lib/reschedule-fee-invoice.ts",
   ]);
 
   it("no module creates an invoice outside the allow-list", () => {

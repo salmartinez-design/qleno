@@ -6,6 +6,8 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
 import { logJobStatusChange } from "../lib/audit.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { resolveRescheduleNotice } from "../lib/reschedule-fee.js";
+import { createRescheduleFeeInvoice } from "../lib/reschedule-fee-invoice.js";
 import {
   resolveCancellationPolicy,
   CANCEL_ACTIONS,
@@ -205,6 +207,17 @@ router.post("/action", requireAuth, async (req, res) => {
     // default (companies.cancellation_tech_pay_mode/amount). pay_tech=false
     // still wins — this is the amount, not the whether.
     tech_pay_amount_override?: number;
+    // [late-reschedule-fee 2026-08-19] Maribel: "when rescheduling a job within
+    // 48 hours, we should be able to charge fee or to generate an invoice" —
+    // "doesnt make sense to have to cancel it and schedule it again, this messes
+    // with the stats and isn't practical."
+    //
+    // move/bump only. The visit still happens at its full price on the new date;
+    // this is an ADDITIONAL charge for the short notice, raised as its own
+    // invoice. Omitted or false = today's behaviour exactly: a free move.
+    charge_reschedule_fee?: boolean;
+    /** Dollars. The office decides the amount per move; 0 or missing charges nothing. */
+    reschedule_fee_amount?: number;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -252,6 +265,7 @@ router.post("/action", requireAuth, async (req, res) => {
            j.status::text AS status, j.billed_amount, j.base_fee,
            j.notes AS job_notes, j.recurring_schedule_id,
            j.scheduled_date::text AS scheduled_date,
+           j.scheduled_time::text AS scheduled_time,
            j.occurrence_date::text AS occurrence_date,
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
            c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
@@ -325,11 +339,48 @@ router.post("/action", requireAuth, async (req, res) => {
   // charged-cancellation path (job 'complete', billed = fee, tech paid).
   const isChargedOutcome = policy.charges_customer && finalCharge > 0;
 
+  // ── Late-reschedule fee ──────────────────────────────────────────────────
+  // [late-reschedule-fee 2026-08-19] A move made close to the visit may carry a
+  // fee. Unlike a cancellation fee this does NOT touch the job: the visit still
+  // happens on its new date at its full price, so billed_amount and the job
+  // status are left exactly as the normal move path leaves them, and the log row
+  // stays cancel_action='move'. The reports keep calling this a reschedule,
+  // which is Maribel's whole point — collecting the fee by cancelling and
+  // rebooking wrote a cancellation for a visit that was still happening.
+  //
+  // The window is re-checked HERE, from the job's own scheduled date/time, and
+  // never taken from the request: a client that could declare its own move
+  // "late" could bill any customer any amount.
+  const notice = resolveRescheduleNotice({
+    scheduledDate: row.scheduled_date ?? null,
+    scheduledTime: row.scheduled_time ?? null,
+    now: new Date(),
+    tz: tzOf(companyId),
+  });
+  const rescheduleFeeRequested = isReschedule
+    && body.charge_reschedule_fee === true
+    && Number.isFinite(Number(body.reschedule_fee_amount))
+    && Number(body.reschedule_fee_amount) > 0;
+  const rescheduleFee = rescheduleFeeRequested && notice.is_late
+    ? Math.round(Number(body.reschedule_fee_amount) * 100) / 100
+    : 0;
+  // Asked for a fee on a move with plenty of notice — refuse rather than
+  // silently drop it, so nobody believes a fee was billed when it wasn't.
+  if (rescheduleFeeRequested && !notice.is_late) {
+    return res.status(422).json({
+      error: "Bad Request",
+      code: "NOT_A_LATE_RESCHEDULE",
+      message: `This visit is ${Math.floor(notice.hours_notice ?? 0)} hours away — outside the ${notice.window_hours}-hour window, so no late-reschedule fee applies.`,
+      hours_notice: notice.hours_notice,
+      window_hours: notice.window_hours,
+    });
+  }
+
   const feeBasis = policy.fee_flat_applied > 0 ? "flat" : `${policy.fee_pct_applied}%`;
   const actionNote = policy.charges_customer
     ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${feeBasis})]`
     : isReschedule
-      ? `[${action} to ${body.new_date}${body.new_time ? ` ${body.new_time}` : ""}]`
+      ? `[${action} to ${body.new_date}${body.new_time ? ` ${body.new_time}` : ""}${rescheduleFee > 0 ? ` — late reschedule fee $${rescheduleFee.toFixed(2)}` : ""}]`
       : `[${action}]`;
   const operatorNote = body.notes?.trim() ? ` ${body.notes.trim()}` : "";
   const appendedNotes = `${row.job_notes ?? ""}${row.job_notes ? "\n" : ""}${actionNote}${operatorNote}`.trim();
@@ -500,7 +551,10 @@ router.post("/action", requireAuth, async (req, res) => {
         cancelled_by: userId,
         cancel_reason: ACTION_TO_LEGACY_REASON[action],
         cancel_action: action,
-        customer_charge_amount: finalCharge.toFixed(2),
+        // [late-reschedule-fee 2026-08-19] A move's charge is the late fee, if
+        // one was taken. The ACTION stays 'move', so cancellation reports still
+        // count this as a reschedule — only the money column changes.
+        customer_charge_amount: (rescheduleFee > 0 ? rescheduleFee : finalCharge).toFixed(2),
         affects_future_jobs: policy.affects_future_jobs,
         notes: body.notes ?? null,
       })
@@ -620,6 +674,45 @@ router.post("/action", requireAuth, async (req, res) => {
     } catch (e) {
       feeInvoiceError = true;
       console.error("[cancellation] fee invoice generation failed (non-fatal):", (e as any)?.message);
+    }
+  }
+
+  // [late-reschedule-fee 2026-08-19] Bill the short-notice fee on a move.
+  //
+  // Its own invoice, deliberately — the visit is still coming and will bill for
+  // its full price when it completes, so folding the fee into the job would make
+  // the cleaning cost more than the cleaning costs. And the fee invoice never
+  // claims the visit in the coverage ledger; if it did,
+  // ensureInvoiceForCompletedJob would see live coverage on the new date and
+  // skip it, and the cleaning itself would never be billed. See
+  // lib/reschedule-fee-invoice.ts.
+  //
+  // Awaited and reported, not fire-and-forget: same reasoning as the cancel fee
+  // above — a fee that is decided and never billed is the exact bug that path
+  // was written to close. A failure is surfaced, never thrown; the move is
+  // already committed and must not be undone by an invoicing hiccup.
+  //
+  // Account (commercial) jobs have no client_id to bill; those are left to the
+  // office and reported as such rather than silently dropped.
+  if (rescheduleFee > 0) {
+    if (row.client_id == null) {
+      feeInvoiceError = true;
+      console.warn(`[cancellation] late-reschedule fee on account job ${body.job_id} — no client to invoice`);
+    } else if (body.bill_fee === false) {
+      feeInvoice = null;
+    } else try {
+      const inv = await createRescheduleFeeInvoice({
+        companyId,
+        clientId: row.client_id,
+        jobId: body.job_id!,
+        originalDate: row.scheduled_date ?? null,
+        amount: rescheduleFee,
+        userId: userId ?? null,
+      });
+      feeInvoice = inv ? { id: inv.id, status: inv.status, total: inv.total, created: true } : null;
+    } catch (e) {
+      feeInvoiceError = true;
+      console.error("[cancellation] late-reschedule fee invoice failed (non-fatal):", (e as any)?.message);
     }
   }
 
@@ -769,6 +862,13 @@ router.post("/action", requireAuth, async (req, res) => {
     log: logRow,
     charge_amount: finalCharge,
     fee_pct_applied: policy.fee_pct_applied,
+    // [late-reschedule-fee 2026-08-19] The short-notice fee taken on a move, and
+    // the notice that justified it. 0 on every other path, including a move made
+    // with plenty of warning — so a caller can tell "no fee applies" from "a fee
+    // applied and was billed" without re-deriving the window.
+    reschedule_fee: rescheduleFee,
+    hours_notice: notice.hours_notice,
+    late_reschedule: notice.is_late,
     // For reschedule actions, the job stays 'scheduled' regardless of
     // what the policy said (the policy is cancellation-centric and
     // defaults to 'cancelled' for free actions). Surface 'scheduled' so
