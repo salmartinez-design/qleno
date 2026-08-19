@@ -759,6 +759,38 @@ async function runStartupMigrations() {
     recordStartupFailure("repairJobActualHours", err);
   }
   try {
+    // [phes-is-a-tenant 2026-08-19] Point a service zone at a real branch.
+    //
+    // service_zones.location is TEXT with a DEFAULT of 'oak_lawn' — one
+    // tenant's branch name written into the schema every other tenant inherits.
+    // A new customer in Denver creates a zone and it is born belonging to
+    // "oak_lawn". The zone needs a foreign key to a row in THEIR branches
+    // table, not a slug from ours.
+    //
+    // Additive and idempotent: the column is nullable, the slug stays (reports
+    // group on it), and the backfill only matches a zone to a branch of its own
+    // company whose name slugifies to the same string. Nothing cross-tenant can
+    // match, and a zone that finds no branch is simply left null — the brand
+    // resolver then answers with the company's own details, which is correct.
+    await withBootTimeout("ensureZoneBranchLink", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS branch_id integer`);
+      const r = await db.execute(sql`
+        UPDATE service_zones z SET branch_id = b.id
+          FROM branches b
+         WHERE b.company_id = z.company_id
+           AND b.is_active
+           AND z.branch_id IS NULL
+           AND lower(regexp_replace(btrim(b.name), '[^a-zA-Z0-9]+', '_', 'g')) = lower(btrim(z.location))
+        RETURNING z.id`);
+      const n = (r as any).rows?.length ?? 0;
+      if (n > 0) console.log(`[zone-branch-link] linked ${n} service zone(s) to their branch`);
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureZoneBranchLink", err);
+  }
+  try {
     // [job-created-audit 2026-08-08] Who booked a visit, and from where. Both
     // nullable with NO backfill — historical jobs genuinely don't know their
     // creator, and inventing one would be worse than an honest blank. The
