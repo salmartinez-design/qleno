@@ -2826,4 +2826,54 @@ router.get("/mileage", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ── GET /api/reports/owner-digest ───────────────────────────────────────────
+// [owner-digest 2026-08-19] Read-only preview of the 6 PM recap: every number
+// the text carries, plus the exact message body that would be sent, plus which
+// comms gate (if any) is currently holding the text back. Sends nothing.
+//
+// This exists so the recap can be checked against the board BEFORE it starts
+// texting anyone. A daily number the owner cannot reconcile is worse than no
+// daily number.
+router.get("/owner-digest", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const date = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+      ? req.query.date : undefined;
+    const { buildOwnerDigest, formatOwnerDigestSms } = await import("../lib/owner-digest.js");
+    const { resolveSender } = await import("../lib/comms-sender.js");
+    const digest = await buildOwnerDigest(companyId, date);
+    const sender = await resolveSender(companyId, null);
+    return res.json({
+      digest,
+      sms_preview: formatOwnerDigestSms(digest),
+      delivery: {
+        cron_enabled: process.env.OWNER_DIGEST_ENABLED === "true",
+        bypass_comms_gate: process.env.OWNER_DIGEST_BYPASS_COMMS_GATE === "true",
+        sms_blocked_by: sender.reason ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("GET /reports/owner-digest:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/reports/owner-digest/send ─────────────────────────────────────
+// Send the recap right now, to the tenant's owners, on demand. Owner-only: the
+// recipients are the owners themselves, so nobody else needs to be able to fire
+// it. Obeys the same comms ladder as the cron — this is a "send it early", not
+// a way around the gate.
+router.post("/owner-digest/send", requireAuth, requireRole("owner", "super_admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const date = typeof req.body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
+      ? req.body.date : undefined;
+    const { sendOwnerDigest } = await import("../lib/owner-digest.js");
+    return res.json(await sendOwnerDigest(companyId, date));
+  } catch (err) {
+    console.error("POST /reports/owner-digest/send:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
