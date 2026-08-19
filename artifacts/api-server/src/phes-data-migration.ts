@@ -138,6 +138,21 @@ async function runBookingSchemaGuard(): Promise<void> {
     // unsuffixed SQUARE_* env vars), so Oak Lawn is unaffected by its addition.
     { label: "companies.square_account_key", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS square_account_key TEXT" },
 
+    // [branch-stamp 2026-08-19] Which branch a TENANT speaks as, when the zip
+    // must not decide. NULL = the tenant serves both branches and comms fall
+    // back to getBranchByZip, i.e. exactly today's behavior — so company 1 is
+    // deliberately left NULL while Schaumburg-zip clients still sit in its
+    // books. Phes Schaumburg is a Schaumburg-only business, so a lead it owns
+    // at an Oak Lawn zip must still be answered from (847) 538-3729 and
+    // schaumburg@phes.io, never from the other partner's number.
+    { label: "companies.branch_key", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS branch_key TEXT" },
+    // Keyed off square_account_key rather than the name so the pin can never
+    // disagree with which merchant that tenant banks into. Only fills a NULL —
+    // an explicit pin set in the app is never overwritten on the next boot.
+    { label: "seed branch_key for the Schaumburg tenant", stmt: `
+      UPDATE companies SET branch_key = 'schaumburg'
+       WHERE branch_key IS NULL AND UPPER(TRIM(COALESCE(square_account_key,''))) = 'SCHAUMBURG'` },
+
     // ── [customer-portal 2026-08-05] Portal identity ──────────────────────
     // See docs/CUSTOMER_PORTAL_DESIGN.md. Residential and commercial customers
     // share ONE login surface; who they are is here, what they may do is

@@ -29,7 +29,7 @@ import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
 // the hardcoded job-status SMS bodies and the office booking-notification email.
 import { SMS_MESSAGES, JOBSTATUS_TO_TRIGGER } from "../routes/job-sms.js";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates.js";
-import { getBranchByZip } from "../lib/branchRouter.js";
+import { resolveBranchForCompany } from "../lib/branchRouter.js";
 
 // Special (non customer-message-catalog) test template keys.
 const OFFICE_BOOKING_KEY = "office_booking";
@@ -106,10 +106,11 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
 };
 
 // Sample booking used to render the office-notification email test. branchConfig
-// comes from the sample address zip via getBranchByZip (same as the live booking
-// path). Cast to any so we don't couple to the full ConfirmationEmailParams shape
+// is resolved for the previewing tenant, same as the live booking path — so a
+// Schaumburg office previews Schaumburg's number and inbox, not Oak Lawn's.
+// Cast to any so we don't couple to the full ConfirmationEmailParams shape
 // — the unset fields are all optional and render fine.
-function sampleOfficeBookingParams(): any {
+function sampleOfficeBookingParams(branchConfig: any): any {
   return {
     firstName: "Maria",
     lastName: "Sample",
@@ -125,7 +126,7 @@ function sampleOfficeBookingParams(): any {
     bundleDiscount: 0,
     firstVisitTotal: 205,
     sqft: 1800,
-    branchConfig: getBranchByZip("60453"),
+    branchConfig,
     jobId: 0,
     zoneName: "Oak Lawn",
     availableTechs: [{ name: "Ana" }, { name: "Guadalupe" }],
@@ -301,7 +302,9 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
     };
     bodyIsFullHtml = true;
   } else if (isOfficeBooking) {
-    const { subject, html } = buildOfficeNotificationEmail(sampleOfficeBookingParams());
+    const { subject, html } = buildOfficeNotificationEmail(
+      sampleOfficeBookingParams(await resolveBranchForCompany(companyId, "60453")),
+    );
     rendered = { subject, body: html };
     bodyIsFullHtml = true;
   } else if (isJobStatus) {

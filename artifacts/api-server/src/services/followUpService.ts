@@ -6,7 +6,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
-import { getBranchByZip } from "../lib/branchRouter.js";
+import { resolveBranchForCompany } from "../lib/branchRouter.js";
 import { appBaseUrl, emailLogoUrl } from "../lib/app-url.js";
 import { shortenUrl } from "../lib/short-link.js";
 import { estTimeLabel } from "../lib/estimated-time.js";
@@ -1089,8 +1089,10 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
     }
   }
 
-  // Per-branch routing — every comm goes through getBranchByZip (CLAUDE.md).
-  const branch = getBranchByZip(zip || "");
+  // Per-branch routing — every comm goes through the branch router (CLAUDE.md).
+  // A branch-pinned tenant wins over the zip, so a Schaumburg-owned lead at an
+  // Oak Lawn address is still answered by Schaumburg.
+  const branch = await resolveBranchForCompany(enr.company_id, zip);
   const branchId = branch.branch === "schaumburg" ? 2 : 1;
 
   // Prefer the managed template (template_id) over the step's inline copy.
@@ -1510,7 +1512,7 @@ export async function sendSingleEnrollmentTouch(
     const r = await db.execute(sql`SELECT contact_name, contact_email, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1`);
     const e = r.rows[0] as any; if (e) { firstName = (e.contact_name || "").split(" ")[0] || ""; recipientEmail = e.contact_email || null; recipientPhone = e.contact_phone || null; zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null; }
   }
-  const branch = getBranchByZip(zip || "");
+  const branch = await resolveBranchForCompany(companyId, zip);
 
   // Prefer managed template, else inline copy; render merge fields
   let rawBody = step.message_template || "", rawSubject = step.subject || "";

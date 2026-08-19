@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { notificationTemplatesTable, notificationLogTable, clientsTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getBranchByZip } from "../lib/branchRouter";
+import { resolveBranchForCompany } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData, buildUnsubDataFromToken } from "../lib/opt-out.js";
@@ -531,7 +531,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
 
     for (const job of jobs) {
       const jobZip = job.address_zip || job.zip || "";
-      const branchConfig = getBranchByZip(jobZip);
+      // The tenant that owns the job decides who speaks, not the zip.
+      const branchConfig = await resolveBranchForCompany(job.company_id, jobZip);
       // [AI.7.6] Canonical address format — "<street>, <city>, <state> <zip>".
       // Same rule as the frontend formatAddress(): zip MUST be shown when
       // address is shown.
@@ -810,7 +811,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         if (sdate === targetStr && ctHour < sendHour) { _hourGated++; continue; }
 
         const jobZip = job.address_zip || job.zip || "";
-        const branchConfig = getBranchByZip(jobZip);
+        const branchConfig = await resolveBranchForCompany(job.company_id, jobZip);
         const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
         // [address-fallback 2026-07-14] Job-level address, then CLIENT-level
         // fallback, then "On file". The reminder read only the job's address_*
