@@ -450,23 +450,36 @@ async function runStartupMigrations() {
            AND COALESCE(j.manual_rate_override, false) = false
            AND NOT EXISTS (SELECT 1 FROM job_add_ons ja WHERE ja.job_id = j.id)
            AND NOT EXISTS (SELECT 1 FROM job_rate_mods jm WHERE jm.job_id = j.id AND jm.affects_commission = true)
-           -- [dead-heal 2026-08-09] NOTE: this statement has never actually run.
-           -- client_type is an enum, so COALESCE(..., '') throws "invalid input
-           -- value for enum client_type" at PLAN time and the enclosing schema
-           -- guard swallows it as non-fatal on every boot. It also aborts the
-           -- REST of addInvoiceColumns — everything below this line in the step
-           -- is skipped too (audited 2026-08-09: no live damage, the columns
-           -- exist via other paths and both property-link heals match 0 rows).
+           -- [dead-heal 2026-08-09] client_type is an enum, so COALESCE(..., '')
+           -- threw "invalid input value for enum client_type" at PLAN time, and
+           -- the enclosing schema guard swallowed it as non-fatal on every boot.
+           -- The statement had therefore never run, and it took the REST of
+           -- addInvoiceColumns down with it on each boot.
            --
-           -- Repairing the cast (::text) would rewrite commission_base on 52
-           -- residential jobs — all 52 in the same direction, pay base ABOVE
-           -- price, $4,113 total, ~$1,440 of tech commission. 21 of them are
-           -- completed June jobs that were already paid at the old number, and
-           -- 2 have base_fee = $0, which would zero the tech's pay entirely.
-           -- That is a payroll decision for Sal, not a silent side effect of an
-           -- unrelated PR. Left broken deliberately; now flagged loudly at boot
-           -- via recordStartupFailure + GET /api/health -> startup_failures.
-           AND COALESCE((SELECT c.client_type FROM clients c WHERE c.id = j.client_id), '') <> 'commercial'`);
+           -- [commission-base-scope 2026-08-18] Repaired with ::text, plus the
+           -- two guards that make running it safe. Without them the heal was a
+           -- payroll event, not a cleanup: it matched 26 jobs, all drifted the
+           -- same way (pay base ABOVE price), and it would have quietly moved
+           -- money on work that was already paid.
+           --
+           --   1. Cutover floor. Everything before 2026-07-01 is MaidCentral's
+           --      book, not ours — Qleno rows from then are not evidence and
+           --      those techs were already paid off the old number. 23 of the
+           --      26 sit there. Sal, 2026-08-18: "nothing matters if it was in
+           --      June."
+           --   2. Skip base_fee = 0. Those are redos — a free re-clean after a
+           --      complaint (job 19631 "Redo of job #19299", job 20451 "Redo of
+           --      job #4605"). The customer is charged nothing and the cleaner
+           --      is still paid, so commission_base ABOVE base_fee is CORRECT
+           --      there. Healing them to base_fee would have zeroed two
+           --      cleaners' pay on jobs they had already worked.
+           --
+           -- What is left is the real target: open, post-cutover work nobody has
+           -- been paid for yet. Any new zero-price redo is protected by guard 2
+           -- rather than needing another audit.
+           AND j.scheduled_date >= DATE '2026-07-01'
+           AND (j.base_fee)::numeric > 0
+           AND COALESCE((SELECT c.client_type::text FROM clients c WHERE c.id = j.client_id), '') <> 'commercial'`);
       // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
       // invoice's line items / tip via PUT. While set, the invoice is DETACHED
       // from job mirroring: the mark-paid pre-payment recalc and the job-edit
