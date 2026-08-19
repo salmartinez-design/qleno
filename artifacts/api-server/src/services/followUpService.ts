@@ -80,7 +80,7 @@ async function companyFromAddress(companyId: number): Promise<string> {
   try {
     const r = await db.execute(sql`SELECT name, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
     const c: any = r.rows[0] ?? {};
-    const brand = c.name || "Phes Cleaning";
+    const brand = c.name || "";
     return c.email_from_address ? `${brand} <${c.email_from_address}>` : `${brand} <noreply@phes.io>`;
   } catch { return "Phes Cleaning <noreply@phes.io>"; }
 }
@@ -93,7 +93,7 @@ async function companyInfo(companyId: number): Promise<{ name: string; phone: st
   try {
     const r = await db.execute(sql`SELECT name, phone, email FROM companies WHERE id = ${companyId} LIMIT 1`);
     const c: any = r.rows[0] ?? {};
-    return { name: c.name || "Phes", phone: c.phone || "", email: c.email || "" };
+    return { name: c.name || "", phone: c.phone || "", email: c.email || "" };
   } catch { return { name: "Phes", phone: "", email: "" }; }
 }
 
@@ -112,7 +112,7 @@ async function sendEmailRaw(
   if (!key) throw new Error("Resend not configured");
   const { Resend } = await import("resend");
   const resend = new Resend(key);
-  const brandName  = brand?.companyName || "Phes Cleaning";
+  const brandName  = brand?.companyName || "";
   const brandPhone = brand?.phone || "(773) 706-6000";
   const brandEmail = brand?.email || "info@phes.io";
   // A body that already starts with a block tag is rich HTML (e.g. the quote

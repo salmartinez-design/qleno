@@ -121,7 +121,7 @@ export async function gatherConfirmationData(jobId: number, companyId: number): 
     if (body) {
       const merged = applyMerge(body, {
         first_name: (j.first_name || "").trim(),
-        company_name: j.company_name || "Phes",
+        company_name: j.company_name,
         company_phone: j.company_phone || "",
         company_email: j.company_email || "",
         appointment_date: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "",
@@ -134,10 +134,15 @@ export async function gatherConfirmationData(jobId: number, companyId: number): 
     }
   } catch { /* non-fatal */ }
 
-  const FALLBACK_PHONE = "(773) 706-6000", FALLBACK_EMAIL = "info@phes.io";
+  // [phes-is-a-tenant 2026-08-19] No fallback contact details. These were one
+  // customer's Chicago number and info@ address, printed on the confirmation PDF
+  // of any tenant that had not filled theirs in — sending a stranger's client to
+  // ring Phes. Blank is a visible gap the tenant can fix; the wrong number is a
+  // misdirected phone call nobody traces.
+  const FALLBACK_PHONE = "", FALLBACK_EMAIL = "";
   return {
     jobId: j.id,
-    companyName: j.company_name || "Phes",
+    companyName: j.company_name,
     clientFirst: (j.first_name || "").trim(),
     apptDate: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "Your scheduled date",
     apptTime: fmtTime12h(j.scheduled_time),
