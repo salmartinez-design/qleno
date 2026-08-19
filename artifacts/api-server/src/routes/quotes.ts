@@ -3,6 +3,8 @@ import { db } from "@workspace/db";
 import { quotesTable, clientsTable, pricingScopesTable, recurringSchedulesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { fillAddressGaps } from "../lib/parse-address.js";
+import { resolveZoneForZip } from "./zones.js";
 import { logAudit } from "../lib/audit.js";
 import { resolveBranchForCompany } from "../lib/branchRouter";
 import { randomBytes, randomUUID } from "crypto";
@@ -1273,11 +1275,50 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     const jobOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
       .filter((x: any) => x && String(x).trim())
       .join("\n\n") || null;
+    // [quote-address-cascade 2026-08-19] Resolve the service address into its
+    // parts, and the zone from its zip, BEFORE the insert.
+    //
+    // The client record wins where it has a component: it is the canonical
+    // customer address and the office may already have corrected it. The quote's
+    // one-line string only fills the gaps — which is the usual case for a
+    // brand-new lead, whose client row was just created from that same line.
+    //
+    // The zone is resolved here rather than left for a later edit because
+    // "assign the zone automatically" is the whole point: an unzoned job is a
+    // grey tile the board cannot route. A zip in none of the tenant's zones
+    // resolves null, same as everywhere else — visible and fixable, never guessed.
+    const clientAddrRow = clientId ? (await db.execute(sql`
+      SELECT address, city, state, zip FROM clients
+       WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1`)).rows[0] as any : null;
+    const jobAddr = fillAddressGaps(
+      {
+        street: clientAddrRow?.address ?? null,
+        city: clientAddrRow?.city ?? null,
+        state: clientAddrRow?.state ?? null,
+        zip: clientAddrRow?.zip ?? null,
+      },
+      (q as any).address ?? null,
+    );
+    let jobZoneId: number | null = null;
+    try {
+      jobZoneId = jobAddr.zip ? await resolveZoneForZip(companyId, jobAddr.zip) : null;
+    } catch (e) {
+      console.warn("[convert] zone resolve non-fatal:", (e as any)?.message ?? e);
+    }
+
     const jobResult = await db.execute(sql`
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, billing_method, address_street, created_at,
+        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, billing_method,
+        -- [quote-address-cascade 2026-08-19] All FOUR components and the zone,
+        -- not just the street. Convert used to write address_street alone and
+        -- leave city/state/zip and zone_id NULL, so a converted quote produced a
+        -- job the dispatch board could not colour, routing could not place, and
+        -- the card rendered as a street with no town. Maribel: "it's not
+        -- cascading from the quote, so we can't see the city and for some reason
+        -- doesnt assign the zone automatically."
+        address_street, address_city, address_state, address_zip, zone_id, created_at,
         -- [job-created-audit 2026-08-08] Who booked it, from where. Convert
         -- never wrote a CREATE audit row, so the activity feed could show
         -- every later edit to this visit but not the booking itself.
@@ -1298,7 +1339,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${jobHourlyRate},
         ${scopeBillingMethod ? sql.raw(`'${scopeBillingMethod}'::billing_method`) : sql`NULL`},
-        ${(q as any).address || null},
+        ${jobAddr.street},
+        ${jobAddr.city},
+        ${jobAddr.state},
+        ${jobAddr.zip},
+        ${jobZoneId},
         NOW(),
         ${req.auth!.userId ?? null},
         'quote'

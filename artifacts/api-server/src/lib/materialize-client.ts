@@ -12,6 +12,7 @@
 // quote, convert MUST find that same client instead of inserting a twin — both
 // now run this identical match.
 import { db } from "@workspace/db";
+import { parseAddressLine } from "./parse-address.js";
 import { sql } from "drizzle-orm";
 
 export interface QuoteLeadFields {
@@ -57,10 +58,26 @@ export async function materializeClientForQuote(
 
   if (!clientId) {
     const np = String(q.lead_name ?? "").trim().split(/\s+/).filter(Boolean);
+    // [quote-address-cascade 2026-08-19] Split the one-line address the office
+    // typed into its parts.
+    //
+    // This used to write the whole string into `clients.address` and leave
+    // `city`, `state` and `zip` NULL — which is why Cynthiia Lopezz (CL-1533)
+    // reads "17878 Argos Court, Tinley Park, IL 60477" in one column with three
+    // empty ones beside it, and why the job card could not show her town.
+    // Maribel: "we can't see the city."
+    //
+    // `street` goes in `address` (the column has always meant the street for
+    // records created any other way), and the components fill the columns every
+    // downstream consumer actually reads: zone routing, the dispatch tile, the
+    // address formatter, geocoding. An address the parser cannot read
+    // confidently still lands whole in `address`, exactly as before.
+    const pa = parseAddressLine(q.address ?? null);
     const ins = await db.execute(sql`
-      INSERT INTO clients (company_id, first_name, last_name, email, phone, address)
+      INSERT INTO clients (company_id, first_name, last_name, email, phone, address, city, state, zip)
       VALUES (${companyId}, ${np[0] || q.lead_name || "Client"}, ${np.slice(1).join(" ") || ""},
-              ${q.lead_email ?? null}, ${q.lead_phone ?? null}, ${q.address ?? null})
+              ${q.lead_email ?? null}, ${q.lead_phone ?? null},
+              ${pa.street ?? q.address ?? null}, ${pa.city}, ${pa.state}, ${pa.zip})
       RETURNING id`);
     clientId = (ins.rows[0] as any)?.id ?? null;
   }
