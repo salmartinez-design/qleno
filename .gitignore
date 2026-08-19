@@ -66,3 +66,4 @@ scratchpad/
 # Untracked 2026-08-15: 313 files / 75MB were published in a public repo and
 # contained working login credentials. Files remain on disk.
 attached_assets/
+.preview-scratch/

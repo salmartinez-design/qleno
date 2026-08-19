@@ -80,7 +80,7 @@ const DEFAULT_TEMPLATES = [
   {
     trigger: "payment_received",
     channel: "email" as const,
-    subject: "Payment confirmed — Thank you!",
+    subject: "Payment confirmed. Thank you!",
     body: "Hi {{client_name}},\n\nWe received your payment of ${{amount}}. Thank you!\n\n{{company_name}}",
     is_active: true,
   },

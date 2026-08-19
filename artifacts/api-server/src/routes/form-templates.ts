@@ -118,7 +118,7 @@ const PHES_RESIDENTIAL_SCHEMA = [
 ];
 
 const PHES_RESIDENTIAL_TERMS = `ARRIVAL WINDOW
-Our technicians operate within a 2–3 hour arrival window. Exact arrival times cannot be guaranteed due to the nature of home cleaning services. We will do our best to accommodate your schedule and notify you when your technician is on the way.
+Our technicians operate within a 2 to 3 hour arrival window. Exact arrival times cannot be guaranteed due to the nature of home cleaning services. We will do our best to accommodate your schedule and notify you when your technician is on the way.
 
 SERVICE GUIDELINES
 We will begin services on the agreed start date. Your service includes a per-visit minimum and covers all standard cleaning tasks as discussed. Additional hours beyond the base rate are billed at the agreed hourly rate.
@@ -163,7 +163,7 @@ ANNUAL RATE REVIEW
 Phes reserves the right to adjust rates annually in January based on labor costs, supply costs, and market conditions. Clients will be notified 30 days in advance of any rate change.
 
 RATE CHANGES BASED ON CLEANING TIME
-After your first 2–3 months of service, your rate may be adjusted to reflect the actual time required to clean your home to our standards. We will communicate any adjustment to you before it takes effect.
+After your first 2 to 3 months of service, your rate may be adjusted to reflect the actual time required to clean your home to our standards. We will communicate any adjustment to you before it takes effect.
 
 WEATHER POLICY
 Phes may reschedule services due to severe weather conditions that pose safety risks to our staff. We will notify you as early as possible and reschedule at no penalty to you.

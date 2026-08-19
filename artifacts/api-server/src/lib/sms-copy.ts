@@ -42,7 +42,7 @@ export const QUOTE_LAST_SMS =
 // the old text is gone, so it won't run again).
 const OLD = {
   booking:
-    "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for {{appointment_date}} at {{appointment_time}} — {{service_type}} at {{service_address}}. View your appointment: {{appointment_link}} Questions? {{company_phone}}.",
+    "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for {{appointment_date}} at {{appointment_time}}. {{service_type}} at {{service_address}}. View your appointment: {{appointment_link}} Questions? {{company_phone}}.",
   // Previous iteration of booking SMS (upgraded below alongside the original)
   bookingV2:
     "{{company_name}}: your cleaning is confirmed for {{appointment_date}} at {{appointment_time}}. Details: {{appointment_link}}",

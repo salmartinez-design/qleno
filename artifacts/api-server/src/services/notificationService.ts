@@ -1099,7 +1099,7 @@ const ARRIVAL_WINDOW_MINUTES = 45;
 
 /**
  * Compute a human-readable arrival window from a scheduled time.
- * e.g. "9:00 AM" → "9:00 AM – 9:45 AM" (with ARRIVAL_WINDOW_MINUTES = 45)
+ * e.g. "9:00 AM" -> "9:00 AM to 9:45 AM" (with ARRIVAL_WINDOW_MINUTES = 45)
  * Falls back to the legacy morning/afternoon labels if no scheduled_time is set.
  */
 export function computeArrivalWindow(
@@ -1124,12 +1124,12 @@ export function computeArrivalWindow(
         const h12 = h % 12 || 12;
         return `${h12}:${String(m2).padStart(2, "0")} ${ap}`;
       };
-      return `${fmtTime(startMins)} – ${fmtTime(endMins)}`;
+      return `${fmtTime(startMins)} to ${fmtTime(endMins)}`;
     }
   }
   // Legacy fallback when no scheduled_time is stored on the job
-  if (arrivalWindowStr === "morning") return "9:00 AM – 12:00 PM";
-  if (arrivalWindowStr === "afternoon") return "12:00 PM – 2:00 PM";
+  if (arrivalWindowStr === "morning") return "9:00 AM to 12:00 PM";
+  if (arrivalWindowStr === "afternoon") return "12:00 PM to 2:00 PM";
   // [time-picker 2026-07-15] arrival_window now holds a specific requested time
   // (e.g. "10:00 AM") — surface it directly rather than the generic fallback.
   if (arrivalWindowStr && arrivalWindowStr.trim()) return arrivalWindowStr.trim();

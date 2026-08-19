@@ -118,7 +118,7 @@ export function renderPhesQuote(o: PhesQuoteOpts): string {
 
   const optionsIntro = single
     ? "Here's your quote. Book it right below when you're ready, or reply with any questions."
-    : "Here are your options. Pick whichever fits and book it right below — or reply with any questions.";
+    : "Here are your options. Pick whichever fits and book it right below, or reply with any questions.";
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your quote from ${esc(o.companyName)}</title></head>
