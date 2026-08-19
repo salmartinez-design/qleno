@@ -23,26 +23,108 @@ const SCHAUMBURG_ZIPS = new Set([
   "60010","60011","60107","60120","60172","60179","60192","60201",
 ]);
 
-export function getBranchByZip(zip: string): BranchConfig {
-  const isSchaumburg = SCHAUMBURG_ZIPS.has(zip?.toString().trim());
-  if (isSchaumburg) {
-    return {
-      branch: "schaumburg",
-      officeEmail: "schaumburg@phes.io",
-      fromName: "Phes",
-      clientPhone: "847-538-3729",
-      clientPhoneFormatted: "(847) 538-3729",
-      twilioFrom: "+16308844318",
-    };
-  }
-  return {
+export const BRANCH_CONFIGS: Record<string, BranchConfig> = {
+  schaumburg: {
+    branch: "schaumburg",
+    officeEmail: "schaumburg@phes.io",
+    fromName: "Phes",
+    clientPhone: "847-538-3729",
+    clientPhoneFormatted: "(847) 538-3729",
+    twilioFrom: "+16308844318",
+  },
+  oak_lawn: {
     branch: "oak_lawn",
     officeEmail: "info@phes.io",
     fromName: "Phes",
     clientPhone: "773-706-6000",
     clientPhoneFormatted: "(773) 706-6000",
     twilioFrom: "+17737869902",
-  };
+  },
+};
+
+export function getBranchByZip(zip: string): BranchConfig {
+  return SCHAUMBURG_ZIPS.has(zip?.toString().trim())
+    ? BRANCH_CONFIGS.schaumburg
+    : BRANCH_CONFIGS.oak_lawn;
+}
+
+// ── The branch STAMP: which tenant owns the work, not which zip it sits in ──
+//
+// [branch-stamp 2026-08-19] Sal: "there is going to be times where through
+// networking or organic calls a lead might come in to Schaumburg, but it might
+// have an Oak Lawn ZIP Code ... it is only right that that lead stays in
+// Schaumburg." Oak Lawn and Schaumburg are separate businesses with separate
+// owners and separate bank accounts, so who ANSWERS a customer has to follow
+// who OWNS the work — not the postal code the house happens to sit in.
+//
+// getBranchByZip cannot express that: it only ever sees five digits. A
+// Schaumburg-owned lead at a 60453 address came back "oak_lawn" and got
+// answered from Oak Lawn's number and Oak Lawn's inbox, handing the customer
+// to the other partner's business.
+//
+// The stamp already exists and is stronger than any column we could add: the
+// COMPANY the record lives in. Phes Schaumburg (company 4) is a Schaumburg-only
+// tenant — every lead, quote, job and invoice in it belongs to that branch by
+// construction, whatever the zip says. `companies.branch_key` is the explicit
+// switch that says so.
+//
+// NULL branch_key means "this tenant serves both branches, ask the zip" — which
+// is exactly today's behavior, so company 1 is untouched by this. Only a tenant
+// deliberately pinned to one branch overrides the zip. Pinning company 1 to
+// oak_lawn is a SEPARATE decision that has to wait until the Schaumburg-zip
+// clients still sitting in its books are moved to company 4; until then its
+// zip-driven routing is still the right answer for them.
+const PIN_TTL_MS = 60_000;
+let pinCache: { at: number; map: Map<number, string> } | null = null;
+
+async function branchPins(): Promise<Map<number, string>> {
+  const now = Date.now();
+  if (pinCache && now - pinCache.at < PIN_TTL_MS) return pinCache.map;
+  const map = new Map<number, string>();
+  try {
+    const rows = await db.execute(sql`
+      SELECT id, NULLIF(TRIM(LOWER(COALESCE(branch_key, ''))), '') AS branch_key
+        FROM companies WHERE branch_key IS NOT NULL
+    `);
+    for (const r of (((rows as any).rows ?? rows) as any[])) {
+      const key = r.branch_key;
+      if (key && BRANCH_CONFIGS[key]) map.set(Number(r.id), key);
+    }
+  } catch (err) {
+    // A missing column or an unreachable DB must never take comms down — it
+    // falls through to the zip, which is what the whole system did before.
+    console.error("[branchRouter] branch pin lookup failed:", err);
+    if (pinCache) return pinCache.map;
+  }
+  pinCache = { at: now, map };
+  return map;
+}
+
+/**
+ * The branch a comm should speak AS, for work owned by `companyId`.
+ *
+ * A tenant pinned to one branch wins outright — the zip is not consulted. Any
+ * other tenant falls back to `getBranchByZip`, unchanged.
+ *
+ * Every surface that picks an office email, a customer-facing phone number or a
+ * Twilio sender should call THIS, not getBranchByZip, whenever it knows which
+ * company the work belongs to (which is nearly always — every row is scoped by
+ * company_id).
+ */
+export async function resolveBranchForCompany(
+  companyId: number | null | undefined,
+  zip?: string | null,
+): Promise<BranchConfig> {
+  if (companyId != null && Number.isFinite(Number(companyId))) {
+    const pin = (await branchPins()).get(Number(companyId));
+    if (pin && BRANCH_CONFIGS[pin]) return BRANCH_CONFIGS[pin];
+  }
+  return getBranchByZip((zip ?? "").toString());
+}
+
+/** Test seam — drops the memoized pins so a change takes effect immediately. */
+export function clearBranchPinCache(): void {
+  pinCache = null;
 }
 
 /**

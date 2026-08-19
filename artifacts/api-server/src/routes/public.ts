@@ -9,7 +9,7 @@ import {
 } from "@workspace/db/schema";
 import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getBranchByZip, resolveBookingTenant } from "../lib/branchRouter";
+import { resolveBookingTenant, resolveBranchForCompany } from "../lib/branchRouter";
 import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
@@ -1064,7 +1064,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const addrLng = resolvedAddr.lng;
     const addrVerified = address_verified === true || address_verified === "true" ? true : false;
 
-    const branchConfig = getBranchByZip(resolvedAddr.zip || zip || address_zip || "");
+    const branchConfig = await resolveBranchForCompany(
+      Number(company_id),
+      resolvedAddr.zip || zip || address_zip || "",
+    );
 
     const jobResult = await db.execute(
       drizzleSql`

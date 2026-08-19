@@ -4,7 +4,7 @@ import { quotesTable, clientsTable, pricingScopesTable, recurringSchedulesTable,
 import { eq, and, desc, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { getBranchByZip } from "../lib/branchRouter";
+import { resolveBranchForCompany } from "../lib/branchRouter";
 import { randomBytes, randomUUID } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
@@ -343,13 +343,18 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
 
     // Resolve branch from client zip for branch tagging
+    // The office quote is the one place ANY zip is allowed (Sal, 2026-08-19),
+    // so the branch tag comes from the tenant the office is working in — a
+    // Schaumburg quote for an Oak Lawn address stays Schaumburg.
     let quoteBranch = "oak_lawn";
-    if (client_id) {
-      try {
+    try {
+      let clientZip: string | null = null;
+      if (client_id) {
         const [cl] = await db.select({ zip: clientsTable.zip }).from(clientsTable).where(eq(clientsTable.id, client_id)).limit(1);
-        if (cl?.zip) quoteBranch = getBranchByZip(cl.zip).branch;
-      } catch {}
-    }
+        clientZip = cl?.zip ?? null;
+      }
+      quoteBranch = (await resolveBranchForCompany(req.auth!.companyId, clientZip)).branch;
+    } catch {}
 
     const [q] = await db.insert(quotesTable).values({
       company_id: req.auth!.companyId,

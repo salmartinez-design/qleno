@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getBranchByZip } from "./branchRouter";
+import { resolveBranchForCompany } from "./branchRouter";
 
 export interface ResolvedSender {
   enabled: boolean;               // company twilio_enabled gate (Twilio go-live)
@@ -62,12 +62,14 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   // When env-var creds are present, treat twilio_enabled as on — env presence IS
   // the go-live signal when the DB column hasn't been explicitly set.
   const enabled = !!(c.twilio_enabled || (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN));
-  // If from_number is still null and we have env-var creds, use the Oak Lawn
-  // primary number as the default sender. Event-driven sends don't carry zip
-  // context so we can't route per-branch here; callers that DO have zip should
-  // call getBranchByZip() upstream and pass the resolved branchId instead.
+  // If from_number is still null and we have env-var creds, fall back to the
+  // number for THIS TENANT's branch. Event-driven sends don't carry zip context,
+  // but they always carry the company — and for a branch-pinned tenant that is a
+  // better answer than the zip could ever give. Defaulting to Oak Lawn's number
+  // here would have sent Schaumburg's texts from the other business's line.
+  // Unpinned tenants still land on the Oak Lawn default, unchanged.
   if (!from_number && account_sid) {
-    from_number = getBranchByZip("").twilioFrom; // empty string → Oak Lawn default
+    from_number = (await resolveBranchForCompany(companyId)).twilioFrom;
   }
   const company_comms_enabled = !!c.comms_enabled;
   // Branch gate ONLY applies when the passed branchId actually maps to a branch
