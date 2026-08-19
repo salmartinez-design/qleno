@@ -794,9 +794,31 @@ router.post("/book/setup", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "company_id required" });
     }
     const tenant = await resolveBookingTenant(String(zip ?? ""), fallbackCompanyId);
+
+    // [square-per-branch 2026-08-18] The slug is what lets the widget RELOAD the
+    // owning tenant, and reloading is the whole point. Handing over only the
+    // Square ids would tokenize the card on Schaumburg's merchant while the
+    // widget still priced the job from Oak Lawn's catalog and posted
+    // company_id=1 to /book/confirm — the card save would then be attempted with
+    // Oak Lawn's token against a Schaumburg nonce and EVERY booking in that
+    // branch would fail at the card step. The tenant has to move as one piece:
+    // catalog, prices and merchant together. So this is returned unconditionally,
+    // including when Square is not configured — a branch whose credentials are
+    // still missing must not silently keep selling the other branch's prices.
+    const { sql: drSql } = await import("drizzle-orm");
+    const slugRow = await db.execute(
+      drSql`SELECT slug FROM companies WHERE id = ${tenant.companyId} LIMIT 1`
+    );
+    const bookingSlug = ((slugRow as any).rows ?? slugRow)[0]?.slug ?? null;
+
     const cfg = await getSquarePublicConfig(tenant.companyId);
     if (!cfg.configured || !cfg.applicationId || !cfg.locationId) {
-      return res.json({ square_enabled: false, branch: tenant.branch });
+      return res.json({
+        square_enabled: false,
+        branch: tenant.branch,
+        booking_company_id: tenant.companyId,
+        booking_company_slug: bookingSlug,
+      });
     }
     return res.json({
       square_enabled: true,
@@ -807,6 +829,7 @@ router.post("/book/setup", rateLimit, async (req, res) => {
       // and so the office can see which books a booking landed in.
       branch: tenant.branch,
       booking_company_id: tenant.companyId,
+      booking_company_slug: bookingSlug,
     });
   } catch (err: any) {
     console.error("POST /public/book/setup:", err);

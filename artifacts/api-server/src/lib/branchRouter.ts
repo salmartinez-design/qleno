@@ -1,5 +1,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { geocodeAddress } from "./geocode.js";
+import { haversineMeters } from "./distance.js";
 
 export interface BranchConfig {
   branch: string;
@@ -81,17 +83,96 @@ export async function getCompanyIdByBranch(branch: string): Promise<number | nul
  *
  * Returns the branch name only — mapping it to a tenant is getCompanyIdByBranch.
  */
+// ── Nearest-home-base tie-break ────────────────────────────────────────────
+//
+// [zip-overlap 2026-08-18] A zip can legitimately end up in BOTH branches' zone
+// lists — the two service areas are drawn by hand and they will drift as zips
+// are added. When that happens the zone table alone cannot say who owns the
+// booking, and the previous `LIMIT 1` answered with whatever row Postgres
+// happened to return first: the same zip could route to a different branch on
+// two consecutive bookings.
+//
+// Sal's rule is logistical, so the tie-break is too: a contested zip goes to the
+// branch whose home base is physically closest. Straight-line distance is the
+// right measure here — it is stable, needs no driving-route call on the booking
+// path, and the two bases are ~30 miles apart, so a road-vs-crow difference
+// cannot flip the answer.
+//
+// The base addresses are READ FROM `companies`, never hardcoded, so correcting a
+// branch's address in settings re-aims the routing with it.
+const baseCoordCache = new Map<string, { lat: number; lng: number } | null>();
+const zipCoordCache = new Map<string, { lat: number; lng: number } | null>();
+
+async function coordsFor(key: string, address: string, cache: Map<string, { lat: number; lng: number } | null>) {
+  if (cache.has(key)) return cache.get(key)!;
+  let coords: { lat: number; lng: number } | null = null;
+  try {
+    coords = await geocodeAddress(address);
+  } catch (err) {
+    console.error(`[branchRouter] geocode failed for ${address}:`, err);
+  }
+  cache.set(key, coords);
+  return coords;
+}
+
+async function nearestBranchByHomeBase(zip: string, branches: string[]): Promise<string | null> {
+  const zipCoords = await coordsFor(zip, `${zip}, IL, USA`, zipCoordCache);
+  if (!zipCoords) return null;
+
+  let best: { branch: string; meters: number } | null = null;
+  for (const branch of branches) {
+    const companyId = await getCompanyIdByBranch(branch);
+    if (companyId == null) continue;
+    const rows = await db.execute(sql`
+      SELECT address, city, state, zip FROM companies WHERE id = ${companyId} LIMIT 1
+    `);
+    const row = ((rows as any).rows ?? rows)[0];
+    const full = [row?.address, row?.city, row?.state, row?.zip].filter(Boolean).join(", ");
+    if (!full) continue;
+    const baseCoords = await coordsFor(`company:${companyId}`, full, baseCoordCache);
+    if (!baseCoords) continue;
+    const meters = haversineMeters(zipCoords.lat, zipCoords.lng, baseCoords.lat, baseCoords.lng);
+    if (!best || meters < best.meters) best = { branch, meters };
+  }
+  return best?.branch ?? null;
+}
+
 export async function resolveBranchByZip(zip: string): Promise<string> {
   const clean = (zip ?? "").toString().trim().replace(/\D/g, "").slice(0, 5);
   if (clean.length !== 5) return "oak_lawn";
   try {
+    // Every matching location, not the first one — a contested zip has to be
+    // SEEN as contested before it can be resolved on purpose.
     const rows = await db.execute(sql`
-      SELECT location FROM service_zones
-      WHERE is_active = true AND zip_codes @> ARRAY[${clean}]::text[]
-      LIMIT 1
+      SELECT DISTINCT location FROM service_zones
+      WHERE is_active = true
+        AND zip_codes @> ARRAY[${clean}]::text[]
+        AND location IN ('oak_lawn', 'schaumburg')
     `);
-    const loc = ((rows as any).rows ?? rows)[0]?.location;
-    if (loc === "schaumburg" || loc === "oak_lawn") return loc;
+    const locs = (((rows as any).rows ?? rows) as Array<{ location: string }>)
+      .map(r => r.location)
+      .filter(l => l === "oak_lawn" || l === "schaumburg");
+
+    if (locs.length === 1) return locs[0];
+    if (locs.length > 1) {
+      const nearest = await nearestBranchByHomeBase(clean, locs);
+      if (nearest) {
+        console.warn(
+          `[branchRouter] zip ${clean} is claimed by ${locs.join(" + ")} — ` +
+          `routed to '${nearest}' (closest home base).`,
+        );
+        return nearest;
+      }
+      // Geocoding is the only thing that can fail here, and a booking must never
+      // hang on it. Sorting makes the fallback deterministic rather than
+      // whatever the query happened to return first.
+      const stable = [...locs].sort()[0];
+      console.warn(
+        `[branchRouter] zip ${clean} is claimed by ${locs.join(" + ")} but the ` +
+        `home-base distances could not be resolved — routed to '${stable}'.`,
+      );
+      return stable;
+    }
   } catch (err) {
     console.error("[branchRouter] resolveBranchByZip lookup failed:", err);
   }

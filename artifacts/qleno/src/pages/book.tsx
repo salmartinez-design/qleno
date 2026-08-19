@@ -821,6 +821,65 @@ export default function BookPage() {
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
 
+  // ── Hand the booking to the branch that owns the zip ─────────────────────
+  //
+  // [square-per-branch 2026-08-18] One public website serves two separately
+  // owned branches with two Square merchants and two rate cards. The zip decides
+  // which one the customer is actually buying from, and it is known here at the
+  // contact step — before a single price has been shown.
+  //
+  // So swap the whole tenant, not just the merchant. Everything downstream reads
+  // `company.id`: the scope list, /calculate, the addons, and the company_id
+  // posted to /book/confirm. Swapping only the Square ids would tokenize the card
+  // on Schaumburg's merchant while the job was still priced and created under Oak
+  // Lawn — the card save would run Oak Lawn's access token against a Schaumburg
+  // nonce and every Schaumburg booking would die at the card step. Swapping the
+  // company instead makes all of them consistent by construction.
+  //
+  // The scope selection is cleared on purpose: scope ids are per-company (Oak
+  // Lawn's "Standard Clean" is 2, Schaumburg's is 31) and the two catalogs are
+  // genuinely different, so a carried-over id would fail /calculate with
+  // "Scope not found". Better to re-pick from the right menu than to price the
+  // wrong branch's service.
+  const [tenantZip, setTenantZip] = useState<string | null>(null);
+  useEffect(() => {
+    const z = String(zip || "").trim();
+    if (!company || !/^\d{5}$/.test(z) || tenantZip === z) return;
+    setTenantZip(z);
+
+    let cancelled = false;
+    pubFetch("/api/public/book/setup", {
+      method: "POST",
+      body: JSON.stringify({ company_id: company.id, zip: z }),
+    })
+      .then((res) => {
+        const nextSlug = res?.booking_company_slug;
+        if (cancelled || !nextSlug || nextSlug === company.slug) return;
+        return pubFetch(`/api/public/company/${nextSlug}`).then((d) => {
+          if (cancelled || !d?.id) return;
+          setCompany(d);
+          // Everything priced against the previous tenant is now meaningless.
+          setScopeId(null);
+          setFrequencyStr("");
+          setSelectedAddonIds([]);
+          setAddonRecurringPref({});
+          setAddons([]);
+          setCalcResult(null);
+          // Force the Square config probe to re-run for the new merchant.
+          setSqConfiguredZip(null);
+          // Per-tenant extras the original loader pulls alongside the company.
+          pubFetch(`/api/public/bundles/${d.id}`).then(bs => { if (!cancelled) setBundles(bs); }).catch(() => {});
+          pubFetch(`/api/public/offer-settings/${nextSlug}`).then(os => { if (!cancelled) setOfferSettings(os); }).catch(() => {});
+          pubFetch(`/api/public/booking-settings/${nextSlug}`).then(bs => { if (!cancelled) setBookingSettings(bs); }).catch(() => {});
+          pubFetch(`/api/public/referral-sources/${nextSlug}`).then(rs => { if (!cancelled && Array.isArray(rs) && rs.length) setReferralSources(rs); }).catch(() => {});
+        });
+      })
+      // A failed probe leaves the widget on the company it already had, which is
+      // exactly today's behaviour. Never block the booking on this.
+      .catch(() => { /* noop */ });
+    return () => { cancelled = true; };
+  }, [zip, company]);
+
   // ── Resume an abandoned cart ──────────────────────────────────────────────
   // [resume-link 2026-07-18] When the recovery SMS/email {{resume_link}} carries
   // ?resume=<token>, pull the visitor's captured contact + home details and

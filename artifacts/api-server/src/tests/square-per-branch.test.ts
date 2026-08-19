@@ -148,6 +148,88 @@ describe("the zip picks the branch, and the branch picks the merchant", () => {
   });
 });
 
+describe("the whole tenant moves, not just the merchant", () => {
+  // The gap this closes: /book/setup routed by zip and handed the browser
+  // Schaumburg's application id, but /book/confirm kept using the widget's
+  // company_id. The card was tokenized on Schaumburg's merchant and then saved
+  // with Oak Lawn's access token, so EVERY Schaumburg booking died at the card
+  // step — and because the confirm handler returns 422 on card-save failure, the
+  // job was never created. A 100% booking outage that reads as "bad card".
+  //
+  // Rather than re-route inside confirm (which would then price a co1 scope_id
+  // against co4 and throw "Scope not found"), the widget reloads the whole
+  // tenant while the customer is still on the contact step.
+  it("/book/setup hands back the tenant's slug, configured or not", () => {
+    const setup = publicRoutes.slice(
+      publicRoutes.indexOf('router.post("/book/setup"'),
+      publicRoutes.indexOf('router.post("/book/confirm"'),
+    );
+    assert.ok(setup.includes("booking_company_slug"), "the widget needs a slug to reload the tenant");
+    assert.match(setup, /SELECT slug FROM companies WHERE id = \$\{tenant\.companyId\}/,
+      "the slug must come from the ZIP-resolved tenant, not the widget's company");
+    // Two returns: the square_enabled:false branch and the configured branch.
+    // A branch missing its credentials must still stop selling the other
+    // branch's prices, so BOTH have to carry the slug.
+    const unconfigured = setup.slice(setup.indexOf("square_enabled: false"), setup.indexOf("square_enabled: true"));
+    const configured = setup.slice(setup.indexOf("square_enabled: true"));
+    assert.ok(unconfigured.includes("booking_company_slug"), "the not-configured branch must still hand over the tenant");
+    assert.ok(configured.includes("booking_company_slug"), "the configured branch must hand over the tenant");
+  });
+
+  it("the widget reloads the company when the zip names another branch", () => {
+    assert.match(
+      book,
+      /booking_company_slug[\s\S]{0,600}\/api\/public\/company\//,
+      "the widget must re-fetch the tenant it was handed, not just its Square ids",
+    );
+    assert.match(book, /setCompany\(d\)/, "the swapped tenant has to replace company state");
+  });
+
+  it("swapping tenants clears pricing picked from the old catalog", () => {
+    // Scope ids are per-company (Oak Lawn Standard Clean = 2, Schaumburg = 31),
+    // so a carried-over id fails /calculate with "Scope not found" — another way
+    // to lose the booking.
+    const swap = book.slice(book.indexOf("booking_company_slug"));
+    for (const reset of ["setScopeId(null)", "setFrequencyStr(\"\")", "setSelectedAddonIds([])", "setCalcResult(null)"]) {
+      assert.ok(swap.includes(reset), `tenant swap must clear stale pricing: ${reset}`);
+    }
+    assert.ok(
+      swap.includes("setSqConfiguredZip(null)"),
+      "the Square probe must re-run so the card field mounts on the new merchant",
+    );
+  });
+});
+
+describe("a zip claimed by both branches routes on purpose", () => {
+  // Zones are drawn by hand and drift as zips are added. The old lookup was
+  // `SELECT location ... LIMIT 1` with no ORDER BY, so a contested zip resolved
+  // to whatever row Postgres returned first — and could differ between two
+  // consecutive bookings.
+  it("every claiming location is read, not just the first row", () => {
+    const fn = branchRouter.slice(branchRouter.indexOf("export async function resolveBranchByZip"));
+    assert.ok(!/SELECT location FROM service_zones[\s\S]{0,200}LIMIT 1/.test(fn),
+      "a single-row lookup cannot tell that a zip is contested");
+    assert.match(fn, /SELECT DISTINCT location/, "read every location claiming the zip");
+  });
+
+  it("a contested zip goes to the closest home base", () => {
+    assert.match(branchRouter, /nearestBranchByHomeBase/);
+    const fn = branchRouter.slice(branchRouter.indexOf("async function nearestBranchByHomeBase"));
+    assert.match(fn, /haversineMeters/, "distance decides the tie");
+    assert.match(
+      fn,
+      /SELECT address, city, state, zip FROM companies/,
+      "base addresses come from the companies table so settings re-aim routing",
+    );
+  });
+
+  it("an unresolvable tie still answers the same way twice", () => {
+    const fn = branchRouter.slice(branchRouter.indexOf("export async function resolveBranchByZip"));
+    assert.match(fn, /\[\.\.\.locs\]\.sort\(\)\[0\]/,
+      "geocoding may fail; the fallback must be deterministic, not row order");
+  });
+});
+
 describe("office and link surfaces are company-scoped too", () => {
   it("GET /api/square/config serves the caller's own branch", () => {
     assert.match(squareRoutes, /getSquarePublicConfig\(req\.auth!\.companyId!\)/);
