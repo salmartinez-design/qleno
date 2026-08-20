@@ -24,6 +24,7 @@ import { runMileageAutoCompute } from "./lib/mileage-auto-cron.js";
 import { runSuspensionReminders } from "./lib/suspension.js";
 import { setAppReady } from "./lib/readiness.js";
 import { processScheduledSms } from "./lib/sms-scheduler.js";
+import { runOwnerDigestCron } from "./lib/owner-digest.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -260,6 +261,22 @@ function startNotificationCron() {
           if (total > 0) console.log(`[cron] ares_chargeback_sweep: ${total} chargeback(s) confirmed`);
         })().catch((e: Error) => console.error("[cron] ares_chargeback_sweep error:", e));
       }
+    }
+    // [owner-digest 2026-08-19] Hourly tick -> the 6 PM owner recap. Sal:
+    // "Every day I need a automatic text message at 6 PM letting me know as the
+    // owner" the day's leads, who worked them, what closed, the money, and any
+    // discounting.
+    //
+    // Ticked EVERY hour on purpose, not pinned to the CT 18 above: the engine
+    // resolves each tenant's own zone and only fires for the ones where it is
+    // locally 6 PM, so a tenant outside Central gets its recap at its own six
+    // rather than someone else's. The fired[] stamp is what keeps it to one run
+    // per hour. Off entirely unless OWNER_DIGEST_ENABLED=true.
+    if (fired["owner_digest"] !== `${ctDate}-${ctH}`) {
+      fired["owner_digest"] = `${ctDate}-${ctH}`;
+      runOwnerDigestCron()
+        .then((r) => { if (r.companies) console.log(`[cron] owner_digest: ${r.sent} text(s) across ${r.companies} tenant(s)`); })
+        .catch((e: Error) => console.error("[cron] owner_digest error:", e));
     }
   };
 
