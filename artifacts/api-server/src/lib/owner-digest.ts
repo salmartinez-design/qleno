@@ -51,10 +51,17 @@ import { notifyUser } from "./notify.js";
 // dashboard "booked today" tile use. jobs.scheduled_date is a real DATE with no
 // instant behind it and is compared directly.
 //
-// Close rate is a TREND, not a day. A single day's booked/(booked+lost) swings
-// between 0% and 100% on two leads and would be noise, so the headline rate is
-// the rolling 30-day cohort and the text says so. Today's own conversion is
-// reported separately as a raw count, which is honest at any sample size.
+// CLOSE RATE: ONE FORMULA, FOUR WINDOWS. Sal asked for the day, the day per
+// staffer, and a running month on top of the trend line. The temptation is to
+// define a day rate differently (booked / all leads that came in) because a day
+// has so few decided leads. Resist it: that is the MaidCentral "efficiency
+// means three things" trap, and two numbers under one word is how an owner
+// stops trusting both. Every window here is the SAME expression --
+// booked / (booked + lost) -- over a different slice of leads.created_at:
+//   today's leads / today's leads per staffer / month to date / last 30 days.
+// The honest caveat is sample size, not formula, so the day line also prints
+// how many of today's leads are still undecided. A 100% day over two decided
+// leads reads correctly when the third number says eight are still open.
 
 const num = (v: any) => Number(v) || 0;
 const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
@@ -62,7 +69,15 @@ const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 :
 /** Entered through the website widget rather than typed in by the office. */
 const WEB = sql`(COALESCE(NULLIF(l.source,''), l.lead_source) IN ('web_quote','website','booking_widget') OR l.lead_source = 'web_quote')`;
 
-export type DigestRep = { user_id: number | null; name: string; leads: number; booked: number };
+/** The two halves of every close rate in this file. A lead that is still
+ *  'quoted' or 'contacted' is neither, and belongs in neither half. */
+const WON  = sql`l.status = 'booked'`;
+const LOST = sql`l.status IN ('no_response','not_interested')`;
+
+export type DigestRep = { user_id: number | null; name: string; leads: number; booked: number; lost: number };
+/** booked / (booked + lost) over one slice of leads. `open` is set only where
+ *  the sample is small enough that undecided leads change how to read it. */
+export type DigestRate = { rate: number; booked: number; lost: number; open?: number };
 export type DigestDiscount = { label: string; amount: number; reason: string };
 
 export type OwnerDigest = {
@@ -84,7 +99,11 @@ export type OwnerDigest = {
   };
   /** Leads whose booked_at landed today, whenever they first came in. */
   closed_today: number;
-  close_rate_30d: { rate: number; booked: number; lost: number };
+  /** Today's intake only, so `open` matters and is carried. */
+  close_rate_today: DigestRate;
+  /** 1st of the month through today. */
+  close_rate_mtd: DigestRate;
+  close_rate_30d: DigestRate;
   money: {
     serviced_today: number;
     serviced_today_jobs: number;
@@ -123,7 +142,7 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
   // Revenue, one expression, used for every money line below.
   const rev = jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`);
 
-  const [nameRow, leadRow, repRows, closedRow, rate30Row, servicedRow, weekRow, bookedRow, leadRevRow, modRows, quoteDiscRow] =
+  const [nameRow, leadRow, repRows, closedRow, rateTodayRow, rateMtdRow, rate30Row, servicedRow, weekRow, bookedRow, leadRevRow, modRows, quoteDiscRow] =
     await Promise.all([
       db.execute(sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1`),
 
@@ -132,7 +151,7 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
         SELECT COUNT(*)::int AS total,
                COUNT(*) FILTER (WHERE ${WEB})::int AS web,
                COUNT(*) FILTER (WHERE l.assigned_to IS NULL)::int AS unassigned,
-               COUNT(*) FILTER (WHERE l.status = 'booked')::int AS booked_from_today
+               COUNT(*) FILTER (WHERE ${WON})::int AS booked_from_today
         FROM leads l
         WHERE l.company_id = ${companyId}
           AND ${ctDate(sql`l.created_at`, tz)} = ${date}::date`),
@@ -142,7 +161,8 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
         SELECT l.assigned_to AS user_id,
                NULLIF(trim(u.first_name || ' ' || COALESCE(u.last_name, '')), '') AS name,
                COUNT(*)::int AS leads,
-               COUNT(*) FILTER (WHERE l.status = 'booked')::int AS booked
+               COUNT(*) FILTER (WHERE ${WON})::int AS booked,
+               COUNT(*) FILTER (WHERE ${LOST})::int AS lost
         FROM leads l
         JOIN users u ON u.id = l.assigned_to
         WHERE l.company_id = ${companyId}
@@ -161,10 +181,29 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
           AND l.status = 'booked'
           AND ${ctDate(sql`COALESCE(l.booked_at, l.updated_at)`, tz)} = ${date}::date`),
 
+      // Today's own cohort. `open` is carried because at this sample size the
+      // undecided count is what tells the owner whether the rate means anything.
+      db.execute(sql`
+        SELECT COUNT(*) FILTER (WHERE ${WON})::int AS booked,
+               COUNT(*) FILTER (WHERE ${LOST})::int AS lost,
+               COUNT(*) FILTER (WHERE NOT (${WON}) AND NOT (${LOST}))::int AS still_open
+        FROM leads l
+        WHERE l.company_id = ${companyId}
+          AND ${ctDate(sql`l.created_at`, tz)} = ${date}::date`),
+
+      // Month to date: the 1st of this month through today, in the tenant's zone.
+      db.execute(sql`
+        SELECT COUNT(*) FILTER (WHERE ${WON})::int AS booked,
+               COUNT(*) FILTER (WHERE ${LOST})::int AS lost
+        FROM leads l
+        WHERE l.company_id = ${companyId}
+          AND ${ctDate(sql`l.created_at`, tz)} >= date_trunc('month', ${date}::date)::date
+          AND ${ctDate(sql`l.created_at`, tz)} <= ${date}::date`),
+
       // Rolling 30-day close rate, on the lead-analytics definition.
       db.execute(sql`
-        SELECT COUNT(*) FILTER (WHERE l.status = 'booked')::int AS booked,
-               COUNT(*) FILTER (WHERE l.status IN ('no_response','not_interested'))::int AS lost
+        SELECT COUNT(*) FILTER (WHERE ${WON})::int AS booked,
+               COUNT(*) FILTER (WHERE ${LOST})::int AS lost
         FROM leads l
         WHERE l.company_id = ${companyId}
           AND ${ctDate(sql`l.created_at`, tz)} >  (${date}::date - interval '30 days')
@@ -205,19 +244,41 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
           AND l.status = 'booked'
           AND ${ctDate(sql`COALESCE(l.booked_at, l.created_at)`, tz)} = ${date}::date`),
 
-      // Money taken off a job today. job_rate_mods is where every discount
-      // lands — quote codes, the office's manual minus rows, and any hand-typed
-      // adjustment on the job card. Negative amount = a discount.
+      // Money taken off a job today. There are TWO tables and this used to read
+      // only one, so an auto-promo day reported "no discounts given".
+      //   job_rate_mods   — quote conversion (routes/quotes.ts) and the office's
+      //                     hand-typed minus row on the job card (routes/jobs.ts).
+      //                     A discount is a NEGATIVE amount there.
+      //   job_discounts   — the automatic promo engine (lib/auto-promos.ts).
+      //                     Amount is stored POSITIVE, as money taken off.
+      // The two have disjoint writers, so a union cannot double-count the same
+      // discount. Both halves are normalised to a positive "money off" so the
+      // total and the ranking mean one thing.
       db.execute(sql`
-        SELECT m.amount, m.reason,
-               COALESCE(NULLIF(trim(cl.first_name || ' ' || COALESCE(cl.last_name, '')), ''), cl.company_name, 'Job #' || j.id::text) AS label
-        FROM job_rate_mods m
-        JOIN jobs j ON j.id = m.job_id
-        LEFT JOIN clients cl ON cl.id = j.client_id
-        WHERE m.company_id = ${companyId}
-          AND CAST(m.amount AS NUMERIC) < 0
-          AND ${ctDate(sql`m.created_at`, tz)} = ${date}::date
-        ORDER BY CAST(m.amount AS NUMERIC) ASC`),
+        SELECT amount, reason, label FROM (
+          SELECT CAST(m.amount AS NUMERIC) * -1 AS amount,
+                 COALESCE(NULLIF(trim(m.reason), ''), 'Discount') AS reason,
+                 COALESCE(NULLIF(trim(cl.first_name || ' ' || COALESCE(cl.last_name, '')), ''), cl.company_name, 'Job #' || j.id::text) AS label
+          FROM job_rate_mods m
+          JOIN jobs j ON j.id = m.job_id
+          LEFT JOIN clients cl ON cl.id = j.client_id
+          WHERE m.company_id = ${companyId}
+            AND CAST(m.amount AS NUMERIC) < 0
+            AND ${ctDate(sql`m.created_at`, tz)} = ${date}::date
+
+          UNION ALL
+
+          SELECT CAST(jd.amount AS NUMERIC) AS amount,
+                 COALESCE(NULLIF(trim(jd.reason), ''), NULLIF(trim(jd.code), ''), 'Promo') AS reason,
+                 COALESCE(NULLIF(trim(cl.first_name || ' ' || COALESCE(cl.last_name, '')), ''), cl.company_name, 'Job #' || j.id::text) AS label
+          FROM job_discounts jd
+          JOIN jobs j ON j.id = jd.job_id
+          LEFT JOIN clients cl ON cl.id = j.client_id
+          WHERE jd.company_id = ${companyId}
+            AND CAST(jd.amount AS NUMERIC) > 0
+            AND ${ctDate(sql`jd.created_at`, tz)} = ${date}::date
+        ) d
+        ORDER BY amount DESC`),
 
       // Discounts written on a quote today that have not become a job yet, so a
       // day of heavy quoting does not read as a day of zero discounting.
@@ -239,14 +300,18 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
     name: r.name || `User ${r.user_id}`,
     leads: num(r.leads),
     booked: num(r.booked),
+    lost: num(r.lost),
   }));
 
-  const r30: any = rate30Row.rows[0] ?? {};
-  const booked30 = num(r30.booked);
-  const lost30 = num(r30.lost);
+  const asRate = (row: any, withOpen = false): DigestRate => {
+    const b = num(row?.booked), lo = num(row?.lost);
+    return withOpen
+      ? { rate: pct(b, b + lo), booked: b, lost: lo, open: num(row?.still_open) }
+      : { rate: pct(b, b + lo), booked: b, lost: lo };
+  };
 
   const mods = modRows.rows as any[];
-  const modTotal = mods.reduce((a, m) => a + Math.abs(num(m.amount)), 0);
+  const modTotal = mods.reduce((a, m) => a + num(m.amount), 0);
   const qd: any = quoteDiscRow.rows[0] ?? {};
 
   const sv: any = servicedRow.rows[0] ?? {};
@@ -268,7 +333,9 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
       booked_from_today: num(l.booked_from_today),
     },
     closed_today: num((closedRow.rows[0] as any)?.c),
-    close_rate_30d: { rate: pct(booked30, booked30 + lost30), booked: booked30, lost: lost30 },
+    close_rate_today: asRate(rateTodayRow.rows[0], true),
+    close_rate_mtd: asRate(rateMtdRow.rows[0]),
+    close_rate_30d: asRate(rate30Row.rows[0]),
     money: {
       serviced_today: num(sv.revenue),
       serviced_today_jobs: num(sv.jobs),
@@ -283,7 +350,7 @@ export async function buildOwnerDigest(companyId: number, dateStr?: string): Pro
       total: Math.round((modTotal + num(qd.total)) * 100) / 100,
       top: mods.slice(0, 3).map((m) => ({
         label: String(m.label),
-        amount: Math.abs(num(m.amount)),
+        amount: num(m.amount),
         reason: String(m.reason ?? ""),
       })),
     },
@@ -306,13 +373,44 @@ export function formatOwnerDigestSms(d: OwnerDigest): string {
     ? d.leads.by_rep.map((r) => `${r.name.split(" ")[0]} ${r.leads}`).join(", ")
     : "nobody claimed one";
 
+  // Per-staffer close rate, day only. A staffer with nothing decided yet gets
+  // "no calls yet" rather than a 0%, which would read as a bad day instead of
+  // an early one.
+  const repRates = d.leads.by_rep.length
+    ? d.leads.by_rep.map((r) => {
+        const decided = r.booked + r.lost;
+        const first = r.name.split(" ")[0];
+        return decided > 0
+          ? `${first} ${Math.round(pct(r.booked, decided))}% (${r.booked} won, ${r.lost} lost)`
+          : `${first} nothing decided yet`;
+      }).join(", ")
+    : null;
+
+  const today = d.close_rate_today;
+
+  // A rate over an empty sample is not 0%, it is nothing yet, and printing "0%"
+  // on a quiet morning reads as a failure instead of an empty page. Whole
+  // percents only: the extra decimal is noise in a text and makes the four
+  // rates look like they were measured to different precisions.
+  const rateText = (r: DigestRate) => {
+    const open = r.open ? `, ${r.open} still open` : "";
+    return r.booked + r.lost === 0
+      ? `nothing decided yet${r.open ? ` (${r.open} still open)` : ""}`
+      : `${Math.round(r.rate)}% (${r.booked} won, ${r.lost} lost${open})`;
+  };
+
   const lines = [
     `${d.company_name} daily recap, ${day}`,
     ``,
     `LEADS ${d.leads.total} (web ${d.leads.web}, office ${d.leads.office})`,
     `Worked by: ${reps}${d.leads.unassigned ? `, unclaimed ${d.leads.unassigned}` : ""}`,
-    `Closed today ${d.closed_today}`,
-    `Close rate ${d.close_rate_30d.rate}% (last 30 days, ${d.close_rate_30d.booked} won vs ${d.close_rate_30d.lost} lost)`,
+    `Booked today ${d.closed_today} (leads of any age)`,
+    ``,
+    `CLOSE RATE (won out of decided)`,
+    `Today ${rateText(today)}`,
+    ...(repRates ? [repRates] : []),
+    `Month so far ${rateText(d.close_rate_mtd)}`,
+    `Last 30 days ${rateText(d.close_rate_30d)}`,
     ``,
     `MONEY`,
     `Serviced today ${money(d.money.serviced_today)} across ${d.money.serviced_today_jobs} jobs`,
