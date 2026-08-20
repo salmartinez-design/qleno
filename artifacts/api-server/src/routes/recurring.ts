@@ -200,6 +200,95 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// GET /api/recurring/:id/anchor — the visit to open when the office wants to
+// EDIT this recurring schedule.
+//
+// [edit-recurring 2026-08-20] Maribel: "We should be able to modify the
+// recurrence of a client without having to delete it and create a new one."
+//
+// She was right, and the reason was a missing door, not a missing engine. The
+// client profile's Recurring tab only ever offered Add and Pause, so changing a
+// client from Wednesday to Friday meant deleting the schedule and rebuilding it.
+// Meanwhile the edit-job modal has done exactly this for months: change the
+// frequency / day / time / price on a recurring visit, pick "this and all
+// future", and PATCH /api/jobs/:id rewrites the schedule template AND rewrites
+// the visits already on the calendar (the hybrid cascade — UPDATE the ones the
+// new pattern still wants, DELETE the ones it doesn't, INSERT the dates it now
+// needs). That path is tested, it honors locked and in-progress visits, and it
+// carries add-ons, parking and techs across.
+//
+// So the fix is a door onto the engine we already have, NOT a second engine.
+// This returns the visit for the modal to open on; the modal cascades from
+// there. Duplicating the cascade here would be the second copy that drifts.
+//
+// Anchor choice: the next visit still on the books. Falls back to the most
+// recent past one so a series whose future is empty is still editable —
+// 'this_and_future' filters on CURRENT_DATE, not on the anchor's own date, so
+// a past anchor still rewrites the right visits.
+router.get("/:id/anchor", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad id" });
+    const companyId = req.auth!.companyId;
+
+    const sched = await db.select({ id: recurringSchedulesTable.id })
+      .from(recurringSchedulesTable)
+      .where(and(eq(recurringSchedulesTable.id, id), eq(recurringSchedulesTable.company_id, companyId)))
+      .limit(1);
+    if (!sched[0]) return res.status(404).json({ error: "Not found" });
+
+    // Shape matches EditableJob in components/edit-job-modal.tsx.
+    //
+    // `amount` is only ever read as a fallback for `base_fee` (which is NOT
+    // NULL on jobs), so it is sent as the same figure rather than re-deriving
+    // dispatch's add-on/rate-mod/discount math here. Two copies of that sum is
+    // how displayed totals drift apart.
+    const rows = await db.execute(sql`
+      SELECT j.id,
+             j.client_id,
+             concat(c.first_name, ' ', c.last_name)      AS client_name,
+             j.recurring_schedule_id,
+             rs.days_of_week                             AS recurring_schedule_days_of_week,
+             j.service_type,
+             j.frequency,
+             to_char(j.scheduled_date, 'YYYY-MM-DD')     AS scheduled_date,
+             j.scheduled_time,
+             COALESCE(ROUND(j.allowed_hours * 60), 0)    AS duration_minutes,
+             j.base_fee,
+             j.base_fee                                  AS amount,
+             j.manual_rate_override,
+             j.notes,
+             j.status,
+             j.locked_at,
+             j.assigned_user_id,
+             j.hourly_rate,
+             j.account_id,
+             (j.scheduled_date >= CURRENT_DATE)          AS is_upcoming
+        FROM jobs j
+        JOIN recurring_schedules rs ON rs.id = j.recurring_schedule_id
+        LEFT JOIN clients c ON c.id = j.client_id
+       WHERE j.company_id = ${companyId}
+         AND j.recurring_schedule_id = ${id}
+         AND j.status = 'scheduled'
+       ORDER BY (j.scheduled_date >= CURRENT_DATE) DESC,
+                CASE WHEN j.scheduled_date >= CURRENT_DATE
+                     THEN j.scheduled_date END ASC,
+                j.scheduled_date DESC
+       LIMIT 1`);
+
+    const job = (rows.rows as any[])[0];
+    if (!job) {
+      // No visit to hang the modal on. The office can still pause the schedule
+      // or add a new one; say so plainly rather than opening an empty modal.
+      return res.json({ job: null, reason: "no_visits" });
+    }
+    return res.json({ job, is_upcoming: job.is_upcoming === true });
+  } catch (err) {
+    console.error("[recurring anchor GET]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // PATCH /api/recurring/:id/monthly-charge — configure monthly-batch billing for
 // commercial accounts that bill one lump per month (e.g. Bill Azzarello
 // $761.25/mo). Body: { amount?: number|null, mode: 'manual'|'auto_first_visit' }.

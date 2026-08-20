@@ -30,6 +30,11 @@ import { PhotoLightbox, downloadPhotosZip, deletePhoto, canManagePhotos, type Ga
 // client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
 // so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
 const DispatchJobPanel = lazy(() => import("@/pages/jobs").then(m => ({ default: m.JobPanel })));
+// [edit-recurring 2026-08-20] The Recurring tab's Edit button opens THIS modal
+// on the series' next visit. Same component the dispatch board edits jobs with,
+// so a recurrence change goes through the one cascade that already knows how to
+// rewrite the visits already on the calendar.
+const EditJobModal = lazy(() => import("@/components/edit-job-modal"));
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -3220,6 +3225,53 @@ function RecurringTab({ clientId }: { clientId: number }) {
     queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}`),
   });
 
+  // [edit-recurring 2026-08-20] Maribel: "We should be able to modify the
+  // recurrence of a client without having to delete it and create a new one."
+  //
+  // She was right, and what was missing was a door, not an engine. Editing a
+  // recurring visit from the dispatch board and choosing "this and all future"
+  // already rewrites the schedule AND the visits sitting on the calendar. This
+  // tab just never offered a way in, so changing Wednesday to Friday meant
+  // deleting the schedule and rebuilding it by hand.
+  //
+  // So Edit fetches the series' next visit and opens that same modal on it.
+  // Nothing here re-implements the cascade; a second copy of it would drift.
+  const qcRecur = useQueryClient();
+  const [editJob, setEditJob] = useState<any | null>(null);
+  const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
+
+  const { data: employeesRaw } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => apiFetch("/api/users?limit=200"),
+    staleTime: 60000,
+  });
+  const teamCandidates = (Array.isArray(employeesRaw) ? employeesRaw : (employeesRaw?.data || []))
+    .map((e: any) => ({ id: e.id, name: `${e.first_name || ""} ${e.last_name || ""}`.trim(), role: e.role, is_trainee: e.is_trainee }));
+
+  async function openEdit(scheduleId: number) {
+    setEditNotice(null);
+    setEditLoadingId(scheduleId);
+    try {
+      const res = await apiFetch(`/api/recurring/${scheduleId}/anchor`);
+      if (!res?.job) {
+        setEditNotice("This schedule has no visits on the calendar yet, so there is nothing to open. It will be editable after the next visit is created.");
+        return;
+      }
+      const j = res.job;
+      setEditJob({
+        ...j,
+        duration_minutes: Number(j.duration_minutes || 0),
+        amount: Number(j.base_fee ?? 0),
+        base_fee: j.base_fee,
+      });
+    } catch (err: any) {
+      setEditNotice(err?.message || "Could not open this schedule.");
+    } finally {
+      setEditLoadingId(null);
+    }
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -3246,6 +3298,13 @@ function RecurringTab({ clientId }: { clientId: number }) {
         </button>
       </div>
 
+      {editNotice && (
+        <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F0D9A8", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#8A5A12", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+          <span>{editNotice}</span>
+          <button onClick={() => setEditNotice(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A5A12", padding: 0, lineHeight: 1 }}><X size={13} /></button>
+        </div>
+      )}
+
       {isLoading ? (
         <div style={{ padding: 30, textAlign: "center", color: "#9E9B94" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /></div>
       ) : schedules.length === 0 ? (
@@ -3269,6 +3328,10 @@ function RecurringTab({ clientId }: { clientId: number }) {
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
+                <button onClick={() => openEdit(s.id)} disabled={editLoadingId === s.id}
+                  style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Edit2 size={11} /> {editLoadingId === s.id ? "Opening..." : "Edit"}
+                </button>
                 <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Pause</button>
               </div>
             </div>
@@ -3320,6 +3383,28 @@ function RecurringTab({ clientId }: { clientId: number }) {
           </div>
         </div>
       )}
+      {/* [edit-recurring 2026-08-20] Opened on the series' next visit. The modal
+          already defaults a recurring job to "this and all future", shows how
+          many visits the change touches, and asks twice before it writes, so
+          moving a client from Wednesday to Friday moves the visits already on
+          the calendar too. */}
+      {editJob && (
+        <Suspense fallback={null}>
+          <EditJobModal
+            job={editJob}
+            employees={teamCandidates}
+            mobile={false}
+            onClose={() => setEditJob(null)}
+            onSaved={() => {
+              setEditJob(null);
+              refetch();
+              qcRecur.invalidateQueries({ queryKey: ["client-calendar-jobs", clientId] });
+              qcRecur.invalidateQueries({ queryKey: ["client-jobs", clientId] });
+            }}
+          />
+        </Suspense>
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
