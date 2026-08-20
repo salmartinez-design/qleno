@@ -21,9 +21,9 @@ const fp = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 
 
 // Bump AGREEMENT_BODY_SEED_VERSION and refresh these two lines together.
 const EXPECTED = {
-  version: 3,
-  residential: "308a7182bc7dc581",
-  commercial: "584fe0448d428792",
+  version: 5,
+  residential: "60047ecd077ccdd6",
+  commercial: "71f9f1d6620bd90c",
 };
 
 describe("agreement wording actually reaches customers", () => {
@@ -49,8 +49,22 @@ describe("agreement wording actually reaches customers", () => {
   });
 
   it("the hold section owes the notice period, not one visit", () => {
-    assert.match(RESIDENTIAL_AGREEMENT_BODY, /would have fallen inside your \{\{termination_notice_days\}\} day notice period/);
+    assert.match(RESIDENTIAL_AGREEMENT_BODY, /the visits that would have taken place during the last \{\{termination_notice_days\}\} days of that hold/);
     assert.doesNotMatch(RESIDENTIAL_AGREEMENT_BODY, /one final visit/);
+  });
+
+  // A customer on weekly service owes about four final visits and a monthly
+  // customer owes one. The old wording left them to work that out; a bill that
+  // is four times what someone expected is the complaint this sentence exists
+  // to prevent, so it has to survive future edits to Section 9.
+  it("the hold section says the final bill depends on how often we clean", () => {
+    assert.match(RESIDENTIAL_AGREEMENT_BODY, /depends both on how often we clean for you and on where those dates fall in the calendar/);
+  });
+
+  // Charged the day the hold ends, on the card already on file. Section 12 has
+  // to authorize that or the charge has no basis.
+  it("the card authorization covers the hold and notice charge", () => {
+    assert.match(RESIDENTIAL_AGREEMENT_BODY, /any visit billed during a hold or notice period under Section 9 or Section 10/);
   });
 
   it("no em or en dashes in either agreement", () => {
