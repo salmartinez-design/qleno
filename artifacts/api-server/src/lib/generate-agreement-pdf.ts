@@ -12,21 +12,50 @@ interface AgreementPdfData {
   signedAt: string;
   ipAddress: string;
   contentHash: string;
+  /** Absolute URL to the tenant's logo. Optional: the PDF still renders without it. */
+  logoUrl?: string | null;
 }
 
-export async function generateAgreementPdf(data: AgreementPdfData): Promise<string> {
-  const pdfsDir = process.env.PDFS_DIR || path.resolve(process.cwd(), "pdfs");
-  if (!fs.existsSync(pdfsDir)) {
-    fs.mkdirSync(pdfsDir, { recursive: true });
+// [agreement-pdf-logo 2026-08-19] Sal asked for the logo on the copy the
+// customer keeps. Fetched rather than bundled because it is the tenant's own
+// mark from companies.logo_url, and fail-soft on purpose: a slow or broken
+// image must never be the reason a signed agreement fails to generate, so a
+// miss just falls back to the company name set in type.
+async function fetchLogo(url?: string | null): Promise<Buffer | null> {
+  if (!url) return null;
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 3000);
+    const r = await fetch(url, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const type = String(r.headers.get("content-type") || "").toLowerCase();
+    // PDFKit only decodes JPEG and PNG. Anything else (svg, webp) would throw
+    // mid-render, which is exactly the failure this guard exists to avoid.
+    if (!/jpeg|jpg|png/.test(type)) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length > 0 && buf.length < 4_000_000 ? buf : null;
+  } catch {
+    return null;
   }
+}
 
-  const filename = `agreement-${data.submissionId}-${Date.now()}.pdf`;
-  const filepath = path.join(pdfsDir, filename);
-
+// [agreement-pdf 2026-08-19] The buffer renderer is the real generator. The
+// file-writing wrapper at the bottom stays for the existing /api/pdfs link,
+// but that disk is ephemeral on Railway (it is gone on the next deploy), so
+// anything that has to survive - the emailed copy, the customer re-opening
+// their agreement months later - renders from the database into this buffer.
+export async function renderAgreementPdf(data: AgreementPdfData): Promise<Buffer> {
+  const logo = await fetchLogo(data.logoUrl);
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 60, size: "LETTER" });
-    const stream = fs.createWriteStream(filepath);
-    doc.pipe(stream);
+    // bufferPages keeps every page addressable so the footer loop below can
+    // switchToPage() them. Without it PDFKit flushes each page on addPage and
+    // switchToPage(0) throws the moment an agreement runs past one page.
+    const doc = new PDFDocument({ margin: 60, size: "LETTER", bufferPages: true });
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
 
     const brand = "#5B9BD5";
     const dark = "#1A1917";
@@ -34,15 +63,27 @@ export async function generateAgreementPdf(data: AgreementPdfData): Promise<stri
     const light = "#E5E2DC";
     const pageWidth = doc.page.width - 120;
 
-    doc.rect(0, 0, doc.page.width, 72).fill(brand);
-    doc.fillColor("#FFFFFF").fontSize(20).font("Helvetica-Bold")
-      .text(data.companyName, 60, 20, { width: doc.page.width - 120 });
-    doc.fontSize(10).font("Helvetica")
-      .text(data.formName, 60, 46, { width: doc.page.width - 120 });
-    doc.fillColor(gray).fontSize(9).font("Helvetica")
-      .text(`Signed: ${data.signedAt}`, doc.page.width - 200, 46, { width: 140, align: "right" });
+    // Letterhead: the mark on white over a brand rule, the same header the
+    // agreement email carries. The old solid brand band left nowhere to put a
+    // logo that is not itself transparent.
+    let textLeft = 60;
+    if (logo) {
+      try {
+        doc.image(logo, 60, 26, { fit: [104, 42] });
+        textLeft = 176;
+      } catch {
+        // Corrupt or unsupported bytes. Fall through to the name in type.
+      }
+    }
+    doc.fillColor(dark).fontSize(logo ? 13 : 19).font("Helvetica-Bold")
+      .text(data.companyName, textLeft, logo ? 30 : 26, { width: 300 });
+    doc.fillColor(gray).fontSize(9.5).font("Helvetica")
+      .text(data.formName, textLeft, logo ? 48 : 50, { width: 300 });
+    doc.fillColor(gray).fontSize(8.5).font("Helvetica")
+      .text(`Signed ${data.signedAt}`, doc.page.width - 260, 50, { width: 200, align: "right" });
+    doc.rect(60, 82, doc.page.width - 120, 3).fill(brand);
 
-    let y = 95;
+    let y = 108;
 
     const sectionHeader = (title: string) => {
       doc.rect(60, y, pageWidth, 22).fill("#F7F6F3");
@@ -129,18 +170,30 @@ export async function generateAgreementPdf(data: AgreementPdfData): Promise<stri
         60, y, { width: pageWidth, lineGap: 2 }
       );
 
-    const pageCount = (doc as any)._pageBuffer?.length || 1;
-    for (let i = 0; i < pageCount; i++) {
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
       doc.fillColor(gray).fontSize(7).font("Helvetica")
         .text(
-          `${data.companyName} — ${data.formName} — Generated by Qleno — Page ${i + 1}`,
+          `${data.companyName} - ${data.formName} - Page ${i - range.start + 1} of ${range.count}`,
           60, doc.page.height - 30, { width: pageWidth, align: "center" }
         );
     }
 
     doc.end();
-    stream.on("finish", () => resolve(`/api/pdfs/${filename}`));
-    stream.on("error", reject);
   });
+}
+
+// Legacy path: writes the rendered PDF to the ephemeral disk and hands back the
+// /api/pdfs URL the sign page has always linked. Callers that need a link the
+// customer can still open after a deploy should use GET /api/sign/:token/agreement.pdf.
+export async function generateAgreementPdf(data: AgreementPdfData): Promise<string> {
+  const buffer = await renderAgreementPdf(data);
+  const pdfsDir = process.env.PDFS_DIR || path.resolve(process.cwd(), "pdfs");
+  if (!fs.existsSync(pdfsDir)) {
+    fs.mkdirSync(pdfsDir, { recursive: true });
+  }
+  const filename = `agreement-${data.submissionId}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(pdfsDir, filename), buffer);
+  return `/api/pdfs/${filename}`;
 }

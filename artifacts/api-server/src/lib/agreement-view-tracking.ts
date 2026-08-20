@@ -35,6 +35,8 @@ export async function ensureAgreementClauseColumns(): Promise<void> {
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_nonsolicit_months integer NOT NULL DEFAULT 12`);
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_nonsolicit_fee numeric(12,2) NOT NULL DEFAULT 2500.00`);
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_rate_increase_limit_months integer NOT NULL DEFAULT 12`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_hold_max_days integer NOT NULL DEFAULT 90`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_hold_notice_free_days integer NOT NULL DEFAULT 30`);
 }
 
 export async function ensureAgreementViewColumns(): Promise<void> {

@@ -2,8 +2,12 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { formTemplatesTable, formSubmissionsTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { randomUUID } from "crypto";
+import {
+  RESIDENTIAL_AGREEMENT_BODY,
+  COMMERCIAL_AGREEMENT_BODY,
+} from "../lib/agreement-bodies.js";
 
 const router = Router();
 
@@ -21,90 +25,6 @@ router.get("/variables", requireAuth, async (_req, res) => {
   }
 });
 
-// [agreement-merge 2026-07-22] Phes's real commercial service agreement (the one
-// that lived in Jotform), rewritten with {{merge variables}} so one template
-// serves every building. Client name, address, rate, frequency and scope come
-// from the estimate/client at send time — see lib/agreement-merge.ts.
-const PHES_COMMERCIAL_SERVICE_AGREEMENT = `COMMERCIAL CLEANING SERVICE AGREEMENT
-
-1. PARTIES
-This Commercial Cleaning Service Agreement ("Agreement") is entered into on {{today}} by and between {{company_name}}, an Illinois company (the "Service Provider"), and {{client_company}} (the "Client").
-
-2. CLIENT & SERVICE PROVIDER INFORMATION
-Client Name: {{client_company}}
-Service Address: {{service_address}}
-Billing Method: Card on File
-Service Provider: {{company_name}}
-Provider Email: {{company_email}}
-Provider Phone: {{company_phone}}
-
-3. SERVICE SUMMARY & SCOPE
-
-Effective Date: Services shall commence on {{effective_date}}.
-
-Service Frequency: {{frequency}}
-Scheduling: Exact service dates and times shall be determined by the Service Provider and may be adjusted due to holidays, weather conditions, building access restrictions, or operational needs, with reasonable notice provided to the Client.
-
-Scope of Work
-{{scope_of_work}}
-
-Supplies and Equipment: The Service Provider will furnish all cleaning supplies and equipment necessary to perform these services.
-
-4. PAYMENT TERMS & BILLING CYCLE
-
-Rate: {{rate}} per visit - {{frequency}}
-
-Payment Method: Card on file.
-
-Due Date: Payment is due in full on the first visit of the month.
-
-Late Payments: {{late_fee}}
-
-Rate Adjustments: The Service Provider may adjust rates by providing {{rate_notice_days}} days' written notice. If the Client does not accept the adjusted rate, either party may terminate this Agreement effective on the proposed adjustment date, with no further obligation beyond services already performed. {{rate_increase_limit}}
-
-Scope Limitation: The work performed will be strictly limited to the services listed in Section 3. Any additional tasks or requests outside this scope will be billed separately and require prior written approval.
-
-5. CANCELLATION & ACCESS
-
-Early Termination: Either party may terminate this Agreement with a {{termination_notice_days}}-day written notice, delivered as described in Section 10.
-
-Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
-
-Keys and Access: Keys, fobs and access codes provided to the Service Provider will be stored securely and used only to perform services under this Agreement. The Client must notify the Service Provider immediately if access credentials change. The Service Provider is not responsible for re-keying or credential replacement costs unless a credential is lost through its negligence.
-
-6. LIABILITY, DAMAGE & INSURANCE
-
-Insurance: The Service Provider carries commercial general liability insurance. A certificate of insurance is available upon request.
-
-Damage: The Service Provider will repair or replace items damaged through its negligence. The Client must report suspected damage in writing within {{damage_report_days}} business days of the service date; claims reported after that period cannot be verified and will not be honored. The Service Provider is not liable for damage arising from pre-existing wear, defects, or items that were not properly secured. Except where prohibited by law, the Service Provider's liability for damage to any item is limited to {{damage_cap}} unless a higher amount is agreed in writing in advance.
-
-Governing Law: The laws of the State of Illinois govern this Agreement. Any disputes will be resolved in Cook County, Illinois.
-
-7. NON-SOLICITATION
-
-During the term of this Agreement and for {{nonsolicit_months}} months after it ends, the Client will not directly or indirectly hire, engage or solicit any employee or contractor of the Service Provider who performed services under this Agreement. If the Client does so, the Client agrees to pay a placement fee of {{nonsolicit_fee}}. The parties agree this amount is a reasonable estimate of the Service Provider's recruiting and training costs and is not a penalty.
-
-8. INDEPENDENT CONTRACTOR
-
-The Service Provider is an independent contractor. Personnel performing services are employees or contractors of the Service Provider only and are not employees of the Client. The Service Provider is solely responsible for their wages, taxes, insurance and supervision. Neither party is the agent of the other, and nothing in this Agreement creates a partnership or joint venture.
-
-9. CONFIDENTIALITY
-
-All client information and property details will be kept strictly confidential.
-
-10. NOTICES
-
-All notices required under this Agreement, including notice of termination, must be in writing. Written notice is validly delivered by email or by text message (SMS) to the addresses and numbers below, or to any address or number the parties later provide in writing. Notice is effective on the date it is sent.
-
-To the Service Provider: {{company_email}} / {{company_phone}}
-To the Client: {{client_email}} / {{client_phone}}
-
-11. ENTIRE AGREEMENT
-
-This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties.
-
-By signing, the Client fully understands and agrees to the contents of this Agreement. The individual signing represents and warrants that they have authority to bind the Client. The Client is responsible for all amounts due for services provided or scheduled during the term and any notice period.`;
-
 const PHES_RESIDENTIAL_SCHEMA = [
   { id: "f_name", type: "text", label: "Full Name", required: true, variable: "client_name" },
   { id: "f_address", type: "text", label: "Service Address", required: true, variable: "client_address" },
@@ -116,66 +36,6 @@ const PHES_RESIDENTIAL_SCHEMA = [
   { id: "f_contact_tech_change", type: "select", label: "If technician changes, notify via:", required: false, variable: "contact_tech_change", options: ["Text", "Email", "Phone call", "No preference"] },
   { id: "f_contact_during", type: "select", label: "Preferred contact during service:", required: false, variable: "contact_during", options: ["Text", "Phone call", "Do not contact unless emergency"] },
 ];
-
-const PHES_RESIDENTIAL_TERMS = `ARRIVAL WINDOW
-Your service is scheduled with a 45 minute arrival window. Exact arrival times cannot be guaranteed, because traffic and the home before yours can run long. We will notify you when your technician is on the way.
-
-SERVICE GUIDELINES
-We will begin services on the agreed start date. Your service includes a per-visit minimum and covers all standard cleaning tasks as discussed. Additional hours beyond the base rate are billed at the agreed hourly rate.
-
-ADD-ONS AND TRADES POLICY
-Additional services (deep cleaning, move-in/out, appliance interiors, etc.) must be scheduled in advance and will be billed separately. Phes does not subcontract trades or maintenance work.
-
-LOCKOUT POLICY
-If our technicians arrive and are unable to gain access to the property, a lockout fee equal to the full service charge will apply. Please ensure access is available at the time of your scheduled service.
-
-CANCELLATION AND RESCHEDULING
-We require 48 hours advance notice to cancel or reschedule your appointment. Cancellations made within 48 hours of your scheduled service time during business hours (Monday–Friday 9:00 AM – 6:00 PM, Saturday 9:00 AM – 12:00 PM) will be charged a cancellation fee equal to 100% of the service cost. Exceptions may be made in cases of genuine emergency at management's discretion.
-
-TERMINATION OF SERVICES
-Either party may terminate recurring services with 30 days written notice. Phes reserves the right to terminate service immediately in cases of safety concerns, payment default, or hostile work environment.
-
-PAYMENT TERMS
-Payment is due on the day of service. We accept all major credit and debit cards. Your card on file will be automatically charged on the day of your scheduled service. Unpaid balances are subject to a late fee of $25 after 7 days.
-
-SICK POLICY
-For the health and safety of all our clients and staff, we will reschedule your service if a technician is ill. We will provide as much notice as possible and accommodate your rescheduling needs promptly at no penalty to you.
-
-SAFETY AND WINTER ACCESS
-In winter months, please ensure driveways and walkways are clear of snow and ice before your service. Phes reserves the right to reschedule services if conditions are deemed unsafe for our technicians. No cancellation fee will apply in these cases.
-
-BODILY FLUIDS AND EXCLUSIONS
-Our standard service does not include cleaning of bodily fluids, biohazardous materials, mold remediation, or pest-related cleanup. These require specialized services and will be declined or quoted separately.
-
-SURFACE CARE DISCLAIMER
-We take care with all surfaces, however Phes is not responsible for damage to improperly sealed, compromised, or pre-existing damaged surfaces. Please inform us of any fragile items or surfaces requiring special care before service.
-
-SERVICE SUSPENSION POLICY
-Clients may suspend recurring service for up to 90 days while retaining their scheduled appointment slot. Requests must be made with 48 hours notice. Suspension beyond 90 days may result in loss of your recurring time slot.
-
-MINIMUM FREQUENCY PROTECTION
-To maintain your cleaning rate and appointment slot, the maximum interval between cleanings is 60 days. Exceeding this interval may result in a rate adjustment to reflect the additional time required.
-
-RECURRING RATE PROTECTION
-Your rate is locked as long as you maintain your recurring schedule and frequency. Rate changes will be communicated with 30 days advance notice.
-
-ANNUAL RATE REVIEW
-Phes reserves the right to adjust rates annually in January based on labor costs, supply costs, and market conditions. Clients will be notified 30 days in advance of any rate change.
-
-RATE CHANGES BASED ON CLEANING TIME
-After your first 2 to 3 months of service, your rate may be adjusted to reflect the actual time required to clean your home to our standards. We will communicate any adjustment to you before it takes effect.
-
-WEATHER POLICY
-Phes may reschedule services due to severe weather conditions that pose safety risks to our staff. We will notify you as early as possible and reschedule at no penalty to you.
-
-HOLIDAY CLOSURES
-Phes observes the following holidays: New Year's Day, Memorial Day, Fourth of July, Labor Day, Thanksgiving Day, and Christmas Day. Services falling on these dates will be rescheduled.
-
-24-HOUR SATISFACTION GUARANTEE
-If you are not completely satisfied with your cleaning, please contact us within 24 hours and we will return to address any concerns at no additional charge. We stand behind our work.
-
-BREAKAGE AND DAMAGE POLICY
-Phes carries liability insurance. In the event of accidental damage caused by our technicians, please report it within 24 hours. We do not accept liability for items weighing over 25 lbs or items that were pre-existing in a damaged condition. Damage claims are handled on a case-by-case basis.`;
 
 router.get("/", requireAuth, async (req, res) => {
   try {
@@ -266,50 +126,21 @@ router.post("/seed-defaults", requireAuth, async (req, res) => {
         type: "agreement",
         category: "residential",
         schema: PHES_RESIDENTIAL_SCHEMA as any,
-        terms_body: PHES_RESIDENTIAL_TERMS,
+        terms_body: RESIDENTIAL_AGREEMENT_BODY,
         requires_sign: true,
         is_active: true,
         is_default: true,
         created_by: req.auth!.userId,
       },
-      {
-        company_id: req.auth!.companyId,
-        name: "Commercial Cleaning Agreement",
-        type: "agreement",
-        category: "commercial",
-        schema: [
-          { id: "f_company", type: "text", label: "Company Name", required: true, variable: "company_name" },
-          { id: "f_contact", type: "text", label: "Primary Contact", required: true, variable: "contact_name" },
-          { id: "f_address", type: "text", label: "Property Address", required: true, variable: "property_address" },
-          { id: "f_phone", type: "tel", label: "Phone", required: true, variable: "contact_phone" },
-          { id: "f_email", type: "email", label: "Email", required: true, variable: "contact_email" },
-          { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Daily", "Weekly", "Bi-Weekly", "Monthly"] },
-          { id: "f_scope", type: "textarea", label: "Scope of Work", required: true, variable: "scope_of_work" },
-        ] as any,
-        terms_body: `COMMERCIAL CLEANING AGREEMENT
-
-SCOPE OF WORK
-Services will be performed as outlined in the agreed scope of work. Any additional services outside the agreed scope will be quoted separately.
-
-PAYMENT TERMS
-Invoices are due NET 30 days from date of issue. Late payments are subject to a 1.5% monthly interest charge.
-
-TERMINATION
-Either party may terminate with 60 days written notice. Immediate termination may occur for non-payment or breach of contract.
-
-PERFORMANCE STANDARDS
-Phes maintains professional cleaning standards. Clients may request inspection access to verify service quality.
-
-LIABILITY
-Phes carries commercial general liability insurance. Certificate of insurance available upon request.
-
-CONFIDENTIALITY
-All client information and property details will be kept strictly confidential.`,
-        requires_sign: true,
-        is_active: true,
-        is_default: true,
-        created_by: req.auth!.userId,
-      },
+      // [short-commercial-retired 2026-08-19] The generic "Commercial Cleaning
+      // Agreement" default is gone. It shipped alongside the real commercial
+      // contract below, under a name one word different, and said the opposite
+      // thing about money: NET 30 with 1.5% monthly interest, against the real
+      // contract's card on file due at the first visit of the month. It also
+      // had no parties clause, no rate, no service address, no notices clause
+      // and no signature language, so picking the wrong row in the send dialog
+      // signed a customer onto terms Phes does not offer. The two rows it
+      // already created on Phes and Schaumburg are deactivated in production.
       {
         // Phes's real commercial contract (was in Jotform). Distinct name from
         // the generic "Commercial Cleaning Agreement" above so seeding adds it
@@ -319,7 +150,7 @@ All client information and property details will be kept strictly confidential.`
         type: "agreement",
         category: "commercial",
         schema: [] as any,
-        terms_body: PHES_COMMERCIAL_SERVICE_AGREEMENT,
+        terms_body: COMMERCIAL_AGREEMENT_BODY,
         requires_sign: true,
         is_active: true,
         is_default: true,
@@ -442,7 +273,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
         ...(type !== undefined && { type }),
         ...(category !== undefined && { category }),
         ...(schema !== undefined && { schema }),
-        ...(terms_body !== undefined && { terms_body }),
+        // [agreement-body 2026-08-19] Editing the body hands ownership of the
+        // text to the office. -1 permanently excludes this row from the boot
+        // refresh, so a shipped revision of the default contract can never
+        // overwrite a clause someone here wrote on purpose.
+        ...(terms_body !== undefined && { terms_body, terms_body_seed_version: -1 }),
         ...(requires_sign !== undefined && { requires_sign }),
         ...(is_active !== undefined && { is_active }),
         updated_at: new Date(),
@@ -502,7 +337,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/send", requireAuth, async (req, res) => {
+// [agreement-from-client 2026-08-19] Office-gated. This mints a signing token
+// for a binding contract; it was previously open to any authenticated user,
+// which includes every technician.
+router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const templateId = parseInt(req.params.id);
     const { client_id, custom_fields } = req.body;

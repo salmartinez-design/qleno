@@ -146,6 +146,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     // at an Oak Lawn zip must still be answered from (847) 538-3729 and
     // schaumburg@phes.io, never from the other partner's number.
     { label: "companies.branch_key", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS branch_key TEXT" },
+    // [agreement-body 2026-08-19] Which generation of the default contract text
+    // a template is sitting on. 0 = whatever was seeded before this column
+    // existed, -1 = the office edited the body and owns it now. The refresh
+    // below only touches rows at 0, so a customized contract is never stomped.
+    { label: "form_templates.terms_body_seed_version", stmt: "ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS terms_body_seed_version INTEGER NOT NULL DEFAULT 0" },
     // Keyed off square_account_key rather than the name so the pin can never
     // disagree with which merchant that tenant banks into. Only fills a NULL —
     // an explicit pin set in the app is never overwritten on the next boot.
@@ -7665,7 +7670,7 @@ async function runNotificationTemplateSeed() {
   <a href="{{portal_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset your password</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 1 hour and can only be used once.</p>
-<p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email — your password hasn't changed.</p>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email. Your password hasn't changed.</p>
 <p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
         body_text: null,
       },
@@ -7730,6 +7735,134 @@ async function runNotificationTemplateSeed() {
       if (n) console.log(`[notification-templates] seeded invoice_reminder for ${n} compan${n === 1 ? "y" : "ies"}`);
     } catch (e) {
       console.error("[notification-templates] invoice_reminder seed (non-fatal):", (e as any)?.message);
+    }
+
+    // [agreement-from-client 2026-08-19] Service-agreement emails.
+    // Seeded for EVERY company for the same reason invoice_reminder is: the
+    // loop above is company-1 only, and sendNotification skips the send
+    // outright when no row matches, so an unseeded tenant would mint a signing
+    // token and email nobody — the exact failure this template exists to fix.
+    // Both are sent transactional: the office pressed Send on a contract the
+    // customer is waiting on, or the customer just finished signing one.
+    try {
+      // [agreement-brand 2026-08-19] Formal wording on purpose. This is the one
+      // customer email that asks somebody to enter into a contract, so it does
+      // not read like an order confirmation. The chrome around it (logo, brand
+      // rule, navy contact footer) comes from agreementEmailShell at send time,
+      // so an office edit here stays on brand no matter what they type.
+      const AGR_SEND_SUBJECT = "Please review and sign your {{company_name}} service agreement";
+      const AGR_SEND_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Please find your service agreement with {{company_name}} enclosed for your review and signature. It is the document that governs the work we do for you, and it takes effect once you sign it.</p>
+<p style="margin:0 0 10px;font-size:15px;color:#1A1917;line-height:1.65">Please read it in full before signing. It sets out:</p>
+<ul style="margin:0 0 22px;padding-left:20px;font-size:15px;color:#1A1917;line-height:1.8">
+  <li>the service you are receiving, your rate, and your schedule</li>
+  <li>how either of us may change or end the service, and the notice required</li>
+  <li>what happens if a visit is skipped, held, or cancelled</li>
+  <li>our responsibilities to you if something goes wrong</li>
+</ul>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#185FA5;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Review and sign</a>
+</td></tr></table>
+<p style="margin:0 0 22px;font-size:13px;color:#6B6860;line-height:1.65;text-align:center">This link is valid for {{expires_days}} days and is unique to you. Please do not forward it.</p>
+<h3 style="font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#5B9BD5;border-bottom:2px solid #D6E3F2;padding-bottom:6px;margin:28px 0 12px;">About signing electronically</h3>
+<p style="margin:0 0 18px;font-size:14px;color:#1A1917;line-height:1.65">Your electronic signature carries the same legal effect as a signature in ink under the federal E-SIGN Act and the Illinois Uniform Electronic Transactions Act. When you sign, we record the name you type, the date and time, the address you are connecting from, and an exact copy of the wording you agreed to. Nothing needs to be printed or mailed back.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E6F1FB;border-radius:10px;margin:16px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#185FA5;margin:0 0 6px;">Questions before you sign?</div>
+    <div style="font-size:14px;color:#042C53;line-height:1.6">Call or text <strong>{{company_phone}}</strong>, or simply reply to this email. We would rather answer a question now than have you sign something you are unsure about.</div>
+  </td></tr>
+</table>`;
+      const AGR_SEND_TEXT = "Dear {{first_name}}, your service agreement with {{company_name}} is ready for your review and signature: {{agreement_link}} (valid for {{expires_days}} days, unique to you). Please read it in full before signing. Your electronic signature has the same legal effect as ink under the federal E-SIGN Act and the Illinois Uniform Electronic Transactions Act. Questions? Call or text {{company_phone}}.";
+
+      const AGR_SIGNED_SUBJECT = "Signed: your {{company_name}} service agreement";
+      const AGR_SIGNED_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">This confirms that your service agreement with {{company_name}} has been signed and is now in effect. A copy is on file with us, and this email is your copy.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px">
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Agreement</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{agreement_name}}</span></td>
+  </tr>
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Signed by</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{signed_name}}</span></td>
+  </tr>
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Signed on</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{signed_at}}</span></td>
+  </tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#0F6E56;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Download your signed agreement</a>
+</td></tr></table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E1F5EE;border-radius:10px;margin:8px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#0F6E56;margin:0 0 6px;">Please keep this email</div>
+    <div style="font-size:14px;color:#04342C;line-height:1.6">The link above always opens the exact wording you signed, not a later version. If we ever propose a change to your agreement, we will send you a new one to review and sign.</div>
+  </td></tr>
+</table>
+<p style="margin:22px 0 0;font-size:14px;color:#1A1917;line-height:1.65">Thank you for your business. If anything in the agreement needs clarifying, call or text <strong>{{company_phone}}</strong>, or write to <strong>{{company_email}}</strong>.</p>`;
+      const AGR_SIGNED_TEXT = "Dear {{first_name}}, your service agreement with {{company_name}} has been signed and is now in effect. Agreement: {{agreement_name}}. Signed by: {{signed_name}}. Signed on: {{signed_at}}. Your copy: {{agreement_link}} (this link always opens the exact wording you signed). Questions? {{company_phone}} or {{company_email}}.";
+
+      const agrTemplates: [string, string, string, string][] = [
+        ["agreement_send", AGR_SEND_SUBJECT, AGR_SEND_HTML, AGR_SEND_TEXT],
+        ["agreement_signed", AGR_SIGNED_SUBJECT, AGR_SIGNED_HTML, AGR_SIGNED_TEXT],
+      ];
+      for (const [trig, subj, html, text] of agrTemplates) {
+        const r = await db.execute(sql`
+          INSERT INTO notification_templates
+            (company_id, trigger, channel, subject, body, body_html, body_text, is_active)
+          SELECT c.id, ${trig}, 'email'::notification_channel,
+                 ${subj}, '', ${html}, ${text}, true
+            FROM companies c
+           WHERE NOT EXISTS (
+             SELECT 1 FROM notification_templates t
+              WHERE t.company_id = c.id
+                AND t.trigger = ${trig}
+                AND t.channel = 'email'::notification_channel
+           )`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[notification-templates] seeded ${trig} for ${n} compan${n === 1 ? "y" : "ies"}`);
+      }
+    } catch (e) {
+      console.error("[notification-templates] agreement seed (non-fatal):", (e as any)?.message);
+    }
+
+    // [agreement-body 2026-08-19] Refresh the default contract text.
+    //
+    // form_templates rows are only ever INSERTed (seed-defaults skips any name
+    // that already exists), so Phes was still sending the first-generation
+    // agreement: a wall of policy paragraphs with no parties clause, no service
+    // address, no rate, no term, no signature block, and not one merge token.
+    // Every "personalized" agreement it sent was identical.
+    //
+    // terms_body_seed_version is the guard. A row the office has edited is
+    // stamped -1 by PATCH /api/form-templates/:id and is skipped here forever;
+    // a row still at 0 has never been touched by anyone, so replacing its body
+    // destroys nothing. Bumping AGREEMENT_BODY_SEED_VERSION re-runs this for a
+    // future revision without a second migration.
+    try {
+      const { RESIDENTIAL_AGREEMENT_BODY, COMMERCIAL_AGREEMENT_BODY, AGREEMENT_BODY_SEED_VERSION } =
+        await import("./lib/agreement-bodies.js");
+      const refresh: [string, string][] = [
+        ["residential", RESIDENTIAL_AGREEMENT_BODY],
+        ["commercial", COMMERCIAL_AGREEMENT_BODY],
+      ];
+      for (const [category, body] of refresh) {
+        const r = await db.execute(sql`
+          UPDATE form_templates
+             SET terms_body = ${body},
+                 terms_body_seed_version = ${AGREEMENT_BODY_SEED_VERSION},
+                 updated_at = now()
+           WHERE type = 'agreement'
+             AND category = ${category}
+             AND is_active = true
+             AND terms_body_seed_version >= 0
+             AND terms_body_seed_version < ${AGREEMENT_BODY_SEED_VERSION}`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[agreement-body] refreshed ${n} ${category} agreement template(s) to v${AGREEMENT_BODY_SEED_VERSION}`);
+      }
+    } catch (e) {
+      console.error("[agreement-body] refresh (non-fatal):", (e as any)?.message);
     }
 
     // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that
