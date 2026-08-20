@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { FONT, INK, h3, detailRow, detailRowNote } from "./phes-email-shell.js";
 
 export type MsgChannel = "email" | "sms";
 
@@ -108,21 +109,23 @@ export const MERGE_TAGS = [
   "end_date",
 ] as const;
 
-// [service-suspension 2026-07-11] House-styled inner HTML for the suspension
-// emails (wrapEmailHtml adds the masthead + footer at send time). Kept as small
-// builders so the three seeded email bodies below stay readable; the office can
-// still edit the resulting HTML in Settings → Customer Messages.
-const SUSP_FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
-function suspRow(label: string, value: string, accent = false): string {
-  return `<tr><td style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:${SUSP_FONT};font-size:13px;color:#6B6860;">${label}</td>` +
-    `<td align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:${SUSP_FONT};font-size:14px;font-weight:${accent ? 800 : 600};color:${accent ? "#0A0E1A" : "#1A1917"};">${value}</td></tr>`;
-}
-function suspEmail(pillText: string, heading: string, introHtml: string, rowsHtml: string, closingHtml: string): string {
-  return `<div style="display:inline-block;padding:4px 12px;border-radius:999px;font-family:${SUSP_FONT};font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;margin-bottom:14px;">${pillText}</div>` +
-    `<h1 style="margin:0 0 6px;font-family:${SUSP_FONT};font-size:22px;font-weight:700;color:#1A1917;">${heading}</h1>` +
-    `<p style="margin:0 0 22px;font-family:${SUSP_FONT};font-size:14px;color:#6B6860;line-height:1.6;">${introHtml}</p>` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:10px;padding:2px 16px;">${rowsHtml}</table>` +
-    `<p style="margin:22px 0 0;font-family:${SUSP_FONT};font-size:14px;color:#1A1917;line-height:1.6;">${closingHtml}</p>`;
+// [service-suspension 2026-07-11] Inner HTML for the three service-hold emails.
+// [suspension-email-shell 2026-08-19] Rebuilt on the SAME components as the
+// booking confirmation (phes-email-shell) so a hold email and an order email are
+// visibly the same product. The masthead, the coloured banner and the navy
+// footer come from lib/suspension-email.ts at send time; these builders own only
+// what sits between them. The office can still edit the resulting HTML in
+// Settings > Customer Messages.
+//
+// The amber "On hold" pill that used to open each body is GONE — the shell's
+// banner says the same thing in the same place the order email does, and two
+// status chips stacked on each other read as a bug.
+function suspEmail(heading: string, introHtml: string, rowsHtml: string, closingHeading: string, closingHtml: string): string {
+  return `<p style="margin:22px 0 6px;font-family:${FONT};font-size:20px;font-weight:700;color:${INK};line-height:1.35;">${heading}</p>` +
+    `<p style="margin:0 0 18px;font-family:${FONT};font-size:15px;color:${INK};line-height:1.6;">${introHtml}</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rowsHtml}</table>` +
+    h3(closingHeading) +
+    `<p style="margin:0 0 4px;font-family:${FONT};font-size:15px;color:${INK};line-height:1.6;">${closingHtml}</p>`;
 }
 
 // The canonical catalog. Order = the cadence order the customer experiences.
@@ -311,14 +314,14 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
         channel: "email",
         subject: "Your recurring cleaning is on hold until {{end_date}}",
         body: suspEmail(
-          "On hold",
           "Your recurring service is on hold",
-          "Hi {{first_name}}, this confirms that your recurring cleaning service has been placed on hold. During the hold we won't schedule any visits, and you won't be billed for cleanings.",
-          suspRow("Your service", "{{service_summary}}") +
-            suspRow("Your recurring rate", "{{service_price}}", true) +
-            suspRow("Suspension starts", "{{start_date}}") +
-            suspRow("Hold ends on", "{{end_date}}"),
-          "As a recurring client you're locked in at {{service_price}}, and you keep your regular spot on our schedule and your usual cleaning team. Resume any time before {{end_date}} to keep those benefits - coming off recurring service means giving up your locked-in rate and rebooking at our standard rates. Just reply to this email or call us and we'll get you back on the schedule.",
+          "Hi {{first_name}}, this confirms that your recurring cleaning service has been placed on hold. While the hold is on we won't schedule any visits, and you won't be billed for cleanings.",
+          detailRow("Your service", "{{service_summary}}") +
+            detailRow("Your recurring rate", "{{service_price}}") +
+            detailRow("Hold starts", "{{start_date}}") +
+            detailRowNote("Hold ends", "{{end_date}}", "We hold your spot up to 90 days"),
+          "Coming back",
+          "Your cadence, your rate of {{service_price}}, your place on our schedule and your usual cleaning team are all held exactly as they are. Resume any time before {{end_date}} and we pick right back up on the same schedule, with nothing to redo. If the hold runs out, your spot is released and starting service again means signing back up at our standard rates. Just reply to this email or call us and we'll put you back on the calendar.",
         ),
       },
       {
@@ -341,13 +344,13 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
         channel: "email",
         subject: "Keep your recurring cleaning benefits before your hold ends",
         body: suspEmail(
-          "Ending soon",
-          "Keep your recurring cleaning benefits",
-          "Hi {{first_name}}, your cleaning hold is coming to an end soon. Resume now to keep everything you have as a recurring client.",
-          suspRow("Your service", "{{service_summary}}") +
-            suspRow("Your recurring rate", "{{service_price}}", true) +
-            suspRow("Hold ends on", "{{end_date}}"),
-          "Recurring clients keep a locked-in rate, a reserved place on our schedule, and their regular team. If your hold lapses on {{end_date}}, you'll come off recurring service and rebook at our standard rates. Want to keep your rate of {{service_price}}? Reply to this email or call us and we'll get you back on the calendar.",
+          "Your hold ends in about 30 days",
+          "Hi {{first_name}}, your cleaning hold is coming to an end. Resume before it runs out and everything stays exactly as you left it.",
+          detailRow("Your service", "{{service_summary}}") +
+            detailRow("Your recurring rate", "{{service_price}}") +
+            detailRow("Hold ends", "{{end_date}}"),
+          "What happens on {{end_date}}",
+          "Resume before then and we keep your cadence, your rate of {{service_price}}, your place on the schedule and your regular team. If the hold runs out, your spot is released and starting service again means signing back up at our standard rates. Reply to this email or call us and we'll get you back on the calendar.",
         ),
       },
       {
@@ -368,15 +371,15 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     channels: [
       {
         channel: "email",
-        subject: "Your recurring hold has ended - let's get you back on the schedule",
+        subject: "Your recurring hold has ended. Let's get you back on the schedule",
         body: suspEmail(
-          "Hold ended",
           "Your recurring hold has ended",
-          "Hi {{first_name}}, your cleaning hold ended on {{end_date}}. We've kept your recurring spot and your rate open as long as we can, and we haven't rebooked yet - we wanted to check with you first.",
-          suspRow("Your service", "{{service_summary}}") +
-            suspRow("Your recurring rate", "{{service_price}}", true) +
-            suspRow("Hold ended", "{{end_date}}"),
-          "Reactivate now to keep your rate of {{service_price}} and your regular team before your spot is released. If you come off recurring service, future cleanings would be booked at our standard rates. Just reply to this email or call us and we'll set up your next visit.",
+          "Hi {{first_name}}, your cleaning hold ended on {{end_date}}. We've held your spot and your rate for the full 90 days and we haven't given it away yet, because we wanted to check with you first.",
+          detailRow("Your service", "{{service_summary}}") +
+            detailRow("Your recurring rate", "{{service_price}}") +
+            detailRow("Hold ended", "{{end_date}}"),
+          "Getting back on the schedule",
+          "Tell us now and we put you straight back on your old cadence at {{service_price}} with your regular team. Once we release the spot, starting again means signing back up at our standard rates. Just reply to this email or call us and we'll set up your next visit.",
         ),
       },
       {

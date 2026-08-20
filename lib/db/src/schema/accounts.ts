@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, date, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -51,6 +51,18 @@ export const accountsTable = pgTable("accounts", {
   // Deliberately separate from is_active (which stops scheduling too) and from
   // invoice_frequency (which decides the shape, not the whether).
   auto_issue_enabled: boolean("auto_issue_enabled").notNull().default(true),
+  // [suspension-commercial 2026-08-19] Temporary service hold, mirroring the
+  // six columns on clients. An account on hold has its future visits cancelled
+  // and its recurring schedules paused (paused_by_suspension), and is restored
+  // by the resume action. Deliberately separate from is_active: is_active=false
+  // is "this contract is over", suspended_at is "back on <date>", and only the
+  // second one promises the cadence and rate are being held.
+  suspended_at: timestamp("suspended_at"),
+  suspend_until: date("suspend_until"),
+  suspend_reason: text("suspend_reason"),
+  suspended_by_user_id: integer("suspended_by_user_id"),
+  suspend_resume_reminder_sent_at: timestamp("suspend_resume_reminder_sent_at"),
+  suspend_expiry_notice_sent_at: timestamp("suspend_expiry_notice_sent_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });

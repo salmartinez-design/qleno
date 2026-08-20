@@ -23,6 +23,7 @@ import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobPhotos } from "@/components/account-job-photos";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
 import { ActivityFeed } from "@/components/activity-feed";
+import { ServiceHoldCard } from "@/components/service-hold-card";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1235,6 +1236,19 @@ export default function AccountDetailPage() {
         </div>
 
         {/* ─── OVERVIEW TAB ───────────────────────────────────────────────── */}
+        {/* [suspension-commercial 2026-08-19] Same hold card the residential
+            profile shows, full width above the two-column overview grid so the
+            account's service state reads before its billing settings. */}
+        {tab === "overview" && (
+          <div className="mb-4">
+            <ServiceHoldCard
+              kind="account"
+              subject={account}
+              displayName={account.account_name || "this account"}
+              onChanged={load}
+            />
+          </div>
+        )}
         {tab === "overview" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Billing Settings */}

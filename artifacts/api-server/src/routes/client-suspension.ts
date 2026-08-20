@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { MAX_SUSPEND_DAYS, resolveServiceInfo, fmtHoldDateLong, fmtHoldDateShort } from "../lib/suspension.js";
 import { sendNotification } from "../services/notificationService.js";
+import { buildSuspensionEmailRenderer } from "../lib/suspension-email.js";
 
 const router = Router();
 
@@ -113,7 +114,8 @@ router.post("/:id/suspend", requireAuth, requireRole("owner", "admin", "office")
           const base = { first_name: client.first_name || "there", service_summary: svc.serviceSummary, service_price: svc.servicePrice };
           const emailVars = { ...base, start_date: fmtHoldDateLong(today), end_date: fmtHoldDateLong(until) };
           const smsVars = { ...base, start_date: fmtHoldDateShort(today), end_date: fmtHoldDateShort(until) };
-          const emailSent = await sendNotification("service_suspended", "email", companyId, client.email, null, emailVars).catch(() => false);
+          const renderHold = await buildSuspensionEmailRenderer(companyId, "suspended");
+          const emailSent = await sendNotification("service_suspended", "email", companyId, client.email, null, emailVars, false, renderHold).catch(() => false);
           const smsSent = await sendNotification("service_suspended", "sms", companyId, null, client.phone, smsVars).catch(() => false);
           // Mirror onto the client's Comm Log tab (client_communications is
           // separate from notification_log, which sendNotification already writes).
