@@ -33,6 +33,19 @@ export async function ensureBookingConfirmationSetup(): Promise<void> {
       ON jobs (customer_view_token) WHERE customer_view_token IS NOT NULL
     `);
 
+    // [client-facing-notes 2026-08-19] The note the customer may read, plus the
+    // per-job switch that decides whether it rides in this email. Francisco:
+    // "In the quoting tool, where do the client-facing notes go? If they aren't
+    // being used anywhere, they should be included in the email confirmation."
+    // They were not being used anywhere — the quote builder wrote the box to
+    // quotes.notes and nothing rendered it, not the estimate PDF, not the quote
+    // email, not the confirmation, and convert never carried it to the job. The
+    // default is true so a note the office bothered to write reaches the
+    // customer unless they deliberately hold it back.
+    await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_facing_notes text`);
+    await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_facing_notes_on_confirmation boolean NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS notes_on_confirmation boolean NOT NULL DEFAULT true`);
+
     // Seed a job_scheduled SMS template for any company that has the email
     // template but no SMS one yet. WHERE NOT EXISTS keeps it idempotent and
     // never clobbers a tenant's customization. The {{appointment_link}} merge
@@ -133,6 +146,7 @@ export async function sendJobScheduledConfirmation(
       SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type,
              j.allowed_hours, j.estimated_hours, j.frequency, j.recurring_schedule_id, j.job_type, j.account_id,
              j.address_street, j.address_city, j.address_state, j.address_zip,
+             j.client_facing_notes, j.client_facing_notes_on_confirmation,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
              c.stripe_payment_method_id,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
@@ -237,6 +251,14 @@ export async function sendJobScheduledConfirmation(
     // residential, minus the two blocks written for homeowners: the 15%-off
     // recurring upsell and the $70/hr residential overage fine print.
     const isCommercialJob = String(j.job_type || "") === "commercial" || j.account_id != null;
+    // [client-facing-notes 2026-08-19] The office's note for this visit, shown
+    // only when they left the per-job switch on. The switch is what Sal asked
+    // for: the office takes the note on the call, then decides whether the
+    // customer reads it, so a note kept for the crew's context never leaks into
+    // the customer's email.
+    const clientNote = j.client_facing_notes_on_confirmation === false
+      ? null
+      : (String(j.client_facing_notes ?? "").trim() || null);
     const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
       logoUrl: absLogo,
       companyName: j.company_name || "Phes Schaumburg",
@@ -256,6 +278,7 @@ export async function sendJobScheduledConfirmation(
       // (the renderer drops the rest of the body), so the {{services_breakdown}}
       // chip behaves the same here as in a test send.
       servicesBreakdownHtml: mv.services_breakdown,
+      clientNote,
     });
     const scheduledDateISO = j.scheduled_date instanceof Date
       ? j.scheduled_date.toISOString().slice(0, 10)
@@ -274,6 +297,7 @@ export async function sendJobScheduledConfirmation(
       // the creation-time stamp — same precedence the commission panel uses.
       estimatedTime: estTimeLabel(j.allowed_hours) || estTimeLabel(j.estimated_hours),
       servicesBreakdownHtml: mv.services_breakdown || "",
+      clientNote,
       scheduledDateISO,
       scheduledTimeRaw: effectiveTime,
       windowMinutes: arrivalWinMins,

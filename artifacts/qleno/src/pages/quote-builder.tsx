@@ -373,6 +373,10 @@ export default function QuoteBuilderPage() {
 
   // ── Section 3: Notes + discount + photos ─────────────────────────────────
   const [notes, setNotes] = useState("");
+  // [client-facing-notes 2026-08-19] Does the client-facing note ride into the
+  // booking confirmation email? Defaults on, so a note the office bothered to
+  // write reaches the customer unless they deliberately hold it back.
+  const [notesOnConfirmation, setNotesOnConfirmation] = useState(true);
   const [internalMemo, setInternalMemo] = useState("");
   const [officeMemo, setOfficeMemo] = useState("");
   const [manualAdjValue, setManualAdjValue] = useState("");
@@ -846,6 +850,7 @@ export default function QuoteBuilderPage() {
     setDiscountCode(existingQuote.discount_code || "");
     setDiscountInput(existingQuote.discount_code || "");
     setNotes(existingQuote.notes || "");
+    setNotesOnConfirmation(existingQuote.notes_on_confirmation !== false);
     setInternalMemo(existingQuote.internal_memo || "");
     setOfficeMemo(existingQuote.office_notes || "");
     setCallNotes(existingQuote.call_notes || "");
@@ -1442,6 +1447,7 @@ export default function QuoteBuilderPage() {
       hourly_rate_override: primaryScopeState?.hourlyRateOverride != null
         ? String(primaryScopeState.hourlyRateOverride) : null,
       notes: notes || null,
+      notes_on_confirmation: notesOnConfirmation,
       internal_memo: internalMemo || null,
       office_notes: officeMemo || null,
       call_notes: callNotes || null,
@@ -3637,8 +3643,30 @@ export default function QuoteBuilderPage() {
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Client-Facing Notes</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Shown to the client on the quote.</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Anything the client should read: extra time needed, a service-specific detail, what you agreed on the call.</div>
                   <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible to the client..." rows={3} className="mt-1 text-sm" />
+                  {/* [client-facing-notes 2026-08-19] Until now this box went
+                      nowhere: nothing rendered it, and convert never carried it
+                      to the job. Francisco asked where it goes; the answer was
+                      nowhere. It now rides into the booking confirmation email,
+                      and this switch is the office's per-quote call on whether
+                      the client actually sees it. */}
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={notesOnConfirmation}
+                      onChange={e => setNotesOnConfirmation(e.target.checked)}
+                      style={{ marginTop: 2, width: 14, height: 14, accentColor: "#00C9A0", cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: 12, color: "#1A1917", fontFamily: FF, lineHeight: 1.45 }}>
+                      Include in the confirmation email
+                      <span style={{ display: "block", fontSize: 11, color: "#9E9B94" }}>
+                        {notesOnConfirmation
+                          ? "The client will see this note in the booking confirmation."
+                          : "Saved on the job for the office, not sent to the client."}
+                      </span>
+                    </span>
+                  </label>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Internal Office Memo</div>

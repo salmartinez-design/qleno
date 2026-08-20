@@ -52,6 +52,11 @@ export interface PhesConfOpts {
   // so the block on the customer's calendar matches the window we quoted them.
   windowMinutes?: number;
   icsUrl?: string;                 // hosted .ics for the Apple button (email clients block data: URIs)
+  // [client-facing-notes 2026-08-19] The office's client-facing note for THIS
+  // visit, taken on the booking call. Already gated by the caller on the job's
+  // client_facing_notes_on_confirmation switch, so a value here means "show it".
+  // Empty / omitted renders nothing at all.
+  clientNote?: string | null;
 }
 
 // ── Add-to-calendar links ────────────────────────────────────────────────────
@@ -136,6 +141,21 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
     ? `${h3("Price breakdown")}${o.servicesBreakdownHtml}`
     : "";
 
+  // The office's note for this visit. Plain text typed into a textarea, so it is
+  // escaped and its newlines become <br> rather than collapsing into one run-on
+  // line. A quiet bordered panel: it must read as information about the booking,
+  // not as marketing, so it deliberately does not use the colored callout style
+  // the offers and guarantees use.
+  const noteText = String(o.clientNote ?? "").trim();
+  const clientNote = noteText
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0 0;border:1px solid ${BORDER};border-left:3px solid ${BRAND};border-radius:8px;">
+        <tr><td style="padding:14px 16px;font-family:${FONT};">
+          <div style="font-size:11px;font-weight:700;color:${MUTE};text-transform:uppercase;letter-spacing:.06em;margin:0 0 6px;">A note about your visit</div>
+          <div style="font-size:14px;color:${INK};line-height:1.6;">${esc(noteText).replace(/\r?\n/g, "<br />")}</div>
+        </td></tr>
+      </table>`
+    : "";
+
   const checklist = `<p style="margin:14px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;"><strong>Curious what's included?</strong> See our full <a href="${escAttr(o.checklistUrl)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Cleaning Checklist &rarr;</a></p>`;
 
   return phesEmailShell({
@@ -152,6 +172,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
 
       ${detailsCard}
       ${calBlock}
+      ${clientNote}
 
       <p style="margin:16px 0 0;font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;">We'll email and text you reminders 3 days and 1 day before your appointment, plus a text the moment your cleaner is on the way.</p>
 

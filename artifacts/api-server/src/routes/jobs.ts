@@ -1702,7 +1702,7 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office", "super_a
 router.put("/:id", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
-    const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes } = req.body;
+    const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes, client_facing_notes, client_facing_notes_on_confirmation } = req.body;
 
     // [reschedule-notify-put 2026-08-09] Same 'none'|'sms'|'email'|'both'
     // contract PATCH has honored since [notify-choice 2026-07-08]. PUT is the
@@ -1749,6 +1749,12 @@ router.put("/:id", requireAuth, async (req, res) => {
         ...(notes !== undefined && { notes }),
         // [notes-author] Stamp who/when on every office-notes edit.
         ...(office_notes !== undefined && { office_notes, office_notes_updated_by: req.auth!.userId, office_notes_updated_at: new Date() }),
+        // [client-facing-notes 2026-08-19] The note the customer may read, and
+        // the switch deciding whether the confirmation email carries it. Both
+        // are editable after booking because the customer usually calls the
+        // office about an already-booked visit.
+        ...(client_facing_notes !== undefined && { client_facing_notes }),
+        ...(client_facing_notes_on_confirmation !== undefined && { client_facing_notes_on_confirmation: !!client_facing_notes_on_confirmation }),
       })
       .where(and(
         eq(jobsTable.id, jobId),

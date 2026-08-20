@@ -72,6 +72,10 @@ export const quotesTable = pgTable("quotes", {
   special_instructions: text("special_instructions"),
   internal_memo: text("internal_memo"),
   client_notes: text("client_notes"),
+  // [client-facing-notes 2026-08-19] Whether the quote's client-facing note
+  // (the `notes` column, which is what the builder's "Client-Facing Notes" box
+  // writes) rides along into the booking confirmation email on convert.
+  notes_on_confirmation: boolean("notes_on_confirmation").notNull().default(true),
   manual_hours: numeric("manual_hours", { precision: 6, scale: 2 }),
   expires_at: timestamp("expires_at"),
   sign_token: text("sign_token"),
