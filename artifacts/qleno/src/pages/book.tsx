@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRoute } from "wouter";
+import { BOOKING_TIME_SLOTS as TIME_SLOTS, slotsForDate } from "@/lib/booking-slots";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { buildBookingCompleteMessage, PARENT_ORIGINS } from "@/lib/booking-conversion";
@@ -113,20 +114,6 @@ const SQFT_RANGES: { label: string; sqft: number }[] = [
 // Phes needs to staff a clean. This fallback is used only while the settings
 // fetch is in flight / if it fails, and matches the previous 72h behavior.
 const DEFAULT_LEAD_DAYS = 3;
-
-// Client-selectable start times, 9:00 AM–2:00 PM in 30-min steps. The 2:00 PM
-// cap leaves enough of the workday to finish the job. `label` is what we store
-// (arrival_window) + show everywhere; `minutes` drives the 72h slot filter.
-const TIME_SLOTS: { label: string; minutes: number }[] = (() => {
-  const out: { label: string; minutes: number }[] = [];
-  for (let m = 9 * 60; m <= 14 * 60; m += 30) {
-    const h24 = Math.floor(m / 60), mm = m % 60;
-    const h12 = ((h24 + 11) % 12) + 1;
-    const ampm = h24 < 12 ? "AM" : "PM";
-    out.push({ label: `${h12}:${String(mm).padStart(2, "0")} ${ampm}`, minutes: m });
-  }
-  return out;
-})();
 
 // Earliest bookable calendar date, rounded UP to a FULL day: a day only opens
 // once its FIRST slot (9:00 AM — when Phes actually starts) is at/after the
@@ -561,6 +548,7 @@ export default function BookPage() {
     max_advance_days: number;
     available_sun: boolean; available_mon: boolean; available_tue: boolean;
     available_wed: boolean; available_thu: boolean; available_fri: boolean; available_sat: boolean;
+    sat_last_start_minutes: number | null;
   } | null>(null);
 
   // Booking floor: "now" is pinned on mount so it stays stable across renders,
@@ -573,6 +561,21 @@ export default function BookPage() {
   const leadDays = bookingSettings?.booking_lead_days ?? DEFAULT_LEAD_DAYS;
   const cutoffMs = useMemo(() => nowMs + leadDays * 24 * 60 * 60 * 1000, [nowMs, leadDays]);
   const minBookDateStr = useMemo(() => computeMinBookDate(cutoffMs), [cutoffMs]);
+
+  // [sat-cutoff 2026-08-19] Picking a time and THEN moving the date to a
+  // Saturday would otherwise leave an afternoon slot selected that the Saturday
+  // list no longer offers — the select renders blank while the state still
+  // holds "1:00 PM", and that value is what gets booked. Drop any selection the
+  // current date's slot list doesn't contain, so the customer is asked again.
+  const satCut = bookingSettings?.sat_last_start_minutes;
+  useEffect(() => {
+    if (!selectedDate || !arrivalWindow) return;
+    if (!slotsForDate(selectedDate, satCut).some(s => s.label === arrivalWindow)) setArrivalWindow("");
+  }, [selectedDate, arrivalWindow, satCut]);
+  useEffect(() => {
+    if (!recurringDate || !recurringArrivalWindow) return;
+    if (!slotsForDate(recurringDate, satCut).some(s => s.label === recurringArrivalWindow)) setRecurringArrivalWindow("");
+  }, [recurringDate, recurringArrivalWindow, satCut]);
 
   // Step 5: Booking result
   const [bookResult, setBookResult] = useState<any>(null);
@@ -3565,7 +3568,7 @@ export default function BookPage() {
                     }}
                   >
                     <option value="" disabled>Select a time…</option>
-                    {TIME_SLOTS.map(slot => {
+                    {slotsForDate(selectedDate, bookingSettings?.sat_last_start_minutes).map(slot => {
                       const tooSoon = isSlotTooSoon(selectedDate, slot.minutes, cutoffMs);
                       return (
                         <option key={slot.minutes} value={slot.label} disabled={tooSoon}>
@@ -3630,7 +3633,7 @@ export default function BookPage() {
                         }}
                       >
                         <option value="" disabled>Select a time…</option>
-                        {TIME_SLOTS.map(slot => {
+                        {slotsForDate(recurringDate, bookingSettings?.sat_last_start_minutes).map(slot => {
                           const tooSoon = isSlotTooSoon(recurringDate, slot.minutes, cutoffMs);
                           return (
                             <option key={slot.minutes} value={slot.label} disabled={tooSoon}>

@@ -416,6 +416,7 @@ router.get("/booking-settings", requireAuth, async (req, res) => {
         available_thu: true,
         available_fri: true,
         available_sat: false,
+        sat_last_start_minutes: null,
       });
     }
     return res.json(result.rows[0]);
@@ -426,50 +427,77 @@ router.get("/booking-settings", requireAuth, async (req, res) => {
 });
 
 // ── PUT /api/companies/booking-settings ──────────────────────────────────────
+// [booking-merge 2026-08-19] This used to be a blind overwrite: every field
+// missing from the body was written as its hardcoded default (lead 7 days,
+// Saturday off). Any caller that sent a partial body silently reset settings
+// nobody asked it to touch. It now reads the current row first and only
+// changes the keys actually present, so an omitted key means "leave alone"
+// instead of "reset". The settings page still sends every field, so a real
+// edit (turning Saturday off) works exactly as before.
 router.put("/booking-settings", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { sql: drSql } = await import("drizzle-orm");
     const companyId = req.auth!.companyId;
-    const {
-      booking_lead_days,
-      max_advance_days,
-      available_sun,
-      available_mon,
-      available_tue,
-      available_wed,
-      available_thu,
-      available_fri,
-      available_sat,
-    } = req.body;
+    const b = req.body ?? {};
+
+    const cur = await db.execute(drSql`SELECT * FROM booking_settings WHERE company_id = ${companyId} LIMIT 1`);
+    const prev = (cur.rows[0] ?? {}) as Record<string, unknown>;
+
+    const num = (key: string, fallback: number): number => {
+      const v = b[key] !== undefined ? b[key] : prev[key];
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const bool = (key: string, fallback: boolean): boolean => {
+      const v = b[key] !== undefined ? b[key] : prev[key];
+      return v === undefined || v === null ? fallback : !!v;
+    };
+
+    const leadDays = num("booking_lead_days", 7);
+    const maxAdvance = num("max_advance_days", 60);
+    const sun = bool("available_sun", false);
+    const mon = bool("available_mon", true);
+    const tue = bool("available_tue", true);
+    const wed = bool("available_wed", true);
+    const thu = bool("available_thu", true);
+    const fri = bool("available_fri", true);
+    const sat = bool("available_sat", false);
+
+    // [sat-cutoff 2026-08-19] Latest start time a client may pick on a
+    // Saturday, as minutes past midnight (600 = 10:00 AM). NULL means no
+    // Saturday-specific cap and the normal 9:00 AM–2:00 PM slot list applies.
+    // Saturday is a short crew day, so Phes takes the morning and nothing that
+    // would run into the afternoon.
+    const rawSatCut = b.sat_last_start_minutes !== undefined
+      ? b.sat_last_start_minutes
+      : prev.sat_last_start_minutes;
+    const satCutNum = Number(rawSatCut);
+    const satCut = rawSatCut === null || rawSatCut === undefined || rawSatCut === "" || !Number.isFinite(satCutNum)
+      ? null
+      : Math.max(0, Math.min(24 * 60, Math.round(satCutNum)));
 
     await db.execute(drSql`
       INSERT INTO booking_settings
         (company_id, booking_lead_days, max_advance_days,
          available_sun, available_mon, available_tue, available_wed,
-         available_thu, available_fri, available_sat, updated_at)
+         available_thu, available_fri, available_sat,
+         sat_last_start_minutes, updated_at)
       VALUES
-        (${companyId},
-         ${booking_lead_days ?? 7},
-         ${max_advance_days ?? 60},
-         ${available_sun ?? false},
-         ${available_mon ?? true},
-         ${available_tue ?? true},
-         ${available_wed ?? true},
-         ${available_thu ?? true},
-         ${available_fri ?? true},
-         ${available_sat ?? false},
-         NOW())
+        (${companyId}, ${leadDays}, ${maxAdvance},
+         ${sun}, ${mon}, ${tue}, ${wed}, ${thu}, ${fri}, ${sat},
+         ${satCut}, NOW())
       ON CONFLICT (company_id) DO UPDATE SET
-        booking_lead_days = EXCLUDED.booking_lead_days,
-        max_advance_days  = EXCLUDED.max_advance_days,
-        available_sun     = EXCLUDED.available_sun,
-        available_mon     = EXCLUDED.available_mon,
-        available_tue     = EXCLUDED.available_tue,
-        available_wed     = EXCLUDED.available_wed,
-        available_thu     = EXCLUDED.available_thu,
-        available_fri     = EXCLUDED.available_fri,
-        available_sat     = EXCLUDED.available_sat,
-        updated_at        = NOW()
+        booking_lead_days      = EXCLUDED.booking_lead_days,
+        max_advance_days       = EXCLUDED.max_advance_days,
+        available_sun          = EXCLUDED.available_sun,
+        available_mon          = EXCLUDED.available_mon,
+        available_tue          = EXCLUDED.available_tue,
+        available_wed          = EXCLUDED.available_wed,
+        available_thu          = EXCLUDED.available_thu,
+        available_fri          = EXCLUDED.available_fri,
+        available_sat          = EXCLUDED.available_sat,
+        sat_last_start_minutes = EXCLUDED.sat_last_start_minutes,
+        updated_at             = NOW()
     `);
 
     const updated = await db.execute(drSql`SELECT * FROM booking_settings WHERE company_id = ${companyId} LIMIT 1`);
