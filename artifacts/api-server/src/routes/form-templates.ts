@@ -7,7 +7,6 @@ import { randomUUID } from "crypto";
 import {
   RESIDENTIAL_AGREEMENT_BODY,
   COMMERCIAL_AGREEMENT_BODY,
-  COMMERCIAL_AGREEMENT_BODY_SHORT,
 } from "../lib/agreement-bodies.js";
 
 const router = Router();
@@ -133,26 +132,15 @@ router.post("/seed-defaults", requireAuth, async (req, res) => {
         is_default: true,
         created_by: req.auth!.userId,
       },
-      {
-        company_id: req.auth!.companyId,
-        name: "Commercial Cleaning Agreement",
-        type: "agreement",
-        category: "commercial",
-        schema: [
-          { id: "f_company", type: "text", label: "Company Name", required: true, variable: "company_name" },
-          { id: "f_contact", type: "text", label: "Primary Contact", required: true, variable: "contact_name" },
-          { id: "f_address", type: "text", label: "Property Address", required: true, variable: "property_address" },
-          { id: "f_phone", type: "tel", label: "Phone", required: true, variable: "contact_phone" },
-          { id: "f_email", type: "email", label: "Email", required: true, variable: "contact_email" },
-          { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Daily", "Weekly", "Bi-Weekly", "Monthly"] },
-          { id: "f_scope", type: "textarea", label: "Scope of Work", required: true, variable: "scope_of_work" },
-        ] as any,
-        terms_body: COMMERCIAL_AGREEMENT_BODY_SHORT,
-        requires_sign: true,
-        is_active: true,
-        is_default: true,
-        created_by: req.auth!.userId,
-      },
+      // [short-commercial-retired 2026-08-19] The generic "Commercial Cleaning
+      // Agreement" default is gone. It shipped alongside the real commercial
+      // contract below, under a name one word different, and said the opposite
+      // thing about money: NET 30 with 1.5% monthly interest, against the real
+      // contract's card on file due at the first visit of the month. It also
+      // had no parties clause, no rate, no service address, no notices clause
+      // and no signature language, so picking the wrong row in the send dialog
+      // signed a customer onto terms Phes does not offer. The two rows it
+      // already created on Phes and Schaumburg are deactivated in production.
       {
         // Phes's real commercial contract (was in Jotform). Distinct name from
         // the generic "Commercial Cleaning Agreement" above so seeding adds it

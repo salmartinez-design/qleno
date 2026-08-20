@@ -7711,26 +7711,63 @@ async function runNotificationTemplateSeed() {
     // Both are sent transactional: the office pressed Send on a contract the
     // customer is waiting on, or the customer just finished signing one.
     try {
+      // [agreement-brand 2026-08-19] Formal wording on purpose. This is the one
+      // customer email that asks somebody to enter into a contract, so it does
+      // not read like an order confirmation. The chrome around it (logo, brand
+      // rule, navy contact footer) comes from agreementEmailShell at send time,
+      // so an office edit here stays on brand no matter what they type.
       const AGR_SEND_SUBJECT = "Please review and sign your {{company_name}} service agreement";
-      const AGR_SEND_HTML = `<p style="margin:0 0 20px">Hi {{first_name}},</p>
-<p style="margin:0 0 20px">Your service agreement with {{company_name}} is ready. It lists your service, your rate and your schedule, along with our policies on cancellations, holds and cancelling service.</p>
-<p style="margin:0 0 24px">Please give it a read and sign at the bottom:</p>
-<div style="text-align:center;margin:0 0 24px">
-  <a href="{{agreement_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review and sign</a>
-</div>
-<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for {{expires_days}} days and is just for you. Signing is electronic, so there is nothing to print and nothing to mail back. You will get a signed copy by email as soon as you are done.</p>
-<p style="margin:0;color:#1A1917">Questions about anything in it? Call or text <strong>{{company_phone}}</strong>, or reply to this email.</p>`;
-      const AGR_SEND_TEXT = "Hi {{first_name}}, your {{company_name}} service agreement is ready to sign: {{agreement_link}} (link good for {{expires_days}} days). Questions? {{company_phone}}.";
+      const AGR_SEND_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Please find your service agreement with {{company_name}} enclosed for your review and signature. It is the document that governs the work we do for you, and it takes effect once you sign it.</p>
+<p style="margin:0 0 10px;font-size:15px;color:#1A1917;line-height:1.65">Please read it in full before signing. It sets out:</p>
+<ul style="margin:0 0 22px;padding-left:20px;font-size:15px;color:#1A1917;line-height:1.8">
+  <li>the service you are receiving, your rate, and your schedule</li>
+  <li>how either of us may change or end the service, and the notice required</li>
+  <li>what happens if a visit is skipped, held, or cancelled</li>
+  <li>our responsibilities to you if something goes wrong</li>
+</ul>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#185FA5;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Review and sign</a>
+</td></tr></table>
+<p style="margin:0 0 22px;font-size:13px;color:#6B6860;line-height:1.65;text-align:center">This link is valid for {{expires_days}} days and is unique to you. Please do not forward it.</p>
+<h3 style="font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#5B9BD5;border-bottom:2px solid #D6E3F2;padding-bottom:6px;margin:28px 0 12px;">About signing electronically</h3>
+<p style="margin:0 0 18px;font-size:14px;color:#1A1917;line-height:1.65">Your electronic signature carries the same legal effect as a signature in ink under the federal E-SIGN Act and the Illinois Uniform Electronic Transactions Act. When you sign, we record the name you type, the date and time, the address you are connecting from, and an exact copy of the wording you agreed to. Nothing needs to be printed or mailed back.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E6F1FB;border-radius:10px;margin:16px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#185FA5;margin:0 0 6px;">Questions before you sign?</div>
+    <div style="font-size:14px;color:#042C53;line-height:1.6">Call or text <strong>{{company_phone}}</strong>, or simply reply to this email. We would rather answer a question now than have you sign something you are unsure about.</div>
+  </td></tr>
+</table>`;
+      const AGR_SEND_TEXT = "Dear {{first_name}}, your service agreement with {{company_name}} is ready for your review and signature: {{agreement_link}} (valid for {{expires_days}} days, unique to you). Please read it in full before signing. Your electronic signature has the same legal effect as ink under the federal E-SIGN Act and the Illinois Uniform Electronic Transactions Act. Questions? Call or text {{company_phone}}.";
 
       const AGR_SIGNED_SUBJECT = "Signed: your {{company_name}} service agreement";
-      const AGR_SIGNED_HTML = `<p style="margin:0 0 20px">Hi {{first_name}},</p>
-<p style="margin:0 0 20px">Thank you. Your service agreement is signed and we have it on file.</p>
-<p style="margin:0 0 24px">You can pull up your signed copy any time:</p>
-<div style="text-align:center;margin:0 0 24px">
-  <a href="{{agreement_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your agreement</a>
-</div>
-<p style="margin:0;color:#1A1917">Welcome aboard. Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`;
-      const AGR_SIGNED_TEXT = "Hi {{first_name}}, your {{company_name}} service agreement is signed and on file. Your copy: {{agreement_link}}. Questions? {{company_phone}}.";
+      const AGR_SIGNED_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">This confirms that your service agreement with {{company_name}} has been signed and is now in effect. A copy is on file with us, and this email is your copy.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px">
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Agreement</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{agreement_name}}</span></td>
+  </tr>
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Signed by</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{signed_name}}</span></td>
+  </tr>
+  <tr class="drow">
+    <td class="dlabel" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:13px;color:#6B6860;white-space:nowrap;">Signed on</td>
+    <td class="dval" align="right" style="padding:11px 0;border-bottom:1px solid #E5E2DC;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-size:14px;color:#1A1917;"><span style="font-weight:600">{{signed_at}}</span></td>
+  </tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#0F6E56;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Download your signed agreement</a>
+</td></tr></table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E1F5EE;border-radius:10px;margin:8px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#0F6E56;margin:0 0 6px;">Please keep this email</div>
+    <div style="font-size:14px;color:#04342C;line-height:1.6">The link above always opens the exact wording you signed, not a later version. If we ever propose a change to your agreement, we will send you a new one to review and sign.</div>
+  </td></tr>
+</table>
+<p style="margin:22px 0 0;font-size:14px;color:#1A1917;line-height:1.65">Thank you for your business. If anything in the agreement needs clarifying, call or text <strong>{{company_phone}}</strong>, or write to <strong>{{company_email}}</strong>.</p>`;
+      const AGR_SIGNED_TEXT = "Dear {{first_name}}, your service agreement with {{company_name}} has been signed and is now in effect. Agreement: {{agreement_name}}. Signed by: {{signed_name}}. Signed on: {{signed_at}}. Your copy: {{agreement_link}} (this link always opens the exact wording you signed). Questions? {{company_phone}} or {{company_email}}.";
 
       const agrTemplates: [string, string, string, string][] = [
         ["agreement_send", AGR_SEND_SUBJECT, AGR_SEND_HTML, AGR_SEND_TEXT],
@@ -7784,6 +7821,7 @@ async function runNotificationTemplateSeed() {
                  updated_at = now()
            WHERE type = 'agreement'
              AND category = ${category}
+             AND is_active = true
              AND terms_body_seed_version >= 0
              AND terms_body_seed_version < ${AGREEMENT_BODY_SEED_VERSION}`);
         const n = (r as any).rowCount ?? 0;

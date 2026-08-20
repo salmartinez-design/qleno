@@ -21,7 +21,7 @@
 //   - Bump AGREEMENT_BODY_SEED_VERSION when you change a body, or the boot
 //     migration will not pick it up.
 
-export const AGREEMENT_BODY_SEED_VERSION = 1;
+export const AGREEMENT_BODY_SEED_VERSION = 2;
 
 export const RESIDENTIAL_AGREEMENT_BODY = `RESIDENTIAL CLEANING SERVICE AGREEMENT
 
@@ -72,11 +72,15 @@ Additional services such as deep cleaning, move in or move out cleaning, and app
 
 7. ACCESS AND LOCKOUTS
 
-Please make sure we can get in at the scheduled time. If our technicians arrive and cannot gain access to the property, a lockout fee equal to the full service charge applies.
+Please make sure we can get in at the scheduled time. If our technicians arrive and cannot gain access to the property, a lockout fee equal to the full service charge applies, and it may be charged to your card on file under Section 12.
+
+The time was already reserved for you, the day's route was built around your address, and your technician is paid for the visit whether or not we can get in. The parties agree this fee is a reasonable estimate of that loss and is not a penalty.
 
 8. CANCELLATION AND RESCHEDULING
 
-We ask for 48 hours notice to cancel or reschedule. A cancellation made inside 48 hours of your scheduled service is charged a fee equal to 100% of the service cost. Exceptions are made for genuine emergencies at management's discretion.
+We ask for 48 hours notice to cancel or reschedule. A cancellation made inside 48 hours of your scheduled service is charged a fee equal to 100% of the service cost, which may be charged to your card on file under Section 12.
+
+Inside 48 hours we cannot fill the time with another customer, the route for that day is already set, and your technician is paid for the visit. The parties agree this fee is a reasonable estimate of that loss and is not a penalty. Exceptions are made for genuine emergencies at management's discretion.
 
 9. SERVICE HOLDS
 
@@ -85,6 +89,8 @@ You may place your recurring service on hold and keep your regular time slot for
 A hold of {{hold_notice_free_days}} days or less is free and changes nothing about your rate or your slot.
 
 A hold longer than {{hold_notice_free_days}} days takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before the hold ends, nothing is charged. If you do not resume by the end of the hold, this Agreement ends and one final visit at your current rate of {{rate}} is due as the notice amount described in Section 10.
+
+Where a hold is treated as your notice under this Section, this Section controls and Section 10 does not also apply. You will never be billed for both a notice period and a hold covering the same stretch of time.
 
 We will email you when a hold starts and again before it expires, so the date is never a surprise.
 
@@ -98,9 +104,15 @@ Either party may end recurring service with {{termination_notice_days}} days wri
 
 Your rate is set by your frequency. To hold your rate and your appointment slot, the longest gap between cleanings is 60 days. Going past that may move you to a different rate that reflects the additional time the home then needs.
 
-12. PAYMENT TERMS
+12. PAYMENT AND CARD AUTHORIZATION
 
-Payment is due on the day of service. Your card on file is charged automatically on the day of your scheduled service. {{late_fee}}
+Payment is due on the day of service. Your rate per visit is {{rate}}, which may change only as described in Section 13.
+
+By signing this Agreement you authorize {{company_name}} to charge the payment card you keep on file for each of the following: every completed visit, on the day of service; any lockout fee under Section 7; any late cancellation fee under Section 8; any visit billed during a hold or notice period under Section 9 or Section 10; any add-on service you request under Section 6; and any placement fee owed under Section 19.
+
+This authorization is ongoing. Your service continues on the schedule in Section 3 and your card continues to be charged until you or we end this Agreement under Section 10. You may cancel at any time by giving written notice as described in Section 21. You may also withdraw this card authorization by written notice, though withdrawing it does not cancel amounts already owed.
+
+{{late_fee}}
 
 13. RATE CHANGES
 
@@ -124,25 +136,56 @@ We take care with all surfaces. {{company_name}} is not responsible for damage t
 
 17. SATISFACTION GUARANTEE
 
-If you are not satisfied with a cleaning, contact us within 24 hours and we will return to address it at no additional charge.
+If you are not satisfied with a cleaning, contact us within 24 hours and tell us which areas you want addressed. We will return once to re-clean those areas at no additional charge, within 7 days of your service. That return visit is our obligation and your remedy for a cleaning you are not satisfied with. It does not limit anything you are owed under Section 18 for accidental damage.
 
 18. BREAKAGE AND DAMAGE
 
-{{company_name}} carries liability insurance. Please report accidental damage caused by our technicians within {{damage_report_days}} business days of the visit. Liability for any single item is limited to {{damage_cap}}. We do not accept liability for items weighing over 25 lbs or for items already in a damaged condition. Claims are handled case by case.
+{{company_name}} carries liability insurance. Please report accidental damage caused by our technicians as soon as you notice it, and in any case within {{damage_report_days}} business days of the visit. Reporting promptly lets us and our insurer look at the damage while the cause can still be determined. Damage reported later is harder to verify, and that may affect what we are able to cover.
+
+Except where the law does not allow it, our liability for damage to any single item is limited to {{damage_cap}}. Nothing in this Agreement limits our liability for personal injury, for willful or wanton conduct, or for anything else the law does not permit us to limit.
+
+If you ask us to move or clean beneath heavy furniture or appliances, we will do so only where it is safe to, and we are not responsible for damage that results from moving an item over 25 lbs at your request. We are also not responsible for damage to items that were already in a damaged condition before our visit. Claims are handled case by case.
 
 19. NON-SOLICITATION
 
-Our technicians are trained and background checked at our expense. For {{nonsolicit_months}} months after your last service, you agree not to hire or engage any {{company_name}} employee or contractor directly for cleaning work. If you do, a placement fee of {{nonsolicit_fee}} is due.
+Our technicians are trained and background checked at our expense. For {{nonsolicit_months}} months after your last service, you agree not to hire or engage directly for cleaning work any {{company_name}} employee or contractor who performed services at your home. If you do, a placement fee of {{nonsolicit_fee}} is due, and it may be charged to your card on file under Section 12.
+
+The parties agree this fee is a reasonable estimate of what it costs us to recruit, screen, train and replace a technician, and that it is not a penalty.
 
 20. PRIVACY
 
-Anything we learn about your home stays with us. We do not share client information, entry codes, or property details with anyone outside our team.
+Anything we learn about your home stays with us. We do not sell client information, and we do not share entry codes or property details outside our team, with two exceptions: the service providers who help us run the business, such as our payment processor and our scheduling, messaging and accounting systems, and any disclosure the law requires. Those providers may use the information only to provide their service to us.
 
-21. ENTIRE AGREEMENT
+21. NOTICES
+
+All notices under this Agreement, including notice to cancel service, must be in writing. Written notice is validly delivered by email or by text message to the addresses and numbers below, or to any address or number a party later provides in writing. Notice is effective on the date it is sent.
+
+To {{company_name}}: {{company_email}} / {{company_phone}}
+To the Client: {{client_email}} / {{client_phone}}
+
+22. GOVERNING LAW AND DISPUTES
+
+The laws of the State of Illinois govern this Agreement, without regard to its conflict of law rules. Any dispute arising out of it will be brought in the state courts located in Cook County, Illinois, and both parties consent to that venue. Either party may instead bring a claim in small claims court in that county if it is within that court's limits.
+
+If either party brings a claim to enforce this Agreement, the party that prevails is entitled to recover its reasonable attorney fees and costs from the other.
+
+23. GENERAL TERMS
+
+Severability. If any part of this Agreement is found unenforceable, that part is narrowed or removed only as far as needed, and the rest of the Agreement stays in force.
+
+No waiver. If we do not enforce a term on one occasion, that does not waive it on any other occasion.
+
+Survival. Sections 12, 18, 19, 20, 22 and 23 continue to apply after this Agreement ends.
+
+Assignment. You may not transfer this Agreement without our written consent. We may assign it to a successor that takes over the business.
+
+Events outside our control. Neither party is responsible for a delay or failure to perform caused by something outside its reasonable control, such as severe weather, utility or road closures, or a public emergency. Section 14 describes how we reschedule.
+
+24. ENTIRE AGREEMENT
 
 This Agreement is the entire understanding between the parties on this subject and replaces any earlier discussion or quote. Changes must be in writing and agreed by both parties.
 
-By signing below, you confirm you have read this Agreement, that the service details in Sections 1 through 3 are correct, and that you agree to its terms. You agree that your electronic signature has the same legal effect as a handwritten one.`;
+By signing below, you confirm you have read this Agreement, that the service details in Sections 1 through 3 are correct, and that you agree to its terms. You represent that you are the owner of the property, or a lawful occupant with authority to authorize entry and to commit the household to the payments described in Section 12. You agree that your electronic signature has the same legal effect as a handwritten one.`;
 
 // [agreement-merge 2026-07-22] Phes's real commercial contract, the one that
 // lived in Jotform, with {{merge variables}} so one template serves every
@@ -199,9 +242,11 @@ Keys and Access: Keys, fobs and access codes provided to the Service Provider wi
 
 Insurance: The Service Provider carries commercial general liability insurance. A certificate of insurance is available upon request.
 
-Damage: The Service Provider will repair or replace items damaged through its negligence. The Client must report suspected damage in writing within {{damage_report_days}} business days of the service date; claims reported after that period cannot be verified and will not be honored. The Service Provider is not liable for damage arising from pre-existing wear, defects, or items that were not properly secured. Except where prohibited by law, the Service Provider's liability for damage to any item is limited to {{damage_cap}} unless a higher amount is agreed in writing in advance.
+Damage: The Service Provider will repair or replace items damaged through its negligence. The Client must report suspected damage in writing as soon as it is noticed, and in any case within {{damage_report_days}} business days of the service date. Prompt reporting allows the Service Provider and its insurer to inspect while the cause can still be determined; damage reported after that period may not be capable of verification, which may limit what can be covered. The Service Provider is not liable for damage arising from pre-existing wear, defects, or items that were not properly secured. Except where prohibited by law, the Service Provider's liability for damage to any item is limited to {{damage_cap}} unless a higher amount is agreed in writing in advance. Nothing in this Agreement limits liability for personal injury, for willful or wanton conduct, or for anything else the law does not permit to be limited.
 
-Governing Law: The laws of the State of Illinois govern this Agreement. Any disputes will be resolved in Cook County, Illinois.
+Governing Law: The laws of the State of Illinois govern this Agreement, without regard to its conflict of law rules. Any disputes will be resolved in the state courts located in Cook County, Illinois, and both parties consent to that venue.
+
+Attorney Fees: If either party brings a claim to enforce this Agreement, the party that prevails is entitled to recover its reasonable attorney fees and costs from the other.
 
 7. NON-SOLICITATION
 
@@ -222,31 +267,20 @@ All notices required under this Agreement, including notice of termination, must
 To the Service Provider: {{company_email}} / {{company_phone}}
 To the Client: {{client_email}} / {{client_phone}}
 
-11. ENTIRE AGREEMENT
+11. GENERAL TERMS
+
+Severability. If any provision of this Agreement is found unenforceable, that provision is narrowed or severed only to the extent necessary, and the remainder of the Agreement remains in full force.
+
+No Waiver. A party's failure to enforce any provision on one occasion is not a waiver of that provision on any other occasion.
+
+Survival. Sections 4, 6, 7, 9, 10 and 11 survive termination of this Agreement.
+
+Assignment. The Client may not assign this Agreement without the Service Provider's written consent. The Service Provider may assign it to a successor to its business.
+
+Force Majeure. Neither party is responsible for a delay or failure to perform caused by conditions outside its reasonable control, including severe weather, utility interruption, road closure, or public emergency.
+
+12. ENTIRE AGREEMENT
 
 This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties.
 
 By signing, the Client fully understands and agrees to the contents of this Agreement. The individual signing represents and warrants that they have authority to bind the Client. The Client is responsible for all amounts due for services provided or scheduled during the term and any notice period.`;
-
-// The short generic commercial template that shipped as a second default. Kept
-// as-is for tenants that use it; Phes's own commercial clients get the full
-// contract above.
-export const COMMERCIAL_AGREEMENT_BODY_SHORT = `COMMERCIAL CLEANING AGREEMENT
-
-SCOPE OF WORK
-Services will be performed as outlined in the agreed scope of work. Any additional services outside the agreed scope will be quoted separately.
-
-PAYMENT TERMS
-Invoices are due NET 30 days from date of issue. Late payments are subject to a 1.5% monthly interest charge.
-
-TERMINATION
-Either party may terminate with 60 days written notice. Immediate termination may occur for non-payment or breach of contract.
-
-PERFORMANCE STANDARDS
-{{company_name}} maintains professional cleaning standards. Clients may request inspection access to verify service quality.
-
-LIABILITY
-{{company_name}} carries commercial general liability insurance. Certificate of insurance available upon request.
-
-CONFIDENTIALITY
-All client information and property details will be kept strictly confidential.`;
