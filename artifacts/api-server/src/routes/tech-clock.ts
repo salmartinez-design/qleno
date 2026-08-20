@@ -337,11 +337,18 @@ async function sendOnMyWayForJob(
   ]
     .filter(Boolean)
     .join(", ");
+  // [omw-window-wording 2026-08-19] Self-describing label. This is an ETA (now +
+  // live drive time), NOT a window, but it lands in a tag named arrival_window
+  // and every template phrases it as "your {{...}} window" - so customers read
+  // "arriving during your 9:35 AM window", or "during your shortly window" when
+  // there are no coords to estimate from. Carrying the preposition here makes
+  // one label read correctly in both cases ("around 9:35 AM" / "shortly") and
+  // lets the copy simply say "will arrive {{arrival_window}}".
   const promisedLabel = promisedArrivalAt
-    ? promisedArrivalAt.toLocaleTimeString("en-US", {
+    ? `around ${promisedArrivalAt.toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
-      })
+      })}`
     : "shortly";
   // [comms-opt-out] A recorded SMS STOP overrides the per-client preference.
   const { isSmsOptedOut } = await import("../lib/opt-out.js");

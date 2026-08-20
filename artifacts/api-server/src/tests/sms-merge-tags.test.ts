@@ -12,8 +12,14 @@
 // sample vars, so the office previews a perfect message and ships a broken one.
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { db } from "@workspace/db";
 import { renderCustomerTemplate } from "../lib/customer-messages.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const read = (f: string) => readFileSync(path.join(__dirname, f), "utf8");
 
 // The real body on company 4 at the time of the fix.
 const SCHAUMBURG_OMW =
@@ -154,27 +160,98 @@ describe("the caller's vars object is not mutated", () => {
   });
 });
 
-// [omw-window-wording 2026-08-19] Separate from the blank-tag bug, and NOT
-// fixed by it: the office copy says "arriving during your {{appointment_window}}
-// window", but nothing ever puts a window in that tag. The built-in fallback in
-// lib/comms.ts:62 gets it right - "arriving around 9:35 AM". These tests pin
-// what customers actually receive today so the wording decision is made against
-// the real text rather than an invented sample.
-describe("what the on-my-way text actually says about arrival time", () => {
-  it("with a GPS estimate it is a single time, not a window", async () => {
-    stub(tplRow(SCHAUMBURG_OMW), [COMPANY_ROW]);
-    const r = await renderCustomerTemplate(4, "on_my_way", "sms", { ...TECH_CLOCK_VARS });
-    assert.match(r!.body, /arriving during your 9:35 AM window/);
-    // No dash-joined range is ever produced by tech-clock.ts.
-    assert.ok(!/\d\s*[-\u2013\u2014]\s*\d.*window/.test(r!.body),
-      "the ETA is one clock time; a range here would mean the sender changed");
+// [omw-window-wording 2026-08-19] Separate from the blank-tag bug, and not fixed
+// by it. Nothing ever puts a WINDOW in the tag named arrival_window: tech-clock
+// computes now + live drive time and formats one clock time, or the bare word
+// "shortly" when there are no coords. The office copy wrapped that in
+// "arriving during your {{...}} window", so customers were reading
+// "during your 9:35 AM window" - or "during your shortly window".
+//
+// The fix is in two halves, and both are pinned here: the sender now carries the
+// preposition ("around 9:35 AM" / "shortly") so ONE label reads correctly in
+// both cases, and the copy simply says "will arrive {{arrival_window}}".
+const OMW_FIXED =
+  "Hi {{first_name}}, {{tech_name}} from {{company_name}} is on the way and " +
+  "will arrive {{arrival_window}}. Questions? Call {{company_phone}}.";
+
+describe("what the on-my-way text says about arrival time", () => {
+  it("reads as a plain sentence when there is a GPS estimate", async () => {
+    stub(tplRow(OMW_FIXED), [COMPANY_ROW]);
+    const r = await renderCustomerTemplate(4, "on_my_way", "sms",
+      { ...TECH_CLOCK_VARS, arrival_window: "around 9:35 AM" });
+    assert.equal(
+      r!.body,
+      "Hi Jane, Maria from Phes Schaumburg is on the way and will arrive " +
+      "around 9:35 AM. Questions? Call (847) 538-3729.",
+    );
   });
 
-  it("with no coords to estimate from it reads \"your shortly window\"", async () => {
-    // tech-clock.ts:345 and job-sms.ts:169 both pass the bare word "shortly".
-    stub(tplRow(SCHAUMBURG_OMW), [COMPANY_ROW]);
+  it("still reads as a sentence when there is no estimate at all", async () => {
+    stub(tplRow(OMW_FIXED), [COMPANY_ROW]);
     const r = await renderCustomerTemplate(4, "on_my_way", "sms",
       { ...TECH_CLOCK_VARS, arrival_window: "shortly" });
-    assert.match(r!.body, /arriving during your shortly window/);
+    assert.match(r!.body, /is on the way and will arrive shortly\./);
+  });
+
+  it("never promises a window, because the sender never computes one", async () => {
+    for (const label of ["around 9:35 AM", "shortly"]) {
+      stub(tplRow(OMW_FIXED), [COMPANY_ROW]);
+      const r = await renderCustomerTemplate(4, "on_my_way", "sms",
+        { ...TECH_CLOCK_VARS, arrival_window: label });
+      assert.ok(!/window/i.test(r!.body), `"${label}" must not be called a window`);
+      // Scoped to the arrival clause on purpose - the phone number further
+      // along the message is full of digits and dashes.
+      const clause = r!.body.slice(r!.body.indexOf("will arrive")).split(".")[0];
+      assert.ok(!/[-\u2013\u2014]/.test(clause),
+        `a dash-joined range in "${clause}" would mean the sender started producing one`);
+    }
+  });
+});
+
+describe("the arrival label is self-describing at the source", () => {
+  const techClock = read("../routes/tech-clock.ts");
+  const comms = read("../lib/comms.ts");
+
+  it("tech-clock carries the preposition on the time", () => {
+    assert.match(techClock, /around \$\{promisedArrivalAt\.toLocaleTimeString/);
+  });
+
+  it("and leaves the no-estimate case as the bare word", () => {
+    // "around shortly" would be worse than what we started with.
+    assert.match(techClock, /: "shortly";/);
+  });
+
+  it("the built-in fallback does not double the preposition", () => {
+    // Was `arriving around ${label}` - with the label now carrying "around",
+    // that would read "arriving around around 9:35 AM".
+    assert.match(comms, /is on the way, arriving \$\{opts\.promisedArrivalLabel\}/);
+    assert.ok(!/arriving around \$\{/.test(comms));
+  });
+});
+
+// [scope-alias 2026-08-19] reminder_1day/email on BOTH branches renders
+// "{{scope}}", but the reminder loop in notificationService supplies
+// service_type and never scope, so that sentence has been going out with a hole
+// in it. routes/jobs.ts DOES pass scope on job_completed, which is why the same
+// tag works there - the tag is real, the supplier is inconsistent.
+describe("the 1-day reminder names the service", () => {
+  const REMINDER = "Reminder: your {{scope}} is tomorrow, {{appointment_date}}.";
+
+  it("fills {{scope}} from the service_type the reminder loop does pass", async () => {
+    stub(tplRow(REMINDER), [COMPANY_ROW]);
+    const r = await renderCustomerTemplate(1, "reminder_1day", "sms", {
+      first_name: "Jane",
+      service_type: "Deep Clean",
+      appointment_date: "Thursday, August 20",
+    });
+    assert.equal(r!.body, "Reminder: your Deep Clean is tomorrow, Thursday, August 20.");
+  });
+
+  it("and a sender that passes scope itself still wins", async () => {
+    // job_completed passes scope directly; the alias must not overwrite it.
+    stub(tplRow("Your {{scope}} is complete."), [COMPANY_ROW]);
+    const r = await renderCustomerTemplate(1, "job_completed", "sms",
+      { scope: "Move Out Clean", service_type: "recurring_clean" });
+    assert.equal(r!.body, "Your Move Out Clean is complete.");
   });
 });

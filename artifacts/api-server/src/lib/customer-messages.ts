@@ -599,6 +599,12 @@ const TAG_ALIASES: string[][] = [
   ["tech_name", "technician_name", "tech_first_names"],
   ["arrival_window", "appointment_window"],
   ["first_name", "client_name"],
+  // reminder_1day/email on BOTH branches renders "{{scope}}" in its body_html,
+  // but the reminder loop in notificationService supplies service_type and never
+  // scope, so that line has been going out blank. routes/jobs.ts DOES pass scope
+  // on job_completed, which is why the same tag works there - verified against
+  // the live template bodies, not assumed.
+  ["service_type", "scope"],
 ];
 
 function fillTagAliases(vars: Record<string, string | null | undefined>): void {
