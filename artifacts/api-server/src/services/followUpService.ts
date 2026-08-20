@@ -89,15 +89,15 @@ async function companyFromAddress(companyId: number): Promise<string> {
 // hardcode company_name:"Phes" — so every tenant's cadence rendered "Phes". This
 // resolves the real name/phone/email per company_id so {{company_name}} etc. are
 // correct for ALL tenants (the multi-tenant branding fix).
-async function companyInfo(companyId: number): Promise<{ name: string; phone: string; email: string }> {
+async function companyInfo(companyId: number): Promise<{ name: string; phone: string; email: string; logoUrl: string }> {
   try {
-    const r = await db.execute(sql`SELECT name, phone, email FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const r = await db.execute(sql`SELECT name, phone, email, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
     const c: any = r.rows[0] ?? {};
-    return { name: c.name || "Phes", phone: c.phone || "", email: c.email || "" };
-  } catch { return { name: "Phes", phone: "", email: "" }; }
+    return { name: c.name || "Phes", phone: c.phone || "", email: c.email || "", logoUrl: emailLogoUrl(c.logo_url) };
+  } catch { return { name: "Phes", phone: "", email: "", logoUrl: emailLogoUrl() }; }
 }
 
-interface EmailBrand { companyName?: string | null; phone?: string | null; email?: string | null }
+interface EmailBrand { companyName?: string | null; phone?: string | null; email?: string | null; logoUrl?: string | null }
 
 async function sendEmailRaw(
   to: string, subject: string, body: string,
@@ -115,6 +115,21 @@ async function sendEmailRaw(
   const brandName  = brand?.companyName || "Phes Cleaning";
   const brandPhone = brand?.phone || "(773) 706-6000";
   const brandEmail = brand?.email || "info@phes.io";
+  // [drip-email-logo 2026-08-20] This shell used to head every follow-up with a
+  // flat blue bar and the company name typed into it — no logo anywhere, while
+  // the attached estimate and the booking confirmation both carry the real
+  // mark. Same hosted absolute URL and centered-logo-over-mint-rule treatment the
+  // approved confirmation email uses (never a data: URI, which Gmail blocks —
+  // see [office-logo-fix 2026-07-19]); the name-in-a-bar stays as the fallback
+  // for a tenant with no logo on file.
+  const brandLogo = brand?.logoUrl || "";
+  const header = brandLogo
+    ? `<div style="text-align:center;padding:0 0 20px;margin-bottom:24px;border-bottom:3px solid #00C9A0;">
+  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td><img src="${brandLogo}" alt="${brandName.replace(/"/g, "&quot;")}" height="52" style="height:52px;width:auto;max-width:220px;display:block;border:0;" /></td></tr></table>
+</div>`
+    : `<div style="background:#5B9BD5;padding:14px 20px;border-radius:4px;margin-bottom:24px;">
+  <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
+</div>`;
   // A body that already starts with a block tag is rich HTML (e.g. the quote
   // email) — inject it verbatim. Plain-text bodies get newline→<br> + a <p>.
   const inner = /^\s*</.test(body)
@@ -128,9 +143,7 @@ async function sendEmailRaw(
     ? (unsub?.footerHtml ? body.replace(/<\/body>/i, `${unsub.footerHtml}</body>`) : body)
     : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
-<div style="background:#5B9BD5;padding:14px 20px;border-radius:4px;margin-bottom:24px;">
-  <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
-</div>
+${header}
 ${inner}
 <p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &nbsp;&middot;&nbsp; ${brandPhone} &nbsp;&middot;&nbsp; ${brandEmail}</p>
 ${unsub?.footerHtml ?? ""}
@@ -1201,7 +1214,7 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
     if (bespoke) body = bespoke;
   }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
-  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
+  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email, logoUrl: ci.logoUrl };
   // Append a 1x1 open pixel to an estimate email body for `recipient`, minted so
   // the open attributes to that exact person. Used per-recipient below.
   const withPixel = async (b: string, recipient: string): Promise<string> => {
@@ -1590,7 +1603,7 @@ export async function sendSingleEnrollmentTouch(
     if (bespoke) body = bespoke;
   }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
-  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
+  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email, logoUrl: ci.logoUrl };
 
   // ── Send the touch. EMAIL → Resend raw; SMS → Twilio raw via the saved
   //    company creds + branch from-number. BOTH bypass the global COMMS_ENABLED

@@ -101,11 +101,15 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     if (data.logo) {
       try {
         const img: any = doc.openImage(data.logo);
-        // The uploaded art has heavy white margins; zoom + clip so the mark
-        // fills the box instead of shrinking to a speck. Fractions = the content
-        // region within the source (generous so nothing is clipped).
-        const fx = 0.06, fy = 0.24, fw = 0.88, fh = 0.55;
-        const boxH = 52, boxY = 20;
+        // [logo-clip 2026-08-20] These fractions are the content region inside
+        // the source art, and they were cutting the mark in half: the old
+        // fy 0.24 + fh 0.55 band ended at 79% of the image, which is ABOVE the
+        // "phes" wordmark, so every estimate went out with a logo sliced
+        // through the letters. Trim only the true white margin and keep the
+        // whole mark. If the art is ever swapped, the safe direction is a
+        // SMALLER trim (fx/fy toward 0, fw/fh toward 1), never a bigger one.
+        const fx = 0.02, fy = 0.02, fw = 0.96, fh = 0.96;
+        const boxH = 62, boxY = 16;
         const cw = boxH * ((fw * img.width) / (fh * img.height));
         const fullW = cw / fw;
         const fullH = boxH / fh;
