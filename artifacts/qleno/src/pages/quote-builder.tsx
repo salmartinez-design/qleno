@@ -502,6 +502,10 @@ export default function QuoteBuilderPage() {
   const [sqCfg, setSqCfg] = useState<{ configured: boolean; applicationId: string; locationId: string; environment: "sandbox" | "production" } | null>(null);
   const [sqCfgLoading, setSqCfgLoading] = useState(false);
   const [cardSaved, setCardSaved] = useState(false);
+  // [card-save-truth 2026-08-20] Distinct from cardSaved: the card is in the
+  // browser only, waiting on the booking. Never shown in the same green as a
+  // card Square has actually accepted.
+  const [cardHeld, setCardHeld] = useState(false);
   // [lead-card-capture 2026-08-08] For a NEW lead there is no client row yet, so
   // the card can't be saved at entry time. Hold the one-time Square nonce here
   // and ship it with the convert, which materializes the client and attaches it
@@ -563,26 +567,72 @@ export default function QuoteBuilderPage() {
     }
   };
 
+  // [card-save-truth 2026-08-20] Take the card to Square WHILE the customer is
+  // still on the phone — including for a brand-new lead.
+  //
+  // This used to park the nonce in React state for a new lead and show a green
+  // tick, then let the convert attach it minutes later. Three things went wrong
+  // with that, and Maribel hit all three in one call with Peak Wongcharoen:
+  //   1. The tick appeared before Square had ever seen the card, so "it said
+  //      saved during the call" was true and the card was not saved.
+  //   2. The parked token is browser state. Save the quote without converting,
+  //      reload, or come back tomorrow, and it is gone with no trace.
+  //   3. When the convert finally did try, Square refused the card — but by
+  //      then the customer had hung up, so the only fix left was calling her
+  //      back and reading the number again.
+  // Saving here means a refusal lands in the card box, in front of the person
+  // who can still ask for another card. `ensure-client` is the same
+  // materialize-from-the-lead step the card LINK buttons already use (and the
+  // same dedupe convert uses), so no twin client is created.
   const saveSquareCard = async (sourceId: string) => {
-    // [lead-card-capture 2026-08-08] New lead, no client row yet: park the token
-    // and let the convert attach it. The office sees "will be saved when you
-    // book", so the card is taken on the call instead of chasing the customer
-    // afterwards.
-    if (!selectedClientId) {
+    let targetClientId: number | string | null = selectedClientId;
+    if (!targetClientId) {
+      try {
+        const saved = await apiFetch(
+          autoSavedIdRef.current || (isEdit ? id : null)
+            ? `/api/quotes/${autoSavedIdRef.current || id}`
+            : "/api/quotes",
+          {
+            method: autoSavedIdRef.current || (isEdit ? id : null) ? "PATCH" : "POST",
+            body: buildPayload("draft"),
+          },
+        );
+        const qid = saved?.id ?? autoSavedIdRef.current ?? id;
+        if (qid) {
+          autoSavedIdRef.current = String(qid);
+          const ensured = await apiFetch(`/api/quotes/${qid}/ensure-client`, { method: "POST" });
+          targetClientId = ensured?.client_id ?? null;
+        }
+      } catch {
+        // Fall through to the hold below. A quote that can't be saved yet is
+        // not a reason to lose a card the customer just read out.
+        targetClientId = null;
+      }
+    }
+
+    // Still nothing to attach to — too little detail on the quote to make a
+    // customer record. Hold the token for the convert, and say plainly that the
+    // card is NOT on file yet.
+    if (!targetClientId) {
       setPendingCardToken(sourceId);
-      setCardSaved(true);
-      setTimeout(() => setCardModalOpen(false), 1400);
+      setCardHeld(true);
+      setTimeout(() => setCardModalOpen(false), 1800);
       return;
     }
-    const r = await fetch(`${API}/api/square/clients/${selectedClientId}/save-card`, {
+
+    const r = await fetch(`${API}/api/square/clients/${targetClientId}/save-card`, {
       method: "POST",
       headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ source_id: sourceId }),
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
+      // Thrown so SquareCardForm shows it above the still-open card box. The
+      // office reads this to the customer and tries again right there.
       throw new Error(d.error || d.message || "Could not save card");
     }
+    // Saved for real, so nothing is left for the convert to attach.
+    setPendingCardToken(null);
     setCardSaved(true);
     setTimeout(() => setCardModalOpen(false), 1400);
   };
@@ -1835,12 +1885,18 @@ export default function QuoteBuilderPage() {
               back to the name typed on the quote rather than "This client". */}
           {selectedClient
             ? `${selectedClient.first_name} ${selectedClient.last_name}`
-            : (`${leadFirstName} ${leadLastName}`.trim() || "This customer")} — card is stored securely with Square, not on our servers.
+            : (`${leadFirstName} ${leadLastName}`.trim() || "This customer")}. Card is stored securely with Square, not on our servers.
         </div>
         {cardSaved ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600, padding: "12px 0" }}>
             <CheckCircle2 size={18} />
-            {selectedClientId ? "Card saved on file." : "Card captured — saves when you book."}
+            Card saved on file.
+          </div>
+        ) : cardHeld ? (
+          /* Amber, not green. The card is held in this browser tab and is NOT
+             on file yet — say so, and say what makes it stick. */
+          <div style={{ fontSize: 13, color: "#BA7517", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", lineHeight: 1.5 }}>
+            <strong>Card is not saved yet.</strong> Add a name, phone or email to this quote, then book the job. The card is saved when you book. If you leave this page first, the card is lost and you have to ask for it again.
           </div>
         ) : sqCfgLoading ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860", padding: "12px 0" }}>
@@ -2215,11 +2271,15 @@ export default function QuoteBuilderPage() {
                   the office had no way to take a card on the call for a NEW
                   customer — not by typing it, and not even by texting a link,
                   because the link buttons lived inside the same gate. Mirror
-                  desktop: entry always, links always. `saveSquareCard` already
-                  parks the nonce for a lead and Convert attaches it. */}
+                  desktop: entry always, links always. `saveSquareCard` saves a
+                  lead's card to Square on the spot (see its own note). */}
               {cardSaved ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600 }}>
-                  <CheckCircle2 size={16} /> {selectedClientId ? "Card saved on file." : "Card captured — saves when you book."}
+                  <CheckCircle2 size={16} /> Card saved on file.
+                </div>
+              ) : cardHeld ? (
+                <div style={{ fontSize: 12.5, color: "#BA7517", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 10px", lineHeight: 1.5 }}>
+                  <strong>Card is not saved yet.</strong> It saves when you book this job. Leaving this page loses it.
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -3976,9 +4036,11 @@ export default function QuoteBuilderPage() {
                 {cardSaved ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#0F7A63", fontWeight: 600, fontFamily: FF }}>
                     <CheckCircle2 size={16} />
-                    {selectedClientId
-                      ? `Card saved on file for ${selectedClient?.first_name || "this client"}.`
-                      : "Card captured — it saves when you book this job."}
+                    {`Card saved on file for ${selectedClient?.first_name || leadFirstName || "this customer"}.`}
+                  </div>
+                ) : cardHeld ? (
+                  <div style={{ fontSize: 12.5, color: "#BA7517", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 10px", lineHeight: 1.5, fontFamily: FF }}>
+                    <strong>Card is not saved yet.</strong> It saves when you book this job. Leaving this page loses it.
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

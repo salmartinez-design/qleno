@@ -15,6 +15,7 @@ import { db } from "@workspace/db";
 import { clientsTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveSquareCredentials } from "./square-credentials.js";
+import { SQUARE_DECLINE_CODES, explainSquareCardError } from "./square-card-error-copy.js";
 
 export type SaveSquareCardResult =
   | {
@@ -78,6 +79,31 @@ export async function saveSquareCardOnFile(opts: {
       squareCustomerId = custResp?.customer?.id ?? null;
       if (!squareCustomerId) {
         return { ok: false, code: "error", message: "Could not create Square customer" };
+      }
+      // [square-orphan-customer 2026-08-20] Write the customer handle NOW,
+      // before the card is attempted.
+      //
+      // This used to be written only in step 3, together with the card. So when
+      // step 2 below failed — a card the bank would not accept, a mistyped
+      // expiry — the Square customer we had just created was never recorded
+      // anywhere. The next attempt found `square_customer_id` still NULL and
+      // created ANOTHER one. Peak Wongcharoen ended up with two Square
+      // customers and zero cards in half an hour (20:53 from the quote convert,
+      // 21:22 from the profile retry), and every further retry would have added
+      // one more. Duplicate customers are also what feeds the Square
+      // customer-map review queue, so each failed card save quietly made that
+      // backlog worse.
+      //
+      // Best-effort: the customer IS created in Square by this point. If this
+      // write fails we still try the card — a duplicate customer is recoverable,
+      // refusing the card is not.
+      try {
+        await db
+          .update(clientsTable)
+          .set({ square_customer_id: squareCustomerId } as any)
+          .where(and(eq(clientsTable.id, opts.clientId), eq(clientsTable.company_id, opts.companyId)));
+      } catch (e: any) {
+        console.error("[square-card-onfile] could not record new Square customer:", e?.message ?? e);
       }
     }
 
@@ -152,11 +178,17 @@ export async function saveSquareCardOnFile(opts: {
     return { ok: true, squareCustomerId, cardId: card.id, brand, last4, expMonth, expYear };
   } catch (err: any) {
     // Square SDK surfaces validation/decline detail on `.errors` or `.message`.
-    const detail =
-      err?.errors?.[0]?.detail ||
-      err?.body?.errors?.[0]?.detail ||
-      err?.message ||
-      "Square card save failed";
-    return { ok: false, code: "error", message: String(detail).slice(0, 300) };
+    const sqErr = err?.errors?.[0] || err?.body?.errors?.[0] || null;
+    const sqCode = String(sqErr?.code || "").toUpperCase() || null;
+    const detail = sqErr?.detail || err?.message || "Square card save failed";
+    // The office reads this word for word to a customer who is still on the
+    // phone, so it has to say what to DO. Square's own wording does not:
+    // "Invalid card data." is what Maribel was shown, and it tells her nothing
+    // about whether to re-read the digits, ask for the zip, or ask for a
+    // different card. The raw code + detail still goes to the server log for us.
+    console.error(
+      `[square-card-onfile] card save failed for client ${opts.clientId} (company ${opts.companyId}): ${sqCode || "NO_CODE"} - ${detail}`,
+    );
+    return { ok: false, code: SQUARE_DECLINE_CODES.has(sqCode ?? "") ? "declined" : "error", message: explainSquareCardError(sqCode, detail) };
   }
 }
