@@ -21,7 +21,7 @@
 //   - Bump AGREEMENT_BODY_SEED_VERSION when you change a body, or the boot
 //     migration will not pick it up.
 
-export const AGREEMENT_BODY_SEED_VERSION = 3;
+export const AGREEMENT_BODY_SEED_VERSION = 4;
 
 export const RESIDENTIAL_AGREEMENT_BODY = `RESIDENTIAL CLEANING SERVICE AGREEMENT
 
@@ -90,7 +90,7 @@ You have {{hold_notice_free_days}} free hold days in any 12 month period. You ma
 
 If a hold you ask for fits inside the free days you have left, it is free and changes nothing about your rate or your slot.
 
-If it does not fit, the hold takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before that hold ends, nothing is charged. If you do not resume by the day the hold ends, this Agreement ends that day and one final visit at your current rate of {{rate}} is due as the notice amount described in Section 10. That amount is charged to your card on file on the day the hold ends, as authorized in Section 12.
+If it does not fit, the hold takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before that hold ends, nothing is charged. If you do not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at your current rate of {{rate}} per visit. That is the notice amount described in Section 10, and how many visits it comes to depends on how often we clean for you: weekly service is about four, every other week is two or three, monthly is one. That amount is charged to your card on file on the day the hold ends, as authorized in Section 12.
 
 Where a hold is treated as your notice under this Section, this Section controls and Section 10 does not also apply. You will never be billed for both a notice period and a hold covering the same stretch of time.
 
@@ -238,7 +238,7 @@ Scope Limitation: The work performed will be strictly limited to the services li
 
 Early Termination: Either party may terminate this Agreement with a {{termination_notice_days}}-day written notice, delivered as described in Section 10.
 
-Service Holds: The Client may place service on hold and keep its scheduled slot for up to {{hold_max_days}} days at a time, with at least 48 hours' notice before the first visit to be held. The Client has {{hold_notice_free_days}} free hold days in any 12 month period, taken at once or in pieces. A hold that fits inside the free days remaining is free and does not change the rate or the schedule. A hold that does not fit serves as the Client's notice under Early Termination above: if the Client resumes service before that hold ends, nothing is charged; if the Client does not resume by the day the hold ends, this Agreement ends that day and one final visit at the current rate of {{rate}} is due as the notice amount, charged to the card on file that day. The Client will never be billed for both a notice period and a hold covering the same period.
+Service Holds: The Client may place service on hold and keep its scheduled slot for up to {{hold_max_days}} days at a time, with at least 48 hours' notice before the first visit to be held. The Client has {{hold_notice_free_days}} free hold days in any 12 month period, taken at once or in pieces. A hold that fits inside the free days remaining is free and does not change the rate or the schedule. A hold that does not fit serves as the Client's notice under Early Termination above: if the Client resumes service before that hold ends, nothing is charged; if the Client does not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at the current rate of {{rate}} per visit, as the notice amount described under Early Termination above, charged to the card on file that day. The Client will never be billed for both a notice period and a hold covering the same period.
 
 Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
 
