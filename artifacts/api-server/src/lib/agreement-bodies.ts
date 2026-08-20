@@ -290,3 +290,41 @@ Force Majeure. Neither party is responsible for a delay or failure to perform ca
 This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties.
 
 By signing, the Client fully understands and agrees to the contents of this Agreement. The individual signing represents and warrants that they have authority to bind the Client. The Client is responsible for all amounts due for services provided or scheduled during the term and any notice period.`;
+
+// [agreement-fields 2026-08-20] The questions the signing page asks.
+//
+// A template carries two halves: the contract text above, and the short form the
+// customer fills in before they sign. The commercial template shipped with the
+// text and an EMPTY form, so step 2 of the signing page ("Your Information -
+// please verify or complete your details below") rendered as a blank white gap.
+// Every commercial agreement Phes has sent was signed without ever asking who
+// was signing it or what authority they had.
+//
+// Deliberately NOT collected here: frequency, scope and pricing. The commercial
+// contract incorporates the estimate by reference, so asking the customer to
+// restate those on the signing page invites a signed contract that contradicts
+// the estimate it points at. The estimate is the one place those live.
+//
+// `variable` is the key the answer is stored under. Where a key matches one the
+// signing page already prefills from the client record (full_name, email, phone,
+// address) the customer sees it filled in and only has to check it.
+export interface AgreementField {
+  id: string;
+  type: "text" | "tel" | "email" | "textarea" | "select";
+  label: string;
+  variable: string;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
+export const COMMERCIAL_AGREEMENT_FIELDS: ReadonlyArray<AgreementField> = [
+  { id: "f_company", type: "text", label: "Business or property name", variable: "client_company", required: true },
+  { id: "f_name", type: "text", label: "Your full name", variable: "full_name", required: true },
+  { id: "f_title", type: "text", label: "Your title", variable: "signer_title", required: true, placeholder: "Property Manager, Owner, Facilities Director" },
+  { id: "f_address", type: "text", label: "Service address", variable: "address", required: true },
+  { id: "f_phone", type: "tel", label: "Phone", variable: "phone", required: true },
+  { id: "f_email", type: "email", label: "Email", variable: "email", required: true },
+  { id: "f_billing_email", type: "email", label: "Billing email", variable: "billing_email", required: false, placeholder: "Only if invoices go somewhere else" },
+  { id: "f_access", type: "textarea", label: "Building access instructions", variable: "access_notes", required: false, placeholder: "Entry, hours, parking, who to check in with" },
+];

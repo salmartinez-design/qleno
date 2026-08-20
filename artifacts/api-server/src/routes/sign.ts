@@ -53,6 +53,11 @@ router.get("/:token", async (req, res) => {
         client_email: clientsTable.email,
         client_phone: clientsTable.phone,
         client_address: clientsTable.address,
+        // [agreement-fields 2026-08-20] The commercial agreement asks for the
+        // business name, and we already hold it. Sending it lets the signing
+        // page fill that box in rather than making a property manager type
+        // their own company name back to us.
+        client_company: clientsTable.company_name,
       })
       .from(formSubmissionsTable)
       .leftJoin(formTemplatesTable, eq(formSubmissionsTable.form_id, formTemplatesTable.id))
