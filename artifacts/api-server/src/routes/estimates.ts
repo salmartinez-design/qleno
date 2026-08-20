@@ -711,7 +711,8 @@ router.post("/public/:token/accept", async (req, res) => {
     // there). Recorded in the lead audit note below for proof of consent.
     const smsConsent = req.body?.sms_consent === true;
     const rows = await db.execute(sql`
-      SELECT id, company_id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+      SELECT id, company_id, status, valid_until, estimate_number, title, contact_name, total
+      FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
     const est = (rows as any).rows[0];
     if (!est) {
@@ -771,6 +772,27 @@ router.post("/public/:token/accept", async (req, res) => {
     // [estimate-drip-phase3] Accepted → stop the follow-up drip. Non-blocking.
     stopEnrollmentsForEstimate(Number(est.id), "accepted").catch(() => {});
     recordEngagementEvent({ companyId: Number(est.company_id), estimateId: Number(est.id), eventType: "accepted", channel: "web", meta: { name } }).catch(() => {});
+    // [estimate-accept-notify 2026-08-19] Ping the office. Quote acceptance has
+    // always done this; estimate acceptance only flipped the status + stopped
+    // the drip, so a signed estimate sat unseen until someone opened the list.
+    // Non-blocking — a notify failure must never fail the customer's accept.
+    (async () => {
+      try {
+        const { notifyOfficeUsers, sendCompanyInboxAlert } = await import("../lib/notify.js");
+        const alert = {
+          type: "estimate_accepted",
+          title: "Estimate accepted",
+          body: `${name} accepted ${est.estimate_number || `estimate ${est.id}`}${est.title ? ` (${est.title})` : ""} for $${Number(est.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Ready to schedule.`,
+          link: `/estimates/${est.id}`,
+          meta: { estimate_id: est.id, accepted_name: name },
+        };
+        await notifyOfficeUsers(Number(est.company_id), alert);
+        // A signed estimate is money on the table, so the bell alone isn't enough
+        // (unmapped types are in-app only — see TYPE_TO_CATEGORY). One email to
+        // the shared office inbox, same pattern as the card-saved alert.
+        await sendCompanyInboxAlert(Number(est.company_id), { ...alert, meta: undefined });
+      } catch (e) { console.warn("[estimate accept] notify failed:", e); }
+    })();
     return res.json({ ok: true, status: "accepted" });
   } catch (err) {
     console.error("Accept estimate error:", err);
@@ -782,7 +804,7 @@ router.post("/public/:token/decline", async (req, res) => {
   try {
     const token = String(req.params.token || "").trim();
     const rows = await db.execute(sql`
-      SELECT id, company_id, status FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+      SELECT id, company_id, status, estimate_number, title FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
     const est = (rows as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
@@ -792,6 +814,19 @@ router.post("/public/:token/decline", async (req, res) => {
       // [estimate-drip-phase3] Declined → stop the follow-up drip. Non-blocking.
       stopEnrollmentsForEstimate(Number(est.id), "declined").catch(() => {});
       recordEngagementEvent({ companyId: Number(est.company_id), estimateId: Number(est.id), eventType: "declined", channel: "web" }).catch(() => {});
+      // Same gap as accept — a decline was silent too. Non-blocking.
+      (async () => {
+        try {
+          const { notifyOfficeUsers } = await import("../lib/notify.js");
+          await notifyOfficeUsers(Number(est.company_id), {
+            type: "estimate_declined",
+            title: "Estimate declined",
+            body: `${est.estimate_number || `Estimate ${est.id}`}${est.title ? ` (${est.title})` : ""} was declined.`,
+            link: `/estimates/${est.id}`,
+            meta: { estimate_id: est.id },
+          });
+        } catch (e) { console.warn("[estimate decline] notify failed:", e); }
+      })();
     }
     return res.json({ ok: true, status: "declined" });
   } catch (err) {

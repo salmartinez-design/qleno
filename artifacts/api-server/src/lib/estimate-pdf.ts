@@ -163,20 +163,40 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
       }
       if (named.length) {
         // Section header: label left, single frequency right (no per-row repeat).
+        ensure(48); // keep the header with at least the first checklist row
         doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica-Bold").text("SCOPE OF SERVICE", left, y, { characterSpacing: 0.5 });
         if (commonFreq) {
           doc.fillColor(MUTE).fontSize(10).font("Helvetica").text(`Frequency   ·   ${commonFreq}`, left, y - 0.5, { width, align: "right" });
         }
         y += 19;
         // Clean checklist — vector mint check (Helvetica has no check glyph) + name, no dividers.
+        // [flat-line-scope 2026-08-19] Flat mode was dropping `description`
+        // entirely (it only ever rendered on the itemized branch), so a scope
+        // written per line never reached the client. Render it under the name,
+        // indented to the same left edge as the name so the check column stays
+        // clean. Reserve the whole row first — this loop previously called no
+        // `ensure`, which was safe only because a one-line label can't overflow;
+        // a wrapped description can, and would draw off-canvas.
         for (const it of named) {
+          const label = commonFreq ? (it.name || "Service") : (it.frequency ? `${it.name}   ·   ${it.frequency}` : (it.name || "Service"));
+          const scope = (it.description || "").trim();
+          ensure(
+            heightOf(label, 11, width - 21)
+            + (scope ? heightOf(scope, 9.5, width - 21, 2) + 3 : 0)
+            + 10
+          );
           doc.save();
           doc.strokeColor(MINT).lineWidth(1.7).lineCap("round").lineJoin("round");
           doc.moveTo(left + 1, y + 5).lineTo(left + 4.5, y + 8.5).lineTo(left + 11, y + 0.5).stroke();
           doc.restore();
-          const label = commonFreq ? (it.name || "Service") : (it.frequency ? `${it.name}   ·   ${it.frequency}` : (it.name || "Service"));
           doc.fillColor(INK).fontSize(11).font("Helvetica").text(label, left + 21, y, { width: width - 21 });
-          y = doc.y + 10;
+          y = doc.y;
+          if (scope) {
+            y += 3;
+            doc.fillColor("#4B5563").fontSize(9.5).font("Helvetica").text(scope, left + 21, y, { width: width - 21, lineGap: 2 });
+            y = doc.y;
+          }
+          y += 10;
         }
         y += 4;
       }

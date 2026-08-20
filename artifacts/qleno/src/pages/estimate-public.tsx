@@ -290,9 +290,15 @@ export default function EstimatePublicPage() {
                         {est.items.map((it, i) => (
                           <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 0" }}>
                             <span style={{ width: 18, height: 18, borderRadius: 5, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>
-                            <span style={{ fontSize: 14, color: INK }}>
+                            {/* [flat-line-scope 2026-08-19] Per-line description was only
+                                rendered on the itemized branch, so a scope written per
+                                line never reached the client in flat mode. */}
+                            <span style={{ fontSize: 14, color: INK, minWidth: 0 }}>
                               {it.name || "Service"}
                               {it.frequency && <span style={{ color: MUTE }}>{` · ${it.frequency}`}</span>}
+                              {it.description && (
+                                <span style={{ display: "block", fontSize: 13, color: "#4B5563", lineHeight: 1.55, marginTop: 3, whiteSpace: "pre-wrap" }}>{it.description}</span>
+                              )}
                             </span>
                           </div>
                         ))}
