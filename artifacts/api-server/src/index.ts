@@ -205,6 +205,18 @@ function startNotificationCron() {
       fired["suspension_reminders"] = `${ctDate}-8`;
       runSuspensionReminders(ctDate).catch((e: Error) => console.error("[cron] suspension_reminders error:", e));
     }
+    // [agreement-lifecycle 2026-08-20] 10 AM CT → chase unsigned agreements.
+    // Seven touches over 30 days, front-loaded, email and text alternating; see
+    // AGREEMENT_REMINDER_STEPS for why that shape. Once daily and idempotent:
+    // each agreement carries its own next_reminder_at, so a restart at 10:05
+    // cannot re-send what 10:00 already sent. Morning on purpose, because a
+    // contract reminder at 9 PM reads as pressure.
+    if (ctH === 10 && fired["agreement_reminders"] !== `${ctDate}-10`) {
+      fired["agreement_reminders"] = `${ctDate}-10`;
+      import("./lib/agreement-lifecycle.js")
+        .then((m) => m.runAgreementReminders())
+        .catch((e: Error) => console.error("[cron] agreement_reminders error:", e));
+    }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing
     // cycle for the current calendar year.
@@ -1155,6 +1167,15 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     recordStartupFailure("ensureAgreementViewColumns", err);
+  }
+  // [agreement-lifecycle 2026-08-20] decline / cancel / resend / reminder columns
+  try {
+    await withBootTimeout("ensureAgreementLifecycleColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureAgreementLifecycleColumns } = await import("./lib/agreement-lifecycle.js");
+      await ensureAgreementLifecycleColumns();
+    });
+  } catch (err: any) {
+    recordStartupFailure("ensureAgreementLifecycleColumns", err);
   }
   // [card-link-chargeable] recover clients.stripe_payment_method_id from Stripe for
   // cards saved via the card-on-file link before 2026-07-22 (display fields were

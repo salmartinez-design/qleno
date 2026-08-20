@@ -10,6 +10,8 @@ import { appBaseUrl, emailLogoUrl } from "../lib/app-url.js";
 import { sendNotification } from "../services/notificationService.js";
 import { agreementEmailShell } from "../lib/phes-agreement-emails.js";
 import { notifyOfficeUsers } from "../lib/notify.js";
+import { verifyToken } from "../lib/auth.js";
+import { alertOfficeDeclined } from "../lib/agreement-lifecycle.js";
 
 const router = Router();
 
@@ -65,8 +67,37 @@ router.get("/:token", async (req, res) => {
     // Per-send edited text wins over the template body.
     const effectiveTerms = (submission as any).terms_body_override || submission.terms_body;
 
+    // [agreement-brand 2026-08-20] The signed PDF already runs the tenant logo
+    // through emailLogoUrl, which absolutises a relative path and falls back to
+    // the bundled Phes mark. The signing page did not, so Schaumburg - whose
+    // companies.logo_url is empty - showed its name in plain type on screen and
+    // the Phes mark on the PDF the customer kept. Same helper, same mark, both
+    // surfaces.
+    const brandedLogo = emailLogoUrl((submission as any).company_logo ?? null);
+
     if (submission.status === "signed") {
-      return res.json({ ...submission, terms_body: effectiveTerms, already_signed: true });
+      return res.json({ ...submission, company_logo: brandedLogo, terms_body: effectiveTerms, already_signed: true });
+    }
+
+    // [agreement-lifecycle 2026-08-20] A link that was declined by the customer
+    // or pulled back by the office is not "expired" and it is not signable. It
+    // gets its own answer so the page can say what actually happened instead of
+    // showing a sign button that would 409.
+    const lifecycle = ((await db.execute(sql`
+      SELECT declined_at, decline_reason, cancelled_at, cancel_kind, cancel_reason
+        FROM form_submissions WHERE sign_token = ${token} LIMIT 1`)).rows[0] || {}) as any;
+    if (submission.status === "declined" || submission.status === "cancelled") {
+      return res.json({
+        ...submission,
+        company_logo: brandedLogo,
+        terms_body: effectiveTerms,
+        already_signed: false,
+        declined_at: lifecycle.declined_at ?? null,
+        decline_reason: lifecycle.decline_reason ?? null,
+        cancelled_at: lifecycle.cancelled_at ?? null,
+        cancel_kind: lifecycle.cancel_kind ?? null,
+        cancel_reason: lifecycle.cancel_reason ?? null,
+      });
     }
 
     if (submission.expires_at && new Date() > new Date(submission.expires_at)) {
@@ -88,7 +119,31 @@ router.get("/:token", async (req, res) => {
     //
     // A 15-second same-IP window absorbs double-fires from one page load (a
     // quick refresh, a re-mount) without hiding a genuine separate visit.
-    try {
+    //
+    // [internal-preview 2026-08-20] "Opened" has to mean the CUSTOMER opened it.
+    // It was counting anyone who loaded the page, so the office checking its own
+    // work marked the agreement opened and stamped the time a staffer clicked,
+    // not the time the customer did. That number decides whether somebody picks
+    // up the phone, and it is also printed on the Certificate of Completion that
+    // backs the signature, so a false one is worse than none.
+    //
+    // The page is public by design and cannot require a login. Instead the app's
+    // own copy of it sends the signed-in staff token when there is one (see
+    // sign.tsx), and a valid staff token belonging to THIS agreement's company
+    // means the viewer works here. A real customer never has one, so nothing
+    // about their visit changes. A customer-portal token is not staff and is
+    // deliberately not accepted. Anything unreadable or from another tenant is
+    // ignored and counted as a customer view, which is the safe way to be wrong.
+    const internalViewer = (() => {
+      const h = req.headers.authorization;
+      if (!h || !h.startsWith("Bearer ")) return false;
+      try {
+        const p: any = verifyToken(h.substring(7));
+        return p.companyId === submission.company_id && p.role !== "portal_client";
+      } catch { return false; }
+    })();
+
+    if (!internalViewer) try {
       const ip = reqIp(req);
       const recent: any = await db.execute(sql`
         SELECT 1 FROM agreement_events
@@ -108,7 +163,7 @@ router.get("/:token", async (req, res) => {
       }
     } catch (e) { console.error("viewed-event (non-fatal):", e); }
 
-    return res.json({ ...submission, terms_body: effectiveTerms, already_signed: false });
+    return res.json({ ...submission, company_logo: brandedLogo, terms_body: effectiveTerms, already_signed: false });
   } catch (err) {
     console.error("Get sign token error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -152,6 +207,13 @@ router.post("/:token", async (req, res) => {
       return res.status(409).json({ error: "Agreement already signed" });
     }
 
+    // [agreement-lifecycle 2026-08-20] Declined by the customer, or pulled back
+    // by the office. Either way this link is closed and must not accept a
+    // signature, including from a tab that was left open before it closed.
+    if (submission.status === "declined" || submission.status === "cancelled") {
+      return res.status(409).json({ error: "This agreement is no longer open for signature" });
+    }
+
     if (submission.expires_at && new Date() > new Date(submission.expires_at)) {
       return res.status(410).json({ error: "Agreement link has expired" });
     }
@@ -189,7 +251,7 @@ router.post("/:token", async (req, res) => {
     // client nor the PDF fetcher can resolve. Looked up here rather than at
     // the email below because the signed PDF prints it too.
     const coLogo: any = (await db.execute(sql`
-      SELECT logo_url FROM companies WHERE id = ${submission.company_id} LIMIT 1
+      SELECT logo_url, brand_color, phone, email FROM companies WHERE id = ${submission.company_id} LIMIT 1
     `)).rows[0];
     const agreementLogoUrl = emailLogoUrl(coLogo?.logo_url ?? null);
 
@@ -200,6 +262,9 @@ router.post("/:token", async (req, res) => {
         formName: submission.form_name || "Service Agreement",
         companyName: submission.company_name || "",
         logoUrl: agreementLogoUrl,
+        brandColor: coLogo?.brand_color ?? null,
+        companyPhone: coLogo?.phone ?? null,
+        companyEmail: coLogo?.email ?? null,
         termsBody: signedBody,
         responses: responses || {},
         signatureName: signature_name,
@@ -227,7 +292,13 @@ router.post("/:token", async (req, res) => {
       .returning();
 
     // [agreement-esign] Capture consent + device and seal the audit trail.
-    await db.execute(sql`UPDATE form_submissions SET consent_at = now(), user_agent = ${ua} WHERE sign_token = ${token}`);
+    // [agreement-lifecycle 2026-08-20] and stop the chase: a signed agreement
+    // must never receive another reminder.
+    await db.execute(sql`
+      UPDATE form_submissions
+         SET consent_at = now(), user_agent = ${ua},
+             reminders_enabled = false, next_reminder_at = NULL
+       WHERE sign_token = ${token}`);
     await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, ip_address, user_agent)
       VALUES (${submission.company_id}, ${submission.id}, 'signed', ${submission.sent_to ?? null}, ${ip}, ${ua})`);
     await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type) VALUES (${submission.company_id}, ${submission.id}, 'sealed')`);
@@ -301,6 +372,79 @@ router.post("/:token", async (req, res) => {
   }
 });
 
+// [agreement-lifecycle 2026-08-20] The customer's way to say no.
+//
+// Until now the only two things a customer could do with an agreement were sign
+// it or close the tab, and those look identical from the office: an open link
+// that nobody signed. So a customer who spotted the wrong rate, the wrong day,
+// or a clause they would not accept had no way to tell us except to call, and
+// meanwhile the reminder cadence kept chasing them for a document they had
+// already rejected.
+//
+// The reason box is the point of the whole thing. Most declines are not "no
+// thank you", they are "this says biweekly and we agreed weekly" - a fixable
+// mistake that the office can correct and resend in two minutes if somebody
+// tells them what it is.
+//
+// Public by token, same as signing. Declining is not a legal act, so there is
+// no consent gate and no hash, but it is recorded with time, IP and device in
+// the same trail as everything else and it shows on the certificate.
+router.post("/:token/decline", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const reason = String(req.body?.reason || "").trim().slice(0, 2000);
+    const declinedName = String(req.body?.name || "").trim().slice(0, 200);
+
+    const row = (await db.execute(sql`
+      SELECT fs.id, fs.company_id, fs.client_id, fs.status, fs.sent_to,
+             ft.name AS form_name,
+             trim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '')) AS client_name
+        FROM form_submissions fs
+        LEFT JOIN form_templates ft ON ft.id = fs.form_id
+        LEFT JOIN clients c ON c.id = fs.client_id
+       WHERE fs.sign_token = ${token}
+       LIMIT 1`)).rows[0] as any;
+
+    if (!row) return res.status(404).json({ error: "Agreement not found" });
+    if (row.status === "signed") return res.status(409).json({ error: "Agreement already signed" });
+    if (row.status === "declined") return res.json({ ok: true, already: true });
+    if (row.status === "cancelled") return res.status(409).json({ error: "This agreement is no longer open" });
+
+    const ip = reqIp(req);
+    const ua = reqUa(req);
+
+    await db.execute(sql`
+      UPDATE form_submissions
+         SET status = 'declined',
+             declined_at = now(),
+             decline_reason = ${reason || null},
+             declined_name = ${declinedName || null},
+             reminders_enabled = false,
+             next_reminder_at = NULL
+       WHERE sign_token = ${token}`);
+
+    await db.execute(sql`
+      INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, ip_address, user_agent, meta)
+      VALUES (${row.company_id}, ${row.id}, 'declined', ${row.sent_to ?? null}, ${ip}, ${ua},
+              ${JSON.stringify({ reason, name: declinedName })}::jsonb)`);
+
+    await alertOfficeDeclined({
+      companyId: Number(row.company_id),
+      submissionId: Number(row.id),
+      clientId: row.client_id != null ? Number(row.client_id) : null,
+      clientName: String(row.client_name || "").trim(),
+      formName: String(row.form_name || "service agreement"),
+      reason,
+    });
+
+    console.log(`[AGREEMENT DECLINED] submission_id=${row.id} ip=${ip} reason="${reason.slice(0, 80)}"`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Decline agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // [agreement-signed-copy 2026-08-19] The durable signed copy. generateAgreementPdf
 // writes a file to Railway's disk and hands back an /api/pdfs/<name> URL, which
 // is fine for the link on the confirmation screen and useless for anything the
@@ -314,7 +458,8 @@ router.get("/:token/agreement.pdf", async (req, res) => {
       SELECT fs.id, fs.company_id, fs.responses, fs.signature_name, fs.signature_at,
              fs.ip_address, fs.content_hash, fs.status, fs.terms_body_override,
              ft.name AS form_name, ft.terms_body, c.name AS company_name,
-             c.logo_url AS company_logo
+             c.logo_url AS company_logo, c.brand_color AS company_brand,
+             c.phone AS company_phone, c.email AS company_email
         FROM form_submissions fs
         LEFT JOIN form_templates ft ON ft.id = fs.form_id
         LEFT JOIN companies c ON c.id = fs.company_id
@@ -329,6 +474,9 @@ router.get("/:token/agreement.pdf", async (req, res) => {
       formName: s.form_name || "Service Agreement",
       companyName: s.company_name || "",
       logoUrl: emailLogoUrl(s.company_logo ?? null),
+      brandColor: s.company_brand ?? null,
+      companyPhone: s.company_phone ?? null,
+      companyEmail: s.company_email ?? null,
       // The frozen per-send copy is what the customer read and what the hash
       // covers. Falling back to the template body would show them a document
       // that is not the one they signed.
