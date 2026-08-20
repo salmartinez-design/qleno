@@ -14,6 +14,7 @@
 // silently change what a signed agreement appears to say.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { frequencyLabel, DAY_PLURALS } from "./recurring-cadences.js";
 
 export type AgreementVars = Record<string, string>;
 
@@ -63,37 +64,9 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   { token: "hold_notice_free_days", label: "Free service hold per 12 months (days)", example: "30" },
 ];
 
-// Human labels for the recurring cadence. The enum values read like column
-// names ("every_3_weeks"); a signed contract has to read like English.
-const FREQUENCY_LABELS: Record<string, string> = {
-  weekly: "Weekly",
-  biweekly: "Every 2 weeks",
-  every_3_weeks: "Every 3 weeks",
-  monthly: "Every 4 weeks",
-  monthly_weekday: "Monthly",
-  semi_monthly: "Twice a month",
-  daily: "Daily",
-  weekdays: "Weekdays",
-  custom_days: "Multiple days each week",
-  custom: "Custom",
-};
-
-const DAY_PLURALS: Record<string, string> = {
-  monday: "Mondays", tuesday: "Tuesdays", wednesday: "Wednesdays",
-  thursday: "Thursdays", friday: "Fridays", saturday: "Saturdays", sunday: "Sundays",
-};
-
-function frequencyLabel(freq: any, customWeeks: any): string {
-  const key = String(freq || "").toLowerCase();
-  // A custom cadence carries its interval in custom_frequency_weeks; rendering
-  // a bare "Custom" in a contract tells the client nothing about how often we
-  // are coming, which is the one thing the frequency line exists to say.
-  if (key === "custom") {
-    const w = Number(customWeeks);
-    if (Number.isFinite(w) && w > 0) return w === 1 ? "Weekly" : `Every ${w} weeks`;
-  }
-  return FREQUENCY_LABELS[key] || "";
-}
+// Human labels for the recurring cadence live with the cadence engine, not
+// here. The contract and the app must agree on what "monthly" is called, and
+// they only do that if there is one map. See lib/recurring-cadences.ts.
 
 function money(n: any): string {
   const v = Number(n);

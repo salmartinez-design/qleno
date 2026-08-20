@@ -925,6 +925,10 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
   const noticeVisits = pv?.notice?.visits ?? 0;
   const noticeAmount = Number(pv?.notice?.amount ?? 0);
   const noticeDates: string[] = pv?.notice?.dates ?? [];
+  // The visit count is only reviewable next to the schedule that produced it.
+  // Four visits is correct for a weekly client and wrong for a monthly one, and
+  // the number alone does not let the office tell those apart.
+  const cadence: string = pv?.cadence || "";
   const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["client-recurring", client.id] }); qc.invalidateQueries({ queryKey: ["client-jobs", client.id] }); refetch(); };
@@ -1006,6 +1010,11 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
                 <div style={{ fontSize: 12, color: "#4B7A6E", marginTop: 3, lineHeight: 1.5 }}>
                   {pv.days} of the {freeLeft} free hold day{freeLeft === 1 ? "" : "s"} {client.first_name} has left this year. Nothing is billed and the rate and slot are kept.
                 </div>
+                {cadence && (
+                  <div style={{ fontSize: 12, color: "#4B7A6E", marginTop: 6, paddingTop: 6, borderTop: "1px solid #CDEDE3" }}>
+                    Pausing <strong style={{ fontWeight: 700 }}>{cadence}</strong>
+                  </div>
+                )}
               </div>
             )}
             {pv && isNotice && (
@@ -1017,8 +1026,13 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
                   <span style={{ fontSize: 22, fontWeight: 800, color: "#B45309", fontFamily: FF }}>{money(noticeAmount)}</span>
-                  <span style={{ fontSize: 12, color: "#8A5A18" }}>{noticeVisits} visit{noticeVisits === 1 ? "" : "s"} at their own cadence</span>
+                  <span style={{ fontSize: 12, color: "#8A5A18" }}>{noticeVisits} visit{noticeVisits === 1 ? "" : "s"}</span>
                 </div>
+                {cadence && (
+                  <div style={{ fontSize: 12, color: "#8A5A18", marginTop: 4 }}>
+                    From their schedule: <strong style={{ fontWeight: 700 }}>{cadence}</strong>
+                  </div>
+                )}
                 {noticeDates.length > 0 && (
                   <div style={{ fontSize: 11, color: "#8A5A18", marginTop: 6, lineHeight: 1.5 }}>
                     {noticeDates.map(d => fmtDate(d)).join(" · ")}

@@ -30,7 +30,7 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { generateCadenceDates, type CadenceInput } from "./recurring-cadences.js";
+import { generateCadenceDates, describeCadence, type CadenceInput } from "./recurring-cadences.js";
 import { getNextInvoiceNumber } from "./invoice-number.js";
 import { chargeInvoice } from "./charge-invoice.js";
 
@@ -68,9 +68,17 @@ export type NoticeQuote = {
   dates: string[];
   windowStart: string;
   windowEnd: string;
+  /** Plain English for the schedule(s) that produced these visits. */
+  cadence: string;
   /** Per-schedule detail; a client can carry more than one recurring schedule. */
   lines: Array<{ schedule_id: number; date: string; rate: number }>;
 };
+
+// [cadence-label 2026-08-20] "4 visits" is not a reviewable number on its own.
+// The office has to see WHICH schedule produced it, because the whole point of
+// the rule is that the count follows the client's own cadence. A weekly Friday
+// client billing 4 is right; a monthly client billing 4 is a bug, and nobody
+// can tell those apart from the number alone.
 
 export type HoldClassification = {
   startDate: string;
@@ -82,6 +90,9 @@ export type HoldClassification = {
   /** Free days this hold would consume (0 for a notice hold). */
   freeDaysUsed: number;
   policy: HoldPolicy;
+  /** The client's schedule in plain English. Shown for a free hold too, so the
+   *  office is always looking at the same description of what it is pausing. */
+  cadence: string;
   /** Only populated for a notice hold — what it would cost if they never resume. */
   notice: NoticeQuote | null;
 };
@@ -260,6 +271,14 @@ async function loadHeldSchedules(companyId: number, clientId: number): Promise<S
   return (r.rows as any[]).map((s) => ({ ...s, id: Number(s.id) }));
 }
 
+/** Every live schedule for this client, in plain English, joined for display. */
+function describeSchedules(schedules: ScheduleRow[]): string {
+  const parts = schedules
+    .map((s) => describeCadence(s as unknown as CadenceInput))
+    .filter((x, i, a) => x && a.indexOf(x) === i);
+  return parts.join(" and ");
+}
+
 // The per-visit rate for a schedule. base_fee is the carrier; a commercial
 // monthly-batch schedule prices the whole month instead, so divide it by the
 // visits that month actually produced rather than guessing a divisor.
@@ -316,6 +335,7 @@ export async function quoteNoticeVisits(
     dates: lines.map((l) => l.date),
     windowStart,
     windowEnd,
+    cadence: describeSchedules(schedules),
     lines,
   };
 }
@@ -339,6 +359,7 @@ export async function classifyHold(
   const days = inclusiveDays(startYmd, endYmd);
   const fits = days <= allowance.remaining;
   const kind: HoldKind = fits ? "free" : "notice";
+  const cadence = describeSchedules(await loadHeldSchedules(companyId, clientId));
   return {
     startDate: startYmd,
     endDate: endYmd,
@@ -350,6 +371,7 @@ export async function classifyHold(
     // too would be billing the same days twice.
     freeDaysUsed: fits ? days : 0,
     policy,
+    cadence,
     notice: fits ? null : await quoteNoticeVisits(companyId, clientId, endYmd, policy.noticeDays),
   };
 }
@@ -452,7 +474,7 @@ export async function endExpiredNoticeHold(hold: {
   // generateCadenceDates clamps at a schedule's end_date, which would silently
   // zero out the very visits we are billing for.
   const quote = hold.waive_notice_charge
-    ? { visits: 0, amount: 0, dates: [], windowStart: endYmd, windowEnd: endYmd, lines: [] as NoticeQuote["lines"] }
+    ? { visits: 0, amount: 0, dates: [], windowStart: endYmd, windowEnd: endYmd, cadence: "", lines: [] as NoticeQuote["lines"] }
     : await quoteNoticeVisits(companyId, clientId, endYmd, policy.noticeDays);
 
   // End the recurring agreement. paused_by_suspension is cleared on the way out
