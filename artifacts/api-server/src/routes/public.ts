@@ -621,6 +621,8 @@ router.get("/booking-settings/:slug", rateLimit, async (req, res) => {
     available_thu: true,
     available_fri: true,
     available_sat: false,
+    // [sat-cutoff 2026-08-19] null = no Saturday-specific cutoff.
+    sat_last_start_minutes: null,
   };
   try {
     const slug = req.params.slug;

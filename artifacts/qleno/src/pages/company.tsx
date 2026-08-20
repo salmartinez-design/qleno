@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useGetMyCompany, useUpdateMyCompany } from "@workspace/api-client-react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { BOOKING_TIME_SLOTS } from '@/lib/booking-slots';
 import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
 import { useBranch } from "@/contexts/branch-context";
@@ -3411,6 +3412,9 @@ function OnlineBookingTab() {
 
   const [leadDays, setLeadDays] = useState(7);
   const [maxAdvanceDays, setMaxAdvanceDays] = useState(60);
+  // [sat-cutoff 2026-08-19] Latest start a client may pick on a Saturday,
+  // minutes past midnight. null = no Saturday-specific cutoff.
+  const [satLastStart, setSatLastStart] = useState<number | null>(null);
   const [avail, setAvail] = useState<BookingAvailDays>({ sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: false });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3472,6 +3476,11 @@ function OnlineBookingTab() {
             sun: !!d.available_sun, mon: !!d.available_mon, tue: !!d.available_tue,
             wed: !!d.available_wed, thu: !!d.available_thu, fri: !!d.available_fri, sat: !!d.available_sat,
           });
+          setSatLastStart(
+            d.sat_last_start_minutes === null || d.sat_last_start_minutes === undefined
+              ? null
+              : Number(d.sat_last_start_minutes),
+          );
         }
         setLoaded(true);
       })
@@ -3489,6 +3498,7 @@ function OnlineBookingTab() {
           max_advance_days: maxAdvanceDays,
           available_sun: avail.sun, available_mon: avail.mon, available_tue: avail.tue,
           available_wed: avail.wed, available_thu: avail.thu, available_fri: avail.fri, available_sat: avail.sat,
+          sat_last_start_minutes: satLastStart,
         }),
       });
       if (!r.ok) throw new Error('Failed');
@@ -3571,6 +3581,29 @@ function OnlineBookingTab() {
             );
           })}
         </div>
+
+        {avail.sat && (
+          <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid #E5E2DC' }}>
+            <label style={labelStyle}>Latest start time on a Saturday</label>
+            <select
+              value={satLastStart === null ? '' : String(satLastStart)}
+              onChange={e => setSatLastStart(e.target.value === '' ? null : Number(e.target.value))}
+              style={{
+                padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+                fontSize: 14, color: '#1A1917', background: '#fff', outline: 'none',
+                fontFamily: FF, cursor: 'pointer', minWidth: 180,
+              }}
+            >
+              <option value="">No limit (same as weekdays)</option>
+              {BOOKING_TIME_SLOTS.map(slot => (
+                <option key={slot.minutes} value={slot.minutes}>{slot.label}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 12, color: '#9E9B94', marginTop: 8, fontFamily: FF }}>
+              Saturday is a short crew day. Times after this are hidden on the booking form for Saturdays only. Weekdays keep the full 9:00 AM to 2:00 PM list.
+            </p>
+          </div>
+        )}
       </div>
 
       <div style={cardStyle}>

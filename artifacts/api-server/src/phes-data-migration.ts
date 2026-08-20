@@ -698,6 +698,10 @@ async function runBookingSchemaGuard(): Promise<void> {
         updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+    // [sat-cutoff 2026-08-19] Latest start time a client may pick on a
+    // Saturday, minutes past midnight (600 = 10:00 AM). NULL = no cap.
+    { label: "booking_settings.sat_last_start_minutes",
+      stmt: `ALTER TABLE booking_settings ADD COLUMN IF NOT EXISTS sat_last_start_minutes INTEGER` },
     // ── leads table ─────────────────────────────────────────────────────────
     { label: "CREATE leads", stmt: `
       CREATE TABLE IF NOT EXISTS leads (
