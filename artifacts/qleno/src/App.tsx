@@ -117,6 +117,7 @@ const SignDocPage          = lazy(() => import("@/pages/sign-doc"));
 const BookPage            = lazy(() => import("@/pages/book"));
 const BookQuotePage       = lazy(() => import("@/pages/book-quote"));
 const LeadsPage           = lazy(() => import("@/pages/leads"));
+const ServiceRequestsPage = lazy(() => import("@/pages/service-requests"));
 const LeadsPartnersPage   = lazy(() => import("@/pages/leads-partners"));
 const LeadsTemplatesPage  = lazy(() => import("@/pages/leads-templates"));
 const LeadsReportsPage    = lazy(() => import("@/pages/leads-reports"));
@@ -385,6 +386,7 @@ function Router() {
         <Route path="/leads/reports" component={LeadsReportsPage} />
         <Route path="/all-locations" component={AllLocationsPage} />
         <Route path="/leads" component={LeadsPage} />
+        <Route path="/service-requests" component={ServiceRequestsPage} />
         <Route path="/quotes/new" component={QuoteBuilderPage} />
         <Route path="/quotes/:id/edit" component={QuoteBuilderPage} />
         <Route path="/quotes/:id" component={QuoteDetailPage} />
