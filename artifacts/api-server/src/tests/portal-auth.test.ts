@@ -48,7 +48,26 @@ describe("portal capabilities — residential vs commercial", () => {
     const r = lib.portalCapabilities(residential());
     assert.equal(r.viewBuildings, false);
     assert.equal(r.bulkDownloadInvoices, false);
-    assert.equal(r.requestService, false);
+    // [portal-service-account 2026-08-20] requestService used to be false for
+    // residential with the note "later". Later arrived: a residential customer
+    // asking for an extra clean goes into the same office queue a commercial
+    // one does. A request is an ASK, not work on the board, so there is nothing
+    // here that a residential customer may not do.
+    assert.equal(r.requestService, true);
+  });
+
+  it("gives residential the schedule, the agreement, holds and referrals", () => {
+    const r = lib.portalCapabilities(residential());
+    assert.equal(r.viewSchedule, true);
+    assert.equal(r.viewAgreement, true);
+    assert.equal(r.manageHold, true);
+    assert.equal(r.submitReferral, true);
+
+    // Commercial pauses are contract matters handled by the account manager,
+    // and a property-management contact has no household to refer.
+    const c = lib.portalCapabilities(commercial());
+    assert.equal(c.manageHold, false);
+    assert.equal(c.submitReferral, false);
   });
 
   it("gives rate-a-clean to residential only", () => {

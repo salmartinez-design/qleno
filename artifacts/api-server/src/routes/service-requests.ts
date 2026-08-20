@@ -31,12 +31,20 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     const rows = await db.execute(sql`
       SELECT r.id, r.service_description, r.preferred_date, r.notes, r.status,
              r.office_note, r.created_at, r.resulting_job_id,
+             r.account_id, r.client_id,
              a.account_name,
              COALESCE(NULLIF(btrim(p.property_name), ''), p.address) AS building,
+             btrim(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) AS client_name,
+             c.phone AS client_phone,
              pu.name AS requested_by_name, pu.email AS requested_by_email
         FROM portal_service_requests r
         LEFT JOIN accounts a ON a.id = r.account_id
         LEFT JOIN account_properties p ON p.id = r.account_property_id
+        -- [portal-service-account 2026-08-20] A residential request carries a
+        -- client_id, not an account_id, so without this join every one of them
+        -- rendered a blank name in the office queue: a request from nobody,
+        -- about nothing, that nobody would call back.
+        LEFT JOIN clients c ON c.id = r.client_id
         LEFT JOIN portal_users pu ON pu.id = r.requested_by_portal_user_id
        WHERE r.company_id = ${companyId} AND r.status = ${status}::portal_service_request_status
        ORDER BY r.created_at DESC
@@ -44,7 +52,15 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
 
     return res.json((rows.rows as any[]).map((r) => ({
       id: r.id,
+      // One name for the queue whichever side it came from, plus the ids so the
+      // row can link through to the right profile.
+      customer: r.account_name || (r.client_name ? r.client_name : null) || r.requested_by_name || "Unknown",
+      kind: r.account_id ? "commercial" : "residential",
+      account_id: r.account_id ?? null,
+      client_id: r.client_id ?? null,
       account_name: r.account_name,
+      client_name: r.client_name || null,
+      client_phone: r.client_phone || null,
       building: r.building ?? null,
       service: r.service_description,
       preferred_date: r.preferred_date ? String(r.preferred_date).slice(0, 10) : null,

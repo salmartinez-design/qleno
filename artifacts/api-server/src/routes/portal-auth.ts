@@ -89,6 +89,189 @@ router.post("/invite", requireAuth, requireRole("owner", "admin", "office"), asy
   }
 });
 
+// ── Office: read the real login state ───────────────────────────────────────
+// GET /api/portal/auth/status?client_id=123 | ?account_contact_id=456
+//
+// [portal-service-account 2026-08-20] The customer profile used to answer "does
+// this person have portal access?" from `clients.portal_access` and
+// `clients.portal_invite_sent_at` — legacy columns that the login path stopped
+// consulting when identity moved to portal_users. The office could be looking at
+// "Portal access: on" for a login that had been deactivated, or at an invite
+// date for a customer who signed in months ago. One source of truth.
+router.get("/status", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = req.query.client_id ? parseInt(String(req.query.client_id)) : null;
+    const contactId = req.query.account_contact_id ? parseInt(String(req.query.account_contact_id)) : null;
+    if ((clientId == null) === (contactId == null)) {
+      return res.status(400).json({ error: "Bad Request", message: "Pass exactly one of client_id or account_contact_id" });
+    }
+
+    const [user] = await db
+      .select({
+        id: portalUsersTable.id,
+        email: portalUsersTable.email,
+        name: portalUsersTable.name,
+        is_active: portalUsersTable.is_active,
+        password_hash: portalUsersTable.password_hash,
+        email_verified_at: portalUsersTable.email_verified_at,
+        last_login_at: portalUsersTable.last_login_at,
+        created_at: portalUsersTable.created_at,
+      })
+      .from(portalUsersTable)
+      .where(and(
+        eq(portalUsersTable.company_id, companyId),
+        clientId != null
+          ? eq(portalUsersTable.client_id, clientId)
+          : eq(portalUsersTable.account_contact_id, contactId!),
+      ))
+      .limit(1);
+
+    if (!user) return res.json({ exists: false });
+
+    // Is there an unused, unexpired invite link still sitting in their inbox?
+    // That is the difference between "invited, waiting on them" and "set up".
+    const pending = await db.execute(sql`
+      SELECT 1 FROM portal_tokens
+       WHERE portal_user_id = ${user.id} AND kind = 'verify'
+         AND used_at IS NULL AND expires_at > now()
+       LIMIT 1`);
+
+    // Which sign-in methods they actually have. A social-only account has no
+    // password hash, and telling the office to "send them a reset" for one is
+    // advice that leads nowhere.
+    const providers = await db.execute(sql`
+      SELECT provider FROM portal_identities WHERE portal_user_id = ${user.id}`);
+
+    return res.json({
+      exists: true,
+      portal_user_id: user.id,
+      email: user.email,
+      name: user.name,
+      is_active: user.is_active,
+      // Never the hash itself, only whether one exists.
+      has_password: !!user.password_hash,
+      providers: (providers.rows as any[]).map((r) => r.provider),
+      invite_pending: !!pending.rows[0],
+      email_verified_at: user.email_verified_at,
+      last_login_at: user.last_login_at,
+      created_at: user.created_at,
+    });
+  } catch (err) {
+    console.error("Portal status error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not read portal access" });
+  }
+});
+
+// ── Office: send a password reset on the customer's behalf ──────────────────
+// POST /api/portal/auth/send-reset  { client_id } | { account_contact_id }
+//
+// The customer-facing /forgot is deliberately vague and always 200s, because it
+// is public. This one is staff-gated, so it can tell the office the truth: no
+// login yet, or deactivated, or sent.
+router.post("/send-reset", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = req.body?.client_id ? parseInt(String(req.body.client_id)) : null;
+    const contactId = req.body?.account_contact_id ? parseInt(String(req.body.account_contact_id)) : null;
+    if ((clientId == null) === (contactId == null)) {
+      return res.status(400).json({ error: "Bad Request", message: "Pass exactly one of client_id or account_contact_id" });
+    }
+
+    const [user] = await db.select().from(portalUsersTable)
+      .where(and(
+        eq(portalUsersTable.company_id, companyId),
+        clientId != null
+          ? eq(portalUsersTable.client_id, clientId)
+          : eq(portalUsersTable.account_contact_id, contactId!),
+      ))
+      .limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Not Found", message: "This customer has no portal login yet — invite them first" });
+    }
+    if (!user.is_active) {
+      return res.status(400).json({ error: "Bad Request", message: "This portal login is turned off — turn it back on first" });
+    }
+
+    // Older reset links in their mailbox stop working, so there is exactly one
+    // live link at a time and "the link doesn't work" has one cause, not two.
+    await revokePortalTokens(user.id, "reset");
+    const raw = await mintPortalToken({ companyId, portalUserId: user.id, kind: "reset", issuedByUserId: req.auth!.userId });
+    const link = await portalLink(companyId, "set-password", raw);
+    const sent = await sendNotification(
+      "portal_password_reset", "email", companyId, user.email, null,
+      { first_name: (user.name || "").split(" ")[0] || "", portal_link: link },
+      // transactional: auth mail a person deliberately asked for, so it bypasses
+      // the COMMS_ENABLED gate exactly like the staff password reset does.
+      true,
+    ).catch(() => false);
+
+    logAudit(req, "PORTAL_RESET_SENT", "portal_user", user.id, null, { emailed: !!sent, customer_email: user.email });
+    return res.json({
+      ok: true,
+      emailed: !!sent,
+      message: sent ? `Reset link sent to ${user.email}` : "Could not send that email — check the address",
+    });
+  } catch (err) {
+    console.error("Portal send-reset error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not send that reset" });
+  }
+});
+
+// ── Office: turn a login off or back on ─────────────────────────────────────
+// POST /api/portal/auth/set-active  { client_id | account_contact_id, active }
+//
+// This is what "Deactivate portal access" and "Cancel invitation" both are. The
+// old profile button wrote clients.portal_access = false, a column nothing reads
+// any more: it looked like a security control and did nothing. Turning a login
+// off here takes effect on the customer's NEXT request, because requirePortalAuth
+// re-reads portal_users every time rather than trusting the 12-hour token.
+router.post("/set-active", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = req.body?.client_id ? parseInt(String(req.body.client_id)) : null;
+    const contactId = req.body?.account_contact_id ? parseInt(String(req.body.account_contact_id)) : null;
+    if ((clientId == null) === (contactId == null)) {
+      return res.status(400).json({ error: "Bad Request", message: "Pass exactly one of client_id or account_contact_id" });
+    }
+    const active = req.body?.active === true;
+
+    const [user] = await db.update(portalUsersTable)
+      .set({ is_active: active })
+      .where(and(
+        eq(portalUsersTable.company_id, companyId),
+        clientId != null
+          ? eq(portalUsersTable.client_id, clientId)
+          : eq(portalUsersTable.account_contact_id, contactId!),
+      ))
+      .returning({ id: portalUsersTable.id, email: portalUsersTable.email });
+    if (!user) {
+      return res.status(404).json({ error: "Not Found", message: "This customer has no portal login" });
+    }
+
+    // Turning access off also kills the links: an unused invite or reset link in
+    // an old email would otherwise let them back in and re-activate on
+    // set-password. Cancelling an invitation is this same call.
+    if (!active) {
+      await revokePortalTokens(user.id, "verify");
+      await revokePortalTokens(user.id, "reset");
+      await revokePortalTokens(user.id, "magic");
+    }
+
+    logAudit(req, active ? "PORTAL_ACCESS_ON" : "PORTAL_ACCESS_OFF", "portal_user", user.id, null, {
+      client_id: clientId, account_contact_id: contactId, customer_email: user.email,
+    });
+    return res.json({
+      ok: true,
+      is_active: active,
+      message: active ? "Portal access turned back on" : "Portal access turned off and any open links cancelled",
+    });
+  } catch (err) {
+    console.error("Portal set-active error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Could not change portal access" });
+  }
+});
+
 // ── Set password (completes an invite, and doubles as reset confirm) ────────
 // POST /api/portal/auth/set-password  { token, password }
 router.post("/set-password", async (req, res) => {

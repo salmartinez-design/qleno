@@ -152,6 +152,26 @@ export interface PortalCapabilities {
   viewBuildings: boolean;
   requestService: boolean;
   manageContacts: boolean;
+  // [portal-service-account 2026-08-20] The customer's own agreement and the
+  // plan it describes. Reading these is never gated on `acting`: an office
+  // support session walking a customer through their cadence or their notice
+  // terms is the whole point of view-as.
+  viewSchedule: boolean;
+  viewAgreement: boolean;
+  /**
+   * Pause and resume their own service. Residential only — a hold is scoped to
+   * a `clients` row, and a commercial account's pauses are negotiated per
+   * building, not self-served.
+   *
+   * NOTE this only ever covers a FREE hold, one that fits inside the free days
+   * the agreement grants and moves no money. A hold long enough to count as
+   * notice ends the agreement and bills the notice period, so it is never
+   * self-executing at any capability level — it becomes a request the office
+   * answers. See routes/portal.ts POST /hold.
+   */
+  manageHold: boolean;
+  /** Send us someone they know. */
+  submitReferral: boolean;
 }
 
 /**
@@ -179,6 +199,12 @@ export function portalCapabilities(session: PortalSession): PortalCapabilities {
         viewBuildings: true,
         requestService: acting,
         manageContacts: acting,
+        viewSchedule: true,
+        viewAgreement: true,
+        // A commercial hold is not a thing: holds hang off a clients row, and a
+        // property-management account pauses per building through its contract.
+        manageHold: false,
+        submitReferral: false,
       }
     : {
         kind: "residential",
@@ -189,8 +215,15 @@ export function portalCapabilities(session: PortalSession): PortalCapabilities {
         bulkDownloadInvoices: false,
         payInvoice: acting,
         viewBuildings: false,
-        requestService: false,
+        // [portal-service-account 2026-08-20] Was false with the note "later".
+        // Later is now: a residential customer can ask for an extra clean, and
+        // the ask lands in the same office queue a commercial one does.
+        requestService: acting,
         manageContacts: false,
+        viewSchedule: true,
+        viewAgreement: true,
+        manageHold: acting,
+        submitReferral: acting,
       };
 }
 
