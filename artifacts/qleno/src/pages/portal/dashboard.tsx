@@ -181,6 +181,13 @@ export default function PortalDashboardPage() {
   const [reqBusy, setReqBusy] = useState(false);
   const [reqResult, setReqResult] = useState('');
   const [reqError, setReqError] = useState('');
+  // Hand the customer to the request form with the ask already filled in, so a
+  // pause or a restart is one tap and a date rather than a blank box.
+  const askOffice = (what: string, notes: string) => {
+    setReqWhat(what); setReqNotes(notes); setReqWhen('');
+    setReqResult(''); setReqError('');
+    setActiveTab('requests');
+  };
 
   // Referral form
   const [refName, setRefName] = useState('');
@@ -800,11 +807,23 @@ export default function PortalDashboardPage() {
                           ? 'Restart before that date and your agreement carries on as normal, with nothing charged for the pause.'
                           : 'We are holding your regular spot. Come back any time.'}
                       </p>
-                      {caps.manageHold && (
+                      {caps.manageHold ? (
                         <button onClick={resumeService} disabled={holdBusy}
                           style={{ ...primaryBtn({ marginTop:12, height:40 }), opacity: holdBusy ? 0.6 : 1 }}>
                           <span style={{ display:'flex', alignItems:'center', gap:7 }}><PlayCircle size={15}/> Restart my service</span>
                         </button>
+                      ) : (
+                        <div style={{ marginTop:12 }}>
+                          <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 10px 0' }}>
+                            Ready to start again? Tell us and we will put you back on the schedule.
+                          </p>
+                          {caps.requestService && (
+                            <button onClick={() => askOffice('Restart my service', 'Sent from my portal. I would like to start my regular service again.')}
+                              style={{ ...primaryBtn({ height:40 }) }}>
+                              <span style={{ display:'flex', alignItems:'center', gap:7 }}><PlayCircle size={15}/> Ask us to restart it</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : caps.manageHold ? (
@@ -884,7 +903,25 @@ export default function PortalDashboardPage() {
                         </div>
                       )}
                     </div>
-                  ) : null}
+                  ) : (
+                    /* [portal-holds-office-only 2026-08-20] Sal: "No pausing for
+                       clients at the moment let the office handle that for now."
+                       The allowance above still shows, because it is theirs and
+                       hiding it only generates calls asking what it is. What is
+                       gone is the date picker. This is the replacement: say who
+                       arranges a pause, and hand them the way to ask. */
+                    <div style={{ marginTop:16, paddingTop:16, borderTop:'1px solid #E5E2DC' }}>
+                      <p style={{ fontSize:12.5, color:'#6B6860', margin:0 }}>
+                        Going away? Tell us the dates and we will pause your service for you. Give us a call, or send us the dates here and someone from the office will set it up and confirm it with you.
+                      </p>
+                      {caps.requestService && (
+                        <button onClick={() => askOffice('Pause my service', 'Sent from my portal. I would like to pause my service. Dates: ')}
+                          style={{ ...primaryBtn({ marginTop:12, height:40 }) }}>
+                          <span style={{ display:'flex', alignItems:'center', gap:7 }}><PauseCircle size={15}/> Ask us to pause my service</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* The agreement itself */}

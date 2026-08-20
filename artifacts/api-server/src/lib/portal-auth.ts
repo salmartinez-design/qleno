@@ -163,11 +163,13 @@ export interface PortalCapabilities {
    * a `clients` row, and a commercial account's pauses are negotiated per
    * building, not self-served.
    *
-   * NOTE this only ever covers a FREE hold, one that fits inside the free days
-   * the agreement grants and moves no money. A hold long enough to count as
-   * notice ends the agreement and bills the notice period, so it is never
-   * self-executing at any capability level — it becomes a request the office
-   * answers. See routes/portal.ts POST /hold.
+   * OFF right now for everyone: see PORTAL_SELF_SERVE_HOLDS below.
+   *
+   * NOTE that even when it is on, it only ever covers a FREE hold, one that fits
+   * inside the free days the agreement grants and moves no money. A hold long
+   * enough to count as notice ends the agreement and bills the notice period, so
+   * it is never self-executing at any capability level — it becomes a request
+   * the office answers. See routes/portal.ts POST /hold.
    */
   manageHold: boolean;
   /** Send us someone they know. */
@@ -179,6 +181,23 @@ export interface PortalCapabilities {
  * instead of re-deriving "is this commercial?" inline — that re-derivation is
  * how two code paths drift into two different ideas of who may do what.
  */
+/**
+ * Whether a customer may pause and resume their own service from the portal.
+ *
+ * [portal-holds-office-only 2026-08-20] Off. Sal asked whether a customer should
+ * be able to pause their own service or whether every pause should come to the
+ * office first, and settled it: "No pausing for clients at the moment let the
+ * office handle that for now."
+ *
+ * It is one constant rather than deleted code because the machinery underneath
+ * is the office's too — the same ledger row, the same rolling-12-month
+ * allowance, the same notice classification — and deleting the customer's half
+ * would not have simplified any of it. Flip this to true and the customer side
+ * comes back exactly as designed, with notice-length pauses still routed to the
+ * office rather than executing.
+ */
+const PORTAL_SELF_SERVE_HOLDS = false;
+
 export function portalCapabilities(session: PortalSession): PortalCapabilities {
   const commercial = session.accountContactId != null;
   // An impersonated session is READ-ONLY. Support staff walking a customer
@@ -222,7 +241,14 @@ export function portalCapabilities(session: PortalSession): PortalCapabilities {
         manageContacts: false,
         viewSchedule: true,
         viewAgreement: true,
-        manageHold: acting,
+        // [portal-holds-office-only 2026-08-20] Sal: "No pausing for clients at
+        // the moment let the office handle that for now." So this is off, and
+        // with it goes the whole surface in one move: the pause form and the
+        // Restart my service button stop rendering, and POST /hold,
+        // POST /hold/resume and GET /hold/preview all refuse. The customer can
+        // still SEE that they are paused and how many pause days they have left
+        // — that is their agreement, and hiding it would only generate calls.
+        manageHold: acting && PORTAL_SELF_SERVE_HOLDS,
         submitReferral: acting,
       };
 }

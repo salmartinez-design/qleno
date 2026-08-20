@@ -315,20 +315,16 @@ router.post("/profile-picture", requirePortalAuth, requireResidential, async (re
 
 const money = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
-// [portal-self-serve-holds 2026-08-20] Sal, asked whether a customer should be
-// able to pause their own service or whether every pause should reach the office
-// first: "lets hold off on that for now."
+// [portal-holds-office-only 2026-08-20] Customer-side pausing is OFF: the
+// `manageHold` capability is false for everyone, so all three routes below
+// refuse before they run. See lib/portal-auth.ts PORTAL_SELF_SERVE_HOLDS, which
+// is the one switch. They are kept whole rather than deleted because the office
+// path shares this classification work, and because turning the customer side
+// back on should be a one-line flip, not a rebuild.
 //
-// So every pause a customer starts is a REQUEST, including the short free ones
-// that the agreement already entitles them to. The preview screen is untouched:
-// they still see how long the pause is, how many pause days they have left, and
-// whether it would end their service, before they send anything. What changed is
-// only who presses the last button.
-//
-// One constant, read in two places, so turning self-service back on is one line
-// and not an archaeology exercise. When it flips to true, a free pause executes
-// immediately and only a notice-length pause stays a request.
-const SELF_SERVE_HOLDS: boolean = false;
+// If the capability is ever restored, the notice branch below still stands on
+// its own: a pause long enough to end the agreement is never self-executing at
+// any capability level.
 
 // ── GET /api/portal/plan ────────────────────────────────────────────────────
 // What we agreed to do for you, in your own words: how often we come, what it
@@ -454,9 +450,8 @@ router.get("/hold/preview", requirePortalAuth, requireResidential, requireCapabi
       // one ends the service.
       ends_service: c.kind === "notice",
       // A hold that ends service is never self-serve, whatever the capability
-      // says, and right now nothing is. The screen uses this to swap Confirm for
-      // Send request.
-      needs_office: !SELF_SERVE_HOLDS || c.kind === "notice",
+      // says. The screen uses this to swap Confirm for Send request.
+      needs_office: c.kind === "notice",
       cadence: c.cadence,
       pause_days: {
         allowed: c.allowance.allowed,
@@ -492,16 +487,12 @@ router.post("/hold", requirePortalAuth, requireResidential, requireCapability("m
     const today = todayYmd();
     const c = await classifyHold(companyId, clientId, addDays(today, 1), until);
 
-    const isNotice = c.kind === "notice";
-    if (!SELF_SERVE_HOLDS || isNotice) {
+    if (c.kind === "notice") {
       // Deliberately NOT executed here. A notice-length pause ends the agreement
       // and charges the notice period, and a customer clicking a button in a
-      // browser must not be the last checkpoint on that. A free pause is only a
-      // request while SELF_SERVE_HOLDS is off. Either way it lands in the same
+      // browser must not be the last checkpoint on that. It lands in the same
       // queue as every other portal request.
-      const notes = isNotice
-        ? `Requested from the customer portal. This pause runs ${c.days} days, past the ${c.policy.freeDays} pause days the agreement includes, so it would serve as ${c.policy.noticeDays} days notice to end service. Cadence: ${c.cadence}. Final visits if it goes ahead: ${c.notice?.visits ?? 0} totalling $${(c.notice?.amount ?? 0).toFixed(2)}.`
-        : `Requested from the customer portal. This pause runs ${c.days} days and sits inside the ${c.policy.freeDays} pause days the agreement includes, so nothing is billed. Cadence: ${c.cadence}. Pause days left after this one: ${Math.max(0, c.allowance.remaining - c.freeDaysUsed)}.`;
+      const notes = `Requested from the customer portal. This pause runs ${c.days} days, past the ${c.policy.freeDays} pause days the agreement includes, so it would serve as ${c.policy.noticeDays} days notice to end service. Cadence: ${c.cadence}. Final visits if it goes ahead: ${c.notice?.visits ?? 0} totalling $${(c.notice?.amount ?? 0).toFixed(2)}.`;
       const ins = await db.execute(sql`
         INSERT INTO portal_service_requests
           (company_id, client_id, requested_by_portal_user_id, service_description, preferred_date, notes)
@@ -512,9 +503,7 @@ router.post("/hold", requirePortalAuth, requireResidential, requireCapability("m
         ok: true,
         needs_office: true,
         request_id: (ins.rows[0] as any)?.id ?? null,
-        message: isNotice
-          ? "We have your request. Because this pause is longer than the pause time your agreement includes, someone from the office will call you before anything changes."
-          : "We have your request. Someone from the office will confirm your pause and get back to you. Nothing changes on your schedule until then.",
+        message: "We have your request. Because this pause is longer than the pause time your agreement includes, someone from the office will call you before anything changes.",
       });
     }
 
