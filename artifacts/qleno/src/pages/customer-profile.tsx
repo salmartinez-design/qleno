@@ -30,6 +30,11 @@ import { PhotoLightbox, downloadPhotosZip, deletePhoto, canManagePhotos, type Ga
 // client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
 // so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
 const DispatchJobPanel = lazy(() => import("@/pages/jobs").then(m => ({ default: m.JobPanel })));
+// [edit-recurring 2026-08-20] The Recurring tab's Edit button opens THIS modal
+// on the series' next visit. Same component the dispatch board edits jobs with,
+// so a recurrence change goes through the one cascade that already knows how to
+// rewrite the visits already on the calendar.
+const EditJobModal = lazy(() => import("@/components/edit-job-modal"));
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -3562,10 +3567,61 @@ function RecurringTab({ clientId }: { clientId: number }) {
   const [form, setForm] = useState({ frequency: "biweekly", day_of_week: "monday", start_date: new Date().toISOString().split("T")[0], base_fee: "", notes: "" });
   const [saving, setSaving] = useState(false);
 
+  // [recurring-scope 2026-08-20] customer_id was already on this URL and the
+  // server ignored it, so this tab listed every schedule in the company on
+  // every client's profile. include_inactive brings back turned-off schedules
+  // so they can be seen and started again.
   const { data: schedules = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ["recurring", clientId],
-    queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}`),
+    queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}&include_inactive=1`),
   });
+
+  // [edit-recurring 2026-08-20] Maribel: "We should be able to modify the
+  // recurrence of a client without having to delete it and create a new one."
+  //
+  // She was right, and what was missing was a door, not an engine. Editing a
+  // recurring visit from the dispatch board and choosing "this and all future"
+  // already rewrites the schedule AND the visits sitting on the calendar. This
+  // tab just never offered a way in, so changing Wednesday to Friday meant
+  // deleting the schedule and rebuilding it by hand.
+  //
+  // So Edit fetches the series' next visit and opens that same modal on it.
+  // Nothing here re-implements the cascade; a second copy of it would drift.
+  const qcRecur = useQueryClient();
+  const [editJob, setEditJob] = useState<any | null>(null);
+  const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
+
+  const { data: employeesRaw } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => apiFetch("/api/users?limit=200"),
+    staleTime: 60000,
+  });
+  const teamCandidates = (Array.isArray(employeesRaw) ? employeesRaw : (employeesRaw?.data || []))
+    .map((e: any) => ({ id: e.id, name: `${e.first_name || ""} ${e.last_name || ""}`.trim(), role: e.role, is_trainee: e.is_trainee }));
+
+  async function openEdit(scheduleId: number) {
+    setEditNotice(null);
+    setEditLoadingId(scheduleId);
+    try {
+      const res = await apiFetch(`/api/recurring/${scheduleId}/anchor`);
+      if (!res?.job) {
+        setEditNotice("This schedule has no visits on the calendar yet, so there is nothing to open. It will be editable after the next visit is created.");
+        return;
+      }
+      const j = res.job;
+      setEditJob({
+        ...j,
+        duration_minutes: Number(j.duration_minutes || 0),
+        amount: Number(j.base_fee ?? 0),
+        base_fee: j.base_fee,
+      });
+    } catch (err: any) {
+      setEditNotice(err?.message || "Could not open this schedule.");
+    } finally {
+      setEditLoadingId(null);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -3576,9 +3632,34 @@ function RecurringTab({ clientId }: { clientId: number }) {
     } catch {} finally { setSaving(false); }
   }
 
-  async function pause(id: number) {
-    await apiFetch(`/api/recurring/${id}`, { method: "DELETE" });
-    refetch();
+  // [recurring-scope 2026-08-20] This was one unconfirmed button labelled
+  // "Pause" that turned the schedule off for good. Now it says what it does,
+  // asks first, and has a partner that turns it back on.
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [confirmOff, setConfirmOff] = useState<any | null>(null);
+
+  async function turnOff(id: number) {
+    setEditNotice(null);
+    setBusyId(id);
+    try {
+      await apiFetch(`/api/recurring/${id}`, { method: "DELETE" });
+      setConfirmOff(null);
+      refetch();
+    } catch (err: any) {
+      setConfirmOff(null);
+      setEditNotice(err?.message || "Could not turn this schedule off.");
+    } finally { setBusyId(null); }
+  }
+
+  async function turnOn(id: number) {
+    setEditNotice(null);
+    setBusyId(id);
+    try {
+      await apiFetch(`/api/recurring/${id}/reactivate`, { method: "POST" });
+      refetch();
+    } catch (err: any) {
+      setEditNotice(err?.message || "Could not start this schedule again.");
+    } finally { setBusyId(null); }
   }
 
   const FREQ_LABELS: Record<string, string> = { weekly: "Every week", biweekly: "Every 2 weeks", monthly: "Monthly", custom: "Custom", semi_monthly: "Twice a month", every_3_weeks: "Every 3 weeks" };
@@ -3593,6 +3674,13 @@ function RecurringTab({ clientId }: { clientId: number }) {
         </button>
       </div>
 
+      {editNotice && (
+        <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F0D9A8", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#8A5A12", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+          <span>{editNotice}</span>
+          <button onClick={() => setEditNotice(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A5A12", padding: 0, lineHeight: 1 }}><X size={13} /></button>
+        </div>
+      )}
+
       {isLoading ? (
         <div style={{ padding: 30, textAlign: "center", color: "#9E9B94" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /></div>
       ) : schedules.length === 0 ? (
@@ -3602,7 +3690,7 @@ function RecurringTab({ clientId }: { clientId: number }) {
       ) : (
         <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
           {schedules.map((s: any) => (
-            <div key={s.id} style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div key={s.id} style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: s.is_active ? 1 : 0.72 }}>
               <div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{FREQ_LABELS[s.frequency]}</span>
@@ -3615,8 +3703,30 @@ function RecurringTab({ clientId }: { clientId: number }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
-                <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Pause</button>
+                {s.is_active ? (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
+                ) : s.paused_by_suspension ? (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#FDF3E4", color: "#8A5A12", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>On service hold</span>
+                ) : (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#F1EFEA", color: "#6B6860", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Turned off</span>
+                )}
+                {s.is_active && (
+                  <button onClick={() => openEdit(s.id)} disabled={editLoadingId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Edit2 size={11} /> {editLoadingId === s.id ? "Opening..." : "Edit"}
+                  </button>
+                )}
+                {s.is_active ? (
+                  <button onClick={() => setConfirmOff(s)} disabled={busyId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: busyId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Turn off</button>
+                ) : s.paused_by_suspension ? (
+                  <span style={{ fontSize: 11, color: "#9E9B94" }}>Starts again when the hold ends</span>
+                ) : (
+                  <button onClick={() => turnOn(s.id)} disabled={busyId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: busyId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600 }}>
+                    {busyId === s.id ? "Starting..." : "Turn back on"}
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -3667,6 +3777,56 @@ function RecurringTab({ clientId }: { clientId: number }) {
           </div>
         </div>
       )}
+      {/* [recurring-scope 2026-08-20] Turning a schedule off used to happen on
+          one click with no warning. It asks now, and it says plainly what
+          keeps happening and what stops. */}
+      {confirmOff && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 26, width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Turn this schedule off?</h3>
+            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+              {FREQ_LABELS[confirmOff.frequency] || confirmOff.frequency}
+              {confirmOff.day_of_week ? ` on ${confirmOff.day_of_week.charAt(0).toUpperCase() + confirmOff.day_of_week.slice(1)}` : ""}
+              {confirmOff.base_fee ? ` at $${parseFloat(confirmOff.base_fee).toFixed(0)}` : ""}.
+            </p>
+            <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+              No new visits will be created from it. Visits already on the calendar stay
+              where they are, so cancel any you do not want. You can turn it back on here.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmOff(null)}
+                style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF", cursor: "pointer" }}>Keep it on</button>
+              <button onClick={() => turnOff(confirmOff.id)} disabled={busyId === confirmOff.id}
+                style={{ padding: "7px 16px", background: "#0A0E1A", color: "#FFFFFF", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {busyId === confirmOff.id ? "Turning off..." : "Turn off"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* [edit-recurring 2026-08-20] Opened on the series' next visit. The modal
+          already defaults a recurring job to "this and all future", shows how
+          many visits the change touches, and asks twice before it writes, so
+          moving a client from Wednesday to Friday moves the visits already on
+          the calendar too. */}
+      {editJob && (
+        <Suspense fallback={null}>
+          <EditJobModal
+            job={editJob}
+            employees={teamCandidates}
+            mobile={false}
+            onClose={() => setEditJob(null)}
+            onSaved={() => {
+              setEditJob(null);
+              refetch();
+              qcRecur.invalidateQueries({ queryKey: ["client-calendar-jobs", clientId] });
+              qcRecur.invalidateQueries({ queryKey: ["client-jobs", clientId] });
+            }}
+          />
+        </Suspense>
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );

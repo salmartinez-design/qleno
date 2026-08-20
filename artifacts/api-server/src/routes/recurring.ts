@@ -11,8 +11,29 @@ import { commercialPricingMismatch, describeCommercialPricingMismatch, hoursFrom
 
 const router = Router();
 
+// GET /api/recurring
+//
+// [recurring-scope 2026-08-20] `?customer_id=` was accepted by every caller
+// and honored by none — this handler only ever filtered on company. So the
+// client profile's Recurring tab asked for one client's schedules and got all
+// 103 in the company back, every row wearing whatever client the join landed
+// on. Pausing a row from that tab paused a stranger's schedule. Filter on it.
+//
+// `?include_inactive=1` also returns turned-off schedules. Default stays
+// active-only so the company-wide Recurring Schedules page is unchanged; the
+// client tab opts in, because a schedule you cannot see is a schedule you
+// cannot turn back on.
 router.get("/", requireAuth, async (req, res) => {
   try {
+    const customerIdRaw = req.query.customer_id;
+    const customerId = customerIdRaw != null && String(customerIdRaw).trim() !== ""
+      ? parseInt(String(customerIdRaw))
+      : null;
+    if (customerIdRaw != null && String(customerIdRaw).trim() !== "" && !Number.isInteger(customerId)) {
+      return res.status(400).json({ error: "Bad customer_id" });
+    }
+    const includeInactive = req.query.include_inactive === "1" || req.query.include_inactive === "true";
+
     const rows = await db
       .select({
         id: recurringSchedulesTable.id,
@@ -30,6 +51,7 @@ router.get("/", requireAuth, async (req, res) => {
         base_fee: recurringSchedulesTable.base_fee,
         notes: recurringSchedulesTable.notes,
         is_active: recurringSchedulesTable.is_active,
+        paused_by_suspension: recurringSchedulesTable.paused_by_suspension,
         last_generated_date: recurringSchedulesTable.last_generated_date,
         created_at: recurringSchedulesTable.created_at,
       })
@@ -39,7 +61,8 @@ router.get("/", requireAuth, async (req, res) => {
       .where(
         and(
           eq(recurringSchedulesTable.company_id, req.auth!.companyId),
-          eq(recurringSchedulesTable.is_active, true),
+          ...(includeInactive ? [] : [eq(recurringSchedulesTable.is_active, true)]),
+          ...(customerId != null ? [eq(recurringSchedulesTable.customer_id, customerId)] : []),
         )
       );
     return res.json(rows);
@@ -196,6 +219,95 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     return res.json(row);
   } catch (err) {
     console.error("[recurring PUT]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/recurring/:id/anchor — the visit to open when the office wants to
+// EDIT this recurring schedule.
+//
+// [edit-recurring 2026-08-20] Maribel: "We should be able to modify the
+// recurrence of a client without having to delete it and create a new one."
+//
+// She was right, and the reason was a missing door, not a missing engine. The
+// client profile's Recurring tab only ever offered Add and Pause, so changing a
+// client from Wednesday to Friday meant deleting the schedule and rebuilding it.
+// Meanwhile the edit-job modal has done exactly this for months: change the
+// frequency / day / time / price on a recurring visit, pick "this and all
+// future", and PATCH /api/jobs/:id rewrites the schedule template AND rewrites
+// the visits already on the calendar (the hybrid cascade — UPDATE the ones the
+// new pattern still wants, DELETE the ones it doesn't, INSERT the dates it now
+// needs). That path is tested, it honors locked and in-progress visits, and it
+// carries add-ons, parking and techs across.
+//
+// So the fix is a door onto the engine we already have, NOT a second engine.
+// This returns the visit for the modal to open on; the modal cascades from
+// there. Duplicating the cascade here would be the second copy that drifts.
+//
+// Anchor choice: the next visit still on the books. Falls back to the most
+// recent past one so a series whose future is empty is still editable —
+// 'this_and_future' filters on CURRENT_DATE, not on the anchor's own date, so
+// a past anchor still rewrites the right visits.
+router.get("/:id/anchor", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad id" });
+    const companyId = req.auth!.companyId;
+
+    const sched = await db.select({ id: recurringSchedulesTable.id })
+      .from(recurringSchedulesTable)
+      .where(and(eq(recurringSchedulesTable.id, id), eq(recurringSchedulesTable.company_id, companyId)))
+      .limit(1);
+    if (!sched[0]) return res.status(404).json({ error: "Not found" });
+
+    // Shape matches EditableJob in components/edit-job-modal.tsx.
+    //
+    // `amount` is only ever read as a fallback for `base_fee` (which is NOT
+    // NULL on jobs), so it is sent as the same figure rather than re-deriving
+    // dispatch's add-on/rate-mod/discount math here. Two copies of that sum is
+    // how displayed totals drift apart.
+    const rows = await db.execute(sql`
+      SELECT j.id,
+             j.client_id,
+             concat(c.first_name, ' ', c.last_name)      AS client_name,
+             j.recurring_schedule_id,
+             rs.days_of_week                             AS recurring_schedule_days_of_week,
+             j.service_type,
+             j.frequency,
+             to_char(j.scheduled_date, 'YYYY-MM-DD')     AS scheduled_date,
+             j.scheduled_time,
+             COALESCE(ROUND(j.allowed_hours * 60), 0)    AS duration_minutes,
+             j.base_fee,
+             j.base_fee                                  AS amount,
+             j.manual_rate_override,
+             j.notes,
+             j.status,
+             j.locked_at,
+             j.assigned_user_id,
+             j.hourly_rate,
+             j.account_id,
+             (j.scheduled_date >= CURRENT_DATE)          AS is_upcoming
+        FROM jobs j
+        JOIN recurring_schedules rs ON rs.id = j.recurring_schedule_id
+        LEFT JOIN clients c ON c.id = j.client_id
+       WHERE j.company_id = ${companyId}
+         AND j.recurring_schedule_id = ${id}
+         AND j.status = 'scheduled'
+       ORDER BY (j.scheduled_date >= CURRENT_DATE) DESC,
+                CASE WHEN j.scheduled_date >= CURRENT_DATE
+                     THEN j.scheduled_date END ASC,
+                j.scheduled_date DESC
+       LIMIT 1`);
+
+    const job = (rows.rows as any[])[0];
+    if (!job) {
+      // No visit to hang the modal on. The office can still pause the schedule
+      // or add a new one; say so plainly rather than opening an empty modal.
+      return res.json({ job: null, reason: "no_visits" });
+    }
+    return res.json({ job, is_upcoming: job.is_upcoming === true });
+  } catch (err) {
+    console.error("[recurring anchor GET]", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
@@ -361,6 +473,18 @@ router.get("/:id/occurrence-counts", requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/recurring/:id — turn a recurring schedule OFF.
+//
+// [recurring-scope 2026-08-20] The client tab called this from a button
+// labelled "Pause", which it is not. It clears is_active with no confirm, and
+// before this change nothing anywhere read a turned-off schedule back, so the
+// row simply vanished and there was no way to undo it.
+//
+// The real pause is the Service hold (routes/client-suspension.ts), which sets
+// is_active = false AND paused_by_suspension = true, then resumes ONLY the
+// schedules carrying that flag. This route deliberately does not set the flag,
+// so a hold's resume never revives a schedule the office turned off on purpose.
+// Keep it that way. Un-turn-off is POST /:id/reactivate below.
 router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -370,6 +494,46 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, re
     return res.json({ success: true });
   } catch (err) {
     console.error("[recurring DELETE]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/recurring/:id/reactivate — turn a schedule back ON.
+//
+// [recurring-scope 2026-08-20] The other half of the DELETE above. Refuses a
+// schedule that a service hold paused: those belong to the hold and must come
+// back through Resume, or the hold's own resume rule ("re-activate ONLY the
+// schedules this suspension paused") stops describing reality.
+router.post("/:id/reactivate", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad id" });
+    const companyId = req.auth!.companyId;
+
+    const rows = await db.select({
+      id: recurringSchedulesTable.id,
+      is_active: recurringSchedulesTable.is_active,
+      paused_by_suspension: recurringSchedulesTable.paused_by_suspension,
+    })
+      .from(recurringSchedulesTable)
+      .where(and(eq(recurringSchedulesTable.id, id), eq(recurringSchedulesTable.company_id, companyId)))
+      .limit(1);
+    if (!rows[0]) return res.status(404).json({ error: "Not found" });
+
+    if (rows[0].paused_by_suspension) {
+      return res.status(409).json({
+        error: "This schedule is paused by a service hold. End the hold on the client's profile to start it again.",
+        reason: "paused_by_suspension",
+      });
+    }
+    if (rows[0].is_active) return res.json({ success: true, already_active: true });
+
+    await db.update(recurringSchedulesTable)
+      .set({ is_active: true })
+      .where(and(eq(recurringSchedulesTable.id, id), eq(recurringSchedulesTable.company_id, companyId)));
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[recurring reactivate]", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
