@@ -679,6 +679,41 @@ async function buildDispatchPayload(
       }
     } catch { /* cancellation_log absent — no badge */ }
 
+    // [omw-on-the-job 2026-08-20] Whether the tech tapped "On my way", and
+    // whether the customer's text actually landed. The tap has been recorded
+    // since cutover 1C but no office surface has ever read it: the dispatch
+    // board, the drawer and the jobs list all ignored on_my_way_events, so the
+    // only answer to "did anyone tell the customer we're coming?" was to ask
+    // the tech. That blind spot is exactly how #1535 hid for three months —
+    // 72 taps, every one recording client_notified=false, nobody able to see
+    // it. sms_result / sms_error (added by #1535) carry WHY a text didn't
+    // land, so the drawer can separate "opted out" from "the send failed".
+    // Latest event per job wins; a tech may tap twice after re-routing.
+    const omwByJob = new Map<number, any>();
+    try {
+      const ids = (jobs as any[]).map((j: any) => j.id).filter((x: any) => x != null);
+      if (ids.length) {
+        const ev = await db.execute(sql`
+          SELECT DISTINCT ON (e.job_id)
+                 e.job_id, e.user_id,
+                 -- Both columns are timestamptz; the drawer's clock formatter
+                 -- reads the literal HH:MM out of the string (every other stamp
+                 -- it renders is a bare Central wall-clock timestamp), so hand
+                 -- it Central wall time or it prints the UTC hour.
+                 to_char(e.created_at AT TIME ZONE 'America/Chicago',
+                         'YYYY-MM-DD"T"HH24:MI:SS') AS created_at,
+                 to_char(e.promised_arrival_at AT TIME ZONE 'America/Chicago',
+                         'YYYY-MM-DD"T"HH24:MI:SS') AS promised_arrival_at,
+                 e.client_notified, e.deferred, e.sms_result, e.sms_error,
+                 e.eta_edited_after_scheduled_start
+            FROM on_my_way_events e
+           WHERE e.company_id = ${companyId}
+             AND e.job_id IN (${sql.join(ids.map((n: number) => sql`${n}`), sql`, `)})
+           ORDER BY e.job_id, e.created_at DESC`);
+        for (const r of ev.rows as any[]) omwByJob.set(Number(r.job_id), r);
+      }
+    } catch { /* on_my_way_events absent — drawer just shows nothing */ }
+
     // [gps-flag] Tenant toggle — when off, suppress the "GPS unavailable" flag.
     const gpsFlagRow = await db.execute(sql`SELECT flag_missing_gps FROM companies WHERE id = ${companyId} LIMIT 1`);
     const flagMissingGps = (gpsFlagRow.rows[0] as any)?.flag_missing_gps ?? true;
@@ -1370,6 +1405,25 @@ async function buildDispatchPayload(
         completed_by_user_id: j.completed_by_user_id ?? null,
         no_show_marked_by_tech: (j as any).no_show_marked_by_tech ?? null,
         no_show_marked_by_user_id: (j as any).no_show_marked_by_user_id ?? null,
+        // [omw-on-the-job 2026-08-20] null = the tech never tapped "On my way"
+        // on this job. Present = they did; client_notified says whether the
+        // customer's text actually went out, and sms_result/sms_error say why
+        // it didn't. The drawer renders all three so a silent send failure is
+        // visible on the job instead of only in the database.
+        on_my_way: (() => {
+          const e = omwByJob.get(Number(j.id));
+          if (!e) return null;
+          return {
+            tapped_at: e.created_at ?? null,
+            by_name: e.user_id != null ? (userNameById.get(Number(e.user_id)) || null) : null,
+            promised_arrival_at: e.promised_arrival_at ?? null,
+            client_notified: !!e.client_notified,
+            deferred: !!e.deferred,
+            sms_result: e.sms_result ?? null,
+            sms_error: e.sms_error ?? null,
+            eta_past_start: !!e.eta_edited_after_scheduled_start,
+          };
+        })(),
         clock_entry: clock ? {
           id: clock.id,
           clock_in_at: clock.clock_in_at,
