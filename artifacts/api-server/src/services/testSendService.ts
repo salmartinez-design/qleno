@@ -71,7 +71,18 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   service: "Standard Cleaning",
   tech_name: "Ana",
   appointment_link: "https://app.qleno.com/appointments/test-sample",
-  review_link: "https://phes.io/review/test-sample",
+  // [message-switches 2026-08-20] Was https://phes.io/review/test-sample, a path
+  // that does not exist — a tester tapping the link in a [TEST] text got a 404.
+  // Real review asks link to the app's own survey page.
+  review_link: "https://app.qleno.com/survey/test-sample",
+  survey_link: "https://app.qleno.com/survey/test-sample",
+  // Billing tags so a test of an invoice or payment message renders numbers.
+  invoice_number: "1042",
+  invoice_amount: "240.00",
+  invoice_due_date: "Friday, July 4, 2026",
+  invoice_link: "https://app.qleno.com/pay/test-sample",
+  payment_amount: "240.00",
+  payment_date: "Friday, June 27, 2026",
   // Pre-rendered sample itemized table so a test send exercises the
   // {{services_breakdown}} chip exactly like a real booking would.
   services_breakdown: SAMPLE_SERVICES_BREAKDOWN_HTML,

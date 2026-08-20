@@ -6,6 +6,7 @@ import { requireAuth } from "../lib/auth.js";
 import { recordSurveyResponse } from "../lib/survey-sms-reply.js";
 import { shortenUrl } from "../lib/short-link.js";
 import { SURVEY_SMS } from "../lib/sms-copy.js";
+import { renderCustomerTemplate } from "../lib/customer-messages.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -119,8 +120,20 @@ router.post("/send", requireAuth, async (req, res) => {
     // which applies the same gate.
     const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
     const smsPrefOn = await isMessageEnabledForJob({ companyId: companyId!, clientId: parseInt(customer_id) }, "review_request", "sms");
+    // [message-switches 2026-08-20] The survey text is now governed by its own
+    // template switch (review_request / sms) like every other customer message,
+    // instead of companies.survey_enabled. Two toggles for one text is how the
+    // office ended up with a switch on the Survey card that did nothing to the
+    // copy on the Customer Messages card. Each tenant's old survey_enabled value
+    // was written onto its template row by the migration, so nobody's on/off
+    // state changed in the move.
+    const smsTplRows = await db.execute(sql`
+      SELECT is_active FROM notification_templates
+       WHERE company_id = ${companyId} AND trigger = 'review_request' AND channel = 'sms'
+       LIMIT 1`);
+    const smsTplActive = (smsTplRows.rows[0] as any)?.is_active !== false;
     const gate =
-      !company?.survey_enabled ? "survey_disabled"
+      !smsTplActive ? "survey_disabled"
       : sender.reason ? sender.reason
       : !client?.phone ? "no_phone"
       : smsOptedOut ? "sms_opt_out"
@@ -137,10 +150,23 @@ router.post("/send", requireAuth, async (req, res) => {
 
     // Clean short link instead of the long hex token URL.
     const link = (await shortenUrl(surveyUrl, companyId)) || surveyUrl;
-    const body = (company.survey_message_template || SURVEY_SMS)
-      .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
-      .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
-      .replace(/\{\{\s*survey_link\s*\}\}/g, link);
+    // Render from the review_request SMS template so the wording the office
+    // edits on the Customer Messages card is the wording the customer reads.
+    // It used to render from companies.survey_message_template, which no screen
+    // in the app showed next to the matching email — so the two drifted and the
+    // template body sat unused. {{survey_link}} still resolves (aliased to
+    // review_link), so a tenant that kept the old wording sends the same text.
+    const rendered = await renderCustomerTemplate(companyId, "review_request", "sms", {
+      first_name: client!.first_name || "there",
+      company_name: company.name || "We",
+      review_link: link,
+    });
+    const body = rendered?.body?.trim()
+      ? rendered.body
+      : (company.survey_message_template || SURVEY_SMS)
+          .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
+          .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
+          .replace(/\{\{\s*survey_link\s*\}\}/g, link);
     let surveyTwilioSid: string | null = null;
     try {
       const tw: any = await sendSmsVia(sender, client!.phone!, body);

@@ -225,6 +225,31 @@ export async function sendNotification(
       return false;
     }
 
+    // [message-switches 2026-08-20] The Job Status SMS switches on the settings
+    // screen are company columns, but the completion text does not go out
+    // through the job-status route - it goes out on the job_completed template
+    // from three separate code paths (job save, tech clock-out, office
+    // clock-out), none of which ever read the column. So the office could switch
+    // "Job Complete" off and the texts kept going. Gate it here instead, once,
+    // where every path already passes. Same for the arrival text, which the
+    // tech's clock-in now fires.
+    // Only these two triggers are governed by a column; everything else is
+    // governed by its own template switch and must fall straight through.
+    const SMS_COLUMN_GATE: Record<string, string> = {
+      job_completed: "sms_complete_enabled",
+      job_started: "sms_arrived_enabled",
+    };
+    const gateColumn = channel === "sms" ? SMS_COLUMN_GATE[templateKey] : undefined;
+    if (!transactional && gateColumn) {
+      const gateRow = await db.execute(
+        sql`SELECT ${sql.raw(`"${gateColumn}"`)} AS on FROM companies WHERE id = ${companyId} LIMIT 1`,
+      );
+      if (!(gateRow.rows[0] as any)?.on) {
+        await logNotification(companyId, recipientPhone || "unknown", channel, templateKey, "suppressed", `${gateColumn}_off`, {});
+        return false;
+      }
+    }
+
     // [notif-prefs] Per-client/account message + channel preference gate. EXTRA
     // filter on top of the tenant + opt-out gates, never a replacement. Safe
     // default: isMessageEnabledForJob returns true on any missing input or error,
@@ -1037,7 +1062,10 @@ export async function runReviewRequestCron(): Promise<void> {
     for (const job of jobs) {
       const mergeVars = {
         first_name:  job.first_name || "",
-        review_link: job.review_link || "https://g.page/r/phes/review",
+        // [message-switches 2026-08-20] Was a hardcoded Phes Google link, on a
+        // service every tenant shares - and the URL itself was dead. A tenant
+        // with no review link set should send no link, not somebody else's.
+        review_link: job.review_link || "",
         scope:       labelServiceType(job.service_type),
         service_type: labelServiceType(job.service_type),
         // [appointment-vars] So a review template referencing the visit date

@@ -7254,10 +7254,25 @@ async function runNotificationTemplateSeed() {
       }
     }
 
-    // Set default review link for PHES
+    // Set default review link for PHES.
+    // [message-switches 2026-08-20] g.page/r/phes/review is a dead URL - it was
+    // never a real listing shortlink, so every happy customer who tapped
+    // "Leave a Google review" on the survey page landed nowhere. The
+    // write-review deep link below is built from the verified Oak Lawn place id
+    // and is the format Google itself hands out.
     await db.execute(sql`
-      UPDATE companies SET review_link = 'https://g.page/r/phes/review'
-      WHERE id = ${PHES} AND review_link IS NULL
+      UPDATE companies
+         SET review_link = 'https://search.google.com/local/writereview?placeid=ChIJ_8FDx7U7DogRqE7Xx1IRDts'
+       WHERE id = ${PHES}
+         AND (review_link IS NULL OR review_link = 'https://g.page/r/phes/review')
+    `);
+    // Schaumburg had no review link at all, so its happy customers were never
+    // shown the button. Its own verified listing, keyed by branch rather than a
+    // hardcoded id, so a re-numbered tenant cannot inherit Oak Lawn's listing.
+    await db.execute(sql`
+      UPDATE companies
+         SET review_link = 'https://search.google.com/local/writereview?placeid=ChIJuScOpU_WT20RyUqIr1WHUGQ'
+       WHERE branch_key = 'schaumburg' AND review_link IS NULL
     `);
 
     type TplDef = {

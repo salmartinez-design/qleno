@@ -36,29 +36,6 @@ const SMS_SETTING_MAP: Record<string, keyof typeof companiesTable.$inferSelect> 
   complete:  "sms_complete_enabled",
 };
 
-async function sendTwilioSms(to: string, from: string, body: string) {
-  if (process.env.COMMS_ENABLED !== "true") {
-    console.log("[COMMS BLOCKED] Job status SMS suppressed:", { to, body: body.substring(0, 80) });
-    return { status: "suppressed", reason: "COMMS_ENABLED=false" };
-  }
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) throw new Error("Twilio credentials not configured");
-
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err?.message || "Twilio API error");
-  }
-  return res.json();
-}
 
 // POST /api/jobs/:id/sms-status — fire SMS event for a job
 router.post("/:id/sms-status", requireAuth, async (req, res) => {
@@ -121,8 +98,18 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
       return res.json({ success: true, sms_sent: false, reason: "Client has no phone number", log_id: log.id });
     }
 
-    if (!company.twilio_from_number) {
-      return res.json({ success: true, sms_sent: false, reason: "No Twilio phone number configured", log_id: log.id });
+    // [message-switches 2026-08-20] Resolve the sender through the shared comms
+    // helper, the same way the survey and the reminders do. This route used to
+    // read companies.twilio_from_number directly and bail when it was empty —
+    // and Oak Lawn keeps its number in the environment, not on the company row.
+    // The result: every Pause/Resume text a cleaner triggered was logged and
+    // then dropped at this line (20 attempts in 90 days, none delivered) while
+    // the settings switch read ON. resolveSender's reason already covers the
+    // global comms gate, per-tenant comms, credentials and the branch number.
+    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+    const sender = await resolveSender(companyId);
+    if (sender.reason) {
+      return res.json({ success: true, sms_sent: false, reason: sender.reason, log_id: log.id });
     }
 
     // [comms-opt-out] Honor SMS STOP — never text a client who opted out.
@@ -174,7 +161,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
     }
 
     try {
-      const tw: any = await sendTwilioSms(client.phone, company.twilio_from_number, message);
+      const tw: any = await sendSmsVia(sender, client.phone, message);
       await db.update(jobStatusLogsTable).set({ sms_sent: true }).where(eq(jobStatusLogsTable.id, log.id));
       // [auto-sms-thread-log 2026-07-28] Mirror the sent job-status text into the
       // two-way store so the client message thread AND the Communications hub
@@ -186,7 +173,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
         await recordClientAutoSms({
           companyId,
           toPhone: client.phone,
-          fromNumber: company.twilio_from_number,
+          fromNumber: sender.from_number,
           body: message,
           clientId: job.client_id,
           providerId: tw.sid,

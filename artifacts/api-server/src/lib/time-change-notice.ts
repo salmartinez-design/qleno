@@ -186,9 +186,14 @@ export async function sendTimeChangeNotification(
     // Coarse deliverability for honest UI reporting (sendNotification re-checks).
     const commsOn = process.env.COMMS_ENABLED === "true" && j.comms_enabled === true;
 
+    // [message-switches 2026-08-20] Pass the client id so this send honors the
+    // per-client message preferences like every other customer message does.
+    // Without it a customer who asked us to stop texting still got this one,
+    // because the preference layer had no client to look up.
+    const prefClientId = j.client_id != null ? Number(j.client_id) : null;
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email && (via === "email" || via === "both")) await sendNotification("job_time_updated", "email", companyId, email, null, mv).catch(() => {});
-    if (phone && (via === "sms" || via === "both")) await sendNotification("job_time_updated", "sms", companyId, null, phone, mv).catch(() => {});
+    if (email && (via === "email" || via === "both")) await sendNotification("job_time_updated", "email", companyId, email, null, mv, false, undefined, prefClientId).catch(() => {});
+    if (phone && (via === "sms" || via === "both")) await sendNotification("job_time_updated", "sms", companyId, null, phone, mv, false, undefined, prefClientId).catch(() => {});
 
     return commsOn
       ? { ok: true, sent: true }

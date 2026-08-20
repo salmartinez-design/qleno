@@ -148,6 +148,11 @@ router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), asy
         send_hour: s.send_hour,
         is_builtin: s.is_builtin,
         editable_timing: editableTiming,
+        // [message-switches 2026-08-20] The tag chips this message can actually
+        // use. Most inherit the shared booking set; billing and reschedule
+        // messages carry their own, because a tag the sender never passes
+        // renders as an empty string with no warning.
+        merge_tags: def?.mergeTags ?? MERGE_TAGS,
         timing: editableTiming ? formatOffsetTiming(s.anchor, s.offset_days, s.send_hour) : (def?.timing ?? ""),
         channels: channels.map((channel) => {
           const row: any = tplByKey.get(`${s.key}:${channel}`);

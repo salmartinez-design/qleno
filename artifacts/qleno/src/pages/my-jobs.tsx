@@ -871,6 +871,18 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       } else {
         toast({ title: "Clocked in", description: data.clock_in_distance_ft ? `${Math.round(data.clock_in_distance_ft)} ft from job` : "Location recorded" });
       }
+      // [message-switches 2026-08-20] Fire the "arrived" event so the Arrived
+      // switch on the settings screen governs something real. Nothing in the app
+      // had ever fired it, so the switch sat there controlling nothing. Clock-in
+      // is the moment the text describes ("has arrived and is starting your
+      // clean"), and it is the only tap that means the cleaner is at the door.
+      // The server checks sms_arrived_enabled before sending; that column is off
+      // on every tenant today, so this sends nothing until the office turns it
+      // on. Fire-and-forget: a failed text must never block a clock-in.
+      apiFetch(`/jobs/${job.id}/sms-status`, {
+        method: "POST",
+        body: JSON.stringify({ event: "arrived" }),
+      }).catch(() => {});
       onRefresh();
     },
     onError: (e: any) => {

@@ -20,7 +20,14 @@ const TAG_LABEL: Record<string, string> = {
   arrival_window: "Arrival window", appointment_window: "Arrival window",
   service_address: "Address", tech_name: "Cleaner",
   appointment_link: "Appointment link", review_link: "Review link",
+  survey_link: "Review link",
   services_breakdown: "Service breakdown",
+  // [message-switches 2026-08-20] Plain-English names for the billing tags, so
+  // the invoice and payment messages read as chips like every other message
+  // rather than as raw {{invoice_due_date}}.
+  invoice_number: "Invoice number", invoice_amount: "Amount due",
+  invoice_due_date: "Due date", invoice_link: "Payment link",
+  payment_amount: "Amount paid", payment_date: "Date paid",
 };
 function labelFor(key: string): string {
   return TAG_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -40,7 +47,15 @@ const SAMPLE: Record<string, string> = {
   // Short-form aliases ({{address}} / {{service}}) so the live preview fills them
   // too — matches the server aliasing in testSendService + booking-confirmation.
   address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
-  appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
+  // [message-switches 2026-08-20] phes.io has no /appt or /review page. Every
+  // link the customer receives is issued by the app itself.
+  appointment_link: "https://app.qleno.com/appointments/sample",
+  review_link: "https://app.qleno.com/survey/sample",
+  survey_link: "https://app.qleno.com/survey/sample",
+  invoice_number: "1042", invoice_amount: "240.00",
+  invoice_due_date: "Friday, July 4, 2026",
+  invoice_link: "https://app.qleno.com/pay/sample",
+  payment_amount: "240.00", payment_date: "Friday, June 27, 2026",
   services_breakdown: SAMPLE_BREAKDOWN,
 };
 

@@ -13,9 +13,20 @@ export const PREVIEW_SAMPLE: Record<string, string> = {
   time: "9:00 AM", appointment_time: "9:00 AM",
   arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
-  appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
-  quote_link: "https://phes.io/quote", estimate_link: "https://phes.io/estimate",
-  survey_link: "https://phes.io/survey",
+  // [message-switches 2026-08-20] These pointed at phes.io paths that do not
+  // exist, so tapping a link in a preview or a test send landed on a 404. The
+  // real links are all issued by the app, on app.qleno.com.
+  appointment_link: "https://app.qleno.com/appointments/sample",
+  review_link: "https://app.qleno.com/survey/sample",
+  survey_link: "https://app.qleno.com/survey/sample",
+  quote_link: "https://app.qleno.com/quote/sample",
+  estimate_link: "https://app.qleno.com/quote/sample",
+  // Billing tags, so the invoice and payment messages preview with real-looking
+  // numbers instead of blanks.
+  invoice_number: "1042", invoice_amount: "240.00",
+  invoice_due_date: "Friday, July 4, 2026",
+  invoice_link: "https://app.qleno.com/pay/sample",
+  payment_amount: "240.00", payment_date: "Friday, June 27, 2026",
   // Quote Follow-Up tags — on a real send these fill from the attached quote
   // (buildQuoteMergeVars). Sample mirrors that table so the preview shows the
   // itemized quote + total instead of a blank "Quote details" block.
