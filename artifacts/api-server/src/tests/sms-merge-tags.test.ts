@@ -26,7 +26,12 @@ const TECH_CLOCK_VARS = {
   client_name: "Jane",
   company_name: "Phes Schaumburg",
   tech_name: "Maria",
-  arrival_window: "8:00 AM - 10:00 AM",
+  // NOT a window despite the tag name. tech-clock.ts:340 formats
+  // promisedArrivalAt (now + live drive-time ETA) as ONE clock time, and falls
+  // back to the bare word "shortly" when there are no coords to estimate from.
+  // job-sms.ts:169 always passes "shortly". A test sample like
+  // "8:00 AM - 10:00 AM" would be fiction and would hide the copy defect below.
+  arrival_window: "9:35 AM",
   service_address: "123 Oak St, Schaumburg, IL 60193",
 };
 
@@ -60,7 +65,7 @@ describe("an SMS template never renders a tag as a blank hole", () => {
     assert.equal(
       r!.body,
       "Hi Jane, Maria from Phes is on the way - arriving during your " +
-        "8:00 AM - 10:00 AM window. Questions? (847) 538-3729.",
+        "9:35 AM window. Questions? (847) 538-3729.",
     );
   });
 
@@ -146,5 +151,30 @@ describe("the caller's vars object is not mutated", () => {
     stub(tplRow("{{technician_name}}"));
     await renderCustomerTemplate(1, "on_my_way", "sms", vars);
     assert.deepEqual(vars, { first_name: "Jane", tech_name: "Maria" });
+  });
+});
+
+// [omw-window-wording 2026-08-19] Separate from the blank-tag bug, and NOT
+// fixed by it: the office copy says "arriving during your {{appointment_window}}
+// window", but nothing ever puts a window in that tag. The built-in fallback in
+// lib/comms.ts:62 gets it right - "arriving around 9:35 AM". These tests pin
+// what customers actually receive today so the wording decision is made against
+// the real text rather than an invented sample.
+describe("what the on-my-way text actually says about arrival time", () => {
+  it("with a GPS estimate it is a single time, not a window", async () => {
+    stub(tplRow(SCHAUMBURG_OMW), [COMPANY_ROW]);
+    const r = await renderCustomerTemplate(4, "on_my_way", "sms", { ...TECH_CLOCK_VARS });
+    assert.match(r!.body, /arriving during your 9:35 AM window/);
+    // No dash-joined range is ever produced by tech-clock.ts.
+    assert.ok(!/\d\s*[-\u2013\u2014]\s*\d.*window/.test(r!.body),
+      "the ETA is one clock time; a range here would mean the sender changed");
+  });
+
+  it("with no coords to estimate from it reads \"your shortly window\"", async () => {
+    // tech-clock.ts:345 and job-sms.ts:169 both pass the bare word "shortly".
+    stub(tplRow(SCHAUMBURG_OMW), [COMPANY_ROW]);
+    const r = await renderCustomerTemplate(4, "on_my_way", "sms",
+      { ...TECH_CLOCK_VARS, arrival_window: "shortly" });
+    assert.match(r!.body, /arriving during your shortly window/);
   });
 });
