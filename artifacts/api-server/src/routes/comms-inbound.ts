@@ -96,20 +96,36 @@ router.post("/inbound", async (req, res) => {
 
     // 2) Stop-on-reply + opt-out. Leads via handleInboundReply (matches by phone,
     //    stops cadence, logs activity). Clients via stopEnrollmentsForClient.
+    //
+    // [stop-is-sms-only 2026-08-20] These stops fire on a REPLY, not on a STOP.
+    // A reply means a person is in the conversation and the office takes over,
+    // so the whole cadence ends. STOP is narrower: it is the text-message word
+    // for "quit texting me". It is not an email unsubscribe -- that is the
+    // footer link, and it sets email_opt_out_at. Ending the enrollment on STOP
+    // killed the email steps as well, which is how the Pious Projects estimate
+    // lost its Friday follow-up email when the contact texted STOP at the
+    // Thursday reminder, having never unsubscribed from email.
+    //
+    // Nothing extra is needed to silence the texts. setSmsOptOutByPhone below
+    // records the opt-out, and the cadence runner checks isSmsOptedOut before
+    // every SMS step: that touch is logged 'blocked' and the enrollment advances
+    // to the next step. SMS goes quiet, email carries on.
     const optOut = OPT_OUT.has(body.toUpperCase());
     await handleInboundReply(companyId, from, optOut);
-    if (match.client_id != null) {
+    if (!optOut) {
+      if (match.client_id != null) {
+        try {
+          const { stopEnrollmentsForClient } = await import("../services/followUpService.js");
+          await stopEnrollmentsForClient(match.client_id, "replied");
+        } catch (e) { console.warn("[comms/inbound] client cadence stop failed:", e); }
+      }
+      // [estimate-drip-phase3] Stop estimate drips when the property manager texts
+      // back (matched on the estimate's contact_phone), independent of client match.
       try {
-        const { stopEnrollmentsForClient } = await import("../services/followUpService.js");
-        await stopEnrollmentsForClient(match.client_id, optOut ? "opted_out" : "replied");
-      } catch (e) { console.warn("[comms/inbound] client cadence stop failed:", e); }
+        const { stopEstimateEnrollmentsByPhone } = await import("../services/followUpService.js");
+        await stopEstimateEnrollmentsByPhone(companyId, from, "replied");
+      } catch (e) { console.warn("[comms/inbound] estimate cadence stop failed:", e); }
     }
-    // [estimate-drip-phase3] Stop estimate drips when the property manager texts
-    // back (matched on the estimate's contact_phone), independent of client match.
-    try {
-      const { stopEstimateEnrollmentsByPhone } = await import("../services/followUpService.js");
-      await stopEstimateEnrollmentsByPhone(companyId, from, optOut ? "opted_out" : "replied");
-    } catch (e) { console.warn("[comms/inbound] estimate cadence stop failed:", e); }
 
     // [comms-opt-out 2026-06-21] Record the SMS opt-out flag on the client(s)
     // (matched by phone, last-10) so EVERY send path honors it — not just the
