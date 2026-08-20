@@ -234,9 +234,79 @@ export async function runBillingIntegrityCheck(
 }
 
 /**
+ * Turn a tenant's findings into the one office notification they will actually
+ * see, or null when nothing is wrong.
+ *
+ * [integrity-alert 2026-08-19] The sweep has been correct and invisible. It has
+ * detected exactly the Walter Nunchuck shape since it was written — "invoice
+ * totals $0" is finding #3 above, by name — and it reported it to console.warn,
+ * which nobody in the office reads. That is why a $195 clean sat unbilled for
+ * six weeks and was found by a hand audit rather than by the system that already
+ * knew.
+ *
+ * A detector nobody is told about is not a control. #1500 stops the zero from
+ * being written; this makes sure that if one ever appears again — by some other
+ * route, or on work that was never priced in the first place — somebody is told
+ * the next morning.
+ *
+ * Money first in the title: the office triages by amount, and "3 visits, $585"
+ * earns a click in a way "billing integrity report" never will.
+ */
+function buildIntegrityAlert(r: BillingIntegrityReport): { title: string; body: string; meta: any } | null {
+  if (r.ok) return null;
+
+  const bits: string[] = [];
+  if (r.uncovered_visits.length) {
+    bits.push(`${r.uncovered_visits.length} completed visit${r.uncovered_visits.length === 1 ? "" : "s"} never invoiced ($${r.uncovered_total.toFixed(2)})`);
+  }
+  if (r.unpriced_visits.length) {
+    bits.push(`${r.unpriced_visits.length} billing $0.00`);
+  }
+  if (r.stale_windows.length) {
+    bits.push(`${r.stale_windows.length} account billing window${r.stale_windows.length === 1 ? "" : "s"} still open`);
+  }
+  // Double-billing is meant to be structurally impossible (a partial unique
+  // index on invoice_job_links). If it appears, that index is gone and a
+  // customer can be charged twice — it leads, regardless of the dollar amounts.
+  if (r.contested_visits.length) {
+    bits.unshift(`${r.contested_visits.length} visit${r.contested_visits.length === 1 ? "" : "s"} invoiced TWICE`);
+  }
+
+  const money = r.uncovered_total > 0 ? ` — $${r.uncovered_total.toFixed(2)} unbilled` : "";
+  const title = r.contested_visits.length
+    ? `Billing: ${r.contested_visits.length} visit${r.contested_visits.length === 1 ? "" : "s"} billed twice`
+    : `Billing needs review${money}`;
+
+  // Name a few real customers. An abstract count gets deferred; "Walter
+  // Nunchuck, Aug 4" gets opened.
+  const sample = [...r.contested_visits, ...r.uncovered_visits, ...r.unpriced_visits]
+    .slice(0, 3)
+    .map((v: any) => `${v.customer ?? `job #${v.job_id}`} (${v.scheduled_date})`)
+    .join(", ");
+
+  return {
+    title,
+    body: `${bits.join(" · ")}${sample ? `. Starting with ${sample}.` : ""}`,
+    meta: {
+      as_of: r.as_of,
+      uncovered: r.uncovered_visits.length,
+      uncovered_total: r.uncovered_total,
+      unpriced: r.unpriced_visits.length,
+      contested: r.contested_visits.length,
+      stale_windows: r.stale_windows.length,
+      job_ids: [...r.contested_visits, ...r.uncovered_visits, ...r.unpriced_visits]
+        .slice(0, 50).map((v: any) => v.job_id).filter((x: any) => x != null),
+    },
+  };
+}
+
+/**
  * Cron entry point — runs the check for every tenant and logs a one-line
  * summary per tenant that has something wrong. Silent when everything is
  * clean, so a noisy log means real work is waiting.
+ *
+ * [integrity-alert 2026-08-19] Also raises ONE office notification per tenant
+ * that needs review — see buildIntegrityAlert.
  */
 export async function runBillingIntegrityCron(asOf?: string): Promise<{
   companies: number;
@@ -268,6 +338,37 @@ export async function runBillingIntegrityCron(asOf?: string): Promise<{
           `the one-live-invoice-per-job index may not exist. Jobs: ` +
           report.contested_visits.map((v) => `${v.job_id} (invoices ${v.detail})`).join("; "),
         );
+      }
+
+      // [integrity-alert 2026-08-19] Tell the office. user_id NULL is an
+      // office/owner/admin broadcast — techs only ever see targeted alerts
+      // (see inboxScope in routes/notifications.ts), and unbilled revenue is
+      // not their business.
+      //
+      // ONE at a time: skipped while an unread billing alert is already
+      // standing, so an unresolved problem does not mint a new bell every
+      // morning until it is buried. Clearing it without fixing it means
+      // tomorrow's sweep raises a fresh one, which is the behaviour we want —
+      // the alert persists as long as the money is missing, without becoming
+      // wallpaper.
+      try {
+        const alert = buildIntegrityAlert(report);
+        if (alert) {
+          const standing = (await db.execute(sql`
+            SELECT 1 FROM notifications
+             WHERE company_id = ${c.id} AND type = 'billing_integrity'
+               AND read = false AND user_id IS NULL
+             LIMIT 1`) as any).rows;
+          if (!standing.length) {
+            await db.execute(sql`
+              INSERT INTO notifications (company_id, user_id, type, title, body, link, meta)
+              VALUES (${c.id}, NULL, 'billing_integrity', ${alert.title}, ${alert.body},
+                      '/invoices', ${JSON.stringify(alert.meta)}::jsonb)`);
+          }
+        }
+      } catch (e) {
+        // Never let the alert break the sweep — the log line above still ran.
+        console.error(`[billing-integrity] company ${c.id} alert failed:`, (e as any)?.message ?? e);
       }
     } catch (err) {
       // One tenant's failure must not stop the sweep.
