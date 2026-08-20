@@ -24,7 +24,7 @@ import {
   ChevronDown, Eye, LogOut, CircleHelp, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
-  Building2, CalendarClock, LifeBuoy,
+  Building2, CalendarClock, LifeBuoy, Inbox,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -68,6 +68,7 @@ const MORE_CARDS = [
   { title: 'Leads',          href: '/leads',              icon: UserPlus    },
   { title: 'Estimates',      href: '/estimates',          icon: ClipboardList },
   { title: 'Accounts',       href: '/accounts',           icon: Building2   },
+  { title: 'Requests',       href: '/service-requests',   icon: Inbox       },
   // Team / time
   { title: 'Employees',      href: '/employees',         icon: UserCheck   },
   { title: 'Time Clock',     href: '/time-clock',         icon: Clock       },

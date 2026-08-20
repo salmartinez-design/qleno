@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, LifeBuoy, Repeat,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, LifeBuoy, Repeat, Inbox,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -75,6 +75,36 @@ function useUnreadMessagesCount(role: string | undefined) {
   return eligible ? count : 0;
 }
 
+// [portal-request-service 2026-08-20] Customers can ask for extra work from
+// their portal. Those asks land in a queue, and a queue nobody can see is the
+// same as no queue at all — so the count sits on the nav item the way the Leads
+// and Messages counts do.
+function usePendingServiceRequestCount(role: string | undefined) {
+  const [count, setCount] = useState<number>(0);
+  const token = useAuthStore(state => state.token);
+
+  const eligible = role && ["owner", "admin", "office", "super_admin"].includes(role);
+
+  const fetchCount = useCallback(async () => {
+    if (!eligible || !token) return;
+    try {
+      const res = await fetch("/api/service-requests/count", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      setCount((await res.json()).pending ?? 0);
+    } catch { /* silent */ }
+  }, [eligible, token]);
+
+  useEffect(() => {
+    fetchCount();
+    const id = setInterval(fetchCount, 30_000);
+    return () => clearInterval(id);
+  }, [fetchCount]);
+
+  return eligible ? count : 0;
+}
+
 // [AI.10] useZoneCoverageCount hook removed — Zone Coverage page
 // retired in favor of server-side auto-resolution at boot. Sidebar
 // no longer surfaces a missing-zip badge; the data layer fixes
@@ -104,6 +134,7 @@ const NAV_SECTIONS = [
       { title: "Ares",      url: "/ares", icon: Repeat, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"], badge: "unread_messages" },
       { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Requests",  url: "/service-requests", icon: Inbox, roles: ["owner", "admin", "office", "super_admin"], badge: "service_requests" },
     ],
   },
   {
@@ -201,6 +232,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
 
   const needsContactedCount = useNeedsContactedCount(userInfo?.role);
   const unreadMessagesCount = useUnreadMessagesCount(userInfo?.role);
+  const serviceRequestCount = usePendingServiceRequestCount(userInfo?.role);
 
   const initials = userInfo
     ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
@@ -369,7 +401,9 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
                 const active = isActive(item.url);
                 const Icon = item.icon;
                 const itemBadge = (item as { badge?: string }).badge;
-                const badgeCount = itemBadge === "needs_contacted" ? needsContactedCount : itemBadge === "unread_messages" ? unreadMessagesCount : 0;
+                const badgeCount = itemBadge === "needs_contacted" ? needsContactedCount
+                  : itemBadge === "unread_messages" ? unreadMessagesCount
+                  : itemBadge === "service_requests" ? serviceRequestCount : 0;
                 return (
                   <Link key={item.title + item.url} href={item.url} onClick={mobile ? onClose : undefined}>
                     <div

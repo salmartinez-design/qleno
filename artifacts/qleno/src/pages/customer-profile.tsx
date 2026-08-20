@@ -947,6 +947,61 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
     onError: (e: any) => setErr(String(e?.message || e).slice(0, 200)),
   });
 
+  // [hold-override 2026-08-20] The live hold, once the client is on one. The
+  // waive is almost always decided AFTER the suspension is placed: the customer
+  // calls three weeks into a notice period, or the hold was our own scheduling
+  // mistake. Without this the three override columns could only be set in the
+  // same breath as the suspension, which is to say almost never.
+  const holdQ = useQuery({
+    queryKey: ["client-hold", client.id],
+    enabled: isSuspended,
+    queryFn: () => apiFetch(`/api/clients/${client.id}/hold`),
+    staleTime: 30_000,
+  });
+  const hold: any = holdQ.data?.hold ?? null;
+  const holdIsNotice = hold?.kind === "notice";
+  const holdNotice: any = holdQ.data?.notice ?? null;
+  const overrideReasons: { code: string; label: string }[] = holdQ.data?.override_reasons ?? [];
+  const waived = !!hold?.waive_notice_charge;
+  const grantedDays = Number(hold?.granted_free_days ?? 0);
+
+  const [ovOpen, setOvOpen] = useState(false);
+  const [ovWaive, setOvWaive] = useState(false);
+  const [ovDays, setOvDays] = useState("");
+  const [ovReason, setOvReason] = useState("");
+  const [ovNote, setOvNote] = useState("");
+  const [ovErr, setOvErr] = useState<string | null>(null);
+
+  const openOverride = () => {
+    setOvWaive(waived);
+    setOvDays(grantedDays > 0 ? String(grantedDays) : "");
+    setOvReason("");
+    setOvNote("");
+    setOvErr(null);
+    setOvOpen(true);
+  };
+
+  const overrideMut = useMutation({
+    mutationFn: () => {
+      const body: any = { reason_code: ovReason };
+      if (ovNote.trim()) body.reason_note = ovNote.trim();
+      if (holdIsNotice) body.waive_notice_charge = ovWaive;
+      if (ovDays.trim() !== "") body.granted_free_days = Number(ovDays);
+      return apiFetch(`/api/clients/${client.id}/hold-override`, { method: "POST", body: JSON.stringify(body) });
+    },
+    onSuccess: () => {
+      setOvOpen(false);
+      setOvErr(null);
+      qc.invalidateQueries({ queryKey: ["client-hold", client.id] });
+      refetch();
+    },
+    onError: (e: any) => {
+      let msg = String(e?.message || e);
+      try { msg = JSON.parse(msg).error || msg; } catch { /* keep raw */ }
+      setOvErr(msg.slice(0, 200));
+    },
+  });
+
   const daysLeft = isSuspended && client.suspend_until
     ? Math.ceil((new Date(String(client.suspend_until).slice(0, 10) + "T12:00:00").getTime() - Date.now()) / 86400000)
     : null;
@@ -984,6 +1039,56 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
         )}
       </div>
       {isSuspended && err && <div style={{ fontSize: 12, color: "#B3261E", marginTop: 10 }}>{err}</div>}
+
+      {/* [hold-override 2026-08-20] What this hold currently costs the customer,
+          and the one control that changes it. An override that lives only in the
+          database is an override nobody trusts, and somebody re-bills the
+          customer by hand three weeks later. */}
+      {isSuspended && hold && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E5E2DC", display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            {holdIsNotice ? (
+              waived ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>Final bill waived</div>
+                  <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                    Service still ends {fmtDate(hold.end_date)}, but nothing is billed for the notice period
+                    {holdNotice && Number(holdNotice.amount) > 0 ? ` (${money(Number(holdNotice.amount))} forgiven)` : ""}.
+                    {hold.override_reason ? ` ${hold.override_reason}` : ""}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#B45309" }}>Notice period, ends service</div>
+                  <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                    If {client.first_name} does not resume by {fmtDate(hold.end_date)}, service ends and
+                    {" "}{holdNotice ? `${money(Number(holdNotice.amount || 0))} (${holdNotice.visits} visit${holdNotice.visits === 1 ? "" : "s"})` : "the notice period"} is billed.
+                  </div>
+                </>
+              )
+            ) : (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>Free hold</div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                  Nothing is billed. The rate and the slot are kept.
+                  {grantedDays > 0 ? ` ${grantedDays} extra free day${grantedDays === 1 ? "" : "s"} granted.` : ""}
+                </div>
+              </>
+            )}
+            {grantedDays > 0 && holdIsNotice && (
+              <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3 }}>
+                {grantedDays} extra free day{grantedDays === 1 ? "" : "s"} granted.
+              </div>
+            )}
+          </div>
+          {canManage && (
+            <button onClick={openOverride}
+              style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#1A1917", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
+              Adjust this hold
+            </button>
+          )}
+        </div>
+      )}
 
       {modalOpen && (
         <div onClick={() => !suspendMut.isPending && setModalOpen(false)}
@@ -1069,6 +1174,74 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
                   <button onClick={() => suspendMut.mutate()} disabled={blocked}
                     style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: blocked ? "default" : "pointer", opacity: blocked ? 0.6 : 1, fontFamily: FF }}>
                     {suspendMut.isPending ? "Suspending…" : isNotice ? "Suspend and start notice" : "Suspend service"}
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ovOpen && (
+        <div onClick={() => !overrideMut.isPending && setOvOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#FFFFFF", borderRadius: 14, padding: 24, width: 440, maxWidth: "100%", fontFamily: FF, boxShadow: "0 20px 50px rgba(10,14,26,0.3)" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#0A0E1A", marginBottom: 6 }}>Adjust this hold</div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16, lineHeight: 1.5 }}>
+              Forgive the final bill, or hand {client.first_name} extra free hold days. This does not end the hold or resume service, and it moves no money by itself.
+            </div>
+
+            {holdIsNotice && (
+              <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#8A5A18", cursor: "pointer", lineHeight: 1.45 }}>
+                  <input type="checkbox" checked={ovWaive} onChange={e => setOvWaive(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>
+                    <strong style={{ fontWeight: 700 }}>Waive the final bill</strong>
+                    <span style={{ display: "block", marginTop: 3 }}>
+                      {holdNotice && Number(holdNotice.amount) > 0
+                        ? `${money(Number(holdNotice.amount))} for ${holdNotice.visits} notice visit${holdNotice.visits === 1 ? "" : "s"} is not charged.`
+                        : "The notice period is not charged."}
+                      {" "}Service still ends {fmtDate(hold?.end_date)}.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Extra free hold days (optional)</label>
+            <input type="number" min={0} max={365} step={1} value={ovDays} onChange={e => setOvDays(e.target.value)}
+              placeholder={grantedDays > 0 ? String(grantedDays) : "0"}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 4, fontFamily: FF }} />
+            <div style={{ fontSize: 11.5, color: "#9E9B94", marginBottom: 14, lineHeight: 1.5 }}>
+              Added on top of the {holdQ.data?.policy?.freeDays ?? 30} free days everyone gets in a rolling year. Leave blank to keep it as it is.
+            </div>
+
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Reason (required)</label>
+            <select value={ovReason} onChange={e => setOvReason(e.target.value)}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: ovReason ? "#1A1917" : "#9E9B94", outline: "none", boxSizing: "border-box", marginBottom: 10, fontFamily: FF, background: "#FFFFFF" }}>
+              <option value="">Pick a reason</option>
+              {overrideReasons.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+            </select>
+
+            <textarea value={ovNote} onChange={e => setOvNote(e.target.value)} rows={2} maxLength={500}
+              placeholder="Anything else worth recording (optional)"
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 4, fontFamily: FF }} />
+            <div style={{ fontSize: 11.5, color: "#9E9B94", marginBottom: 12, lineHeight: 1.5 }}>
+              The reason is saved on the hold and written to the audit log with your name.
+            </div>
+
+            {ovErr && <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 8 }}>{ovErr}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setOvOpen(false)} disabled={overrideMut.isPending}
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              {(() => {
+                const nothingToChange = !holdIsNotice && ovDays.trim() === "";
+                const blocked = overrideMut.isPending || !ovReason || nothingToChange;
+                return (
+                  <button onClick={() => overrideMut.mutate()} disabled={blocked}
+                    style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: blocked ? "default" : "pointer", opacity: blocked ? 0.6 : 1, fontFamily: FF }}>
+                    {overrideMut.isPending ? "Saving\u2026" : "Save"}
                   </button>
                 );
               })()}
@@ -3108,99 +3281,190 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
 }
 
 // ─── Portal Account Tab ────────────────────────────────────────────────────────
+// [portal-service-account 2026-08-20] Portal state now comes from the portal
+// itself, not from the legacy clients.portal_* columns.
+//
+// Those columns stopped being the truth when the login moved to portal_users
+// (#1357). This tab was still reading them, so it could show "Active Portal
+// Account" for a login that had been turned off, or "No Portal Access" for a
+// customer who signs in every week. Worse, two of its buttons had no onClick at
+// all and one wrote portal_access = false, a column nothing reads: it looked
+// like a security control and did nothing.
+//
+// Everything here now goes through /api/portal/auth/*, which reads and writes
+// the same rows the customer's login does. One source of truth, and a button
+// that says it turned access off actually turned it off.
 function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: number; client: any; onPortalInvite: () => void; refetch: () => void }) {
   const { data: companyMe } = useQuery<any>({ queryKey: ["company-me"], queryFn: () => apiFetch("/api/companies/me") });
   const companySlug = companyMe?.slug ?? "phes-cleaning";
-  const portalStatus = client.portal_access ? "registered" : client.portal_invite_sent_at ? "invited" : "none";
 
-  const deactivateMut = useMutation({
-    mutationFn: () => apiFetch(`/api/clients/${clientId}`, { method: "PUT", body: JSON.stringify({ portal_access: false, portal_invite_sent_at: null }) }),
-    onSuccess: () => refetch(),
+  const { data: portal, isLoading, refetch: refetchPortal } = useQuery<any>({
+    queryKey: ["portal-status", clientId],
+    queryFn: () => apiFetch(`/api/portal/auth/status?client_id=${clientId}`),
   });
+
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  async function run(kind: string, fn: () => Promise<any>, okText: string) {
+    setBusy(kind); setNote(null);
+    try {
+      await fn();
+      setNote({ kind: "ok", text: okText });
+      await refetchPortal();
+      refetch();
+    } catch (e: any) {
+      setNote({ kind: "err", text: e?.message || "That did not go through. Please try again." });
+    } finally { setBusy(""); }
+  }
+
+  const sendReset = () => {
+    if (!window.confirm(`Email ${portal?.email} a link to set a new password?`)) return;
+    run("reset", () => apiFetch("/api/portal/auth/send-reset", {
+      method: "POST", body: JSON.stringify({ client_id: clientId }),
+    }), "Password reset link sent.");
+  };
+
+  const setActive = (active: boolean) => {
+    if (!active && !window.confirm("Turn off this customer's portal login? Any invite or reset links still in their inbox stop working.")) return;
+    run(active ? "on" : "off", () => apiFetch("/api/portal/auth/set-active", {
+      method: "POST", body: JSON.stringify({ client_id: clientId, active }),
+    }), active ? "Portal access turned back on." : "Portal access turned off.");
+  };
+
+  // Open this customer's portal exactly as they see it. READ-ONLY: the session
+  // cannot pause their service, request work, or tip as them. Enforced
+  // server-side in portalCapabilities, not here.
+  async function viewAsCustomer() {
+    setBusy("viewas"); setNote(null);
+    try {
+      const d = await apiFetch("/api/portal/auth/impersonate", {
+        method: "POST", body: JSON.stringify({ client_id: clientId }),
+      });
+      // New tab: the office keeps its own session in this one. Opening in place
+      // would leave staff staring at a customer portal with no way back.
+      window.open(d.url, "_blank", "noopener");
+    } catch (e: any) {
+      setNote({ kind: "err", text: e?.message || "Could not open their view." });
+    } finally { setBusy(""); }
+  }
+
+  const btn = (extra?: React.CSSProperties): React.CSSProperties => ({
+    padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF",
+    color: "#1A1917", fontSize: 13, cursor: "pointer", fontFamily: FF, ...extra,
+  });
+
+  const state: "active" | "invited" | "off" | "none" =
+    !portal?.exists ? "none"
+    : !portal.is_active ? "off"
+    : portal.invite_pending ? "invited"
+    : "active";
+
+  const HEADS = {
+    active:  { bg: "#E6F6F1", fg: "#0F7A63", title: "Active portal account",  sub: "This customer can sign in and manage their account" },
+    invited: { bg: "#FDF3E4", fg: "#F59E0B", title: "Invitation pending",     sub: "Invited, but they have not set a password or signed in yet" },
+    off:     { bg: "#FCEBEA", fg: "#B3261E", title: "Portal access turned off", sub: "Their login exists but is switched off, so they cannot sign in" },
+    none:    { bg: "#F0EEE9", fg: "#9E9B94", title: "No portal access",       sub: "This customer has no portal login yet" },
+  }[state];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "24px" }}>
-        {portalStatus === "registered" && (
-          <div>
+        {isLoading ? (
+          <div style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>Checking portal access…</div>
+        ) : (
+          <>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#E6F6F1", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Globe size={18} style={{ color: "#0F7A63" }} />
+              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: HEADS.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {state === "invited" ? <Send size={18} style={{ color: HEADS.fg }} /> : <Globe size={18} style={{ color: HEADS.fg }} />}
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>Active Portal Account</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Client can log in and manage their account</p>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>{HEADS.title}</h3>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>{HEADS.sub}</p>
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
-              <div style={{ display: "flex", gap: "12px" }}>
-                <span style={{ fontSize: "12px", color: "#9E9B94", minWidth: "100px" }}>Email:</span>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: "#1A1917" }}>{client.email}</span>
+
+            {portal?.exists && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                {[
+                  ["Email", portal.email],
+                  ["Signs in with", [portal.has_password ? "Password" : null, ...(portal.providers || []).map((x: string) => x === "google" ? "Google" : x === "apple" ? "Apple" : x)].filter(Boolean).join(", ") || "Nothing set up yet"],
+                  ["Invited", portal.created_at ? fmtDate(portal.created_at) : null],
+                  ["Email confirmed", portal.email_verified_at ? fmtDate(portal.email_verified_at) : "Not yet"],
+                  ["Last signed in", portal.last_login_at ? fmtDate(portal.last_login_at) : "Never"],
+                ].filter(([, v]) => v).map(([k, v]) => (
+                  <div key={String(k)} style={{ display: "flex", gap: "12px" }}>
+                    <span style={{ fontSize: "12px", color: "#9E9B94", minWidth: "110px" }}>{k}:</span>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#1A1917" }}>{v}</span>
+                  </div>
+                ))}
               </div>
-              {client.portal_last_login && (
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <span style={{ fontSize: "12px", color: "#9E9B94", minWidth: "100px" }}>Last Login:</span>
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#1A1917" }}>{fmtDate(client.portal_last_login)}</span>
-                </div>
+            )}
+
+            {state === "none" && (
+              <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>
+                The invitation emails them a link to set a password, or to sign in with Google using the same address. From there they can see their schedule, read their invoices, ask for extra work, and refer a friend.
+                {!client.email && <strong style={{ color: "#B3261E" }}> There is no email address on this customer, so there is nothing to send to.</strong>}
+              </p>
+            )}
+
+            {note && (
+              <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 7, fontSize: 12.5, fontFamily: FF,
+                            background: note.kind === "ok" ? "#E6F6F1" : "#FCEBEA", color: note.kind === "ok" ? "#0F7A63" : "#B3261E" }}>
+                {note.text}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {(state === "none" || state === "invited") && (
+                <button onClick={onPortalInvite} disabled={!client.email}
+                  style={{ ...btn({ background: "var(--brand)", border: "none", color: "#FFFFFF", fontWeight: 600, cursor: client.email ? "pointer" : "not-allowed", opacity: client.email ? 1 : 0.5, display: "flex", alignItems: "center", gap: 7 }) }}>
+                  <Send size={14} /> {state === "invited" ? "Resend invitation" : "Send portal invitation"}
+                </button>
+              )}
+              {state === "active" && (
+                <button onClick={sendReset} disabled={busy === "reset"} style={btn()}>
+                  {busy === "reset" ? "Sending…" : "Send password reset"}
+                </button>
+              )}
+              {portal?.exists && portal.is_active && (
+                <button onClick={() => setActive(false)} disabled={!!busy}
+                  style={btn({ borderColor: "#F1D0CB", color: "#B3261E" })}>
+                  {state === "invited" ? "Cancel invitation" : "Turn off portal access"}
+                </button>
+              )}
+              {portal?.exists && !portal.is_active && (
+                <button onClick={() => setActive(true)} disabled={!!busy}
+                  style={btn({ background: "var(--brand)", border: "none", color: "#FFFFFF", fontWeight: 600 })}>
+                  Turn portal access back on
+                </button>
               )}
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer" }}>Send Password Reset</button>
-              <button onClick={() => deactivateMut.mutate()} style={{ padding: "8px 14px", border: "1px solid #FCEBEA", borderRadius: "7px", background: "#FFFFFF", color: "#B3261E", fontSize: "13px", cursor: "pointer" }}>Deactivate Portal Access</button>
-            </div>
-          </div>
-        )}
-
-        {portalStatus === "invited" && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#FDF3E4", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Send size={18} style={{ color: "#F59E0B" }} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>Invitation Pending</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Invitation sent {fmtDate(client.portal_invite_sent_at)} — client has not registered yet</p>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={onPortalInvite} style={{ padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Resend Invitation</button>
-              <button style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel Invitation</button>
-            </div>
-          </div>
-        )}
-
-        {portalStatus === "none" && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#F0EEE9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Globe size={18} style={{ color: "#9E9B94" }} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>No Portal Access</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Client does not have a portal account</p>
-              </div>
-            </div>
-            <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>
-              Sending a portal invitation will email the client with a link to create their account. They will be able to view job history, upcoming appointments, and manage their profile.
-            </p>
-            <button onClick={onPortalInvite} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 18px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}>
-              <Send size={14} /> Send Portal Invitation
-            </button>
-          </div>
+          </>
         )}
       </div>
 
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Portal Preview</h3>
-        <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>Open the client portal view to see exactly what this client sees when they log in.</p>
-        <a
-          href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/portal/${companySlug}/dashboard`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer", textDecoration: "none" }}
-        >
-          <Globe size={13} /> View Portal
-        </a>
+        <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>View as customer</h3>
+        <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>
+          Opens their portal exactly as they see it, so you can walk them through a screen over the phone. The session is read-only and expires after 15 minutes. It is written to the audit log.
+        </p>
+        {portal?.exists && portal.is_active ? (
+          <button onClick={viewAsCustomer} disabled={busy === "viewas"}
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer", fontFamily: FF }}>
+            <Globe size={13} /> {busy === "viewas" ? "Opening…" : "Open their view"}
+          </button>
+        ) : (
+          <div style={{ fontSize: 12.5, color: "#9E9B94", fontFamily: FF }}>
+            {/* A portal view needs a portal login. The old plain link opened the
+                portal with no session at all and simply bounced to the sign-in
+                screen — it looked like a feature and was a dead end. */}
+            Available once this customer has an active portal login.
+          </div>
+        )}
+        <div style={{ marginTop: 10, fontSize: 11.5, color: "#9E9B94", fontFamily: FF }}>
+          Their portal address: {`${API}/portal/${companySlug}/dashboard`}
+        </div>
       </div>
     </div>
   );

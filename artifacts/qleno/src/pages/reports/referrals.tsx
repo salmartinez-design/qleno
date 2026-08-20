@@ -85,7 +85,7 @@ function ReferralProgramSection() {
             </div>
           )}
           {rows.length === 0 ? (
-            <p style={{ padding: "0 20px 20px", fontSize: 13, color: "#9E9B94", margin: 0 }}>No program referrals in {year} yet. They come in from the booking widget's "Refer a friend or business" card.</p>
+            <p style={{ padding: "0 20px 20px", fontSize: 13, color: "#9E9B94", margin: 0 }}>No program referrals in {year} yet. They come in from the booking widget's "Refer a friend or business" card and from the Refer tab in a customer's portal.</p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>

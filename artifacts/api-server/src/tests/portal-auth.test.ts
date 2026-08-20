@@ -48,7 +48,37 @@ describe("portal capabilities — residential vs commercial", () => {
     const r = lib.portalCapabilities(residential());
     assert.equal(r.viewBuildings, false);
     assert.equal(r.bulkDownloadInvoices, false);
-    assert.equal(r.requestService, false);
+    // [portal-service-account 2026-08-20] requestService used to be false for
+    // residential with the note "later". Later arrived: a residential customer
+    // asking for an extra clean goes into the same office queue a commercial
+    // one does. A request is an ASK, not work on the board, so there is nothing
+    // here that a residential customer may not do.
+    assert.equal(r.requestService, true);
+  });
+
+  it("gives residential the schedule, the agreement and referrals", () => {
+    const r = lib.portalCapabilities(residential());
+    assert.equal(r.viewSchedule, true);
+    assert.equal(r.viewAgreement, true);
+    assert.equal(r.submitReferral, true);
+
+    // A property-management contact has no household to refer.
+    assert.equal(lib.portalCapabilities(commercial()).submitReferral, false);
+  });
+
+  // [portal-holds-office-only 2026-08-20] Nobody pauses their own service from
+  // the portal. Sal: "No pausing for clients at the moment let the office
+  // handle that for now." Commercial was already off — a commercial pause is a
+  // contract matter for the account manager. Residential is off by the
+  // PORTAL_SELF_SERVE_HOLDS switch, which is the one place to flip it back.
+  //
+  // This is pinned because the surface disappears quietly: the capability is
+  // what hides the pause form and the Restart button AND what makes all three
+  // hold routes refuse. A stray `true` here puts a customer-facing pause
+  // control back on the screen with nothing else in the diff to notice.
+  it("lets nobody pause their own service", () => {
+    assert.equal(lib.portalCapabilities(residential()).manageHold, false);
+    assert.equal(lib.portalCapabilities(commercial()).manageHold, false);
   });
 
   it("gives rate-a-clean to residential only", () => {

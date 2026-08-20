@@ -36,9 +36,21 @@ const residential = (over: any = {}) => ({
 });
 
 // Everything a support session must NOT be able to do.
-const MUTATIONS = ["payInvoice", "requestService", "manageContacts", "rateClean"] as const;
+const MUTATIONS = [
+  "payInvoice", "requestService", "manageContacts", "rateClean",
+  // [portal-service-account 2026-08-20] Pausing a customer's service and sending
+  // in a referral in their name are both commitments made AS them. Support staff
+  // may show either screen; they may not press the button.
+  "manageHold", "submitReferral",
+] as const;
 // Everything it still SHOULD be able to do — the point is walking them through.
-const READS = ["viewVisits", "viewInvoices", "downloadInvoicePdf"] as const;
+const READS = [
+  "viewVisits", "viewInvoices", "downloadInvoicePdf",
+  // Reading the plan and the signed agreement stays open in a support session —
+  // walking a customer through their own cadence or their notice terms is the
+  // reason view-as exists.
+  "viewSchedule", "viewAgreement",
+] as const;
 
 describe("view-as — a support session cannot act", () => {
   it("strips every mutation for a commercial customer", () => {

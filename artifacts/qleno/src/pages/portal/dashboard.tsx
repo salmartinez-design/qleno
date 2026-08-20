@@ -1,6 +1,30 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
-import { Star, Calendar, Clock, ChevronRight, LogOut, Zap, DollarSign, Camera, User } from "lucide-react";
+import {
+  Star, Calendar, Clock, ChevronRight, LogOut, Zap, DollarSign, Camera,
+  FileText, PauseCircle, PlayCircle, Plus, Users, ShieldAlert, Download,
+  AlertTriangle, CheckCircle2,
+} from "lucide-react";
+
+// [portal-service-account 2026-08-20] The customer's whole account, not a
+// landing page with three cards on it.
+//
+// This screen used to be Home / History / Tip. Everything else a residential
+// customer might want to know — when we are coming, what they owe, what they
+// signed, how much pause time their agreement gives them — was a phone call to
+// the office. The routes for all of it now exist (routes/portal.ts), and this
+// is the other side of that glass.
+//
+// Two things to preserve when adding to this file:
+//
+//  1. EVERY screen here reads from an /api/portal/* route that scopes to the
+//     session's own client. Never reach for a staff endpoint with the portal
+//     token: it is refused by design (docs/CUSTOMER_PORTAL_DESIGN.md §3), and
+//     wanting to means the portal is missing a route.
+//  2. Capabilities decide what renders, not the component. `caps` comes from
+//     GET /me and already accounts for a read-only support session, so a button
+//     hidden here is a button the server would refuse anyway. Gate on `caps`,
+//     never on "is this commercial" or "is this impersonated" re-derived here.
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -21,6 +45,34 @@ const SERVICE_LABELS: Record<string, string> = {
   retail_store: 'Retail Store',
   medical_office: 'Medical Office',
 };
+
+const CARD: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 14, padding: '20px 22px',
+};
+const EYEBROW: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+  color: '#9E9B94', margin: '0 0 10px 0',
+};
+const INPUT: React.CSSProperties = {
+  width: '100%', height: 42, padding: '0 12px', border: '1px solid #E5E2DC',
+  borderRadius: 9, fontSize: 14, color: '#1A1917', outline: 'none',
+  fontFamily: 'inherit', background: '#FFFFFF', boxSizing: 'border-box',
+};
+const TEXTAREA: React.CSSProperties = {
+  ...INPUT, height: 80, padding: '10px 12px', resize: 'vertical',
+};
+
+const usd = (n: number) =>
+  `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** A YYYY-MM-DD from the API is a calendar day, not an instant. Parse it at
+ *  local midnight or every date west of UTC renders one day early. */
+const dayOf = (ymd: string) => new Date(`${ymd}T00:00:00`);
+
+const longDate = (ymd?: string | null) =>
+  ymd ? dayOf(ymd).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
+const shortDate = (ymd?: string | null) =>
+  ymd ? dayOf(ymd).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 
 function InitialAvatar({ name }: { name: string }) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
@@ -52,13 +104,49 @@ function StarRatingInput({ value, onChange }: { value: number; onChange: (v: num
   );
 }
 
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div style={{ ...CARD, padding:'36px 22px', textAlign:'center' }}>
+      <div style={{ marginBottom:10, display:'flex', justifyContent:'center' }}>{icon}</div>
+      <p style={{ fontSize:13, color:'#9E9B94', margin:0 }}>{text}</p>
+    </div>
+  );
+}
+
+function StatusPill({ label, tone }: { label: string; tone: 'good' | 'warn' | 'bad' | 'quiet' }) {
+  const tones = {
+    good:  { bg:'#E6F6F1', fg:'#0F7A63' },
+    warn:  { bg:'#FDF3E4', fg:'#8A5A00' },
+    bad:   { bg:'#FCEBEA', fg:'#B3261E' },
+    quiet: { bg:'#F0EEE9', fg:'#6B6860' },
+  }[tone];
+  return (
+    <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:10, background:tones.bg, color:tones.fg, whiteSpace:'nowrap' }}>
+      {label}
+    </span>
+  );
+}
+
+type TabKey = 'home' | 'schedule' | 'billing' | 'plan' | 'requests' | 'refer' | 'tip';
+const TABS: Array<[TabKey, string]> = [
+  ['home', 'Home'],
+  ['schedule', 'Schedule'],
+  ['billing', 'Billing'],
+  ['plan', 'My Plan'],
+  ['requests', 'Request Service'],
+  ['refer', 'Refer a Friend'],
+  ['tip', 'Tip My Cleaner'],
+];
+
 export default function PortalDashboardPage() {
   const { slug } = useParams<{ slug: string }>();
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<'home'|'history'|'tip'>('home');
+  const [activeTab, setActiveTab] = useState<TabKey>('home');
 
   const [client, setClient] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
+  // `upcoming` already includes anything scheduled for today: the route filters
+  // on scheduled_date >= its own today. There is no separate today bucket.
   const [jobs, setJobs] = useState<{ upcoming: any[]; past: any[] }>({ upcoming: [], past: [] });
   const [loading, setLoading] = useState(true);
 
@@ -74,6 +162,44 @@ export default function PortalDashboardPage() {
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Lazily loaded, one fetch per section the customer actually opens.
+  const [plan, setPlan] = useState<any>(null);
+  const [billing, setBilling] = useState<{ invoices: any[]; outstanding: number } | null>(null);
+  const [requests, setRequests] = useState<any[] | null>(null);
+
+  // Pause flow
+  const [pauseUntil, setPauseUntil] = useState('');
+  const [preview, setPreview] = useState<any>(null);
+  const [previewError, setPreviewError] = useState('');
+  const [holdBusy, setHoldBusy] = useState(false);
+  const [holdResult, setHoldResult] = useState('');
+
+  // Request service form
+  const [reqWhat, setReqWhat] = useState('');
+  const [reqWhen, setReqWhen] = useState('');
+  const [reqNotes, setReqNotes] = useState('');
+  const [reqBusy, setReqBusy] = useState(false);
+  const [reqResult, setReqResult] = useState('');
+  const [reqError, setReqError] = useState('');
+  // Hand the customer to the request form with the ask already filled in, so a
+  // pause or a restart is one tap and a date rather than a blank box.
+  const askOffice = (what: string, notes: string) => {
+    setReqWhat(what); setReqNotes(notes); setReqWhen('');
+    setReqResult(''); setReqError('');
+    setActiveTab('requests');
+  };
+
+  // Referral form
+  const [refName, setRefName] = useState('');
+  const [refPhone, setRefPhone] = useState('');
+  const [refEmail, setRefEmail] = useState('');
+  const [refZip, setRefZip] = useState('');
+  const [refNote, setRefNote] = useState('');
+  const [refType, setRefType] = useState<'residential' | 'commercial'>('residential');
+  const [refBusy, setRefBusy] = useState(false);
+  const [refResult, setRefResult] = useState('');
+  const [refError, setRefError] = useState('');
+
   const token = localStorage.getItem(`portal_token_${slug}`);
   if (!token) { navigate(`/portal/${slug}/login`); }
 
@@ -87,11 +213,34 @@ export default function PortalDashboardPage() {
       .then(([comp, cl, j]) => {
         setCompany(comp);
         setClient(cl);
-        setJobs(j.upcoming ? j : { upcoming: [], past: [] });
+        setJobs({ upcoming: j.upcoming || [], past: j.past || [] });
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [slug]);
+
+  // Each section loads once, the first time it is opened. Loading all of it up
+  // front would put an invoice query and a schedule query in front of a
+  // customer who only wanted to know when we are coming next.
+  useEffect(() => {
+    const headers = portalHeaders(slug!);
+    if ((activeTab === 'plan' || activeTab === 'home') && plan == null) {
+      fetch(`${API}/api/portal/plan`, { headers }).then(r => r.json()).then(setPlan).catch(console.error);
+    }
+    if (activeTab === 'billing' && billing == null) {
+      fetch(`${API}/api/portal/invoices`, { headers }).then(r => r.json())
+        .then(d => setBilling({ invoices: d.invoices || [], outstanding: d.outstanding || 0 }))
+        .catch(console.error);
+    }
+    if (activeTab === 'requests' && requests == null) {
+      fetch(`${API}/api/portal/service-requests`, { headers }).then(r => r.json())
+        .then(d => setRequests(Array.isArray(d) ? d : []))
+        .catch(console.error);
+    }
+  }, [activeTab, slug, plan, billing, requests]);
+
+  const reloadPlan = () =>
+    fetch(`${API}/api/portal/plan`, { headers: portalHeaders(slug!) }).then(r => r.json()).then(setPlan).catch(console.error);
 
   async function submitRating(jobId: number) {
     const r = rating[jobId];
@@ -157,26 +306,141 @@ export default function PortalDashboardPage() {
     setTipSent(true);
   }
 
+  /** The PDF route needs the portal token, so it cannot be a plain link. Fetch
+   *  it, then hand the browser a blob it can open in its own viewer. */
+  async function openInvoicePdf(id: number) {
+    try {
+      const resp = await fetch(`${API}/api/portal/invoices/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem(`portal_token_${slug}`)}` },
+      });
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (e) { console.error(e); }
+  }
+
+  async function checkPause(until: string) {
+    setPauseUntil(until);
+    setPreview(null);
+    setPreviewError('');
+    setHoldResult('');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) return;
+    try {
+      const resp = await fetch(`${API}/api/portal/hold/preview?until=${until}`, { headers: portalHeaders(slug!) });
+      const data = await resp.json();
+      if (!resp.ok) { setPreviewError(data.message || 'We could not check those dates'); return; }
+      setPreview(data);
+    } catch { setPreviewError('We could not check those dates'); }
+  }
+
+  async function confirmPause() {
+    if (!pauseUntil) return;
+    setHoldBusy(true);
+    try {
+      const resp = await fetch(`${API}/api/portal/hold`, {
+        method: 'POST', headers: portalHeaders(slug!),
+        body: JSON.stringify({ until: pauseUntil }),
+      });
+      const data = await resp.json();
+      if (!resp.ok && resp.status !== 202) { setPreviewError(data.message || 'We could not pause your service'); return; }
+      setHoldResult(data.message || 'Done');
+      setPreview(null);
+      setPauseUntil('');
+      await reloadPlan();
+      if (data.needs_office) setRequests(null); // it landed in the request queue
+    } catch { setPreviewError('We could not pause your service'); }
+    finally { setHoldBusy(false); }
+  }
+
+  async function resumeService() {
+    setHoldBusy(true);
+    try {
+      const resp = await fetch(`${API}/api/portal/hold/resume`, { method: 'POST', headers: portalHeaders(slug!) });
+      const data = await resp.json();
+      setHoldResult(data.message || 'Your service is running again.');
+      await reloadPlan();
+    } catch { setPreviewError('We could not restart your service'); }
+    finally { setHoldBusy(false); }
+  }
+
+  async function sendRequest() {
+    setReqBusy(true); setReqError(''); setReqResult('');
+    try {
+      const resp = await fetch(`${API}/api/portal/service-requests`, {
+        method: 'POST', headers: portalHeaders(slug!),
+        body: JSON.stringify({ service_description: reqWhat, preferred_date: reqWhen || undefined, notes: reqNotes || undefined }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setReqError(data.message || 'We could not send your request'); return; }
+      setReqResult(data.message);
+      setReqWhat(''); setReqWhen(''); setReqNotes('');
+      setRequests(null);
+    } catch { setReqError('We could not send your request'); }
+    finally { setReqBusy(false); }
+  }
+
+  async function sendReferral() {
+    setRefBusy(true); setRefError(''); setRefResult('');
+    try {
+      const resp = await fetch(`${API}/api/portal/referrals`, {
+        method: 'POST', headers: portalHeaders(slug!),
+        body: JSON.stringify({ name: refName, phone: refPhone, email: refEmail, zip: refZip, note: refNote, referral_type: refType }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setRefError(data.message || 'We could not send that'); return; }
+      setRefResult(data.message);
+      setRefName(''); setRefPhone(''); setRefEmail(''); setRefZip(''); setRefNote(''); setRefType('residential');
+    } catch { setRefError('We could not send that'); }
+    finally { setRefBusy(false); }
+  }
+
   function logout() {
     localStorage.removeItem(`portal_token_${slug}`);
     navigate(`/portal/${slug}/login`);
   }
 
   const brandColor = company?.brand_color || '#00C9A0';
+  const caps = client?.capabilities || {};
+  const impersonated = client?.impersonated === true;
   const nextJob = jobs.upcoming[0];
   const lastJob = jobs.past[0];
+  const hold = plan?.hold || null;
+
+  const primaryBtn = (extra?: React.CSSProperties): React.CSSProperties => ({
+    height: 44, padding: '0 20px', background: brandColor, color: '#FFFFFF', border: 'none',
+    borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', ...extra,
+  });
+  const quietBtn: React.CSSProperties = {
+    height: 44, padding: '0 20px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC',
+    borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  };
 
   if (loading) {
     return (
       <div style={{ minHeight:'100vh', background:'#F7F6F3', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <p style={{ color:'#9E9B94', fontSize:14 }}>Loading your portal…</p>
+        <p style={{ color:'#9E9B94', fontSize:14 }}>Loading your portal...</p>
       </div>
     );
   }
 
   return (
     <div style={{ minHeight:'100vh', background:'#F7F6F3', fontFamily:"'Plus Jakarta Sans', sans-serif" }}>
-      <style>{`@keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
+        .qleno-tabs::-webkit-scrollbar { display:none }
+      `}</style>
+
+      {/* Support session banner. Design doc §7: the portal must SAY when the
+          office is looking, and the office must not be able to act. */}
+      {impersonated && (
+        <div style={{ background:'#0A0E1A', color:'#FFFFFF', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, justifyContent:'center' }}>
+          <ShieldAlert size={16} color="#F59E0B"/>
+          <span style={{ fontSize:12.5, fontWeight:600 }}>
+            Support view. You are seeing this account exactly as the customer does. Nothing here can be changed from this session.
+          </span>
+        </div>
+      )}
+
       {/* Portal Header */}
       <div style={{ background:'#FFFFFF', borderBottom:'1px solid #E5E2DC', padding:'0 24px' }}>
         <div style={{ maxWidth:680, margin:'0 auto', height:60, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -221,17 +485,18 @@ export default function PortalDashboardPage() {
           {uploadError && (
             <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#FCEBEA', color:'#B3261E', padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, zIndex:999 }}>
               {uploadError}
-              <button onClick={() => setUploadError('')} style={{ marginLeft:8, background:'none', border:'none', cursor:'pointer', color:'#B3261E', fontWeight:800 }}>×</button>
+              <button onClick={() => setUploadError('')} style={{ marginLeft:8, background:'none', border:'none', cursor:'pointer', color:'#B3261E', fontWeight:800 }}>x</button>
             </div>
           )}
         </div>
 
-        {/* Tab Bar */}
-        <div style={{ maxWidth:680, margin:'0 auto', display:'flex', gap:0 }}>
-          {([['home','Home'],['history','History'],['tip','Tip My Cleaner']] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setActiveTab(key as any)}
+        {/* Tab Bar. Scrolls sideways on a phone rather than wrapping into two
+            rows that push the content down. */}
+        <div className="qleno-tabs" style={{ maxWidth:680, margin:'0 auto', display:'flex', gap:0, overflowX:'auto', scrollbarWidth:'none' }}>
+          {TABS.map(([key, label]) => (
+            <button key={key} onClick={() => setActiveTab(key)}
               style={{
-                padding:'10px 16px', background:'none', border:'none', cursor:'pointer',
+                padding:'10px 14px', background:'none', border:'none', cursor:'pointer', whiteSpace:'nowrap',
                 fontSize:13, fontWeight: activeTab===key ? 600 : 400,
                 color: activeTab===key ? brandColor : '#6B6860',
                 borderBottom: activeTab===key ? `2px solid ${brandColor}` : '2px solid transparent',
@@ -247,18 +512,48 @@ export default function PortalDashboardPage() {
         {/* ── HOME TAB ── */}
         {activeTab === 'home' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+            {/* Service paused / ending. This sits above everything because a
+                customer whose service is paused is asking exactly one question,
+                and it should not be four taps away. */}
+            {hold && (
+              <div style={{ background: hold.ends_service ? '#FCEBEA' : '#FDF3E4',
+                            border: `1px solid ${hold.ends_service ? '#F3C9C5' : '#F0DCB4'}`,
+                            borderRadius:14, padding:'18px 20px' }}>
+                <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+                  {hold.ends_service ? <AlertTriangle size={18} color="#B3261E"/> : <PauseCircle size={18} color="#8A5A00"/>}
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontSize:14, fontWeight:700, color: hold.ends_service ? '#B3261E' : '#8A5A00', margin:'0 0 4px 0' }}>
+                      {hold.ends_service ? 'Your service is ending' : 'Your service is paused'}
+                    </p>
+                    <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>
+                      {hold.ends_service
+                        ? `Your last visits run through ${shortDate(hold.end_date)}. If you want to keep your cleanings, restart any time before then and nothing changes.`
+                        : `We are holding your spot through ${shortDate(hold.end_date)}. Nothing is charged while you are paused.`}
+                    </p>
+                    {caps.manageHold && (
+                      <button onClick={resumeService} disabled={holdBusy}
+                        style={{ ...primaryBtn({ marginTop:12, height:40 }), opacity: holdBusy ? 0.6 : 1 }}>
+                        <span style={{ display:'flex', alignItems:'center', gap:7 }}><PlayCircle size={15}/> Restart my service</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Next Cleaning */}
             {nextJob ? (
               <div style={{ background:`${brandColor}15`, border:`1px solid ${brandColor}30`, borderRadius:14, padding:'20px 22px' }}>
-                <p style={{ fontSize:11, fontWeight:700, color:brandColor, textTransform:'uppercase', letterSpacing:'0.07em', margin:'0 0 12px 0' }}>Your Next Cleaning</p>
+                <p style={{ ...EYEBROW, color:brandColor, margin:'0 0 12px 0' }}>Your Next Cleaning</p>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                   <div>
                     <p style={{ fontSize:18, fontWeight:700, color:'#1A1917', margin:'0 0 4px 0' }}>
-                      {new Date(nextJob.scheduled_date + 'T00:00:00').toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' })}
+                      {longDate(nextJob.scheduled_date)}
                     </p>
-                    {nextJob.scheduled_time && (
+                    {(nextJob.scheduled_time || nextJob.arrival_window) && (
                       <p style={{ fontSize:14, color:'#6B6860', margin:'0 0 4px 0', display:'flex', alignItems:'center', gap:5 }}>
-                        <Clock size={13}/>{nextJob.scheduled_time}
+                        <Clock size={13}/>{nextJob.scheduled_time || nextJob.arrival_window}
                       </p>
                     )}
                     <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>{SERVICE_LABELS[nextJob.service_type] || nextJob.service_type}</p>
@@ -272,30 +567,42 @@ export default function PortalDashboardPage() {
                 </div>
               </div>
             ) : (
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'24px', textAlign:'center' }}>
-                <Calendar size={32} color="#E5E2DC" style={{ marginBottom:10 }}/>
-                <p style={{ fontSize:14, color:'#9E9B94', margin:0 }}>No upcoming cleanings scheduled</p>
+              <EmptyState icon={<Calendar size={30} color="#E5E2DC"/>} text="No upcoming cleanings scheduled" />
+            )}
+
+            {/* How often we come, straight from the agreement. */}
+            {plan?.cadence && (
+              <div style={{ ...CARD, display:'flex', alignItems:'center', gap:12 }}>
+                <Calendar size={18} color={brandColor}/>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 2px 0' }}>{plan.cadence}</p>
+                  <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>
+                    {plan.schedules?.[0]?.rate ? `${usd(plan.schedules[0].rate)} per visit` : 'Your regular service'}
+                  </p>
+                </div>
+                <button onClick={() => setActiveTab('plan')} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}>
+                  <ChevronRight size={16} color="#9E9B94"/>
+                </button>
               </div>
             )}
 
             {/* Last Cleaning — rate prompt */}
-            {lastJob && !ratingSubmitted.has(lastJob.id) && (
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'20px 22px' }}>
+            {lastJob && caps.rateClean && !ratingSubmitted.has(lastJob.id) && (
+              <div style={CARD}>
                 <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 8px 0' }}>How was your last cleaning?</p>
                 <p style={{ fontSize:12, color:'#6B6860', margin:'0 0 14px 0' }}>
-                  {new Date(lastJob.scheduled_date + 'T00:00:00').toLocaleDateString()} · {SERVICE_LABELS[lastJob.service_type] || lastJob.service_type}
+                  {shortDate(lastJob.scheduled_date)} · {SERVICE_LABELS[lastJob.service_type] || lastJob.service_type}
                 </p>
                 <StarRatingInput
                   value={rating[lastJob.id]?.score || 0}
                   onChange={v => setRating(p => ({ ...p, [lastJob.id]: { ...(p[lastJob.id]||{}), score:v, comment:p[lastJob.id]?.comment||'' } }))}/>
                 {rating[lastJob.id]?.score > 0 && (
                   <>
-                    <textarea placeholder="Leave a comment (optional)…"
+                    <textarea placeholder="Leave a comment (optional)"
                       value={rating[lastJob.id]?.comment || ''}
                       onChange={e => setRating(p => ({ ...p, [lastJob.id]: { ...p[lastJob.id], comment:e.target.value } }))}
-                      style={{ width:'100%', height:60, padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, resize:'none', outline:'none', fontFamily:'inherit', marginTop:10, marginBottom:10 }}/>
-                    <button onClick={() => submitRating(lastJob.id)}
-                      style={{ padding:'8px 18px', background:brandColor, color:'#FFFFFF', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                      style={{ ...TEXTAREA, height:60, marginTop:10, marginBottom:10 }}/>
+                    <button onClick={() => submitRating(lastJob.id)} style={primaryBtn({ height:38, padding:'0 18px', fontSize:13 })}>
                       Submit Rating
                     </button>
                   </>
@@ -312,11 +619,15 @@ export default function PortalDashboardPage() {
             {/* Quick Actions */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               {[
-                { icon: <DollarSign size={20} color={brandColor}/>, label:'Tip My Cleaner', action:()=>setActiveTab('tip') },
-                { icon: <Calendar size={20} color={brandColor}/>, label:'Service History', action:()=>setActiveTab('history') },
-              ].map(a => (
-                <button key={a.label} onClick={a.action}
-                  style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'16px 18px', display:'flex', alignItems:'center', gap:12, cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                { icon: <Plus size={18} color={brandColor}/>,      label:'Request a service', tab:'requests' as TabKey, show: caps.requestService },
+                { icon: <FileText size={18} color={brandColor}/>,  label:'My invoices',       tab:'billing' as TabKey,  show: caps.viewInvoices },
+                { icon: <Users size={18} color={brandColor}/>,     label:'Refer a friend',    tab:'refer' as TabKey,    show: caps.submitReferral },
+                { icon: <DollarSign size={18} color={brandColor}/>,label:'Tip my cleaner',    tab:'tip' as TabKey,      show: caps.payInvoice },
+                { icon: <Calendar size={18} color={brandColor}/>,  label:'My schedule',       tab:'schedule' as TabKey, show: true },
+                { icon: <PauseCircle size={18} color={brandColor}/>,label:'My plan',          tab:'plan' as TabKey,     show: true },
+              ].filter(a => a.show).map(a => (
+                <button key={a.label} onClick={() => setActiveTab(a.tab)}
+                  style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:10, cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
                   {a.icon}
                   <span style={{ fontSize:13, fontWeight:600, color:'#1A1917' }}>{a.label}</span>
                   <ChevronRight size={14} color="#9E9B94" style={{ marginLeft:'auto' }}/>
@@ -326,7 +637,7 @@ export default function PortalDashboardPage() {
 
             {/* Loyalty */}
             {client?.loyalty_points > 0 && (
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ ...CARD, padding:'16px 20px', display:'flex', alignItems:'center', gap:12 }}>
                 <Zap size={20} color="#F59E0B" fill="#FDF3E4"/>
                 <div style={{ flex:1 }}>
                   <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 2px 0' }}>{client.loyalty_points} Loyalty Points</p>
@@ -339,37 +650,463 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
-        {/* ── HISTORY TAB ── */}
-        {activeTab === 'history' && (
+        {/* ── SCHEDULE TAB ── upcoming and past in one place, because "when are
+             you coming" and "when were you here" are the same question asked in
+             two directions. */}
+        {activeTab === 'schedule' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:22 }}>
+            <div>
+              <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:'0 0 12px 0' }}>Coming up</h2>
+              {jobs.upcoming.length === 0
+                ? <EmptyState icon={<Calendar size={30} color="#E5E2DC"/>} text="Nothing scheduled right now" />
+                : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    {jobs.upcoming.map(j => (
+                      <div key={j.id} style={{ ...CARD, padding:'16px 18px', display:'flex', alignItems:'center', gap:12 }}>
+                        <div style={{ width:4, alignSelf:'stretch', borderRadius:2, background:brandColor }}/>
+                        <div style={{ flex:1 }}>
+                          <p style={{ fontSize:13.5, fontWeight:700, color:'#1A1917', margin:'0 0 3px 0' }}>{longDate(j.scheduled_date)}</p>
+                          <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>
+                            {(j.scheduled_time || j.arrival_window) ? `${j.scheduled_time || j.arrival_window} · ` : ''}
+                            {SERVICE_LABELS[j.service_type] || j.service_type}
+                          </p>
+                        </div>
+                        {j.cleaner_first && <InitialAvatar name={`${j.cleaner_first} ${j.cleaner_last}`}/>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+
+            <div>
+              <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:'0 0 12px 0' }}>Service history</h2>
+              {jobs.past.length === 0
+                ? <EmptyState icon={<Clock size={30} color="#E5E2DC"/>} text="No past services yet" />
+                : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    {jobs.past.map(j => (
+                      <div key={j.id} style={{ ...CARD, padding:'16px 18px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+                        <div>
+                          <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 3px 0' }}>{shortDate(j.scheduled_date)}</p>
+                          <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type}</p>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <StatusPill
+                            label={j.status === 'complete' ? 'Complete' : j.status === 'cancelled' ? 'Cancelled' : 'Scheduled'}
+                            tone={j.status === 'complete' ? 'good' : j.status === 'cancelled' ? 'quiet' : 'quiet'} />
+                          {j.cleaner_first && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'5px 0 0 0' }}>Cleaner: {j.cleaner_first}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+          </div>
+        )}
+
+        {/* ── BILLING TAB ── */}
+        {activeTab === 'billing' && (
           <div>
-            <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:'0 0 16px 0' }}>Service History</h2>
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              {jobs.past.length === 0 && (
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'40px 0', textAlign:'center' }}>
-                  <p style={{ color:'#9E9B94', fontSize:13 }}>No past services yet</p>
+            <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:'0 0 12px 0' }}>Billing</h2>
+            {billing == null ? (
+              <p style={{ fontSize:13, color:'#9E9B94' }}>Loading your invoices...</p>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={{ ...CARD, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <div>
+                    <p style={{ ...EYEBROW, margin:'0 0 4px 0' }}>Balance</p>
+                    <p style={{ fontSize:22, fontWeight:800, color: billing.outstanding > 0 ? '#B3261E' : '#0F7A63', margin:0, fontVariantNumeric:'tabular-nums' }}>
+                      {usd(billing.outstanding)}
+                    </p>
+                  </div>
+                  {billing.outstanding === 0 && <CheckCircle2 size={22} color="#0F7A63"/>}
                 </div>
-              )}
-              {jobs.past.map(j => (
-                <div key={j.id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'16px 18px' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                    <div>
-                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 3px 0' }}>
-                        {new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric' })}
-                      </p>
-                      <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type}</p>
-                    </div>
-                    <div style={{ textAlign:'right' }}>
-                      <span style={{ fontSize:11, background:j.status==='complete'?'#E6F6F1':'#F0EEE9', color:j.status==='complete'?'#0F7A63':'#6B6860', padding:'3px 8px', borderRadius:10, fontWeight:600 }}>
-                        {j.status?.toUpperCase()}
-                      </span>
-                      {j.cleaner_first && (
-                        <p style={{ fontSize:11, color:'#9E9B94', margin:'5px 0 0 0' }}>Cleaner: {j.cleaner_first}</p>
+
+                {billing.invoices.length === 0
+                  ? <EmptyState icon={<FileText size={30} color="#E5E2DC"/>} text="No invoices yet" />
+                  : billing.invoices.map(inv => (
+                    <div key={inv.id} style={{ ...CARD, padding:'16px 18px', display:'flex', alignItems:'center', gap:12 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+                          <p style={{ fontSize:13.5, fontWeight:700, color:'#1A1917', margin:0 }}>
+                            {inv.invoice_number || `Invoice #${inv.id}`}
+                          </p>
+                          <StatusPill
+                            label={inv.status === 'paid' ? 'Paid' : inv.status === 'overdue' ? 'Past due' : 'Due'}
+                            tone={inv.status === 'paid' ? 'good' : inv.status === 'overdue' ? 'bad' : 'warn'} />
+                        </div>
+                        <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>
+                          {inv.service_date ? `Service ${shortDate(inv.service_date)}` : ''}
+                          {inv.due_date && inv.status !== 'paid' ? `${inv.service_date ? ' · ' : ''}Due ${shortDate(inv.due_date)}` : ''}
+                        </p>
+                      </div>
+                      <p style={{ fontSize:15, fontWeight:700, color:'#1A1917', margin:0, fontVariantNumeric:'tabular-nums' }}>{usd(inv.total)}</p>
+                      {caps.downloadInvoicePdf && (
+                        <button onClick={() => openInvoicePdf(inv.id)} title="Open PDF"
+                          style={{ background:'none', border:'1px solid #E5E2DC', borderRadius:8, padding:'7px 9px', cursor:'pointer', display:'flex' }}>
+                          <Download size={14} color="#6B6860"/>
+                        </button>
                       )}
                     </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MY PLAN TAB ── the agreement, in the customer's words, plus the
+             two things it entitles them to do: pause, and read what they signed. */}
+        {activeTab === 'plan' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:0 }}>My Plan</h2>
+
+            {plan == null ? <p style={{ fontSize:13, color:'#9E9B94' }}>Loading your plan...</p> : (
+              <>
+                {holdResult && (
+                  <div style={{ background:'#E6F6F1', border:'1px solid #C7E7DE', borderRadius:12, padding:'14px 16px' }}>
+                    <p style={{ fontSize:13, fontWeight:600, color:'#0F7A63', margin:0 }}>{holdResult}</p>
+                  </div>
+                )}
+
+                {/* What we do for you */}
+                {plan.schedules?.length ? plan.schedules.map((s: any) => (
+                  <div key={s.id} style={CARD}>
+                    <p style={EYEBROW}>Your service</p>
+                    <p style={{ fontSize:17, fontWeight:700, color:'#1A1917', margin:'0 0 4px 0' }}>{s.cadence}</p>
+                    <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>
+                      {s.rate ? `${usd(s.rate)} per visit` : 'Rate on your agreement'}
+                      {s.since ? ` · with us since ${shortDate(s.since)}` : ''}
+                    </p>
+                    {s.paused && (
+                      <p style={{ fontSize:12.5, color:'#8A5A00', margin:'10px 0 0 0', fontWeight:600 }}>Paused right now</p>
+                    )}
+                  </div>
+                )) : (
+                  <EmptyState icon={<Calendar size={30} color="#E5E2DC"/>} text="No recurring service on file" />
+                )}
+
+                {/* Pause time */}
+                <div style={CARD}>
+                  <p style={EYEBROW}>Pause time</p>
+                  <p style={{ fontSize:17, fontWeight:700, color:'#1A1917', margin:'0 0 4px 0', fontVariantNumeric:'tabular-nums' }}>
+                    {plan.pause_days?.remaining ?? 0} of {plan.pause_days?.allowed ?? 0} days left
+                  </p>
+                  <p style={{ fontSize:12.5, color:'#6B6860', margin:0 }}>
+                    Your agreement includes {plan.pause_days?.allowed ?? 0} paused days a year. Vacations, travel, anything you like. Nothing is charged while you are paused.
+                  </p>
+
+                  {hold ? (
+                    <div style={{ marginTop:14, padding:'14px 16px', borderRadius:10, background: hold.ends_service ? '#FCEBEA' : '#FDF3E4' }}>
+                      <p style={{ fontSize:13, fontWeight:700, color: hold.ends_service ? '#B3261E' : '#8A5A00', margin:'0 0 4px 0' }}>
+                        {hold.ends_service ? `Service ends ${shortDate(hold.end_date)}` : `Paused through ${shortDate(hold.end_date)}`}
+                      </p>
+                      <p style={{ fontSize:12.5, color:'#6B6860', margin:0 }}>
+                        {hold.ends_service
+                          ? 'Restart before that date and your agreement carries on as normal, with nothing charged for the pause.'
+                          : 'We are holding your regular spot. Come back any time.'}
+                      </p>
+                      {caps.manageHold ? (
+                        <button onClick={resumeService} disabled={holdBusy}
+                          style={{ ...primaryBtn({ marginTop:12, height:40 }), opacity: holdBusy ? 0.6 : 1 }}>
+                          <span style={{ display:'flex', alignItems:'center', gap:7 }}><PlayCircle size={15}/> Restart my service</span>
+                        </button>
+                      ) : (
+                        <div style={{ marginTop:12 }}>
+                          <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 10px 0' }}>
+                            Ready to start again? Tell us and we will put you back on the schedule.
+                          </p>
+                          {caps.requestService && (
+                            <button onClick={() => askOffice('Restart my service', 'Sent from my portal. I would like to start my regular service again.')}
+                              style={{ ...primaryBtn({ height:40 }) }}>
+                              <span style={{ display:'flex', alignItems:'center', gap:7 }}><PlayCircle size={15}/> Ask us to restart it</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : caps.manageHold ? (
+                    <div style={{ marginTop:16, paddingTop:16, borderTop:'1px solid #E5E2DC' }}>
+                      <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>
+                        Pause my service through
+                      </label>
+                      <input type="date" value={pauseUntil} onChange={e => checkPause(e.target.value)} style={INPUT}/>
+
+                      {previewError && (
+                        <p style={{ fontSize:12.5, color:'#B3261E', margin:'10px 0 0 0' }}>{previewError}</p>
+                      )}
+
+                      {/* A pause inside the free days costs nothing, but it still
+                          goes to the office rather than executing itself. The
+                          screen has to say which one it is: promising "paused"
+                          and then having the schedule keep running is worse than
+                          asking. */}
+                      {preview && !preview.ends_service && (
+                        <div style={{ marginTop:14, padding:'14px 16px', borderRadius:10, background:'#F7F6F3', border:'1px solid #E5E2DC' }}>
+                          <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 6px 0' }}>
+                            {preview.days} days paused, through {shortDate(preview.until)}
+                          </p>
+                          <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 12px 0' }}>
+                            This uses {preview.pause_days?.this_pause ?? preview.days} of your {preview.pause_days?.allowed ?? 0} paused days. Nothing is charged, and we hold your regular spot.
+                            {preview.needs_office ? ' Send it over and someone from the office will confirm it with you. Your visits stay on the calendar until then.' : ''}
+                          </p>
+                          <button onClick={confirmPause} disabled={holdBusy}
+                            style={{ ...primaryBtn({ opacity: holdBusy ? 0.6 : 1 }) }}>
+                            {preview.needs_office ? 'Request this pause' : 'Confirm pause'}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* The one screen this whole feature exists for. A pause
+                          past the free days is a termination notice: it ends the
+                          agreement and bills the visits the customer's own
+                          cadence would have had in the notice period. They read
+                          the dates and the dollars BEFORE they can send it, and
+                          even then they cannot execute it. */}
+                      {preview && preview.ends_service && (
+                        <div style={{ marginTop:14, padding:'16px 18px', borderRadius:10, background:'#FCEBEA', border:'1px solid #F3C9C5' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                            <AlertTriangle size={16} color="#B3261E"/>
+                            <p style={{ fontSize:13.5, fontWeight:800, color:'#B3261E', margin:0 }}>This would end your service</p>
+                          </div>
+                          <p style={{ fontSize:12.5, color:'#1A1917', margin:'0 0 10px 0', lineHeight:1.5 }}>
+                            A pause of {preview.days} days runs past the {preview.pause_days?.allowed ?? 0} paused days your agreement includes, so it counts as your {preview.notice?.days ?? 30} days notice to end service.
+                          </p>
+                          {preview.notice && (
+                            <div style={{ background:'#FFFFFF', borderRadius:9, padding:'12px 14px', marginBottom:12 }}>
+                              <p style={{ fontSize:12, color:'#6B6860', margin:'0 0 6px 0' }}>
+                                You are on {preview.cadence}, so your last {preview.notice.visits} {preview.notice.visits === 1 ? 'visit' : 'visits'} would be:
+                              </p>
+                              <ul style={{ margin:'0 0 8px 0', paddingLeft:18 }}>
+                                {preview.notice.dates.map((d: string) => (
+                                  <li key={d} style={{ fontSize:12.5, color:'#1A1917', marginBottom:2 }}>{shortDate(d)}</li>
+                                ))}
+                              </ul>
+                              <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:0, fontVariantNumeric:'tabular-nums' }}>
+                                Total {usd(preview.notice.amount)}
+                              </p>
+                            </div>
+                          )}
+                          <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 12px 0' }}>
+                            If you only need a break, pick an earlier date and nothing is charged. If you do want to end service, send this to us and someone will call you first.
+                          </p>
+                          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                            <button onClick={confirmPause} disabled={holdBusy}
+                              style={{ ...quietBtn, borderColor:'#B3261E', color:'#B3261E', opacity: holdBusy ? 0.6 : 1 }}>
+                              Send this request
+                            </button>
+                            <button onClick={() => { setPauseUntil(''); setPreview(null); }} style={quietBtn}>
+                              Pick another date
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* [portal-holds-office-only 2026-08-20] Sal: "No pausing for
+                       clients at the moment let the office handle that for now."
+                       The allowance above still shows, because it is theirs and
+                       hiding it only generates calls asking what it is. What is
+                       gone is the date picker. This is the replacement: say who
+                       arranges a pause, and hand them the way to ask. */
+                    <div style={{ marginTop:16, paddingTop:16, borderTop:'1px solid #E5E2DC' }}>
+                      <p style={{ fontSize:12.5, color:'#6B6860', margin:0 }}>
+                        Going away? Tell us the dates and we will pause your service for you. Give us a call, or send us the dates here and someone from the office will set it up and confirm it with you.
+                      </p>
+                      {caps.requestService && (
+                        <button onClick={() => askOffice('Pause my service', 'Sent from my portal. I would like to pause my service. Dates: ')}
+                          style={{ ...primaryBtn({ marginTop:12, height:40 }) }}>
+                          <span style={{ display:'flex', alignItems:'center', gap:7 }}><PauseCircle size={15}/> Ask us to pause my service</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* The agreement itself */}
+                <div style={CARD}>
+                  <p style={EYEBROW}>Your agreement</p>
+                  {plan.agreements?.length ? (
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      {plan.agreements.map((a: any) => (
+                        <div key={a.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <FileText size={16} color="#9E9B94"/>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 2px 0' }}>{a.name}</p>
+                            <p style={{ fontSize:11.5, color:'#6B6860', margin:0 }}>
+                              {a.signed_at ? `Signed ${shortDate(String(a.signed_at).slice(0,10))}${a.signed_by ? ` by ${a.signed_by}` : ''}` : 'Waiting for your signature'}
+                            </p>
+                          </div>
+                          {a.pdf_url && (
+                            <a href={`${API}${a.pdf_url}`} target="_blank" rel="noreferrer"
+                               style={{ fontSize:12.5, fontWeight:600, color:brandColor, textDecoration:'none' }}>
+                              {a.signed_at ? 'View' : 'Sign'}
+                            </a>
+                          )}
+                          {a.certificate_url && (
+                            <a href={`${API}${a.certificate_url}`} target="_blank" rel="noreferrer"
+                               style={{ fontSize:12.5, fontWeight:600, color:'#6B6860', textDecoration:'none' }}>
+                              Receipt
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize:13, color:'#9E9B94', margin:0 }}>Nothing on file yet.</p>
+                  )}
+                  <p style={{ fontSize:11.5, color:'#9E9B94', margin:'12px 0 0 0' }}>
+                    To end service we ask for {plan.notice_days} days notice, which we count in visits at your own cadence.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── REQUEST SERVICE TAB ── */}
+        {activeTab === 'requests' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:0 }}>Request a service</h2>
+
+            {caps.requestService ? (
+              <div style={CARD}>
+                <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 14px 0' }}>
+                  Extra clean, a deep clean, oven or fridge, anything you need on top of your regular visits. Tell us what you are after and we will call you with a date and a price.
+                </p>
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>What do you need?</label>
+                <input value={reqWhat} onChange={e => setReqWhat(e.target.value)}
+                  placeholder="Deep clean before we host" style={{ ...INPUT, marginBottom:12 }}/>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Any day in mind? (optional)</label>
+                <input type="date" value={reqWhen} onChange={e => setReqWhen(e.target.value)} style={{ ...INPUT, marginBottom:12 }}/>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Anything else we should know? (optional)</label>
+                <textarea value={reqNotes} onChange={e => setReqNotes(e.target.value)} style={{ ...TEXTAREA, marginBottom:14 }}/>
+
+                {reqError && <p style={{ fontSize:12.5, color:'#B3261E', margin:'0 0 10px 0' }}>{reqError}</p>}
+                {reqResult && <p style={{ fontSize:12.5, color:'#0F7A63', fontWeight:600, margin:'0 0 10px 0' }}>{reqResult}</p>}
+
+                <button onClick={sendRequest} disabled={reqBusy || reqWhat.trim().length < 3}
+                  style={primaryBtn({ opacity: (reqBusy || reqWhat.trim().length < 3) ? 0.5 : 1 })}>
+                  Send request
+                </button>
+              </div>
+            ) : (
+              <div style={CARD}>
+                <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>
+                  {impersonated
+                    ? 'Requests can only be sent by the customer themselves.'
+                    : 'Give us a call and we will get this on the schedule for you.'}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <p style={EYEBROW}>Your requests</p>
+              {requests == null ? (
+                <p style={{ fontSize:13, color:'#9E9B94' }}>Loading...</p>
+              ) : requests.length === 0 ? (
+                <EmptyState icon={<Plus size={30} color="#E5E2DC"/>} text="You have not asked for anything extra yet" />
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {requests.map(r => (
+                    <div key={r.id} style={{ ...CARD, padding:'16px 18px' }}>
+                      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <p style={{ fontSize:13.5, fontWeight:600, color:'#1A1917', margin:'0 0 3px 0' }}>{r.service}</p>
+                          <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>
+                            {r.preferred_date ? `You asked for ${shortDate(r.preferred_date)}` : 'No date requested'}
+                          </p>
+                        </div>
+                        <StatusPill
+                          label={r.status === 'scheduled' ? 'On the schedule' : r.status === 'declined' ? 'We will call you' : 'With the office'}
+                          tone={r.status === 'scheduled' ? 'good' : r.status === 'declined' ? 'quiet' : 'warn'} />
+                      </div>
+                      {r.office_note && (
+                        <p style={{ fontSize:12.5, color:'#6B6860', margin:'10px 0 0 0', paddingTop:10, borderTop:'1px solid #E5E2DC' }}>
+                          {r.office_note}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── REFER A FRIEND TAB ── */}
+        {activeTab === 'refer' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:0 }}>Refer a friend</h2>
+            {caps.submitReferral ? (
+              <div style={CARD}>
+                {/* [referral-one-program 2026-08-20] The portal used to promise
+                    nothing while the booking confirmation page promised $25 each
+                    way. Same program, same words, wherever the customer is
+                    standing. */}
+                <div style={{ background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px', marginBottom:14 }}>
+                  <span style={{ display:'inline-block', background:'#E1F5EE', color:'#085041', fontSize:10.5, fontWeight:700, letterSpacing:'.05em', textTransform:'uppercase', padding:'3px 10px', borderRadius:999, marginBottom:7 }}>Referral program</span>
+                  <p style={{ margin:'0 0 4px', fontWeight:800, fontSize:15, color:'#1A1917' }}>Give $25, get $25</p>
+                  <p style={{ margin:0, fontSize:12.5, color:'#6B6860', lineHeight:1.6 }}>
+                    Know someone who could use a cleaning, a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit. We will always mention it came from you.
+                  </p>
+                </div>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Who are you referring?</label>
+                <div style={{ display:'flex', border:'1px solid #E5E2DC', borderRadius:8, overflow:'hidden', marginBottom:12 }}>
+                  {(['residential', 'commercial'] as const).map(t => (
+                    <button key={t} onClick={() => setRefType(t)}
+                      style={{ flex:1, textAlign:'center', padding:'9px 0', fontSize:13, fontWeight:700, fontFamily:'inherit', border:'none', cursor:'pointer',
+                        background: refType === t ? brandColor : '#fff', color: refType === t ? '#fff' : '#6B6860' }}>
+                      {t === 'residential' ? 'A home' : 'A business'}
+                    </button>
+                  ))}
+                </div>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>{refType === 'commercial' ? 'Business or contact name' : 'Their name'}</label>
+                <input value={refName} onChange={e => setRefName(e.target.value)} placeholder={refType === 'commercial' ? 'Company or contact' : 'First and last'} style={{ ...INPUT, marginBottom:12 }}/>
+
+                <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
+                  <div style={{ flex:'1 1 160px' }}>
+                    <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Phone</label>
+                    <input value={refPhone} onChange={e => setRefPhone(e.target.value)} placeholder="(773) 555 0134" style={INPUT}/>
+                  </div>
+                  <div style={{ flex:'1 1 160px' }}>
+                    <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Email</label>
+                    <input value={refEmail} onChange={e => setRefEmail(e.target.value)} placeholder="name@email.com" style={INPUT}/>
                   </div>
                 </div>
-              ))}
-            </div>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Their zip code (optional)</label>
+                <input value={refZip} onChange={e => setRefZip(e.target.value)} placeholder="60453" style={{ ...INPUT, marginBottom:12 }}/>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Anything we should know? (optional)</label>
+                <textarea value={refNote} onChange={e => setRefNote(e.target.value)} style={{ ...TEXTAREA, marginBottom:14 }}/>
+
+                <p style={{ fontSize:11.5, color:'#9E9B94', margin:'0 0 12px 0' }}>
+                  Please make sure they are happy to hear from us before you send their details.
+                </p>
+
+                {refError && <p style={{ fontSize:12.5, color:'#B3261E', margin:'0 0 10px 0' }}>{refError}</p>}
+                {refResult && <p style={{ fontSize:12.5, color:'#0F7A63', fontWeight:600, margin:'0 0 10px 0' }}>{refResult}</p>}
+
+                <button onClick={sendReferral} disabled={refBusy || refName.trim().length < 2 || (!refPhone.trim() && !refEmail.trim())}
+                  style={primaryBtn({ opacity: (refBusy || refName.trim().length < 2 || (!refPhone.trim() && !refEmail.trim())) ? 0.5 : 1 })}>
+                  Send referral
+                </button>
+              </div>
+            ) : (
+              <div style={CARD}>
+                <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>
+                  {impersonated
+                    ? 'A referral has to come from the customer themselves.'
+                    : 'Give us a call and we will take their details.'}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -387,19 +1124,19 @@ export default function PortalDashboardPage() {
               <>
                 {/* Job selector */}
                 <div style={{ marginBottom:16 }}>
-                  <p style={{ fontSize:12, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 8px 0' }}>Select a service to tip for</p>
+                  <p style={EYEBROW}>Select a service to tip for</p>
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    {[...jobs.upcoming, ...jobs.past].slice(0,5).filter(j => j.cleaner_first).map(j => (
+                    {[...jobs.past, ...jobs.upcoming].slice(0,5).filter(j => j.cleaner_first).map(j => (
                       <button key={j.id} onClick={() => setTipJob(j)}
                         style={{ background: tipJob?.id===j.id ? `${brandColor}15` : '#FFFFFF', border:`1px solid ${tipJob?.id===j.id ? brandColor : '#E5E2DC'}`, borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, cursor:'pointer', textAlign:'left', fontFamily:'inherit', width:'100%' }}>
                         <InitialAvatar name={`${j.cleaner_first} ${j.cleaner_last}`}/>
                         <div>
                           <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 2px 0' }}>{j.cleaner_first} {j.cleaner_last}</p>
-                          <p style={{ fontSize:11, color:'#6B6860', margin:0 }}>{new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()} · {SERVICE_LABELS[j.service_type] || j.service_type}</p>
+                          <p style={{ fontSize:11, color:'#6B6860', margin:0 }}>{shortDate(j.scheduled_date)} · {SERVICE_LABELS[j.service_type] || j.service_type}</p>
                         </div>
                       </button>
                     ))}
-                    {[...jobs.upcoming, ...jobs.past].filter(j => j.cleaner_first).length === 0 && (
+                    {[...jobs.past, ...jobs.upcoming].filter(j => j.cleaner_first).length === 0 && (
                       <p style={{ fontSize:13, color:'#9E9B94', margin:0 }}>No services with assigned cleaners found.</p>
                     )}
                   </div>
@@ -407,7 +1144,7 @@ export default function PortalDashboardPage() {
 
                 {tipJob && (
                   <>
-                    <p style={{ fontSize:12, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 8px 0' }}>Tip Amount</p>
+                    <p style={EYEBROW}>Tip Amount</p>
                     <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
                       {[5,10,15,20].map(a => (
                         <button key={a} onClick={() => { setTipAmount(a); setCustomTip(''); }}
@@ -419,10 +1156,10 @@ export default function PortalDashboardPage() {
                     <div style={{ marginBottom:20 }}>
                       <input type="number" placeholder="Custom amount" value={customTip}
                         onChange={e => { setCustomTip(e.target.value); setTipAmount(0); }}
-                        style={{ width:'100%', height:42, padding:'0 14px', border:'1px solid #E5E2DC', borderRadius:9, fontSize:14, color:'#1A1917', outline:'none' }}/>
+                        style={INPUT}/>
                     </div>
-                    <button onClick={sendTip} disabled={!tipAmount && !customTip}
-                      style={{ width:'100%', height:46, background:brandColor, color:'#FFFFFF', border:'none', borderRadius:9, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:(!tipAmount && !customTip) ? 0.5 : 1 }}>
+                    <button onClick={sendTip} disabled={(!tipAmount && !customTip) || !caps.payInvoice}
+                      style={primaryBtn({ width:'100%', opacity:((!tipAmount && !customTip) || !caps.payInvoice) ? 0.5 : 1 })}>
                       Send Tip ${customTip || tipAmount}
                     </button>
                   </>
