@@ -21,7 +21,7 @@
 //   - Bump AGREEMENT_BODY_SEED_VERSION when you change a body, or the boot
 //     migration will not pick it up.
 
-export const AGREEMENT_BODY_SEED_VERSION = 4;
+export const AGREEMENT_BODY_SEED_VERSION = 5;
 
 export const RESIDENTIAL_AGREEMENT_BODY = `RESIDENTIAL CLEANING SERVICE AGREEMENT
 
@@ -90,7 +90,7 @@ You have {{hold_notice_free_days}} free hold days in any 12 month period. You ma
 
 If a hold you ask for fits inside the free days you have left, it is free and changes nothing about your rate or your slot.
 
-If it does not fit, the hold takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before that hold ends, nothing is charged. If you do not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at your current rate of {{rate}} per visit. That is the notice amount described in Section 10, and how many visits it comes to depends on how often we clean for you: weekly service is about four, every other week is two or three, monthly is one. That amount is charged to your card on file on the day the hold ends, as authorized in Section 12.
+If it does not fit, the hold takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before that hold ends, nothing is charged. If you do not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at your current rate of {{rate}} per visit. That is the notice amount described in Section 10. We count the visits your own schedule actually had in that window, so the number depends both on how often we clean for you and on where those dates fall in the calendar: weekly service is usually four and sometimes five, every other week usually two and sometimes three, twice a month two, monthly one. That amount is charged to your card on file on the day the hold ends, as authorized in Section 12.
 
 Where a hold is treated as your notice under this Section, this Section controls and Section 10 does not also apply. You will never be billed for both a notice period and a hold covering the same stretch of time.
 
