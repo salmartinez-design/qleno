@@ -38,6 +38,12 @@ export const onMyWayEventsTable = pgTable(
     eta_edited_after_scheduled_start: boolean("eta_edited_after_scheduled_start").notNull().default(false),
     sent_at: timestamp("sent_at", { withTimezone: true }),
     client_notified: boolean("client_notified").notNull().default(false),
+    // [omw-reason 2026-08-20] Why the send did or didn't happen: "sent",
+    // "suppressed_client_opted_out", "error", ... A bare client_notified
+    // boolean hid three months of Twilio auth failures behind the same false
+    // that a legitimately-suppressed send writes.
+    sms_result: text("sms_result"),
+    sms_error: text("sms_error"),
     deferred: boolean("deferred").notNull().default(false),
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

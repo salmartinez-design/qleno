@@ -41,6 +41,15 @@ export async function sendOnMyWaySms(opts: {
   // merged) and passes it here. Empty/undefined → the built-in default below,
   // so a tenant with no template still gets a sensible message.
   bodyOverride?: string;
+  // [on-my-way-creds 2026-08-20] The tenant's own Twilio credentials, resolved
+  // by comms-sender from companies.twilio_account_sid/twilio_auth_token. Every
+  // other sender uses these; this one read process.env directly, and the env
+  // token has been stale since a rotation — Twilio answered 20003 Authenticate
+  // on all 72 taps between 2026-06-10 and 2026-08-19 and not one customer was
+  // ever texted. Env stays as a last-resort fallback for a tenant with no
+  // credentials of its own.
+  accountSid?: string | null;
+  authToken?: string | null;
 }): Promise<OnMyWaySmsResult> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log(
@@ -61,8 +70,8 @@ export async function sendOnMyWaySms(opts: {
           opts.techName
         } is on the way, arriving ${opts.promisedArrivalLabel}.`;
 
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const accountSid = opts.accountSid || process.env.TWILIO_ACCOUNT_SID;
+  const authToken = opts.authToken || process.env.TWILIO_AUTH_TOKEN;
   if (!accountSid || !authToken) {
     return { status: "error", message: "Twilio credentials not configured" };
   }
