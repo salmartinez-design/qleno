@@ -3,9 +3,12 @@ import { tzOf } from "../lib/company-tz.js";
 import { db } from "@workspace/db";
 import { formSubmissionsTable, formTemplatesTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { generateAgreementPdf } from "../lib/generate-agreement-pdf.js";
+import { generateAgreementPdf, renderAgreementPdf } from "../lib/generate-agreement-pdf.js";
 import { renderAgreementCertificate } from "../lib/agreement-certificate.js";
 import { createHash } from "crypto";
+import { appBaseUrl } from "../lib/app-url.js";
+import { sendNotification } from "../services/notificationService.js";
+import { notifyOfficeUsers } from "../lib/notify.js";
 
 const router = Router();
 
@@ -123,6 +126,11 @@ router.post("/:token", async (req, res) => {
         terms_body: formTemplatesTable.terms_body,
         terms_body_override: formSubmissionsTable.terms_body_override,
         company_name: sql<string>`(select name from companies where id = ${formSubmissionsTable.company_id})`,
+        // The signed-copy email greets the customer by name and needs somewhere
+        // to send it. sent_to is the address the link went to; first_name comes
+        // off the client so the email reads like the rest of our mail.
+        client_first_name: sql<string>`(select first_name from clients where id = ${formSubmissionsTable.client_id})`,
+        client_name: sql<string>`(select trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) from clients where id = ${formSubmissionsTable.client_id})`,
       })
       .from(formSubmissionsTable)
       .leftJoin(formTemplatesTable, eq(formSubmissionsTable.form_id, formTemplatesTable.id))
@@ -148,7 +156,13 @@ router.post("/:token", async (req, res) => {
 
     const signedAt = new Date();
     const ua = reqUa(req);
-    const ip = ip_address && ip_address !== "client" ? ip_address : reqIp(req);
+    // [agreement-ip 2026-08-19] The IP on a signature record is evidence, so it
+    // comes from the connection, never from the request body. The page used to
+    // post its own ip_address field and we honored anything that was not the
+    // literal string "client" - meaning the one number a challenger would care
+    // about was whatever the signer's browser felt like claiming. The field is
+    // still accepted and ignored so older clients keep working.
+    const ip = reqIp(req);
     // [agreement-hash-covers-body 2026-08-19] The hash MUST include the exact
     // words that were signed. It used to cover only the signature act
     // (responses + name + timestamp + token), so the agreement text itself was
@@ -172,7 +186,7 @@ router.post("/:token", async (req, res) => {
         termsBody: signedBody,
         responses: responses || {},
         signatureName: signature_name,
-        signedAt: signedAt.toLocaleString("en-US", { timeZone: tzOf(companyId) }),
+        signedAt: signedAt.toLocaleString("en-US", { timeZone: tzOf(submission.company_id) }),
         ipAddress: ip,
         contentHash,
       });
@@ -203,6 +217,45 @@ router.post("/:token", async (req, res) => {
 
     console.log(`[AGREEMENT SIGNED] submission_id=${submission.id} name="${signature_name}" ip=${ip} hash=${contentHash.slice(0, 16)}...`);
 
+    // [agreement-signed-copy 2026-08-19] Send the customer their copy, and tell
+    // the office the contract landed.
+    //
+    // Until now a signature was a silent event: the customer clicked Sign, saw a
+    // confirmation screen, closed the tab and had nothing. Nothing arrived in
+    // their inbox, so months later there was no copy to find, and E-SIGN's whole
+    // premise is that the signer can retain the record. The office learned about
+    // it only by opening the client profile and noticing.
+    //
+    // The link is the durable route below, not pdf_url - pdf_url points at
+    // Railway's ephemeral disk and dies on the next deploy, which for an email
+    // the customer keeps is the same as never sending one.
+    const agreementLink = `${appBaseUrl()}/api/sign/${token}/agreement.pdf`;
+    if (submission.sent_to) {
+      // Transactional: the customer just signed a contract and is owed the copy.
+      // Dropping it because the tenant's marketing gate is off would leave them
+      // with no record of what they agreed to.
+      sendNotification(
+        "agreement_signed", "email", submission.company_id, submission.sent_to, null,
+        {
+          first_name: String((submission as any).client_first_name || "").trim(),
+          agreement_name: submission.form_name || "Service Agreement",
+          agreement_link: agreementLink,
+        },
+        true,
+      ).catch((e) => console.error("[agreement-signed] copy email failed (non-fatal):", e));
+    }
+    notifyOfficeUsers(submission.company_id, {
+      type: "agreement_signed",
+      title: `${String((submission as any).client_name || signature_name).trim()} signed the ${submission.form_name || "service agreement"}`,
+      body: `Signed ${signedAt.toLocaleString("en-US", { timeZone: tzOf(submission.company_id) })}. A copy went to ${submission.sent_to || "the customer"}.`,
+      link: submission.client_id ? `/customers/${submission.client_id}` : "/settings/forms",
+      meta: {
+        submission_id: submission.id,
+        client_id: submission.client_id ?? null,
+        content_hash: contentHash,
+      },
+    }).catch((e) => console.error("[agreement-signed] office alert failed (non-fatal):", e));
+
     return res.json({
       success: true,
       submission_id: updated.id,
@@ -212,6 +265,53 @@ router.post("/:token", async (req, res) => {
     });
   } catch (err) {
     console.error("Sign agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [agreement-signed-copy 2026-08-19] The durable signed copy. generateAgreementPdf
+// writes a file to Railway's disk and hands back an /api/pdfs/<name> URL, which
+// is fine for the link on the confirmation screen and useless for anything the
+// customer keeps: that disk is wiped on every deploy. This route re-renders the
+// same document from the row itself, so the link in the signed-copy email still
+// opens the contract a year from now. Public by token, same as the certificate.
+router.get("/:token/agreement.pdf", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const rows = await db.execute(sql`
+      SELECT fs.id, fs.company_id, fs.responses, fs.signature_name, fs.signature_at,
+             fs.ip_address, fs.content_hash, fs.status, fs.terms_body_override,
+             ft.name AS form_name, ft.terms_body, c.name AS company_name
+        FROM form_submissions fs
+        LEFT JOIN form_templates ft ON ft.id = fs.form_id
+        LEFT JOIN companies c ON c.id = fs.company_id
+       WHERE fs.sign_token = ${token} LIMIT 1
+    `);
+    const s: any = (rows as any).rows[0];
+    if (!s) return res.status(404).json({ error: "Not Found" });
+    if (s.status !== "signed") return res.status(409).json({ error: "Agreement has not been signed yet" });
+
+    const pdf = await renderAgreementPdf({
+      submissionId: s.id,
+      formName: s.form_name || "Service Agreement",
+      companyName: s.company_name || "Qleno",
+      // The frozen per-send copy is what the customer read and what the hash
+      // covers. Falling back to the template body would show them a document
+      // that is not the one they signed.
+      termsBody: s.terms_body_override || s.terms_body || "",
+      responses: (s.responses as Record<string, string>) || {},
+      signatureName: s.signature_name || "",
+      signedAt: s.signature_at
+        ? new Date(s.signature_at).toLocaleString("en-US", { timeZone: tzOf(s.company_id) })
+        : "",
+      ipAddress: s.ip_address || "",
+      contentHash: s.content_hash || "",
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="signed-agreement.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Agreement PDF error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -241,7 +341,7 @@ router.get("/:token/certificate.pdf", async (req, res) => {
       envelopeId: `QL-${String(token).slice(0, 8).toUpperCase()}`,
       signerName: s.signature_name, signerEmail: s.sent_to,
       status: s.status === "signed" ? "completed" : s.status,
-      contentHash: s.content_hash || "—",
+      contentHash: s.content_hash || "not recorded",
       consent: !!s.consent_at,
       events: ((evs as any).rows || []).map((e: any) => ({
         type: e.event_type, at: e.created_at, ip: e.ip_address, userAgent: e.user_agent, email: e.actor_email,

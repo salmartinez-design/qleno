@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "wouter";
 import { Check, AlertCircle, Clock, FileText, ChevronRight, ChevronLeft, Shield } from "lucide-react";
 
@@ -48,6 +48,21 @@ export default function SignPage() {
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<any | null>(null);
+  // [agreement-scroll-gate 2026-08-19] "I have read this agreement" used to be
+  // clickable the instant the page loaded, with the contract still scrolled to
+  // its first line. That is the sentence a customer disputes later, and there
+  // was nothing on our side to say they had ever seen past the header. The
+  // button now waits until the text has actually been scrolled to the end.
+  const termsRef = useRef<HTMLDivElement | null>(null);
+  const [readToEnd, setReadToEnd] = useState(false);
+
+  // A short agreement that fits without a scrollbar can never fire a scroll
+  // event, so measure on mount too - otherwise the gate becomes a dead end.
+  const checkReadToEnd = () => {
+    const el = termsRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight <= 24) setReadToEnd(true);
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -86,6 +101,10 @@ export default function SignPage() {
   const schema = Array.isArray(data?.form_schema) ? data.form_schema : [];
   const termsBody = data?.terms_body || "";
 
+  // Runs once the agreement text is in the DOM. Declared before the loading and
+  // error returns so the hook order never changes between renders.
+  useEffect(() => { checkReadToEnd(); }, [termsBody, step]);
+
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ textAlign: "center", color: "#6B6860" }}>
@@ -120,11 +139,13 @@ export default function SignPage() {
             : `Thank you, ${success?.signature_name || signatureName}. Your signed agreement has been recorded.`}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-          {(success?.pdf_url || data?.pdf_url) && (
-            <a href={success?.pdf_url || data?.pdf_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: brand, color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
-              <FileText size={16} /> Download Signed Copy
-            </a>
-          )}
+          {/* [agreement-signed-copy 2026-08-19] Points at the route that renders
+              from the database, not at pdf_url. pdf_url is a file on the
+              server's disk that is gone after the next deploy, so anyone who
+              bookmarked this button got a 404 within days. */}
+          <a href={`${API}/api/sign/${token}/agreement.pdf`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: brand, color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+            <FileText size={16} /> Download signed copy
+          </a>
           <a href={`${API}/api/sign/${token}/certificate.pdf`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", color: "#1A1917", border: "1px solid #E5E2DC", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
             <Shield size={16} /> Certificate of Completion
           </a>
@@ -161,7 +182,7 @@ export default function SignPage() {
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{formName}</div>
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>Please read the entire agreement before continuing</div>
               </div>
-              <div style={{ padding: "28px 32px", maxHeight: "50vh", overflowY: "auto" }}>
+              <div ref={termsRef} onScroll={checkReadToEnd} style={{ padding: "28px 32px", maxHeight: "50vh", overflowY: "auto" }}>
                 {termsBody ? (
                   <div style={{ fontSize: 13.5, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody}</div>
                 ) : (
@@ -169,9 +190,14 @@ export default function SignPage() {
                 )}
               </div>
               <div style={{ padding: "20px 32px", borderTop: "1px solid #F5F4F2", background: "#F7F6F3" }}>
-                <button onClick={() => setStep(1)} style={{ width: "100%", padding: "13px", background: brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <button onClick={() => setStep(1)} disabled={!readToEnd} style={{ width: "100%", padding: "13px", background: brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 15, cursor: readToEnd ? "pointer" : "not-allowed", opacity: readToEnd ? 1 : 0.55, fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   I have read this agreement <ChevronRight size={18} />
                 </button>
+                {!readToEnd && (
+                  <div style={{ fontSize: 12.5, color: "#6B6860", textAlign: "center", marginTop: 10 }}>
+                    Scroll to the end of the agreement to continue
+                  </div>
+                )}
               </div>
             </div>
           )}
