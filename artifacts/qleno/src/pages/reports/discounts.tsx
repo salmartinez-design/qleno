@@ -6,7 +6,9 @@ function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; }
 
 interface DiscountRow {
-  id: number; date: string; code: string | null; type: string; value: number; amount: number;
+  // Ids are prefixed strings ('promo-12' / 'mod-8') because the report unions
+  // two tables whose ids overlap.
+  id: string; date: string; code: string | null; type: string; value: number; amount: number;
   reason: string | null; applied_by: string | null; client_name: string | null;
   service_type: string | null; job_date: string | null;
 }

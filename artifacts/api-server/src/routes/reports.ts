@@ -1893,8 +1893,19 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
 });
 
 // ─── DISCOUNTS ───────────────────────────────────────────────────────────────
-// Every discount applied to a job in the window (from job_discounts), so the
-// office can see what's being given away and to whom.
+// Every discount applied to a job in the window, so the office can see what's
+// being given away and to whom.
+//
+// [discount-two-tables 2026-08-20] This read only job_discounts, which is
+// written by the automatic promo engine ALONE (lib/auto-promos.ts). Every
+// discount a human gives -- the quote builder's conversion rows
+// (routes/quotes.ts) and the office's hand-typed minus row on the job card
+// (routes/jobs.ts) -- lands in job_rate_mods as a NEGATIVE amount and was
+// invisible here. On Phes that was the difference between $24 reported and
+// roughly $2,700 actually given away since the July cutover, which made the
+// report read as "we barely discount" while the owner's daily recap disagreed.
+// Both tables are now unioned, normalised to a positive "money off". Their
+// writers are disjoint, so the same discount cannot appear twice.
 router.get("/discounts", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
@@ -1905,19 +1916,45 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
     const { fromStr: floorFrom, clamp: rangeClamp } = await clampFrom(companyId, fromStr, toStr);
     fromStr = floorFrom;
     const rows = await db.execute(sql`
-      SELECT
-        jd.id, jd.code, jd.type, jd.value, jd.amount, jd.reason, jd.created_at,
-        u.first_name AS by_first, u.last_name AS by_last,
-        c.first_name AS client_first, c.last_name AS client_last, c.company_name AS client_company,
-        j.id AS job_id, j.service_type, j.scheduled_date
-      FROM job_discounts jd
-      JOIN jobs j ON j.id = jd.job_id
-      LEFT JOIN clients c ON c.id = j.client_id
-      LEFT JOIN users u ON u.id = jd.applied_by
-      WHERE jd.company_id = ${companyId}
-        AND jd.created_at::date BETWEEN ${fromStr} AND ${toStr}
-        ${branchFilter(req, "j.branch_id")}
-      ORDER BY jd.created_at DESC LIMIT 1000
+      SELECT * FROM (
+        SELECT
+          'promo-' || jd.id::text AS id, jd.code, jd.type, jd.value,
+          CAST(jd.amount AS NUMERIC) AS amount, jd.reason, jd.created_at,
+          u.first_name AS by_first, u.last_name AS by_last,
+          c.first_name AS client_first, c.last_name AS client_last, c.company_name AS client_company,
+          j.id AS job_id, j.service_type, j.scheduled_date
+        FROM job_discounts jd
+        JOIN jobs j ON j.id = jd.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN users u ON u.id = jd.applied_by
+        WHERE jd.company_id = ${companyId}
+          AND CAST(jd.amount AS NUMERIC) > 0
+          AND jd.created_at::date BETWEEN ${fromStr} AND ${toStr}
+          ${branchFilter(req, "j.branch_id")}
+
+        UNION ALL
+
+        -- Hand-given discounts. job_rate_mods has no code/percent concept, so
+        -- type is reported as 'flat': the row IS a flat dollar reduction.
+        SELECT
+          -- `value` is the "Discount" column on the report. A flat row has no
+          -- separate rate, so it repeats the dollars off rather than showing $0.
+          'mod-' || m.id::text AS id, NULL AS code, 'flat' AS type,
+          CAST(m.amount AS NUMERIC) * -1 AS value,
+          CAST(m.amount AS NUMERIC) * -1 AS amount, m.reason, m.created_at,
+          u.first_name AS by_first, u.last_name AS by_last,
+          c.first_name AS client_first, c.last_name AS client_last, c.company_name AS client_company,
+          j.id AS job_id, j.service_type, j.scheduled_date
+        FROM job_rate_mods m
+        JOIN jobs j ON j.id = m.job_id
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN users u ON u.id = m.created_by
+        WHERE m.company_id = ${companyId}
+          AND CAST(m.amount AS NUMERIC) < 0
+          AND m.created_at::date BETWEEN ${fromStr} AND ${toStr}
+          ${branchFilter(req, "j.branch_id")}
+      ) d
+      ORDER BY created_at DESC LIMIT 1000
     `);
     const data = (rows.rows as any[]).map(r => ({
       id: r.id, date: r.created_at,
