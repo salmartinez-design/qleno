@@ -113,7 +113,6 @@ const AccountsPage        = lazy(() => import("@/pages/accounts"));
 const RecurringSchedulesPage = lazy(() => import("@/pages/recurring-schedules"));
 const AccountDetailPage   = lazy(() => import("@/pages/account-detail"));
 const OnboardPage         = lazy(() => import("@/pages/onboard"));
-const SignDocPage          = lazy(() => import("@/pages/sign-doc"));
 const BookPage            = lazy(() => import("@/pages/book"));
 const BookQuotePage       = lazy(() => import("@/pages/book-quote"));
 const LeadsPage           = lazy(() => import("@/pages/leads"));
@@ -179,7 +178,6 @@ const TECH_ALLOWED_PREFIXES = [
   "/settings/notifications",  // tech notification prefs (avatar menu → Notification settings)
   "/pay/",        // token-based payment link
   "/sign/",       // token-based document sign
-  "/sign-doc/",   // token-based document sign
   "/onboard/",    // token-based onboarding
   "/book/",       // token-based booking
   "/survey/",     // token-based survey
@@ -408,7 +406,6 @@ function Router() {
         <Route path="/pay/:token" component={PayPage} />
         <Route path="/sign/:token" component={SignPage} />
         <Route path="/onboard/:token" component={OnboardPage} />
-        <Route path="/sign-doc/:token" component={SignDocPage} />
 
         <Route path="/notifications" component={NotificationsPage} />
 

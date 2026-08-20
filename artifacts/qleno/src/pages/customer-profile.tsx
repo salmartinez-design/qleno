@@ -1972,7 +1972,7 @@ function errText(e: any, fallback: string): string {
   try { const j = JSON.parse(raw); return j?.message || j?.error || fallback; } catch { return raw || fallback; }
 }
 
-function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; agreements: any[]; refetch: () => void }) {
+function AgreementsTab({ clientId, refetch }: { clientId: number; refetch: () => void }) {
   const [showModal, setShowModal] = useState(false);
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [homeId, setHomeId] = useState<number | null>(null);
@@ -2038,10 +2038,11 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
   const BTN_PRIMARY: React.CSSProperties = { padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" };
   const BTN_GHOST: React.CSSProperties = { padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B6860", fontSize: 13, cursor: "pointer" };
 
-  const allDocs = [
-    ...submissions.map((d: any) => ({ ...d, _src: "new" })),
-    ...agreements.map((a: any) => ({ ...a, _src: "legacy" })),
-  ];
+  // [retire-legacy-agreements 2026-08-20] This used to merge in a second list
+  // of `client_agreements` rows tagged "legacy". That table never held a row in
+  // production and its routes are gone, so there is one source of agreements
+  // now: the form_submissions this tab already loads.
+  const allDocs = submissions;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -2155,16 +2156,12 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
             {allDocs.length === 0 ? (
               <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left", color: "#9E9B94", fontSize: "13px" }}>No agreements sent yet</td></tr>
             ) : allDocs.map((a: any) => {
-              const isNew = a._src === "new";
-              const isSigned = isNew ? a.status === "signed" : !!a.accepted_at;
-              const expired = isNew && a.status !== "signed" && a.expires_at && new Date(a.expires_at) < new Date();
+              const isSigned = a.status === "signed";
+              const expired = !isSigned && a.expires_at && new Date(a.expires_at) < new Date();
               return (
-                <tr key={`${a._src}-${a.id}`} style={{ borderBottom: "1px solid #F0EEE9" }}>
+                <tr key={a.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                   <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>
                     {a.template_name || "Service Agreement"}
-                    {/* The old stack had no signing page behind it, so say so
-                        rather than letting a dead row look like a live one. */}
-                    {!isNew && <span style={{ marginLeft: 8, fontSize: 11, color: "#9E9B94", fontWeight: 500 }}>legacy record</span>}
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(a.sent_at)}</td>
                   <td style={{ padding: "12px 16px" }}>
@@ -2172,16 +2169,16 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
                       ? <span style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
                       : expired
                       ? <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Expired</span>
-                      : isNew && a.viewed_at
+                      : a.viewed_at
                       ? <span style={{ background: "#EEF4FD", color: "#2563EB", border: "1px solid #CBDDF8", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Viewed</span>
                       : <span style={{ background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
                     }
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>
-                    {isNew ? (a.signature_at ? fmtDate(a.signature_at) : "—") : (a.accepted_at ? fmtDate(a.accepted_at) : "—")}
+                    {a.signature_at ? fmtDate(a.signature_at) : "—"}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
-                    {isNew && !isSigned && !expired && a.sign_token && (
+                    {!isSigned && !expired && a.sign_token && (
                       <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/sign/${a.sign_token}`); }}
                         style={{ fontSize: 12, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}>
                         Copy link
@@ -7624,13 +7621,14 @@ export default function CustomerProfilePage() {
 
               {/* Agreements */}
               <div style={CS}>
-                <SectionHead title="Agreements" action={
-                  <button
-                    onClick={() => apiFetch(`/api/clients/${clientId}/agreements/send`, { method: "POST", body: JSON.stringify({}) }).then(() => { refetchProfile(); showToast("Agreement sent"); }).catch(() => showToast("Failed to send", "error"))}
-                    style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                  >Send Agreement</button>
-                } />
-                <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
+                {/* [retire-legacy-agreements 2026-08-20] A second "Send
+                    Agreement" button used to sit in this header. It posted to
+                    a route that wrote a dead database row and a customer
+                    communication log line saying the agreement was sent, then
+                    returned success having sent no email at all. The real Send
+                    Agreement button is inside the section below. */}
+                <SectionHead title="Agreements" />
+                <AgreementsTab clientId={clientId} refetch={refetchProfile} />
               </div>
             </div>
           </div>
@@ -7827,7 +7825,7 @@ export default function CustomerProfilePage() {
             </>)}
             {activeTab === "admin" && (<>
               <CollapsibleSection title="Quotes"><QuotesTab clientId={clientId} client={profile} /></CollapsibleSection>
-              <CollapsibleSection title="Agreements" count={(profile.agreements || []).length || undefined}><AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} /></CollapsibleSection>
+              <CollapsibleSection title="Agreements"><AgreementsTab clientId={clientId} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Scorecards" count={(profile.scorecards || []).length || undefined}><ScorecardsTab scorecards={profile.scorecards || []} /></CollapsibleSection>
               {/* [notifications-merge 2026-07-08] One Notifications section. */}
               <CollapsibleSection title="Notifications" count={(profile.notification_settings || []).length || undefined}>

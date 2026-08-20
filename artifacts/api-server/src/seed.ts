@@ -128,7 +128,6 @@ async function cleanupDemoData(companyId: number) {
       UPDATE client_communications SET sent_by = NULL       WHERE sent_by          IN (${ids});
       UPDATE client_attachments SET uploaded_by = NULL      WHERE uploaded_by      IN (${ids});
       UPDATE job_photos         SET uploaded_by = NULL      WHERE uploaded_by      IN (${ids});
-      UPDATE agreement_templates SET created_by = NULL      WHERE created_by       IN (${ids});
       UPDATE document_templates  SET created_by = NULL      WHERE created_by       IN (${ids});
       UPDATE form_templates      SET created_by = NULL      WHERE created_by       IN (${ids});
       UPDATE form_submissions    SET submitted_by = NULL    WHERE submitted_by     IN (${ids});
