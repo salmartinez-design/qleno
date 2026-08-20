@@ -224,6 +224,20 @@ export async function linkEnrollmentToLead(companyId: number, quoteId: number, l
 }
 
 // Inbound reply / opt-out → stop active cadence for the lead(s) on that phone.
+//
+// [stop-is-sms-only 2026-08-20] A REPLY stops the whole cadence: a person is now
+// in the conversation and the office takes it from here. STOP does not, because
+// STOP is a text-message word. It means "quit texting me", not "quit contacting
+// me" -- that is what the email unsubscribe link is for, and it sets
+// email_opt_out_at instead. Stopping the enrollment outright silenced the email
+// steps too, which is how Hadeel Tarawneh's Pious Projects estimate lost its
+// Friday follow-up email after she texted STOP on the Thursday reminder. She
+// never unsubscribed from email and her email_opt_out_at was null the whole time.
+//
+// Leaving the enrollment running is safe and needs no extra guard: the runner
+// already checks isSmsOptedOut before every SMS step, marks that touch 'blocked',
+// and advances to the next step. So the SMS steps go quiet on their own and the
+// email steps keep going, which is exactly what STOP asked for.
 export async function handleInboundReply(companyId: number, fromPhone: string, optOut: boolean): Promise<number[]> {
   const phone10 = digits(fromPhone).slice(-10);
   if (!phone10) return [];
@@ -233,9 +247,11 @@ export async function handleInboundReply(companyId: number, fromPhone: string, o
   const ids = (leads.rows as any[]).map(r => r.id);
   const reason = optOut ? "opted_out" : "replied";
   for (const id of ids) {
-    await db.execute(sql`
-      UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${reason}, next_fire_at = NULL
-       WHERE company_id = ${companyId} AND lead_id = ${id} AND completed_at IS NULL AND stopped_at IS NULL`).catch(() => {});
+    if (!optOut) {
+      await db.execute(sql`
+        UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${reason}, next_fire_at = NULL
+         WHERE company_id = ${companyId} AND lead_id = ${id} AND completed_at IS NULL AND stopped_at IS NULL`).catch(() => {});
+    }
     // Surface the reply on the board: replied_at drives the REPLIED badge +
     // top-of-column sort. Cleared when the office opens the lead or logs a
     // call. Opt-outs don't get the badge — there's nothing to call back about.
@@ -244,7 +260,7 @@ export async function handleInboundReply(companyId: number, fromPhone: string, o
         UPDATE leads SET replied_at = NOW(), updated_at = NOW()
          WHERE id = ${id} AND company_id = ${companyId}`).catch(() => {});
     }
-    await logActivity(companyId, id, reason, optOut ? "Customer opted out (STOP)" : "Customer replied — cadence stopped", null);
+    await logActivity(companyId, id, reason, optOut ? "Customer opted out of texts (STOP) — email follow-up continues" : "Customer replied — cadence stopped", null);
   }
   return ids;
 }
