@@ -60,7 +60,7 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   { token: "access_notes",       label: "Entry instructions",        example: "Someone will grant access" },
   // Hold terms — editable under Company Settings → Service Agreement Terms.
   { token: "hold_max_days",         label: "Maximum service hold (days)", example: "90" },
-  { token: "hold_notice_free_days", label: "Hold length that needs no notice authorization (days)", example: "30" },
+  { token: "hold_notice_free_days", label: "Free service hold per 12 months (days)", example: "30" },
 ];
 
 // Human labels for the recurring cadence. The enum values read like column
