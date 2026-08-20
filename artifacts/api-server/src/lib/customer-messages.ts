@@ -579,6 +579,42 @@ export interface RenderedTemplate {
 // When a row exists but is paused, returns { is_active:false } so the caller can
 // honor the office's "off" choice. Reads body_html/body_text first (kept in sync
 // with body by the editor), falling back to body.
+// [sms-merge-tag-blanks 2026-08-19] Tag names an office template may legitimately
+// use, mapped onto the name the senders actually pass. applyMergeTags resolves an
+// unknown tag to "" SILENTLY, so a body written against the wrong alias goes out
+// with holes in it rather than failing loudly.
+//
+// This is the same class of bug as [legacy-merge-tags 2026-08-09] in
+// notificationService, which aliases client_name/amount for EMAIL. The SMS path
+// renders here instead and never got that treatment, so it stayed broken: the
+// live Schaumburg "on my way" text reads
+//   "Hi Jane,  from Phes is on the way - arriving during your  window. Questions? ."
+// because its body uses technician_name / appointment_window / company_phone
+// while routes/tech-clock.ts (the field app's On My Way, the real send path)
+// passes tech_name / arrival_window and no phone at all.
+//
+// Fill-only in BOTH directions: a caller that already supplies a name keeps its
+// own value, so no send that works today changes.
+const TAG_ALIASES: string[][] = [
+  ["tech_name", "technician_name", "tech_first_names"],
+  ["arrival_window", "appointment_window"],
+  ["first_name", "client_name"],
+];
+
+function fillTagAliases(vars: Record<string, string | null | undefined>): void {
+  for (const group of TAG_ALIASES) {
+    const filled = group.find((k) => {
+      const v = vars[k];
+      return v != null && String(v).trim() !== "";
+    });
+    if (!filled) continue;
+    for (const k of group) {
+      const v = vars[k];
+      if (v == null || String(v).trim() === "") vars[k] = vars[filled];
+    }
+  }
+}
+
 export async function renderCustomerTemplate(
   companyId: number,
   trigger: string,
@@ -596,9 +632,36 @@ export async function renderCustomerTemplate(
     channel === "email"
       ? tpl.body_html || tpl.body || ""
       : tpl.body_text || tpl.body || "";
+
+  // Enrich a COPY — callers reuse their vars object across a reminder loop.
+  const merged: Record<string, string | null | undefined> = { ...vars };
+
+  // company_* is advertised in MERGE_TAGS and every email gets it injected by
+  // sendNotification, but no SMS caller passes it. Only look it up when the body
+  // actually asks, so the reminder loop doesn't take a query per job for nothing.
+  const text = `${rawBody}${tpl.subject ?? ""}`;
+  const wantsCompany = /\{\{\s*company_(name|phone|email)\s*\}\}/.test(text);
+  const missingCompany = ["company_name", "company_phone", "company_email"].some(
+    (k) => merged[k] == null || String(merged[k]).trim() === "",
+  );
+  if (wantsCompany && missingCompany) {
+    const co = await db.execute(sql`
+      SELECT name, phone, email FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const row = co.rows[0] as any;
+    if (row) {
+      // Never overwrite what the caller passed — a branch-resolved phone or
+      // display name is more specific than the tenant row.
+      if (!merged.company_name)  merged.company_name  = row.name  ?? "";
+      if (!merged.company_phone) merged.company_phone = row.phone ?? "";
+      if (!merged.company_email) merged.company_email = row.email ?? "";
+    }
+  }
+
+  fillTagAliases(merged);
+
   return {
-    subject: tpl.subject ? applyMergeTags(tpl.subject, vars) : null,
-    body: applyMergeTags(rawBody, vars),
+    subject: tpl.subject ? applyMergeTags(tpl.subject, merged) : null,
+    body: applyMergeTags(rawBody, merged),
     is_active: !!tpl.is_active,
   };
 }
