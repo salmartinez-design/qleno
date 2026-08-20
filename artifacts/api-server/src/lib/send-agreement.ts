@@ -21,6 +21,8 @@ import { randomUUID } from "crypto";
 import { appBaseUrl } from "./app-url.js";
 import { renderAgreementFor } from "./agreement-merge.js";
 import { sendNotification } from "../services/notificationService.js";
+import { emailLogoUrl } from "./app-url.js";
+import { agreementEmailShell } from "./phes-agreement-emails.js";
 
 // How long a signing link stays good. Matches the estimate flow. The old
 // document_requests path expired in 72 HOURS, which is not enough time for a
@@ -131,6 +133,11 @@ export async function sendAgreementToClient(opts: SendAgreementOpts): Promise<Se
   // Transactional: a deliberate staff action on a contract the client is
   // waiting for. Same reasoning as the portal invite — silently dropping this
   // leaves a customer who agreed to service with no way to sign.
+  const co: any = (await db.execute(sql`
+    SELECT logo_url FROM companies WHERE id = ${companyId} LIMIT 1
+  `)).rows[0];
+  const logoUrl = emailLogoUrl(co?.logo_url ?? null);
+
   const emailed = await sendNotification(
     "agreement_send", "email", companyId, email, null,
     {
@@ -140,6 +147,19 @@ export async function sendAgreementToClient(opts: SendAgreementOpts): Promise<Se
       expires_days: String(LINK_VALID_DAYS),
     },
     true,
+    // [agreement-brand 2026-08-19] Wrap the template body in the Phes shell
+    // instead of the generic notification wrapper, so the one message that
+    // asks for a signature looks like the same company as the booking
+    // confirmation. The body still comes from the template, so an office edit
+    // in Settings survives and stays on brand.
+    (bodyHtml, vars) => agreementEmailShell({
+      logoUrl,
+      companyName: vars.company_name,
+      companyPhone: vars.company_phone,
+      companyEmail: vars.company_email,
+      title: `Your ${vars.company_name || "Phes"} service agreement`,
+      banner: "Your service agreement is ready to sign",
+    }, bodyHtml),
   ).catch(() => false);
 
   return {

@@ -6,8 +6,9 @@ import { eq, and, sql } from "drizzle-orm";
 import { generateAgreementPdf, renderAgreementPdf } from "../lib/generate-agreement-pdf.js";
 import { renderAgreementCertificate } from "../lib/agreement-certificate.js";
 import { createHash } from "crypto";
-import { appBaseUrl } from "../lib/app-url.js";
+import { appBaseUrl, emailLogoUrl } from "../lib/app-url.js";
 import { sendNotification } from "../services/notificationService.js";
+import { agreementEmailShell } from "../lib/phes-agreement-emails.js";
 import { notifyOfficeUsers } from "../lib/notify.js";
 
 const router = Router();
@@ -39,6 +40,12 @@ router.get("/:token", async (req, res) => {
         company_name: sql<string>`(select name from companies where id = ${formSubmissionsTable.company_id})`,
         company_logo: sql<string | null>`(select logo_url from companies where id = ${formSubmissionsTable.company_id})`,
         company_brand: sql<string | null>`(select brand_color from companies where id = ${formSubmissionsTable.company_id})`,
+        // [agreement-brand 2026-08-19] The signing page is a customer-facing
+        // surface and was showing a generic file icon and the word "Qleno".
+        // It needs the same contact block the emails carry, so the customer
+        // can reach a person before signing rather than after.
+        company_phone: sql<string | null>`(select phone from companies where id = ${formSubmissionsTable.company_id})`,
+        company_email: sql<string | null>`(select email from companies where id = ${formSubmissionsTable.company_id})`,
         client_first: clientsTable.first_name,
         client_last: clientsTable.last_name,
         client_email: clientsTable.email,
@@ -177,12 +184,22 @@ router.post("/:token", async (req, res) => {
     });
     const contentHash = createHash("sha256").update(contentToHash).digest("hex");
 
+    // [agreement-brand 2026-08-19] The tenant's own mark, absolutized -
+    // companies.logo_url usually holds a relative path, which neither a mail
+    // client nor the PDF fetcher can resolve. Looked up here rather than at
+    // the email below because the signed PDF prints it too.
+    const coLogo: any = (await db.execute(sql`
+      SELECT logo_url FROM companies WHERE id = ${submission.company_id} LIMIT 1
+    `)).rows[0];
+    const agreementLogoUrl = emailLogoUrl(coLogo?.logo_url ?? null);
+
     let pdfUrl: string | null = null;
     try {
       pdfUrl = await generateAgreementPdf({
         submissionId: submission.id,
         formName: submission.form_name || "Service Agreement",
-        companyName: submission.company_name || "Qleno",
+        companyName: submission.company_name || "",
+        logoUrl: agreementLogoUrl,
         termsBody: signedBody,
         responses: responses || {},
         signatureName: signature_name,
@@ -230,6 +247,11 @@ router.post("/:token", async (req, res) => {
     // Railway's ephemeral disk and dies on the next deploy, which for an email
     // the customer keeps is the same as never sending one.
     const agreementLink = `${appBaseUrl()}/api/sign/${token}/agreement.pdf`;
+    const signedAtDisplay = signedAt.toLocaleString("en-US", {
+      timeZone: tzOf(submission.company_id),
+      dateStyle: "long",
+      timeStyle: "short",
+    });
     if (submission.sent_to) {
       // Transactional: the customer just signed a contract and is owed the copy.
       // Dropping it because the tenant's marketing gate is off would leave them
@@ -240,8 +262,18 @@ router.post("/:token", async (req, res) => {
           first_name: String((submission as any).client_first_name || "").trim(),
           agreement_name: submission.form_name || "Service Agreement",
           agreement_link: agreementLink,
+          signed_name: String(signature_name || "").trim(),
+          signed_at: signedAtDisplay,
         },
         true,
+        (bodyHtml, vars) => agreementEmailShell({
+          logoUrl: agreementLogoUrl,
+          companyName: vars.company_name,
+          companyPhone: vars.company_phone,
+          companyEmail: vars.company_email,
+          title: `Your signed ${vars.company_name || "Phes"} service agreement`,
+          banner: "Signed. Here is your copy",
+        }, bodyHtml),
       ).catch((e) => console.error("[agreement-signed] copy email failed (non-fatal):", e));
     }
     notifyOfficeUsers(submission.company_id, {
@@ -281,7 +313,8 @@ router.get("/:token/agreement.pdf", async (req, res) => {
     const rows = await db.execute(sql`
       SELECT fs.id, fs.company_id, fs.responses, fs.signature_name, fs.signature_at,
              fs.ip_address, fs.content_hash, fs.status, fs.terms_body_override,
-             ft.name AS form_name, ft.terms_body, c.name AS company_name
+             ft.name AS form_name, ft.terms_body, c.name AS company_name,
+             c.logo_url AS company_logo
         FROM form_submissions fs
         LEFT JOIN form_templates ft ON ft.id = fs.form_id
         LEFT JOIN companies c ON c.id = fs.company_id
@@ -294,7 +327,8 @@ router.get("/:token/agreement.pdf", async (req, res) => {
     const pdf = await renderAgreementPdf({
       submissionId: s.id,
       formName: s.form_name || "Service Agreement",
-      companyName: s.company_name || "Qleno",
+      companyName: s.company_name || "",
+      logoUrl: emailLogoUrl(s.company_logo ?? null),
       // The frozen per-send copy is what the customer read and what the hash
       // covers. Falling back to the template body would show them a document
       // that is not the one they signed.
@@ -336,7 +370,7 @@ router.get("/:token/certificate.pdf", async (req, res) => {
       FROM agreement_events WHERE agreement_id = ${s.id} AND company_id = ${s.company_id} ORDER BY created_at ASC, id ASC
     `);
     const pdf = await renderAgreementCertificate({
-      companyName: s.company_name || "Qleno",
+      companyName: s.company_name || "",
       agreementTitle: s.form_name || "Service Agreement",
       envelopeId: `QL-${String(token).slice(0, 8).toUpperCase()}`,
       signerName: s.signature_name, signerEmail: s.sent_to,

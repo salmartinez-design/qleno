@@ -13,6 +13,15 @@ async function publicFetch(path: string, opts: RequestInit = {}) {
 
 const STEP_LABELS = ["Review Agreement", "Your Information", "Sign & Submit"];
 
+// Used only when the form template carries no field schema of its own. These
+// four keys match what the page pre-fills from the client record on load.
+const FALLBACK_FIELDS = [
+  { key: "full_name", label: "Full name", placeholder: "" },
+  { key: "email", label: "Email", placeholder: "" },
+  { key: "phone", label: "Phone", placeholder: "" },
+  { key: "address", label: "Service address", placeholder: "" },
+];
+
 function ProgressBar({ step, total }: { step: number; total: number }) {
   return (
     <div style={{ display: "flex", gap: 0, margin: "0 0 28px" }}>
@@ -95,15 +104,86 @@ export default function SignPage() {
     }
   };
 
+  // [agreement-brand 2026-08-19] This page is where a customer signs a
+  // contract, and it was the least branded surface we own: a generic file
+  // icon in a pill, the literal word "Qleno" whenever the company name was
+  // missing, and a vendor credit in the footer. It now carries the tenant's
+  // own logo over a brand rule and closes with their phone and email, the
+  // same chrome as the agreement email that brought the customer here.
   const brand = data?.company_brand || "var(--brand)";
-  const companyName = data?.company_name || "Qleno";
+  const companyName = data?.company_name || "";
   const formName = data?.form_name || "Service Agreement";
+  const companyPhone = data?.company_phone || "";
+  const companyEmail = data?.company_email || "";
+  const rawLogo = data?.company_logo || "";
+  const logoSrc = rawLogo
+    ? (/^https?:/i.test(rawLogo) ? rawLogo : `${API}${rawLogo.startsWith("/") ? "" : "/"}${rawLogo}`)
+    : "";
   const schema = Array.isArray(data?.form_schema) ? data.form_schema : [];
+  const fields = schema.filter((f: any) => f.type !== "section");
   const termsBody = data?.terms_body || "";
 
   // Runs once the agreement text is in the DOM. Declared before the loading and
   // error returns so the hook order never changes between renders.
-  useEffect(() => { checkReadToEnd(); }, [termsBody, step]);
+  //
+  // [agreement-scroll-gate 2026-08-19] Measuring only once, right here, is too
+  // early: the webfont and the letterhead image both land after this effect
+  // runs, so the box is still taller than its content at this moment. A short
+  // agreement therefore fails the check, then has nothing to scroll and so
+  // never fires a scroll event either - the customer is left staring at a
+  // permanently disabled button on the page where they are meant to sign.
+  // Caught in preview on a three-section agreement. Re-measure on the next
+  // frame, once the fonts have settled, and on any later layout change.
+  useEffect(() => {
+    const el = termsRef.current;
+    if (!el) return;
+    checkReadToEnd();
+    const raf = requestAnimationFrame(checkReadToEnd);
+    const ro = new ResizeObserver(checkReadToEnd);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    (document as any).fonts?.ready?.then(checkReadToEnd).catch(() => {});
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [termsBody, step]);
+
+  // Logo over a brand rule, exactly like the email header. Falls back to the
+  // company name set in type when the tenant has not uploaded a mark, and to
+  // nothing at all rather than printing a placeholder at a customer.
+  const Letterhead = ({ caption }: { caption?: string }) => (
+    <div style={{ textAlign: "center", marginBottom: 28 }}>
+      <div style={{ display: "inline-block", background: "#fff", border: "1px solid #E5E2DC", borderBottom: `3px solid ${brand}`, borderRadius: "12px 12px 4px 4px", padding: "18px 34px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+        {logoSrc
+          ? <img src={logoSrc} alt={companyName} style={{ display: "block", height: 54, width: "auto", maxWidth: 200, margin: "0 auto" }} />
+          : companyName
+            ? <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: "0.02em", color: "#1A1917" }}>{companyName}</div>
+            : <FileText size={26} color={brand} style={{ display: "block", margin: "0 auto" }} />}
+      </div>
+      {caption && (
+        <div style={{ fontSize: 12, letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 600, color: "#6B6860", marginTop: 14 }}>{caption}</div>
+      )}
+    </div>
+  );
+
+  // Navy contact band, same as the email footer. A customer with a question
+  // about what they are signing should not have to go looking for a number.
+  const ContactFooter = ({ heading = "Questions before you sign?" }: { heading?: string }) => (
+    <div style={{ marginTop: 26 }}>
+      {(companyPhone || companyEmail) && (
+        <div style={{ background: "#0A0E1A", borderRadius: 12, padding: "20px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{heading}</div>
+          <div style={{ fontSize: 13, color: "#9DA3B0", lineHeight: 1.8 }}>
+            {companyPhone && <a href={`tel:${companyPhone.replace(/[^0-9+]/g, "")}`} style={{ color: "#9DA3B0", textDecoration: "none" }}>{companyPhone}</a>}
+            {companyPhone && companyEmail && <span>&nbsp;&middot;&nbsp;</span>}
+            {companyEmail && <a href={`mailto:${companyEmail}`} style={{ color: "#9DA3B0", textDecoration: "none" }}>{companyEmail}</a>}
+          </div>
+        </div>
+      )}
+      <div style={{ textAlign: "center", marginTop: 16, fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 5, lineHeight: 1.6 }}>
+        <Shield size={12} style={{ flexShrink: 0, marginTop: 2 }} />
+        <span>Signed electronically. Legally binding under the federal E-SIGN Act and the Illinois Uniform Electronic Transactions Act.</span>
+      </div>
+    </div>
+  );
 
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -127,16 +207,17 @@ export default function SignPage() {
   );
 
   if (data?.already_signed || success) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      <div style={{ textAlign: "center", maxWidth: 420, padding: 32 }}>
+    <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif", padding: "28px 16px 60px" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto", textAlign: "center" }}>
+        <Letterhead />
         <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#D1FAE5", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
           <Check size={36} color="#065F46" />
         </div>
-        <div style={{ fontWeight: 800, fontSize: 22, color: "#1A1917", marginBottom: 10 }}>Agreement Signed!</div>
+        <div style={{ fontWeight: 800, fontSize: 22, color: "#1A1917", marginBottom: 10 }}>Agreement signed</div>
         <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.7, marginBottom: 24 }}>
           {data?.already_signed
-            ? "This agreement has already been signed."
-            : `Thank you, ${success?.signature_name || signatureName}. Your signed agreement has been recorded.`}
+            ? "This agreement has already been signed and is on file."
+            : `Thank you, ${success?.signature_name || signatureName}. Your signed agreement is on file and a copy is on its way to your email.`}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           {/* [agreement-signed-copy 2026-08-19] Points at the route that renders
@@ -150,9 +231,7 @@ export default function SignPage() {
             <Shield size={16} /> Certificate of Completion
           </a>
         </div>
-        <div style={{ marginTop: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
-          <Shield size={13} /> Secured by Qleno eSign
-        </div>
+        <ContactFooter heading="Questions about your agreement?" />
       </div>
     </div>
   );
@@ -163,15 +242,7 @@ export default function SignPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif", padding: "20px 16px 60px" }}>
       <div style={{ maxWidth: 660, margin: "0 auto" }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "#fff", padding: "10px 20px", borderRadius: 40, border: "1px solid #E5E2DC", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <FileText size={16} color="#fff" />
-            </div>
-            <span style={{ fontWeight: 700, fontSize: 15, color: "#1A1917" }}>{companyName}</span>
-          </div>
-          <div style={{ fontSize: 13, color: "#9E9B94", marginTop: 10 }}>{formName}</div>
-        </div>
+        <Letterhead caption={formName} />
 
         <ProgressBar step={step} total={3} />
 
@@ -182,9 +253,13 @@ export default function SignPage() {
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{formName}</div>
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>Please read the entire agreement before continuing</div>
               </div>
-              <div ref={termsRef} onScroll={checkReadToEnd} style={{ padding: "28px 32px", maxHeight: "50vh", overflowY: "auto" }}>
+              {/* [agreement-brand 2026-08-19] Set as a document, not as app
+                  copy. A contract read in the same 13.5px sans the rest of the
+                  UI uses does not read as something you are about to be bound
+                  by. Serif, wider leading, and a paper edge inside the card. */}
+              <div ref={termsRef} onScroll={checkReadToEnd} style={{ padding: "30px 34px", maxHeight: "52vh", overflowY: "auto", background: "#FCFBF9", borderBottom: "1px solid #EDEAE4" }}>
                 {termsBody ? (
-                  <div style={{ fontSize: 13.5, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody}</div>
+                  <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 14.5, color: "#26241F", lineHeight: 1.9, whiteSpace: "pre-line" }}>{termsBody}</div>
                 ) : (
                   <div style={{ color: "#9E9B94", fontSize: 13 }}>No terms body provided for this template.</div>
                 )}
@@ -209,7 +284,22 @@ export default function SignPage() {
                 <div style={{ fontSize: 13, color: "#6B6860", marginTop: 3 }}>Please verify or complete your details below</div>
               </div>
               <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
-                {schema.filter((f: any) => f.type !== "section").map((field: any) => (
+                {/* [agreement-blank-step 2026-08-19] The commercial agreement
+                    template was seeded with terms but no field schema, so this
+                    step rendered as an empty white gap under the words "Please
+                    verify or complete your details below" - nothing to verify,
+                    and no sign that anything was missing. Fall back to the
+                    details we already hold for the client so the step still
+                    does what it says. */}
+                {fields.length === 0 && (
+                  FALLBACK_FIELDS.map(f => (
+                    <div key={f.key}>
+                      <label style={labelStyle}>{f.label}</label>
+                      <input type="text" value={responses[f.key] || ""} onChange={e => setResponses(prev => ({ ...prev, [f.key]: e.target.value }))} style={inputStyle} placeholder={f.placeholder} />
+                    </div>
+                  ))
+                )}
+                {fields.map((field: any) => (
                   <div key={field.id}>
                     <label style={labelStyle}>{field.label} {field.required && <span style={{ color: "#E53E3E" }}>*</span>}</label>
                     {field.type === "select" ? (
@@ -295,9 +385,7 @@ export default function SignPage() {
           )}
         </div>
 
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-          <Shield size={12} /> Secured by Qleno · Electronic signature compliant with E-SIGN Act &amp; UETA
-        </div>
+        <ContactFooter />
       </div>
     </div>
   );
