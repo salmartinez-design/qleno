@@ -7631,7 +7631,7 @@ async function runNotificationTemplateSeed() {
   <a href="{{portal_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Reset your password</a>
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for 1 hour and can only be used once.</p>
-<p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email — your password hasn't changed.</p>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">If you didn't ask for this, you can ignore this email. Your password hasn't changed.</p>
 <p style="margin:0;color:#1A1917">Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`,
         body_text: null,
       },
@@ -7696,6 +7696,59 @@ async function runNotificationTemplateSeed() {
       if (n) console.log(`[notification-templates] seeded invoice_reminder for ${n} compan${n === 1 ? "y" : "ies"}`);
     } catch (e) {
       console.error("[notification-templates] invoice_reminder seed (non-fatal):", (e as any)?.message);
+    }
+
+    // [agreement-from-client 2026-08-19] Service-agreement emails.
+    // Seeded for EVERY company for the same reason invoice_reminder is: the
+    // loop above is company-1 only, and sendNotification skips the send
+    // outright when no row matches, so an unseeded tenant would mint a signing
+    // token and email nobody — the exact failure this template exists to fix.
+    // Both are sent transactional: the office pressed Send on a contract the
+    // customer is waiting on, or the customer just finished signing one.
+    try {
+      const AGR_SEND_SUBJECT = "Please review and sign your {{company_name}} service agreement";
+      const AGR_SEND_HTML = `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your service agreement with {{company_name}} is ready. It lists your service, your rate and your schedule, along with our policies on cancellations, holds and cancelling service.</p>
+<p style="margin:0 0 24px">Please give it a read and sign at the bottom:</p>
+<div style="text-align:center;margin:0 0 24px">
+  <a href="{{agreement_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review and sign</a>
+</div>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link is good for {{expires_days}} days and is just for you. Signing is electronic, so there is nothing to print and nothing to mail back. You will get a signed copy by email as soon as you are done.</p>
+<p style="margin:0;color:#1A1917">Questions about anything in it? Call or text <strong>{{company_phone}}</strong>, or reply to this email.</p>`;
+      const AGR_SEND_TEXT = "Hi {{first_name}}, your {{company_name}} service agreement is ready to sign: {{agreement_link}} (link good for {{expires_days}} days). Questions? {{company_phone}}.";
+
+      const AGR_SIGNED_SUBJECT = "Signed: your {{company_name}} service agreement";
+      const AGR_SIGNED_HTML = `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Thank you. Your service agreement is signed and we have it on file.</p>
+<p style="margin:0 0 24px">You can pull up your signed copy any time:</p>
+<div style="text-align:center;margin:0 0 24px">
+  <a href="{{agreement_link}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your agreement</a>
+</div>
+<p style="margin:0;color:#1A1917">Welcome aboard. Questions? <strong>{{company_phone}}</strong> or <strong>{{company_email}}</strong>.</p>`;
+      const AGR_SIGNED_TEXT = "Hi {{first_name}}, your {{company_name}} service agreement is signed and on file. Your copy: {{agreement_link}}. Questions? {{company_phone}}.";
+
+      const agrTemplates: [string, string, string, string][] = [
+        ["agreement_send", AGR_SEND_SUBJECT, AGR_SEND_HTML, AGR_SEND_TEXT],
+        ["agreement_signed", AGR_SIGNED_SUBJECT, AGR_SIGNED_HTML, AGR_SIGNED_TEXT],
+      ];
+      for (const [trig, subj, html, text] of agrTemplates) {
+        const r = await db.execute(sql`
+          INSERT INTO notification_templates
+            (company_id, trigger, channel, subject, body, body_html, body_text, is_active)
+          SELECT c.id, ${trig}, 'email'::notification_channel,
+                 ${subj}, '', ${html}, ${text}, true
+            FROM companies c
+           WHERE NOT EXISTS (
+             SELECT 1 FROM notification_templates t
+              WHERE t.company_id = c.id
+                AND t.trigger = ${trig}
+                AND t.channel = 'email'::notification_channel
+           )`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[notification-templates] seeded ${trig} for ${n} compan${n === 1 ? "y" : "ies"}`);
+      }
+    } catch (e) {
+      console.error("[notification-templates] agreement seed (non-fatal):", (e as any)?.message);
     }
 
     // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that

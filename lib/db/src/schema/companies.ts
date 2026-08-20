@@ -128,6 +128,13 @@ export const companiesTable = pgTable("companies", {
   // 0 = no limit, which renders {{rate_increase_limit}} as an empty string
   // rather than the nonsense "once every 0 months".
   agr_rate_increase_limit_months: integer("agr_rate_increase_limit_months").notNull().default(12),
+  // [service-hold 2026-08-19] Hold terms surfaced as {{hold_max_days}} and
+  // {{hold_notice_free_days}}. The max MUST NOT exceed the suspension engine's
+  // MAX_SUSPEND_DAYS — the contract cannot promise a hold the software refuses
+  // to grant. A hold at or under the free threshold needs no notice
+  // authorization; a longer one does.
+  agr_hold_max_days: integer("agr_hold_max_days").notNull().default(90),
+  agr_hold_notice_free_days: integer("agr_hold_notice_free_days").notNull().default(30),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),

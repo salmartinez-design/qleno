@@ -1626,6 +1626,134 @@ router.post("/:id/agreements/send", requireAuth, async (req, res) => {
   }
 });
 
+// [agreement-from-client 2026-08-19] Dry run. Renders exactly what the send
+// would render, without minting a token or emailing anyone, and reports which
+// merge fields came back EMPTY. A contract that goes out with a blank rate is
+// worse than one that never went, so the office sees the filled-in text first
+// and knows precisely which client record to fix before pressing Send.
+router.post("/:id/agreement-preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(clientId)) return res.status(400).json({ error: "Bad Request", message: "Invalid client" });
+
+    const [client] = await db.select({ client_type: clientsTable.client_type, email: clientsTable.email })
+      .from(clientsTable)
+      .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId)))
+      .limit(1);
+    if (!client) return res.status(404).json({ error: "Not Found", message: "Client not found" });
+
+    const wantCategory = client.client_type === "commercial" ? "commercial" : "client_residential";
+    const tplId = req.body?.template_id ? parseInt(req.body.template_id) : null;
+    const tpl: any = (await db.execute(sql`
+      SELECT id, name, terms_body FROM form_templates
+       WHERE company_id = ${companyId} AND is_active = true
+         ${tplId ? sql`AND id = ${tplId}` : sql`AND requires_sign = true`}
+       ORDER BY (category = ${wantCategory}) DESC, is_default DESC NULLS LAST,
+                (category = 'both') DESC, id ASC
+       LIMIT 1`)).rows[0];
+    if (!tpl) return res.status(400).json({ error: "Bad Request", message: "No signable agreement template - add one in Settings > Documents" });
+
+    const { buildAgreementVars, renderAgreementBody, AGREEMENT_VARIABLES } = await import("../lib/agreement-merge.js");
+    const homeId = req.body?.home_id ? parseInt(req.body.home_id) : null;
+    const vars = await buildAgreementVars(companyId, { clientId, clientHomeId: homeId });
+    const body = String(tpl.terms_body || "");
+    const rendered = renderAgreementBody(body, vars);
+
+    // Only tokens this template actually uses matter. A blank {{pets}} in a
+    // commercial contract that never mentions pets is not a gap.
+    const used = new Set<string>();
+    for (const m of body.matchAll(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi)) used.add(m[1].toLowerCase());
+    const labels = new Map(AGREEMENT_VARIABLES.map(v => [v.token, v.label]));
+    const missing = [...used]
+      .filter(t => labels.has(t) && !String(vars[t] || "").trim())
+      .map(t => ({ token: t, label: labels.get(t)! }));
+
+    return res.json({
+      template_id: tpl.id,
+      template_name: tpl.name,
+      body: rendered,
+      missing,
+      client_email: client.email || null,
+    });
+  } catch (err) {
+    console.error("Client agreement-preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to preview the agreement" });
+  }
+});
+
+// [agreement-from-client 2026-08-19] The real send. The two routes above write
+// client_agreements, a dead-end table with no signing page behind it, and the
+// profile's Send button used to hit document_requests, which emailed nobody.
+// This one renders the merge variables off the client's own record, property
+// and recurring schedule, stores the rendered text, and actually sends the link.
+router.post("/:id/send-agreement", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(clientId)) return res.status(400).json({ error: "Bad Request", message: "Invalid client" });
+
+    const { sendAgreementToClient } = await import("../lib/send-agreement.js");
+    const out = await sendAgreementToClient({
+      companyId,
+      clientId,
+      clientHomeId: req.body?.home_id ? parseInt(req.body.home_id) : null,
+      templateId: req.body?.template_id ? parseInt(req.body.template_id) : null,
+      termsBodyOverride: req.body?.terms_body || null,
+      sentByUserId: req.auth!.userId,
+    });
+    if (!out.ok) {
+      return res.status(out.status).json({ error: out.status === 404 ? "Not Found" : "Bad Request", message: out.message });
+    }
+
+    // Trace row either way, worded honestly, so "did it actually go out?" has an
+    // answer in the client's own feed and not just in a toast that has scrolled by.
+    await db.insert(clientCommunicationsTable).values({
+      company_id: companyId, client_id: clientId,
+      type: "system", direction: "outbound",
+      body: out.emailed
+        ? `Service agreement emailed to ${out.sentTo}`
+        : `Service agreement created but NOT emailed - signing link must be sent by hand`,
+      from_name: "System", sent_by: req.auth!.userId,
+    });
+
+    return res.json({
+      success: true,
+      emailed: out.emailed,
+      message: out.message,
+      submission_id: out.submissionId,
+      signing_url: out.signingUrl,
+      sent_to: out.sentTo,
+    });
+  } catch (err) {
+    console.error("Client send-agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to send the agreement" });
+  }
+});
+
+// The profile's Agreements tab reads from here. form_submissions is the stack
+// that has the signing page, the consent capture and the certificate; the
+// legacy client_agreements rows are folded in by the frontend for history.
+router.get("/:id/agreement-submissions", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = parseInt(String(req.params.id), 10);
+    const rows = (await db.execute(sql`
+      SELECT s.id, s.status, s.sent_at, s.sent_to, s.expires_at, s.viewed_at,
+             s.signature_name, s.signature_at, s.content_hash, s.sign_token,
+             t.name AS template_name
+        FROM form_submissions s
+        JOIN form_templates t ON t.id = s.form_id
+       WHERE s.client_id = ${clientId} AND s.company_id = ${companyId}
+       ORDER BY s.sent_at DESC NULLS LAST, s.id DESC
+    `)).rows;
+    return res.json(rows);
+  } catch (err) {
+    console.error("Client agreement-submissions error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── GEOCODE ALL ───────────────────────────────────────────────────────────────
 router.post("/geocode-all", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   const key = process.env.GOOGLE_MAPS_API_KEY;

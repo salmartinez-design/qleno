@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { formTemplatesTable, formSubmissionsTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { randomUUID } from "crypto";
 
 const router = Router();
@@ -502,7 +502,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/send", requireAuth, async (req, res) => {
+// [agreement-from-client 2026-08-19] Office-gated. This mints a signing token
+// for a binding contract; it was previously open to any authenticated user,
+// which includes every technician.
+router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const templateId = parseInt(req.params.id);
     const { client_id, custom_fields } = req.body;

@@ -293,6 +293,11 @@ router.patch("/me", requireAuth, async (req, res) => {
         ["agr_damage_report_days", 1, 90],
         ["agr_nonsolicit_months", 0, 60],
         ["agr_rate_increase_limit_months", 0, 60],
+        // Capped at the suspension engine's MAX_SUSPEND_DAYS. A contract that
+        // offers a 180-day hold the software will not grant is worse than no
+        // clause at all.
+        ["agr_hold_max_days", 0, 90],
+        ["agr_hold_notice_free_days", 0, 90],
       ];
       for (const [f, lo, hi] of dayFields) {
         const cv = clampInt(req.body[f], lo, hi);

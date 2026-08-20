@@ -149,7 +149,18 @@ router.post("/:token", async (req, res) => {
     const signedAt = new Date();
     const ua = reqUa(req);
     const ip = ip_address && ip_address !== "client" ? ip_address : reqIp(req);
-    const contentToHash = JSON.stringify({ responses, signature_name, signed_at: signedAt.toISOString(), token });
+    // [agreement-hash-covers-body 2026-08-19] The hash MUST include the exact
+    // words that were signed. It used to cover only the signature act
+    // (responses + name + timestamp + token), so the agreement text itself was
+    // outside the seal: edit terms_body_override afterwards and the stored hash
+    // still verified clean. That is the one thing a signature hash exists to
+    // make impossible. terms_body_override is the frozen per-send copy and is
+    // what the signer actually read, with the template body as the fallback for
+    // rows sent before merge-at-send existed.
+    const signedBody = (submission as any).terms_body_override || submission.terms_body || "";
+    const contentToHash = JSON.stringify({
+      terms_body: signedBody, responses, signature_name, signed_at: signedAt.toISOString(), token,
+    });
     const contentHash = createHash("sha256").update(contentToHash).digest("hex");
 
     let pdfUrl: string | null = null;
@@ -158,7 +169,7 @@ router.post("/:token", async (req, res) => {
         submissionId: submission.id,
         formName: submission.form_name || "Service Agreement",
         companyName: submission.company_name || "Qleno",
-        termsBody: (submission as any).terms_body_override || submission.terms_body || "",
+        termsBody: signedBody,
         responses: responses || {},
         signatureName: signature_name,
         signedAt: signedAt.toLocaleString("en-US", { timeZone: tzOf(companyId) }),

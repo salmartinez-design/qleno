@@ -1699,95 +1699,187 @@ function BillingTab({ invoices }: { invoices: any[] }) {
 }
 
 // ─── Agreements Tab ────────────────────────────────────────────────────────────
+// [agreement-from-client 2026-08-19] Rewired. This tab used to post to
+// /api/document-requests/send, which minted a token, emailed nobody, merged no
+// variables and then showed the office "Agreement sent!" regardless. It now
+// goes through /api/clients/:id/send-agreement, which fills the contract from
+// the client's own record, property and recurring schedule, sends the link, and
+// reports honestly when the email did not go out.
+// apiFetch throws the raw response body, which for our API is a JSON envelope.
+// Surfacing that verbatim shows the office `{"error":"Bad Request","message":…}`,
+// so pull out the sentence a person is meant to read.
+function errText(e: any, fallback: string): string {
+  const raw = String(e?.message || "");
+  try { const j = JSON.parse(raw); return j?.message || j?.error || fallback; } catch { return raw || fallback; }
+}
+
 function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; agreements: any[]; refetch: () => void }) {
   const [showModal, setShowModal] = useState(false);
-  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [homeId, setHomeId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<any>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sendDone, setSendDone] = useState(false);
-  const [resendingId, setResendingId] = useState<number | null>(null);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const { data: docRequests = [], refetch: refetchDocs } = useQuery<any[]>({
-    queryKey: ["client-doc-requests", clientId],
-    queryFn: () => apiFetch(`/api/document-requests?client_id=${clientId}`),
+  const { data: submissions = [], refetch: refetchSubs } = useQuery<any[]>({
+    queryKey: ["client-agreement-subs", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/agreement-submissions`),
   });
 
   const { data: templates = [], isLoading: tplLoading } = useQuery<any[]>({
-    queryKey: ["client-doc-templates"],
-    queryFn: () => apiFetch("/api/document-templates?category=client_residential"),
+    queryKey: ["signable-form-templates"],
+    queryFn: () => apiFetch("/api/form-templates"),
+    enabled: showModal,
+  });
+  const signable = templates.filter((t: any) => t.is_active && t.requires_sign);
+
+  const { data: homes = [] } = useQuery<any[]>({
+    queryKey: ["client-homes", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/homes`),
     enabled: showModal,
   });
 
-  const toggleTemplate = (id: number) => setSelectedTemplates(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const openModal = () => { setShowModal(true); setPreview(null); setResult(null); setError(null); setTemplateId(null); setHomeId(null); };
+
+  const runPreview = async (tid: number | null, hid: number | null) => {
+    setPreviewing(true); setError(null);
+    try {
+      const out = await apiFetch(`/api/clients/${clientId}/agreement-preview`, {
+        method: "POST", body: JSON.stringify({ template_id: tid, home_id: hid }),
+      });
+      setPreview(out);
+      if (!tid && out.template_id) setTemplateId(out.template_id);
+    } catch (e: any) {
+      setPreview(null);
+      setError(errText(e, "Could not build a preview"));
+    }
+    setPreviewing(false);
+  };
+
+  useEffect(() => { if (showModal && !preview && !previewing && !error) runPreview(null, null); }, [showModal]);
 
   const handleSend = async () => {
-    if (!selectedTemplates.length) return;
-    setSending(true);
+    setSending(true); setError(null);
     try {
-      await apiFetch("/api/document-requests/send", { method: "POST", body: JSON.stringify({ template_ids: selectedTemplates, client_id: clientId }) });
-      setSendDone(true);
-      setTimeout(() => { setShowModal(false); setSendDone(false); setSelectedTemplates([]); refetchDocs(); refetch(); }, 1500);
-    } catch { /* ignore */ }
+      const out = await apiFetch(`/api/clients/${clientId}/send-agreement`, {
+        method: "POST", body: JSON.stringify({ template_id: templateId, home_id: homeId }),
+      });
+      setResult(out);
+      refetchSubs(); refetch();
+    } catch (e: any) {
+      setError(errText(e, "Could not send the agreement"));
+    }
     setSending(false);
   };
 
-  const handleResend = async (requestId: number) => {
-    setResendingId(requestId);
-    try {
-      await apiFetch(`/api/document-requests/${requestId}/resend`, { method: "POST" });
-      refetchDocs();
-    } catch { /* ignore */ }
-    setResendingId(null);
-  };
-
   const TH: React.CSSProperties = { padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #EEECE7" };
+  const BTN_PRIMARY: React.CSSProperties = { padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" };
+  const BTN_GHOST: React.CSSProperties = { padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B6860", fontSize: 13, cursor: "pointer" };
 
   const allDocs = [
-    ...docRequests.map((d: any) => ({ ...d, _src: "new" })),
-    ...agreements.filter(a => !docRequests.find((d: any) => d.id === a.id)).map((a: any) => ({ ...a, _src: "legacy" })),
+    ...submissions.map((d: any) => ({ ...d, _src: "new" })),
+    ...agreements.map((a: any) => ({ ...a, _src: "legacy" })),
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button onClick={() => setShowModal(true)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={openModal} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
           <Send size={13} /> Send Agreement
         </button>
       </div>
 
       {showModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 720, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "85vh", overflowY: "auto" }}>
             <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Send Agreement</h3>
-            <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>Select one or more document templates to send.</p>
-            {sendDone ? (
-              <div style={{ textAlign: "center", padding: "20px 0" }}>
-                <Check size={24} color="var(--brand)" style={{ display: "block", margin: "0 auto 8px" }}/>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Agreement sent!</p>
+
+            {result ? (
+              <div style={{ padding: "16px 0" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
+                  {result.emailed
+                    ? <Check size={20} color="#0F7A63" style={{ flexShrink: 0, marginTop: 1 }} />
+                    : <AlertTriangle size={20} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />}
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", margin: 0 }}>{result.message}</p>
+                </div>
+                {/* Always shown, not just on failure: the office often reads the
+                    link over the phone while the customer is still on the line. */}
+                <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <code style={{ fontSize: 12, color: "#1A1917", wordBreak: "break-all", flex: 1 }}>{result.signing_url}</code>
+                  <button onClick={() => { navigator.clipboard?.writeText(result.signing_url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                    style={{ ...BTN_GHOST, padding: "6px 12px", flexShrink: 0 }}>{copied ? "Copied" : "Copy"}</button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+                  <button onClick={() => setShowModal(false)} style={BTN_PRIMARY}>Done</button>
+                </div>
               </div>
             ) : (
               <>
-                {tplLoading ? (
-                  <p style={{ fontSize: 13, color: "#9E9B94" }}>Loading templates…</p>
-                ) : templates.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "#9E9B94" }}>No client agreement templates found. Add them in Company Settings → Documents.</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                    {templates.map((t: any) => (
-                      <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 12px", border: `1px solid ${selectedTemplates.includes(t.id) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: selectedTemplates.includes(t.id) ? "#F0FBF8" : "#fff" }}>
-                        <input type="checkbox" checked={selectedTemplates.includes(t.id)} onChange={() => toggleTemplate(t.id)} style={{ accentColor: "var(--brand)", width: 15, height: 15 }}/>
-                        <div>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", margin: 0 }}>{t.name}</p>
-                          {t.requires_signature && <p style={{ fontSize: 11, color: "#9E9B94", margin: 0 }}>Requires signature</p>}
-                        </div>
-                      </label>
-                    ))}
+                <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>
+                  The agreement fills in from this client's record, property and recurring schedule. Check it below before sending.
+                </p>
+
+                <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 240px" }}>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Template</label>
+                    <select value={templateId ?? ""} disabled={tplLoading}
+                      onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setTemplateId(v); runPreview(v, homeId); }}
+                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", background: "#fff" }}>
+                      {tplLoading && <option value="">Loading…</option>}
+                      {!tplLoading && signable.length === 0 && <option value="">No signable templates</option>}
+                      {signable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  {homes.length > 1 && (
+                    <div style={{ flex: "1 1 240px" }}>
+                      <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Property</label>
+                      <select value={homeId ?? ""}
+                        onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setHomeId(v); runPreview(templateId, v); }}
+                        style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", background: "#fff" }}>
+                        <option value="">Primary property</option>
+                        {homes.map((h: any) => <option key={h.id} value={h.id}>{h.name || h.address}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {error && (
+                  <div style={{ background: "#FDEDED", border: "1px solid #F5C6C6", borderRadius: 8, padding: "10px 12px", fontSize: 13, color: "#9B2C2C", marginBottom: 14 }}>{error}</div>
+                )}
+
+                {preview?.missing?.length > 0 && (
+                  <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+                    <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: "#B45309" }}>
+                      {preview.missing.length} field{preview.missing.length === 1 ? "" : "s"} will be blank
+                    </p>
+                    <p style={{ margin: 0, fontSize: 12, color: "#8A5A11" }}>
+                      {preview.missing.map((m: any) => m.label).join(", ")}. Fill these in on the client record, then reopen this.
+                    </p>
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button onClick={() => { setShowModal(false); setSelectedTemplates([]); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-                  <button onClick={handleSend} disabled={sending || !selectedTemplates.length} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: selectedTemplates.length ? 1 : 0.5 }}>
-                    {sending ? "Sending…" : "Send"}
-                  </button>
+
+                {previewing ? (
+                  <p style={{ fontSize: 13, color: "#9E9B94" }}>Building preview…</p>
+                ) : preview ? (
+                  <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", padding: "16px 18px", maxHeight: 320, overflowY: "auto", marginBottom: 16 }}>
+                    <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.6, color: "#1A1917", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{preview.body}</pre>
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: "#6B6860" }}>
+                    {preview?.client_email ? `Sends to ${preview.client_email}` : "This client has no email address"}
+                  </span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setShowModal(false)} style={BTN_GHOST}>Cancel</button>
+                    <button onClick={handleSend} disabled={sending || previewing || !preview || !preview.client_email}
+                      style={{ ...BTN_PRIMARY, opacity: (!preview || !preview.client_email || sending || previewing) ? 0.5 : 1 }}>
+                      {sending ? "Sending…" : "Send for signature"}
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -1804,28 +1896,36 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
             {allDocs.length === 0 ? (
               <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left", color: "#9E9B94", fontSize: "13px" }}>No agreements sent yet</td></tr>
             ) : allDocs.map((a: any) => {
-              const isSigned = a._src === "new" ? a.status === "signed" : !!a.accepted_at;
-              const isPending = a._src === "new" ? a.status === "pending" : !a.accepted_at;
+              const isNew = a._src === "new";
+              const isSigned = isNew ? a.status === "signed" : !!a.accepted_at;
+              const expired = isNew && a.status !== "signed" && a.expires_at && new Date(a.expires_at) < new Date();
               return (
                 <tr key={`${a._src}-${a.id}`} style={{ borderBottom: "1px solid #F0EEE9" }}>
-                  <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{a.template_name || "Service Agreement"}</td>
+                  <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>
+                    {a.template_name || "Service Agreement"}
+                    {/* The old stack had no signing page behind it, so say so
+                        rather than letting a dead row look like a live one. */}
+                    {!isNew && <span style={{ marginLeft: 8, fontSize: 11, color: "#9E9B94", fontWeight: 500 }}>legacy record</span>}
+                  </td>
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(a.sent_at)}</td>
                   <td style={{ padding: "12px 16px" }}>
                     {isSigned
                       ? <span style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
-                      : a.status === "expired"
+                      : expired
                       ? <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Expired</span>
+                      : isNew && a.viewed_at
+                      ? <span style={{ background: "#EEF4FD", color: "#2563EB", border: "1px solid #CBDDF8", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Viewed</span>
                       : <span style={{ background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
                     }
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>
-                    {a._src === "new" && a.signed_at ? fmtDate(a.signed_at) : a.accepted_at ? fmtDate(a.accepted_at) : "—"}
+                    {isNew ? (a.signature_at ? fmtDate(a.signature_at) : "—") : (a.accepted_at ? fmtDate(a.accepted_at) : "—")}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
-                    {a._src === "new" && isPending && (
-                      <button onClick={() => handleResend(a.id)} disabled={resendingId === a.id}
+                    {isNew && !isSigned && !expired && a.sign_token && (
+                      <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/sign/${a.sign_token}`); }}
                         style={{ fontSize: 12, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}>
-                        {resendingId === a.id ? "…" : "Resend"}
+                        Copy link
                       </button>
                     )}
                   </td>

@@ -46,7 +46,54 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   // Only resolves when the agreement is sent from an estimate — a contract sent
   // straight off a client record has no scope to draw from.
   { token: "scope_of_work",    label: "Scope of work (from the estimate)", example: "Lobby & entrance\nCommon hallways & stairwells" },
+  // [agreement-from-client 2026-08-19] Sourced from the client's PROPERTY and
+  // their live RECURRING SCHEDULE, so a residential agreement sent off the
+  // client profile fills in the same way a commercial one does off an estimate.
+  // Before this, rate/frequency/start date resolved ONLY from an estimate, so a
+  // residential recurring signup produced a contract with the price blank.
+  { token: "service_day",        label: "Service day of week",       example: "Wednesdays" },
+  { token: "start_date",         label: "First service date",        example: "October 15, 2025" },
+  { token: "bedrooms",           label: "Bedrooms",                  example: "2" },
+  { token: "bathrooms",          label: "Bathrooms",                 example: "2" },
+  { token: "square_feet",        label: "Square footage",            example: "1,150" },
+  { token: "pets",               label: "Pets",                      example: "One dog" },
+  { token: "access_notes",       label: "Entry instructions",        example: "Someone will grant access" },
+  // Hold terms — editable under Company Settings → Service Agreement Terms.
+  { token: "hold_max_days",         label: "Maximum service hold (days)", example: "90" },
+  { token: "hold_notice_free_days", label: "Hold length that needs no notice authorization (days)", example: "30" },
 ];
+
+// Human labels for the recurring cadence. The enum values read like column
+// names ("every_3_weeks"); a signed contract has to read like English.
+const FREQUENCY_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  every_3_weeks: "Every 3 weeks",
+  monthly: "Every 4 weeks",
+  monthly_weekday: "Monthly",
+  semi_monthly: "Twice a month",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  custom_days: "Multiple days each week",
+  custom: "Custom",
+};
+
+const DAY_PLURALS: Record<string, string> = {
+  monday: "Mondays", tuesday: "Tuesdays", wednesday: "Wednesdays",
+  thursday: "Thursdays", friday: "Fridays", saturday: "Saturdays", sunday: "Sundays",
+};
+
+function frequencyLabel(freq: any, customWeeks: any): string {
+  const key = String(freq || "").toLowerCase();
+  // A custom cadence carries its interval in custom_frequency_weeks; rendering
+  // a bare "Custom" in a contract tells the client nothing about how often we
+  // are coming, which is the one thing the frequency line exists to say.
+  if (key === "custom") {
+    const w = Number(customWeeks);
+    if (Number.isFinite(w) && w > 0) return w === 1 ? "Weekly" : `Every ${w} weeks`;
+  }
+  return FREQUENCY_LABELS[key] || "";
+}
 
 function money(n: any): string {
   const v = Number(n);
@@ -74,7 +121,7 @@ function joinAddress(street?: any, city?: any, state?: any, zip?: any): string {
 // template sent from the client record has no estimate, and vice versa.
 export async function buildAgreementVars(
   companyId: number,
-  opts: { clientId?: number | null; estimateId?: number | null } = {},
+  opts: { clientId?: number | null; estimateId?: number | null; clientHomeId?: number | null } = {},
 ): Promise<AgreementVars> {
   const vars: AgreementVars = {};
   const now = new Date();
@@ -85,7 +132,8 @@ export async function buildAgreementVars(
     SELECT name, phone, email, late_fee_terms,
            agr_termination_notice_days, agr_rate_notice_days,
            agr_damage_report_days, agr_damage_cap,
-           agr_nonsolicit_months, agr_nonsolicit_fee, agr_rate_increase_limit_months
+           agr_nonsolicit_months, agr_nonsolicit_fee, agr_rate_increase_limit_months,
+           agr_hold_max_days, agr_hold_notice_free_days
       FROM companies WHERE id = ${companyId} LIMIT 1
   `)).rows[0];
   if (co) {
@@ -115,11 +163,16 @@ export async function buildAgreementVars(
     vars.rate_increase_limit = rateLimitMonths > 0
       ? `Rates will not be adjusted more than once in any ${rateLimitMonths}-month period.`
       : "";
+    // [service-hold 2026-08-19] Hold terms. Defaults match the suspension
+    // engine's MAX_SUSPEND_DAYS so the contract can never promise a longer hold
+    // than the software will actually grant.
+    vars.hold_max_days = String(co.agr_hold_max_days ?? 90);
+    vars.hold_notice_free_days = String(co.agr_hold_notice_free_days ?? 30);
   }
 
   if (opts.clientId) {
     const c: any = (await db.execute(sql`
-      SELECT first_name, last_name, company_name, email, phone, address, city, state, zip
+      SELECT first_name, last_name, company_name, email, phone, address, city, state, zip, pets
         FROM clients WHERE id = ${opts.clientId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0];
     if (c) {
@@ -129,6 +182,103 @@ export async function buildAgreementVars(
       vars.client_email = c.email ?? "";
       vars.client_phone = c.phone ?? "";
       vars.service_address = joinAddress(c.address, c.city, c.state, c.zip);
+      // clients.pets is the office's free-text note ("Two cats, friendly").
+      // The property row's has_pets/pet_notes wins below when there is one.
+      vars.pets = String(c.pets || "").trim();
+    }
+
+    // [agreement-from-client 2026-08-19] The property being cleaned. Uses the
+    // home the caller named, else the client's primary. A client with several
+    // homes gets the contract for the one the office picked, not whichever row
+    // happened to sort first.
+    const home: any = (await db.execute(sql`
+      SELECT address, city, state, zip, bedrooms, bathrooms, half_baths,
+             sq_footage, access_notes, has_pets, pet_notes
+        FROM client_homes
+       WHERE client_id = ${opts.clientId} AND company_id = ${companyId}
+         ${opts.clientHomeId ? sql`AND id = ${opts.clientHomeId}` : sql``}
+       ORDER BY is_primary DESC NULLS LAST, id ASC
+       LIMIT 1
+    `)).rows[0];
+    if (home) {
+      const homeAddr = joinAddress(home.address, home.city, home.state, home.zip);
+      if (homeAddr) vars.service_address = homeAddr;
+      if (home.bedrooms != null) vars.bedrooms = String(home.bedrooms);
+      // Half baths are counted separately in the schema but a contract reads
+      // them together: 2 full + 1 half is "2.5".
+      if (home.bathrooms != null) {
+        const half = Number(home.half_baths || 0);
+        vars.bathrooms = half > 0
+          ? String(Number(home.bathrooms) + half * 0.5)
+          : String(home.bathrooms);
+      }
+      if (home.sq_footage != null) vars.square_feet = Number(home.sq_footage).toLocaleString("en-US");
+      if (home.access_notes) vars.access_notes = String(home.access_notes).trim();
+      const petNote = String(home.pet_notes || "").trim();
+      if (petNote) vars.pets = petNote;
+      else if (home.has_pets === true && !vars.pets) vars.pets = "Yes";
+      else if (home.has_pets === false && !vars.pets) vars.pets = "None";
+    }
+
+    // [agreement-from-client 2026-08-19] Last resort for the home details.
+    // client_homes is the right home for this, but the MaidCentral import never
+    // populated it: of Phes's 64 active residential recurring clients only 3
+    // have a bedroom count on a property row. The quote does carry them, because
+    // the booking widget and the quote builder both ask, so anyone who signs up
+    // from here forward has the numbers there. Only fills what the property row
+    // left empty, so a real property record always wins.
+    if (!vars.bedrooms || !vars.bathrooms) {
+      const q: any = (await db.execute(sql`
+        SELECT bedrooms, bathrooms, half_baths, pets
+          FROM quotes
+         WHERE client_id = ${opts.clientId} AND company_id = ${companyId}
+           AND (bedrooms IS NOT NULL OR bathrooms IS NOT NULL)
+         ORDER BY id DESC
+         LIMIT 1
+      `)).rows[0];
+      if (q) {
+        if (!vars.bedrooms && q.bedrooms != null) vars.bedrooms = String(q.bedrooms);
+        if (!vars.bathrooms && q.bathrooms != null) {
+          const half = Number(q.half_baths || 0);
+          vars.bathrooms = half > 0
+            ? String(Number(q.bathrooms) + half * 0.5)
+            : String(q.bathrooms);
+        }
+        // quotes.pets is a COUNT, not a note. Render it as one so the contract
+        // does not end up saying "Pets: 2" next to a client_homes note that
+        // would have said "Two cats, friendly".
+        const petCount = Number(q.pets);
+        if (!vars.pets && Number.isFinite(petCount) && petCount > 0) {
+          vars.pets = petCount === 1 ? "1 pet" : `${petCount} pets`;
+        }
+      }
+    }
+
+    // The live recurring schedule is where a residential agreement's rate,
+    // cadence, service day and start date come from. Account schedules are
+    // excluded — those bill through the account, not this client's contract.
+    const sch: any = (await db.execute(sql`
+      SELECT frequency, custom_frequency_weeks, day_of_week, start_date, base_fee
+        FROM recurring_schedules
+       WHERE customer_id = ${opts.clientId} AND company_id = ${companyId}
+         AND is_active = true AND account_id IS NULL
+       ORDER BY start_date DESC, id DESC
+       LIMIT 1
+    `)).rows[0];
+    if (sch) {
+      const fee = Number(sch.base_fee);
+      if (Number.isFinite(fee) && fee > 0) vars.rate = money(fee);
+      const freq = frequencyLabel(sch.frequency, sch.custom_frequency_weeks);
+      if (freq) vars.frequency = freq;
+      const day = DAY_PLURALS[String(sch.day_of_week || "").toLowerCase()];
+      if (day) vars.service_day = day;
+      if (sch.start_date) {
+        // pg hands back DATE as a JS Date in this driver, so parse the string
+        // form rather than trusting the local-timezone rendering of midnight.
+        const iso = String(sch.start_date).slice(0, 10);
+        const [y, m, d] = iso.split("-").map(Number);
+        if (y && m && d) vars.start_date = longDate(new Date(y, m - 1, d));
+      }
     }
   }
 
@@ -165,7 +315,7 @@ export async function buildAgreementVars(
           const label = String(i.name || i.description || "").trim();
           if (!label) return "";
           const freq = String(i.frequency || "").trim();
-          return freq ? `${label} — ${freq}` : label;
+          return freq ? `${label} (${freq})` : label;
         })
         .filter(Boolean);
       if (lines.length) vars.scope_of_work = lines.join("\n");
@@ -202,7 +352,7 @@ export function renderAgreementBody(body: string | null | undefined, vars: Agree
 export async function renderAgreementFor(
   companyId: number,
   body: string | null | undefined,
-  opts: { clientId?: number | null; estimateId?: number | null } = {},
+  opts: { clientId?: number | null; estimateId?: number | null; clientHomeId?: number | null } = {},
 ): Promise<string> {
   const vars = await buildAgreementVars(companyId, opts);
   return renderAgreementBody(body, vars);
