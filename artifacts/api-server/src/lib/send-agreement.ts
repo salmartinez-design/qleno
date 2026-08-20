@@ -23,6 +23,7 @@ import { renderAgreementFor } from "./agreement-merge.js";
 import { sendNotification } from "../services/notificationService.js";
 import { emailLogoUrl } from "./app-url.js";
 import { agreementEmailShell } from "./phes-agreement-emails.js";
+import { nextReminderAt } from "./agreement-lifecycle.js";
 
 // How long a signing link stays good. Matches the estimate flow. The old
 // document_requests path expired in 72 HOURS, which is not enough time for a
@@ -78,7 +79,7 @@ export async function sendAgreementToClient(opts: SendAgreementOpts): Promise<Se
   const { companyId, clientId } = opts;
 
   const client: any = (await db.execute(sql`
-    SELECT first_name, last_name, email, client_type
+    SELECT first_name, last_name, email, phone, client_type
       FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1
   `)).rows[0];
   if (!client) return { ok: false, emailed: false, status: 404, message: "Client not found" };
@@ -113,11 +114,23 @@ export async function sendAgreementToClient(opts: SendAgreementOpts): Promise<Se
   const expires = new Date();
   expires.setDate(expires.getDate() + LINK_VALID_DAYS);
 
+  // [agreement-lifecycle 2026-08-20] Start the chase clock. cadence_anchor_at is
+  // what every reminder day counts from, and it moves forward on a resend so a
+  // corrected agreement gets a fresh run of touches instead of inheriting the
+  // old one's half-spent schedule. The phone is stored on the row rather than
+  // read off the client each time, because a resend can go to a different
+  // number and the reminders have to follow the link, not the profile.
+  const anchor = new Date();
+  const firstReminder = nextReminderAt(anchor, 0);
+  const phone = String(client.phone || "").trim();
+
   const ins = (await db.execute(sql`
     INSERT INTO form_submissions
-      (company_id, form_id, client_id, responses, status, sign_token, sent_at, sent_to, expires_at, submitted_by, terms_body_override)
+      (company_id, form_id, client_id, responses, status, sign_token, sent_at, sent_to, expires_at, submitted_by, terms_body_override,
+       sent_to_phone, cadence_anchor_at, next_reminder_at)
     VALUES
-      (${companyId}, ${template.id}, ${clientId}, '{}'::jsonb, 'pending', ${token}, now(), ${email}, ${expires}, ${opts.sentByUserId ?? null}, ${rendered || null})
+      (${companyId}, ${template.id}, ${clientId}, '{}'::jsonb, 'pending', ${token}, now(), ${email}, ${expires}, ${opts.sentByUserId ?? null}, ${rendered || null},
+       ${phone || null}, ${anchor}, ${firstReminder})
     RETURNING id
   `)).rows[0] as any;
   const submissionId = ins.id as number;

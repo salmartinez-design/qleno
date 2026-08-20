@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "wouter";
-import { Check, AlertCircle, Clock, FileText, ChevronRight, ChevronLeft, Shield } from "lucide-react";
+import { Check, AlertCircle, Clock, FileText, ChevronRight, ChevronLeft, Shield, X } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -46,6 +46,69 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
   );
 }
 
+// [agreement-body 2026-08-20] The agreement used to render as one run of
+// pre-line text: every numbered heading, every "Rate per visit: $240.00"
+// line and every paragraph set identically. Sal's read of it was "generic,
+// like an etsy template". The text itself already carries the structure -
+// numbered sections, colon field lines, bare sub-headings - so this reads
+// that structure back out and sets each kind differently. Same rules as the
+// PDF renderer (parseAgreementBody in lib/generate-agreement-pdf.ts), so the
+// copy on screen and the copy the customer keeps are the same document.
+const SERIF = "Georgia, 'Times New Roman', serif";
+function AgreementText({ body, brand }: { body: string; brand: string }) {
+  const lines = String(body || "").split("\n");
+  const out: React.ReactNode[] = [];
+  let sawTitle = false;
+
+  lines.forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+
+    if (!sawTitle && line === line.toUpperCase() && /[A-Z]/.test(line) && line.length < 80 && !/^\d/.test(line)) {
+      sawTitle = true;
+      out.push(
+        <div key={i} style={{ marginBottom: 26 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 21, fontWeight: 700, color: "#1A1917", lineHeight: 1.25, letterSpacing: "0.01em" }}>{line}</div>
+          <div style={{ width: 46, height: 3, background: brand, marginTop: 12, borderRadius: 2 }} />
+        </div>
+      );
+      return;
+    }
+
+    const sec = line.match(/^(\d{1,2})\.\s+(.{2,70})$/);
+    if (sec && sec[2] === sec[2].toUpperCase() && /[A-Z]/.test(sec[2])) {
+      out.push(
+        <div key={i} style={{ marginTop: 26, marginBottom: 14, borderBottom: "1px solid #E5E2DC", paddingBottom: 8, display: "flex", gap: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: brand, minWidth: 20 }}>{sec[1]}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917", letterSpacing: "0.06em" }}>{sec[2].trim()}</span>
+        </div>
+      );
+      return;
+    }
+
+    const fld = line.match(/^([A-Z][A-Za-z0-9 ()&/'.\-]{1,34}):\s*(.*)$/);
+    if (fld && fld[2].length <= 90 && !/[.!?]\s/.test(fld[2])) {
+      const value = fld[2].trim();
+      out.push(
+        <div key={i} style={{ display: "flex", gap: 14, padding: "9px 0", borderBottom: "1px solid #EFEDE8" }}>
+          <span style={{ flex: "0 0 40%", fontSize: 10.5, fontWeight: 700, color: "#6B6860", letterSpacing: "0.07em", textTransform: "uppercase", paddingTop: 2 }}>{fld[1].trim()}</span>
+          <span style={{ flex: 1, fontSize: 14, color: value ? "#1A1917" : "#9E9B94" }}>{value || "Not provided"}</span>
+        </div>
+      );
+      return;
+    }
+
+    if (line.length <= 44 && !/[.,;:!?]$/.test(line) && /^[A-Z]/.test(line) && line.split(" ").length <= 6) {
+      out.push(<div key={i} style={{ fontFamily: SERIF, fontSize: 15, fontWeight: 700, color: "#1A1917", marginTop: 16, marginBottom: 4 }}>{line}</div>);
+      return;
+    }
+
+    out.push(<p key={i} style={{ fontFamily: SERIF, fontSize: 14.5, color: "#26241F", lineHeight: 1.85, margin: "10px 0" }}>{line}</p>);
+  });
+
+  return <div>{out}</div>;
+}
+
 export default function SignPage() {
   const { token } = useParams<{ token: string }>();
   const [data, setData] = useState<any | null>(null);
@@ -57,6 +120,15 @@ export default function SignPage() {
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<any | null>(null);
+  // [agreement-decline 2026-08-20] A customer who spots a wrong rate or a
+  // wrong address had exactly one thing they could do on this page: sign it
+  // anyway, or close the tab. Closing the tab looks identical to not having
+  // opened it, so the office chased a customer who had already decided. The
+  // decline panel gives them a way to say no and say why.
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+  const [declining, setDeclining] = useState(false);
+  const [declined, setDeclined] = useState(false);
   // [agreement-scroll-gate 2026-08-19] "I have read this agreement" used to be
   // clickable the instant the page loaded, with the contract still scrolled to
   // its first line. That is the sentence a customer disputes later, and there
@@ -75,7 +147,14 @@ export default function SignPage() {
 
   useEffect(() => {
     if (!token) return;
-    publicFetch(`/api/sign/${token}`)
+    // [internal-view 2026-08-20] Say who is looking. The page stays public,
+    // but when someone from the office opens the agreement from a signed-in
+    // browser we send the staff token so the server leaves "viewed" alone.
+    // Without this, a staffer proofreading a contract marks it read by the
+    // customer, and the office chases a customer who never saw it. A real
+    // customer has no token, so the header is simply absent.
+    const staffToken = typeof localStorage !== "undefined" ? localStorage.getItem("qleno_token") : null;
+    publicFetch(`/api/sign/${token}`, staffToken ? { headers: { "Content-Type": "application/json", Authorization: `Bearer ${staffToken}` } } : {})
       .then(d => {
         setData(d);
         if (d.client_first || d.client_last) {
@@ -101,6 +180,21 @@ export default function SignPage() {
       setError(err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDecline = async () => {
+    setDeclining(true);
+    try {
+      await publicFetch(`/api/sign/${token}/decline`, {
+        method: "POST",
+        body: JSON.stringify({ reason: declineReason, name: signatureName }),
+      });
+      setDeclined(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDeclining(false);
     }
   };
 
@@ -149,6 +243,13 @@ export default function SignPage() {
   // Logo over a brand rule, exactly like the email header. Falls back to the
   // company name set in type when the tenant has not uploaded a mark, and to
   // nothing at all rather than printing a placeholder at a customer.
+  //
+  // [agreement-branch-name 2026-08-20] The name now prints UNDER the mark as
+  // well, on every branch. Both branches sign under the same Phes logo, so with
+  // the mark alone a Schaumburg customer had no way to tell which office they
+  // were contracting with - the only tell was the phone number down in the
+  // footer. The name is the company record's own (Phes / Phes Schaumburg), so
+  // this stays right for any branch added later without a special case here.
   const Letterhead = ({ caption }: { caption?: string }) => (
     <div style={{ textAlign: "center", marginBottom: 28 }}>
       <div style={{ display: "inline-block", background: "#fff", border: "1px solid #E5E2DC", borderBottom: `3px solid ${brand}`, borderRadius: "12px 12px 4px 4px", padding: "18px 34px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
@@ -157,6 +258,11 @@ export default function SignPage() {
           : companyName
             ? <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: "0.02em", color: "#1A1917" }}>{companyName}</div>
             : <FileText size={26} color={brand} style={{ display: "block", margin: "0 auto" }} />}
+        {logoSrc && companyName && (
+          <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid #EFEDE8", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: "#1A1917", whiteSpace: "nowrap" }}>
+            {companyName}
+          </div>
+        )}
       </div>
       {caption && (
         <div style={{ fontSize: 12, letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 600, color: "#6B6860", marginTop: 14 }}>{caption}</div>
@@ -236,6 +342,60 @@ export default function SignPage() {
     </div>
   );
 
+  // [agreement-decline 2026-08-20] Two closed states that are not "signed".
+  // Declined is the customer's own answer; cancelled is ours, either because
+  // we are rewriting the agreement or because the job is off. Both used to
+  // land on the generic "Link Not Available" card, which reads like our site
+  // is broken rather than like a decision somebody made on purpose.
+  if (declined || data?.declined_at) return (
+    <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif", padding: "28px 16px 60px" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto", textAlign: "center" }}>
+        <Letterhead />
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#F2F1EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+          <X size={34} color="#6B6860" />
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 22, color: "#1A1917", marginBottom: 10 }}>Thank you, we got your answer</div>
+        <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.7 }}>
+          You have not signed this agreement, and nothing has been scheduled from it.
+          Our office has been told, and someone will reach out if there is anything to fix.
+        </div>
+        {(declineReason || data?.decline_reason) && (
+          <div style={{ marginTop: 20, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", textAlign: "left" }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "#9E9B94", marginBottom: 6 }}>What you told us</div>
+            <div style={{ fontSize: 13.5, color: "#26241F", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{declineReason || data?.decline_reason}</div>
+          </div>
+        )}
+        <ContactFooter heading="Want to talk it through?" />
+      </div>
+    </div>
+  );
+
+  if (data?.cancelled_at) return (
+    <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif", padding: "28px 16px 60px" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto", textAlign: "center" }}>
+        <Letterhead />
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#FDF3E4", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+          <Clock size={32} color="#B45309" />
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 22, color: "#1A1917", marginBottom: 10 }}>
+          {data?.cancel_kind === "revision" ? "We are updating this agreement" : "This agreement was cancelled"}
+        </div>
+        <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.7 }}>
+          {data?.cancel_kind === "revision"
+            ? "Please do not sign this copy. We are making a change, and a new one is on its way to you."
+            : "This copy is no longer valid, so there is nothing to sign here."}
+        </div>
+        {data?.cancel_reason && (
+          <div style={{ marginTop: 20, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", textAlign: "left" }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "#9E9B94", marginBottom: 6 }}>Note from our office</div>
+            <div style={{ fontSize: 13.5, color: "#26241F", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{data.cancel_reason}</div>
+          </div>
+        )}
+        <ContactFooter heading="Questions about this?" />
+      </div>
+    </div>
+  );
+
   const inputStyle: React.CSSProperties = { width: "100%", padding: "11px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box", outline: "none" };
   const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#1A1917", display: "block", marginBottom: 6 };
 
@@ -259,7 +419,7 @@ export default function SignPage() {
                   by. Serif, wider leading, and a paper edge inside the card. */}
               <div ref={termsRef} onScroll={checkReadToEnd} style={{ padding: "30px 34px", maxHeight: "52vh", overflowY: "auto", background: "#FCFBF9", borderBottom: "1px solid #EDEAE4" }}>
                 {termsBody ? (
-                  <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 14.5, color: "#26241F", lineHeight: 1.9, whiteSpace: "pre-line" }}>{termsBody}</div>
+                  <AgreementText body={termsBody} brand={brand} />
                 ) : (
                   <div style={{ color: "#9E9B94", fontSize: 13 }}>No terms body provided for this template.</div>
                 )}
@@ -271,6 +431,41 @@ export default function SignPage() {
                 {!readToEnd && (
                   <div style={{ fontSize: 12.5, color: "#6B6860", textAlign: "center", marginTop: 10 }}>
                     Scroll to the end of the agreement to continue
+                  </div>
+                )}
+
+                {/* Deliberately not behind the scroll gate. Someone who spots a
+                    wrong price in the first paragraph should be able to say so
+                    without reading to the bottom of a contract they are not
+                    going to sign. */}
+                {!declineOpen ? (
+                  <div style={{ textAlign: "center", marginTop: 14 }}>
+                    <button onClick={() => setDeclineOpen(true)} style={{ background: "none", border: "none", padding: 6, fontSize: 13, fontWeight: 600, color: "#6B6860", textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                      Something here needs to change
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 16, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", textAlign: "left" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>Tell us what to fix</div>
+                    <div style={{ fontSize: 12.5, color: "#6B6860", lineHeight: 1.6, marginBottom: 10 }}>
+                      Nothing gets signed and nothing gets scheduled. We will read this and get back to you.
+                    </div>
+                    <textarea
+                      value={declineReason}
+                      onChange={e => setDeclineReason(e.target.value)}
+                      rows={4}
+                      maxLength={2000}
+                      placeholder="For example: the price is not what we agreed, or the address is wrong"
+                      style={{ width: "100%", padding: "11px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box", outline: "none", resize: "vertical" }}
+                    />
+                    <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                      <button onClick={() => { setDeclineOpen(false); setDeclineReason(""); }} disabled={declining} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B6860", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                        Never mind
+                      </button>
+                      <button onClick={handleDecline} disabled={declining} style={{ flex: 2, padding: "11px", background: "#1A1917", color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 14, cursor: declining ? "not-allowed" : "pointer", opacity: declining ? 0.6 : 1, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                        {declining ? "Sending..." : "Send this to the office"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

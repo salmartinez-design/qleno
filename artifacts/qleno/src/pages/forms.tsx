@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
+import AgreementSubmissions from "@/components/agreement-submissions";
 import {
   Plus, Trash2, Edit2, GripVertical, Copy, ExternalLink,
   Text, AlignLeft, List, CheckSquare, Calendar, Phone, Mail,
@@ -379,12 +380,6 @@ export default function FormsPage() {
     queryFn: () => apiFetch("/api/form-templates"),
   });
 
-  const { data: submissions = [] } = useQuery({
-    queryKey: ["form-submissions"],
-    queryFn: () => apiFetch("/api/form-templates/submissions"),
-    enabled: tab === "submissions",
-  });
-
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/form-templates/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["form-templates"] }),
@@ -476,34 +471,7 @@ export default function FormsPage() {
           </div>
         )}
 
-        {tab === "submissions" && (
-          <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#F7F6F3" }}>
-                  <th style={thStyle}>Form</th>
-                  <th style={thStyle}>Client</th>
-                  <th style={thStyle}>Submitted</th>
-                  <th style={thStyle}>Status</th>
-                  <th style={thStyle}>Signed By</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(submissions as any[]).length === 0 ? (
-                  <tr><td colSpan={5} style={{ ...tdStyle, textAlign: "center", color: "#9E9B94", padding: 40 }}>No submissions yet</td></tr>
-                ) : (submissions as any[]).map((s: any) => (
-                  <tr key={s.id}>
-                    <td style={tdStyle}>{s.form_name || `Form #${s.form_id}`}</td>
-                    <td style={tdStyle}>{s.client_name || s.sent_to || "—"}</td>
-                    <td style={tdStyle}>{s.submitted_at ? new Date(s.submitted_at).toLocaleString() : "—"}</td>
-                    <td style={tdStyle}><span style={{ background: s.status === "signed" ? "#D1FAE5" : "#FDF3E4", color: s.status === "signed" ? "#065F46" : "#B45309", padding: "3px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700 }}>{(s.status || "").toUpperCase()}</span></td>
-                    <td style={tdStyle}>{s.signature_name || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {tab === "submissions" && <AgreementSubmissions />}
       </div>
 
       {(buildingTemplate || creatingNew) && (

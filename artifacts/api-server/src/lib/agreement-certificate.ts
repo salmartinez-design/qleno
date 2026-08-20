@@ -33,7 +33,13 @@ const fmt = (iso: string) => {
   catch { return iso; }
 };
 const EVENT_LABEL: Record<string, string> = {
-  sent: "Sent for signature", viewed: "Viewed by signer", signed: "Signed", sealed: "Sealed — document locked",
+  sent: "Sent for signature", viewed: "Viewed by signer", signed: "Signed", sealed: "Sealed, document locked",
+  // [agreement-lifecycle 2026-08-20] Everything a sent agreement can now do
+  // besides being signed. All of it belongs on the certificate: a reminder we
+  // sent, a decline the customer entered, an office cancellation and a resend
+  // are each part of the story of how this document got where it ended up.
+  reminder_sent: "Reminder sent", declined: "Declined by signer",
+  cancelled: "Cancelled by our office", resent: "Sent again",
 };
 
 export function renderAgreementCertificate(data: AgreementCertData): Promise<Buffer> {

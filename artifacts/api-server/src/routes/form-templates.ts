@@ -8,6 +8,8 @@ import {
   RESIDENTIAL_AGREEMENT_BODY,
   COMMERCIAL_AGREEMENT_BODY,
 } from "../lib/agreement-bodies.js";
+import { nextReminderAt } from "../lib/agreement-lifecycle.js";
+import { appBaseUrl } from "../lib/app-url.js";
 
 const router = Router();
 
@@ -62,45 +64,272 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
+// [agreement-lifecycle 2026-08-20] The office list. This used to return the bare
+// bones - form, client, status, signed-by - which meant the only question it
+// could answer was "is it signed yet". It could not tell you whether the
+// customer had even opened it, how many times, when we last chased them, when
+// the link dies, why somebody said no, or which agreement replaced a cancelled
+// one. Raw SQL rather than the drizzle select because most of these columns are
+// added by the ensure-columns migration and are not in the generated schema.
 router.get("/submissions", requireAuth, async (req, res) => {
   try {
     const { form_id, client_id, status } = req.query;
-    const conditions: any[] = [eq(formSubmissionsTable.company_id, req.auth!.companyId)];
-    if (form_id) conditions.push(eq(formSubmissionsTable.form_id, parseInt(form_id as string)));
-    if (client_id) conditions.push(eq(formSubmissionsTable.client_id, parseInt(client_id as string)));
-    if (status) conditions.push(eq(formSubmissionsTable.status, status as string));
+    const companyId = req.auth!.companyId;
+    const formId = form_id ? parseInt(form_id as string) : null;
+    const clientId = client_id ? parseInt(client_id as string) : null;
+    const statusFilter = status ? String(status) : null;
 
-    const submissions = await db
-      .select({
-        id: formSubmissionsTable.id,
-        form_id: formSubmissionsTable.form_id,
-        client_id: formSubmissionsTable.client_id,
-        client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
-        client_email: clientsTable.email,
-        status: formSubmissionsTable.status,
-        sent_at: formSubmissionsTable.sent_at,
-        sent_to: formSubmissionsTable.sent_to,
-        submitted_at: formSubmissionsTable.submitted_at,
-        signature_name: formSubmissionsTable.signature_name,
-        signature_at: formSubmissionsTable.signature_at,
-        ip_address: formSubmissionsTable.ip_address,
-        pdf_url: formSubmissionsTable.pdf_url,
-        content_hash: formSubmissionsTable.content_hash,
-        expires_at: formSubmissionsTable.expires_at,
-        created_at: formSubmissionsTable.created_at,
-        form_name: formTemplatesTable.name,
-        form_type: formTemplatesTable.type,
-        form_category: formTemplatesTable.category,
-      })
-      .from(formSubmissionsTable)
-      .leftJoin(clientsTable, eq(formSubmissionsTable.client_id, clientsTable.id))
-      .leftJoin(formTemplatesTable, eq(formSubmissionsTable.form_id, formTemplatesTable.id))
-      .where(and(...conditions))
-      .orderBy(desc(formSubmissionsTable.created_at));
+    const rows = (await db.execute(sql`
+      SELECT fs.id, fs.form_id, fs.client_id,
+             trim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '')) AS client_name,
+             c.email AS client_email, c.phone AS client_phone,
+             fs.status, fs.sent_at, fs.sent_to, fs.sent_to_phone,
+             fs.submitted_at, fs.signature_name, fs.signature_at, fs.ip_address,
+             fs.pdf_url, fs.content_hash, fs.expires_at, fs.created_at, fs.sign_token,
+             fs.viewed_at, fs.last_viewed_at, coalesce(fs.view_count, 0) AS view_count,
+             fs.declined_at, fs.decline_reason, fs.declined_name,
+             fs.cancelled_at, fs.cancel_reason, fs.cancel_kind, fs.superseded_by_id,
+             coalesce(fs.reminder_step, 0) AS reminder_step,
+             fs.next_reminder_at, fs.last_reminder_at,
+             coalesce(fs.reminders_enabled, true) AS reminders_enabled,
+             coalesce(fs.resend_count, 0) AS resend_count, fs.last_resent_at,
+             ft.name AS form_name, ft.type AS form_type, ft.category AS form_category,
+             u.name AS sent_by_name
+        FROM form_submissions fs
+        LEFT JOIN clients c ON c.id = fs.client_id
+        LEFT JOIN form_templates ft ON ft.id = fs.form_id
+        LEFT JOIN users u ON u.id = fs.submitted_by
+       WHERE fs.company_id = ${companyId}
+         AND (${formId}::int IS NULL OR fs.form_id = ${formId}::int)
+         AND (${clientId}::int IS NULL OR fs.client_id = ${clientId}::int)
+         AND (${statusFilter}::text IS NULL OR fs.status = ${statusFilter}::text)
+       ORDER BY fs.created_at DESC`)).rows;
 
-    return res.json(submissions);
+    return res.json(rows);
   } catch (err) {
     console.error("List form submissions error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// The full history behind one agreement, newest last, exactly as the Certificate
+// of Completion prints it. The office list shows this inline so nobody has to
+// download a PDF to answer "did they ever open it".
+router.get("/submissions/:id/events", requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const rows = (await db.execute(sql`
+      SELECT id, event_type, actor_email, ip_address, user_agent, meta, created_at
+        FROM agreement_events
+       WHERE agreement_id = ${id} AND company_id = ${req.auth!.companyId}
+       ORDER BY created_at ASC, id ASC`)).rows;
+    return res.json(rows);
+  } catch (err) {
+    console.error("Agreement events error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [agreement-lifecycle 2026-08-20] Pull an agreement back.
+//
+// Two different situations wear the same button. "We need to fix something"
+// means the wording or the price is wrong and a corrected one is coming, so the
+// customer should be told to wait rather than sign the copy in their inbox.
+// "Cancel it" means there is no corrected one coming. The customer email and
+// what the office expects next are different in each case, so the kind is
+// recorded, not guessed.
+//
+// Either way the old link stops working immediately. Leaving a wrong agreement
+// signable for the rest of its 30 days is how a customer ends up holding a
+// contract at the wrong rate, and a signature on it would be perfectly valid.
+router.post("/submissions/:id/cancel", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const kind = req.body?.kind === "revision" ? "revision" : "cancelled";
+    const reason = String(req.body?.reason || "").trim().slice(0, 2000);
+    const notifyCustomer = req.body?.notify_customer !== false;
+    const companyId = req.auth!.companyId;
+
+    const row = (await db.execute(sql`
+      SELECT fs.id, fs.status, fs.client_id, fs.sent_to, ft.name AS form_name,
+             c.first_name AS client_first, co.logo_url AS company_logo
+        FROM form_submissions fs
+        LEFT JOIN form_templates ft ON ft.id = fs.form_id
+        LEFT JOIN clients c ON c.id = fs.client_id
+        LEFT JOIN companies co ON co.id = fs.company_id
+       WHERE fs.id = ${id} AND fs.company_id = ${companyId} LIMIT 1`)).rows[0] as any;
+
+    if (!row) return res.status(404).json({ error: "Agreement not found" });
+    if (row.status === "signed") {
+      return res.status(409).json({ error: "This one is already signed. A signed agreement cannot be cancelled here." });
+    }
+    if (row.status === "cancelled") return res.json({ ok: true, already: true });
+
+    await db.execute(sql`
+      UPDATE form_submissions
+         SET status = 'cancelled',
+             cancelled_at = now(),
+             cancelled_by = ${req.auth!.userId},
+             cancel_kind = ${kind},
+             cancel_reason = ${reason || null},
+             reminders_enabled = false,
+             next_reminder_at = NULL
+       WHERE id = ${id} AND company_id = ${companyId}`);
+
+    await db.execute(sql`
+      INSERT INTO agreement_events (company_id, agreement_id, event_type, meta)
+      VALUES (${companyId}, ${id}, 'cancelled',
+              ${JSON.stringify({ kind, reason, by_user: req.auth!.userId })}::jsonb)`);
+
+    // Tell the customer only if there is an address and the office wants to. A
+    // silent pull-back is a real choice: sometimes the office is fixing a typo
+    // nobody saw and a "please disregard" email just creates a question.
+    let emailed = false;
+    if (notifyCustomer && row.sent_to) {
+      try {
+        const { emailLogoUrl } = await import("../lib/app-url.js");
+        const { agreementEmailShell } = await import("../lib/phes-agreement-emails.js");
+        const { sendNotification } = await import("../services/notificationService.js");
+        const logoUrl = emailLogoUrl(row.company_logo ?? null);
+        emailed = await sendNotification(
+          kind === "revision" ? "agreement_revising" : "agreement_cancelled",
+          "email",
+          companyId,
+          String(row.sent_to),
+          null,
+          {
+            first_name: String(row.client_first || "").trim(),
+            agreement_name: String(row.form_name || "Service Agreement"),
+            reason,
+          },
+          true,
+          (bodyHtml, v) => agreementEmailShell({
+            logoUrl,
+            companyName: v.company_name,
+            companyPhone: v.company_phone,
+            companyEmail: v.company_email,
+            title: kind === "revision" ? "We are updating your agreement" : "Your agreement has been withdrawn",
+            banner: kind === "revision" ? "A corrected copy is on the way" : "Please disregard the agreement we sent",
+          }, bodyHtml),
+          row.client_id ?? null,
+        );
+      } catch (e) {
+        console.error("[agreement-cancel] customer email (non-fatal):", e);
+      }
+    }
+
+    return res.json({ ok: true, kind, emailed });
+  } catch (err) {
+    console.error("Cancel agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [agreement-lifecycle 2026-08-20] Send it again, optionally somewhere else.
+//
+// The everyday case is a customer saying "I never got it" or "use my work
+// email" or "just text it to me". Before this the office had to send a brand
+// new agreement, which left two live links for the same contract and two rows
+// in the list, and whichever one got signed was luck.
+//
+// This keeps ONE agreement and one signature. The link and the frozen wording
+// do not change, so nothing about what they are signing moves. What changes is
+// where it goes, when it dies, and the chase clock, which restarts from the top
+// because a customer who is seeing it for the first time today deserves the
+// same run of reminders as one who got it a month ago.
+router.post("/submissions/:id/resend", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const newEmail = String(req.body?.email || "").trim();
+    const newPhone = String(req.body?.phone || "").trim();
+    const alsoText = req.body?.also_text === true;
+
+    const row = (await db.execute(sql`
+      SELECT fs.id, fs.status, fs.client_id, fs.sign_token, fs.sent_to, fs.sent_to_phone,
+             ft.name AS form_name, c.first_name AS client_first, c.phone AS client_phone,
+             co.logo_url AS company_logo
+        FROM form_submissions fs
+        LEFT JOIN form_templates ft ON ft.id = fs.form_id
+        LEFT JOIN clients c ON c.id = fs.client_id
+        LEFT JOIN companies co ON co.id = fs.company_id
+       WHERE fs.id = ${id} AND fs.company_id = ${companyId} LIMIT 1`)).rows[0] as any;
+
+    if (!row) return res.status(404).json({ error: "Agreement not found" });
+    if (row.status === "signed") return res.status(409).json({ error: "This one is already signed" });
+    if (row.status === "cancelled") {
+      return res.status(409).json({ error: "This one was cancelled. Send a new agreement instead." });
+    }
+
+    const toEmail = newEmail || String(row.sent_to || "").trim();
+    const toPhone = newPhone || String(row.sent_to_phone || row.client_phone || "").trim();
+    if (!toEmail) return res.status(400).json({ error: "There is no email address to send this to" });
+
+    // A resend revives a declined or expired agreement. That is the point: the
+    // customer said no because something was wrong, we fixed it, here it is
+    // again. The decline reason stays on the row as history.
+    const anchor = new Date();
+    const expires = new Date();
+    expires.setDate(expires.getDate() + 30);
+    const firstReminder = nextReminderAt(anchor, 0);
+
+    await db.execute(sql`
+      UPDATE form_submissions
+         SET status = 'pending',
+             sent_to = ${toEmail},
+             sent_to_phone = ${toPhone || null},
+             sent_at = now(),
+             expires_at = ${expires},
+             resend_count = coalesce(resend_count, 0) + 1,
+             last_resent_at = now(),
+             cadence_anchor_at = ${anchor},
+             reminder_step = 0,
+             reminders_enabled = true,
+             next_reminder_at = ${firstReminder}
+       WHERE id = ${id} AND company_id = ${companyId}`);
+
+    const link = `${appBaseUrl()}/sign/${row.sign_token}`;
+    const vars: Record<string, string> = {
+      first_name: String(row.client_first || "").trim(),
+      agreement_name: String(row.form_name || "Service Agreement"),
+      agreement_link: link,
+      expires_days: "30",
+    };
+
+    const { emailLogoUrl } = await import("../lib/app-url.js");
+    const { agreementEmailShell } = await import("../lib/phes-agreement-emails.js");
+    const { sendNotification } = await import("../services/notificationService.js");
+    const logoUrl = emailLogoUrl(row.company_logo ?? null);
+
+    // Transactional, same as the first send: a person pressed a button for one
+    // named customer who is expecting it.
+    const emailed = await sendNotification(
+      "agreement_send", "email", companyId, toEmail, null, vars, true,
+      (bodyHtml, v) => agreementEmailShell({
+        logoUrl,
+        companyName: v.company_name,
+        companyPhone: v.company_phone,
+        companyEmail: v.company_email,
+        title: `Your ${v.company_name || "Phes"} service agreement`,
+        banner: "Please review and sign your service agreement",
+      }, bodyHtml),
+      row.client_id ?? null,
+    );
+
+    let texted = false;
+    if (alsoText && toPhone) {
+      texted = await sendNotification("agreement_reminder", "sms", companyId, null, toPhone,
+        { ...vars, status_line: "", days_left: "30", expires_on: "" }, true, undefined, row.client_id ?? null);
+    }
+
+    await db.execute(sql`
+      INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, meta)
+      VALUES (${companyId}, ${id}, 'resent', ${toEmail},
+              ${JSON.stringify({ by_user: req.auth!.userId, to_email: toEmail, to_phone: toPhone || null, emailed, texted })}::jsonb)`);
+
+    return res.json({ ok: true, emailed, texted, sent_to: toEmail, sent_to_phone: toPhone || null, expires_at: expires });
+  } catch (err) {
+    console.error("Resend agreement error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -387,6 +616,22 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
         submitted_by: req.auth!.userId,
       })
       .returning();
+
+    // [agreement-lifecycle 2026-08-20] Start the reminder clock on this send too.
+    // Both send paths have to seed it, or an agreement sent from this screen
+    // would sit forever with nothing chasing it while one sent from the client
+    // profile got the full cadence.
+    try {
+      const anchor = new Date();
+      await db.execute(sql`
+        UPDATE form_submissions
+           SET cadence_anchor_at = ${anchor},
+               next_reminder_at = ${nextReminderAt(anchor, 0)},
+               sent_to_phone = ${String(req.body?.phone || "").trim() || null}
+         WHERE id = ${submission.id}`);
+    } catch (e) {
+      console.error("[agreement-lifecycle] cadence seed (non-fatal):", e);
+    }
 
     // [agreement-merge 2026-07-22] Fill {{client_name}} / {{rate}} / etc. from the
     // client + company records and PERSIST the result on this submission, so the
