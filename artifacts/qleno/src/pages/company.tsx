@@ -1904,11 +1904,33 @@ const VARIABLES_HELP = [
   "{{company_name}}", "{{employee_name}}", "{{amount}}", "{{invoice_number}}",
 ];
 
+// [message-switches 2026-08-20] All four switches are real now. Each one was
+// checked against what the field app actually fires and against what a customer
+// actually receives:
+//   On My Way      - fires from the tech's "On My Way" button. Already sending.
+//   Pause / Resume - fires from the tech's Pause Job button. It had never
+//                    delivered a text, because it read the Twilio number off the
+//                    company row and Oak Lawn keeps its number in the
+//                    environment instead (20 attempts in 90 days, zero sent).
+//                    Fixed in routes/job-sms.ts.
+//   Arrived        - no code fired this event, so the switch governed nothing.
+//                    The tech's clock-in now fires it (my-jobs.tsx), which is
+//                    the moment the text describes. The column is false on
+//                    every tenant, so wiring it starts no new message; the
+//                    switch simply works if the office turns it on.
+//   Job Complete   - the completion text is real and sending (754 in 180 days),
+//                    but it goes out on the job_completed template from three
+//                    different code paths, none of which read this column. The
+//                    gate now lives in sendNotification, so this switch governs
+//                    the completion text the customer actually receives. It is
+//                    the same message as "Thank-You After Service" under
+//                    Customer Messages, reachable from either screen, never two
+//                    competing switches over two different texts.
 const SMS_TOGGLES = [
-  { key: "sms_on_my_way_enabled",  label: "On My Way",  desc: "Sent when employee taps 'On My Way' before arrival" },
-  { key: "sms_arrived_enabled",    label: "Arrived",     desc: "Sent when employee clocks in at the job" },
-  { key: "sms_paused_enabled",     label: "Pause / Resume", desc: "Sent when employee pauses or resumes the job" },
-  { key: "sms_complete_enabled",   label: "Job Complete", desc: "Sent when employee clocks out after completing the job" },
+  { key: "sms_on_my_way_enabled", label: "On My Way", desc: "Sent when the cleaner taps 'On My Way' before arrival" },
+  { key: "sms_arrived_enabled",   label: "Arrived", desc: "Sent when the cleaner clocks in at the home" },
+  { key: "sms_paused_enabled",    label: "Pause / Resume", desc: "Sent when the cleaner pauses or resumes the job" },
+  { key: "sms_complete_enabled",  label: "Job Complete", desc: "The thank-you text after the clean. Same message as Thank-You After Service." },
 ] as const;
 
 // Office "new lead" alerts — where the office is notified the second someone
@@ -2021,8 +2043,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
   const [settings, setSettings] = useState<Record<string, boolean>>({
-    sms_on_my_way_enabled: false, sms_arrived_enabled: false,
-    sms_paused_enabled: false, sms_complete_enabled: false,
+    sms_on_my_way_enabled: false, sms_paused_enabled: false,
   });
   const [twilioFrom, setTwilioFrom] = useState("");
   const [arrivalAlertWindow, setArrivalAlertWindow] = useState("45");
@@ -2038,9 +2059,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
         const c = d.data ?? d;
         setSettings({
           sms_on_my_way_enabled: !!c.sms_on_my_way_enabled,
-          sms_arrived_enabled:   !!c.sms_arrived_enabled,
           sms_paused_enabled:    !!c.sms_paused_enabled,
-          sms_complete_enabled:  !!c.sms_complete_enabled,
         });
         setTwilioFrom(c.twilio_from_number ?? "");
         setArrivalAlertWindow(String(c.arrival_alert_window_minutes ?? 45));
@@ -2070,7 +2089,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
           <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Job Status SMS</p>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Send SMS to clients when job status changes. Requires Twilio.</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Texts the client as the job moves along. Requires Twilio.</p>
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
@@ -2169,7 +2188,16 @@ const CM_SAMPLE: Record<string, string> = {
   arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453",
   address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
-  tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",
+  tech_name: "Ana",
+  // [message-switches 2026-08-20] phes.io/appt and phes.io/review are not real
+  // pages. Every link the customer actually receives is issued by the app.
+  appointment_link: "https://app.qleno.com/appointments/sample",
+  review_link: "https://app.qleno.com/survey/sample",
+  survey_link: "https://app.qleno.com/survey/sample",
+  invoice_number: "1042", invoice_amount: "240.00",
+  invoice_due_date: "Friday, July 4, 2026",
+  invoice_link: "https://app.qleno.com/pay/sample",
+  payment_amount: "240.00", payment_date: "Friday, June 27, 2026",
   // Collapsed-card excerpt only strips to text; the styled table renders in the
   // editor preview + test send (see easy-message-editor SAMPLE_BREAKDOWN).
   services_breakdown: "Deep Clean $608.00 · Oven cleaning +$50.00 · First visit total $673.00",
@@ -2196,6 +2224,10 @@ const CM_GROUPS: { key: string; title: string; sub: string }[] = [
   { key: "before", title: "Before the visit", sub: "Confirmation and reminders" },
   { key: "during", title: "During the visit", sub: "Day-of, while the team is en route" },
   { key: "after", title: "After the visit", sub: "Thank-you and review request" },
+  // [message-switches 2026-08-20] Invoices and payment confirmations had no
+  // switch at all — the only way to stop one was to stop invoicing. They sit in
+  // their own group because they follow the bill, not the visit.
+  { key: "billing", title: "Billing", sub: "Invoices and payment confirmations" },
 ];
 
 function NotificationsTab() {
@@ -2577,14 +2609,14 @@ function NotificationsTab() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* [survey-wiring 2026-07-07] The survey TEXT is sent by the
-                        scorecard engine using the template in Company Settings →
-                        Customer Survey — the review_request:sms template row here
-                        was a leftover from the retired Google-review cron and
-                        nothing sends it. Hide it and point at the real setting so
-                        the post-visit ask has ONE configuration surface per
-                        channel. */}
-                    {(msg.key === 'review_request' ? msg.channels.filter((c: any) => c.channel !== 'sms') : msg.channels).map((ch: any) => {
+                    {/* [message-switches 2026-08-20] The survey TEXT row is shown
+                        again, and it is now the real one. The scorecard engine used
+                        to build that text from its own setting in Company Settings →
+                        Customer Survey, so the row here was decorative and was
+                        hidden. The engine now renders THIS template and honors THIS
+                        switch, so the review ask has one card with both channels on
+                        it, the same as every other message. */}
+                    {msg.channels.map((ch: any) => {
                       // [per-package-confirmation] The booking-confirmation SMS can carry
                       // per-package variants. effCh is the row being viewed/edited — the
                       // selected package's variant, else the default — so preview, toggle,
@@ -2652,7 +2684,7 @@ function NotificationsTab() {
                               channel={ch.channel}
                               initialSubject={ch.channel === 'email' ? (effCh.subject || '') : ''}
                               initialBody={effCh.body || ''}
-                              mergeTags={mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)}
+                              mergeTags={msg.merge_tags?.length ? msg.merge_tags : (mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE))}
                               templateKey={msg.key}
                               branchId={activeBranchId === 'all' ? null : activeBranchId}
                               saving={saving === effCh.id}
@@ -2666,7 +2698,7 @@ function NotificationsTab() {
                     })}
                     {msg.key === 'review_request' && (
                       <p style={{ fontSize: 11.5, color: '#6B6860', margin: '2px 0 0', lineHeight: 1.5 }}>
-                        The survey <strong>text message</strong> (and the send delay) are configured in <strong>Company Settings → Customer Survey</strong> — both channels carry the same tokenized survey link.
+                        Both channels carry the same private rating link. The customer's score is what feeds the cleaner's quality score, and only a happy rating goes on to ask for a public review. The send delay lives in <strong>Company Settings → Customer Survey</strong>.
                       </p>
                     )}
                   </div>
@@ -4247,8 +4279,15 @@ function CustomerSurveyTab() {
   const CS_API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
   const { data: company, refetch } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
+  // [message-switches 2026-08-20] survey_enabled and survey_message_template are
+  // gone from this screen. The review ask is a Customer Message like every other
+  // one now: its on/off switch and its wording live on the "Review Request" card
+  // under Customer Comms → Customer Messages, for both the email and the text.
+  // Two screens editing one text is what let the office turn the survey "off"
+  // here while the email kept going out. What stays here is the send delay and
+  // the Twilio connection, which are genuinely survey-program settings.
   const [f, setF] = useState({
-    survey_enabled: false, survey_message_template: "", survey_send_after_hours: 0,
+    survey_send_after_hours: 0,
     twilio_enabled: false, twilio_account_sid: "", twilio_from_number: "", twilio_auth_token: "",
   });
   const [tokenSet, setTokenSet] = useState(false);
@@ -4258,8 +4297,6 @@ function CustomerSurveyTab() {
     const c = company as any;
     if (!c) return;
     setF({
-      survey_enabled: !!c.survey_enabled,
-      survey_message_template: c.survey_message_template ?? "",
       survey_send_after_hours: Number(c.survey_send_after_hours ?? 0),
       twilio_enabled: !!c.twilio_enabled,
       twilio_account_sid: c.twilio_account_sid ?? "",
@@ -4273,8 +4310,6 @@ function CustomerSurveyTab() {
     setSaving(true);
     try {
       const body: any = {
-        survey_enabled: f.survey_enabled,
-        survey_message_template: f.survey_message_template,
         survey_send_after_hours: f.survey_send_after_hours,
         twilio_enabled: f.twilio_enabled,
         twilio_account_sid: f.twilio_account_sid,
@@ -4311,17 +4346,13 @@ function CustomerSurveyTab() {
       </p>
 
       <div style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div><div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Send post-job surveys</div>
-            <div style={{ fontSize: 12, color: "#9E9B94" }}>Master toggle for the survey program</div></div>
-          <Toggle on={f.survey_enabled} onChange={v => setF(p => ({ ...p, survey_enabled: v }))} />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={label}>Message template</label>
-          <textarea rows={3} style={{ ...input, resize: "vertical" }} value={f.survey_message_template}
-            onChange={e => setF(p => ({ ...p, survey_message_template: e.target.value }))} />
-          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 8px" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
-          <MessagePreview channel="sms" body={f.survey_message_template} />
+        <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 9, padding: "12px 14px", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 3 }}>Turning it on and wording it moved</div>
+          <div style={{ fontSize: 12.5, color: "#6B6860", lineHeight: 1.55 }}>
+            The rating request is now edited in one place, on the <strong>Review Request</strong> card under
+            {" "}<strong>Customer Comms → Customer Messages</strong>. The switch and the wording for the text and
+            the email both live there. This page keeps the send delay and the phone connection.
+          </div>
         </div>
         <div style={{ maxWidth: 220 }}>
           <label style={label}>Send delay after completion (hours)</label>

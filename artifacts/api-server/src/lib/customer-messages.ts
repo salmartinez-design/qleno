@@ -54,14 +54,21 @@ export type MsgAnchor =
   // [hold-allowance 2026-08-20] The day a NOTICE hold runs out without a resume:
   // the agreement ends and the notice visits are billed. Distinct from
   // on_suspend_expiry, which is the free-hold "your pause is over" nudge.
-  | "on_hold_termination";
+  | "on_hold_termination"
+  // [message-switches 2026-08-20] Event anchors for the messages that had no
+  // switch until now. Like the suspension anchors these are deliberately NOT in
+  // OFFSET_ANCHORS — each fires from its own call site, not the offset cron.
+  | "on_time_change"
+  | "on_invoice"
+  | "on_invoice_overdue"
+  | "on_payment";
 
 export const OFFSET_ANCHORS: MsgAnchor[] = ["before_appointment", "after_appointment"];
 
 export interface CustomerMessageDef {
   trigger: string;
   label: string; // office-facing name
-  group: "before" | "during" | "after";
+  group: "before" | "during" | "after" | "billing";
   anchor: MsgAnchor;
   offsetDays?: number; // before_/after_appointment only
   sendHour?: number;   // 0-23 CT, before_/after_appointment only
@@ -80,6 +87,12 @@ export interface CustomerMessageDef {
   // the grid would show a toggle that does nothing. They still seed + appear in
   // Settings → Customer Messages as editable templates.
   excludeFromPrefs?: boolean;
+  // Tags THIS message can use, when they differ from the shared booking/job set
+  // (MERGE_TAGS). The editor shows exactly this list, so an invoice message
+  // doesn't offer {{tech_name}} and a booking message doesn't offer
+  // {{invoice_amount}} — a tag the sender never passes renders as an empty
+  // string, silently, so offering the wrong ones invites holes in live copy.
+  mergeTags?: readonly string[];
 }
 
 // Merge-tags available to every customer message. Keep this list in sync with
@@ -121,6 +134,40 @@ export const MERGE_TAGS = [
   // charged to your card" must never go out when the card declined or the client
   // never had one on file.
   "notice_status",
+] as const;
+
+// Tags the office and the customer both care about on a MONEY message. These
+// replace the booking set on the billing cards rather than adding to it: an
+// invoice send passes none of {{tech_name}} / {{arrival_window}} / {{date}}, so
+// offering those chips there is an invitation to write a line that renders
+// half-empty in a real customer's inbox.
+export const BILLING_MERGE_TAGS = [
+  "first_name",
+  "client_name",
+  "company_name",
+  "company_phone",
+  "company_email",
+  "invoice_number",
+  "invoice_amount",
+  "invoice_due_date",
+  "invoice_link",
+  "service_address",
+  "payment_amount",
+  "payment_date",
+] as const;
+
+// The reschedule notice carries the new date and time and nothing else — it is
+// sent from the job, not from a booking, so it has no arrival window or add-on
+// breakdown to offer.
+export const TIME_CHANGE_MERGE_TAGS = [
+  "first_name",
+  "client_name",
+  "company_name",
+  "company_phone",
+  "company_email",
+  "service_type",
+  "appointment_date",
+  "appointment_time",
 ] as const;
 
 // [service-suspension 2026-07-11] House-styled inner HTML for the suspension
@@ -206,6 +253,33 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
         channel: "sms",
         body:
           "Hi {{first_name}}, your {{company_name}} cleaning is tomorrow with a {{arrival_window}} arrival window at {{service_address}}. Please ensure access to your home is available. Questions? Call {{company_phone}}. Reply STOP to unsubscribe.",
+      },
+    ],
+  },
+  // [message-switches 2026-08-20] The time-change notice has been sending for
+  // months with no entry here, so the office could see it in the log but had no
+  // switch and no way to edit the wording. Copy below is the live prod body,
+  // captured verbatim, so cataloguing it changes nothing a customer receives.
+  {
+    trigger: "job_time_updated",
+    label: "Appointment Time Changed",
+    group: "before",
+    anchor: "on_time_change",
+    timing: "Real time, when the office moves an upcoming appointment",
+    description:
+      "Tells the customer their arrival time moved. Only sends when the office picks email or text on the reschedule.",
+    mergeTags: TIME_CHANGE_MERGE_TAGS,
+    channels: [
+      {
+        channel: "email",
+        subject: "Your appointment time has been updated",
+        body:
+          "Hi {{first_name}},\n\nYour {{service_type}} on {{appointment_date}} is now scheduled for {{appointment_time}}.\n\nIf that no longer works, call us at {{company_phone}} and we will find a better time.\n\n{{company_name}}",
+      },
+      {
+        channel: "sms",
+        body:
+          "Hi {{first_name}}, quick update from {{company_name}}: your cleaning on {{appointment_date}} is now scheduled for {{appointment_time}}. Questions? Reply to this text or call {{company_phone}}.",
       },
     ],
   },
@@ -481,6 +555,90 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
       },
     ],
   },
+
+  // [message-switches 2026-08-20] Billing messages. These three are the only
+  // customer-facing sends in the billing family — invoice_created and
+  // payment_collected look like siblings in the log but are channel='system'
+  // audit rows that reach nobody, so they deliberately get no switch here.
+  //
+  // Two conventions worth knowing before adding a fourth:
+  //   excludeFromPrefs — their send sites pass no client id, so a per-client
+  //     toggle would render a control that governs nothing. The company-level
+  //     switch (template is_active) is real; the per-client column is not.
+  //   seedPaused — co2/co3 have no rows for these and therefore send nothing
+  //     today. Seeding an ACTIVE row would start brand-new billing mail on a
+  //     tenant that never had it. Paused means cataloguing changes no sends.
+  // Bodies are the live Oak Lawn/Schaumburg copy, captured verbatim.
+  {
+    trigger: "invoice_sent",
+    label: "Invoice",
+    group: "billing",
+    anchor: "on_invoice",
+    timing: "When an invoice is sent, by hand or by the weekly billing run",
+    description: "The invoice itself, with the amount, the due date and a pay link.",
+    excludeFromPrefs: true,
+    mergeTags: BILLING_MERGE_TAGS,
+    channels: [
+      {
+        channel: "email",
+        subject: "Invoice #{{invoice_number}} from {{company_name}}",
+        body:
+          "Hi {{first_name}},\n\nYour invoice #{{invoice_number}} for {{service_address}} is ready.\n\nAmount due: ${{invoice_amount}}\nDue date: {{invoice_due_date}}\n\nPay online: {{invoice_link}}\n\nQuestions? Call {{company_phone}} or email {{company_email}}.\n\n{{company_name}}",
+        seedPaused: true,
+      },
+      {
+        channel: "sms",
+        body:
+          "Hi {{first_name}}, invoice #{{invoice_number}} for ${{invoice_amount}} from {{company_name}} is ready. Due {{invoice_due_date}}. Pay: {{invoice_link}} or call {{company_phone}}.",
+        seedPaused: true,
+      },
+    ],
+  },
+  {
+    trigger: "invoice_reminder",
+    label: "Invoice Reminder",
+    group: "billing",
+    anchor: "on_invoice_overdue",
+    timing: "When the office nudges an invoice that is still open",
+    description: "A softer follow-up on an unpaid invoice, with the same pay link.",
+    excludeFromPrefs: true,
+    mergeTags: BILLING_MERGE_TAGS,
+    // Email only, to match what is live. There has never been a reminder text.
+    channels: [
+      {
+        channel: "email",
+        subject: "Friendly reminder: Invoice #{{invoice_number}} from {{company_name}}",
+        body:
+          "Hi {{first_name}},\n\nA quick reminder that the invoice below is still open. If you have already sent payment, thank you. Please disregard this note.\n\nInvoice #{{invoice_number}}\nAmount due: ${{invoice_amount}}\nDue date: {{invoice_due_date}}\n\nPay online: {{invoice_link}}\n\nQuestions? Call {{company_phone}} or email {{company_email}}.\n\n{{company_name}}",
+        seedPaused: true,
+      },
+    ],
+  },
+  {
+    trigger: "payment_received",
+    label: "Payment Receipt",
+    group: "billing",
+    anchor: "on_payment",
+    timing: "Real time, when a payment is recorded",
+    description: "Confirms the payment landed, so nobody has to call and ask.",
+    excludeFromPrefs: true,
+    mergeTags: BILLING_MERGE_TAGS,
+    channels: [
+      {
+        channel: "email",
+        subject: "Payment confirmed. Thank you!",
+        body:
+          "Hi {{first_name}},\n\nWe received your payment of ${{payment_amount}} on {{payment_date}} for invoice #{{invoice_number}}. Thank you!\n\nQuestions? Call {{company_phone}} or email {{company_email}}.\n\n{{company_name}}",
+        seedPaused: true,
+      },
+      {
+        channel: "sms",
+        body:
+          "Hi {{first_name}}, payment of ${{payment_amount}} received for invoice #{{invoice_number}}. Thank you! {{company_name}} {{company_phone}}.",
+        seedPaused: true,
+      },
+    ],
+  },
 ];
 
 // Quick lookup for the set of trigger keys that are customer messages.
@@ -700,6 +858,12 @@ const TAG_ALIASES: string[][] = [
   // on job_completed, which is why the same tag works there - verified against
   // the live template bodies, not assumed.
   ["service_type", "scope"],
+  // [message-switches 2026-08-20] The review request had two names for one
+  // link: the email template says {{review_link}}, the survey text on
+  // companies.survey_message_template says {{survey_link}}. Now that the text
+  // renders from the template like every other message, whichever word the
+  // office typed has to resolve.
+  ["review_link", "survey_link"],
 ];
 
 function fillTagAliases(vars: Record<string, string | null | undefined>): void {
