@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, verifyToken } from "../lib/auth.js";
 import { enrollForEstimateSent, stopEnrollmentsForEstimate, fireEstimateDay0 } from "../services/followUpService.js";
 import { recordEngagementEvent } from "../lib/engagement.js";
 import { renderEstimatePdf } from "../lib/estimate-pdf.js";
@@ -671,19 +671,45 @@ router.get("/public/:token", async (req, res) => {
       });
     }
 
+    // [internal-preview 2026-08-20] "Viewed" is supposed to mean the CUSTOMER
+    // opened it. It was recording anyone who loaded the page, so the office
+    // checking its own work marked the estimate viewed and stamped viewed_at
+    // with the moment a staffer clicked, not the moment the customer did. That
+    // is a number the owner reads to decide whether to follow up, so a false
+    // one is worse than none.
+    //
+    // The page is public and unauthenticated by design, so we cannot require a
+    // token. Instead the app's own copy of the page sends the signed-in staff
+    // token when there is one (see estimate-public.tsx), and a valid staff
+    // token belonging to THIS estimate's company means the viewer works here.
+    // A real customer never has one, so nothing about their view changes. A
+    // customer-portal token is not staff and is deliberately not accepted here.
+    // Anything unreadable or from another tenant is ignored and treated as a
+    // customer view, which is the safe direction to fail.
+    const internalViewer = (() => {
+      const h = req.headers.authorization;
+      if (!h || !h.startsWith("Bearer ")) return false;
+      try {
+        const p = verifyToken(h.substring(7));
+        return p.companyId === est.company_id && p.role !== "portal_client";
+      } catch { return false; }
+    })();
+
     const expired = est.valid_until && new Date(est.valid_until) < new Date() && est.status !== "accepted";
     if (expired && est.status !== "expired") {
       await db.execute(sql`UPDATE estimates SET status = 'expired', updated_at = now() WHERE id = ${est.id}`);
       est.status = "expired";
     }
-    if (est.status === "sent") {
+    if (est.status === "sent" && !internalViewer) {
       await db.execute(sql`UPDATE estimates SET status = 'viewed', viewed_at = COALESCE(viewed_at, now()), updated_at = now() WHERE id = ${est.id}`);
       est.status = "viewed";
       est.viewed_at = est.viewed_at || new Date().toISOString();
     }
     // [engagement-phase4] Record the hosted-page view (web channel).
-    recordEngagementEvent({ companyId: est.company_id, estimateId: est.id, eventType: "viewed", channel: "web",
-      meta: { ua: req.get("user-agent") || null } }).catch(() => {});
+    if (!internalViewer) {
+      recordEngagementEvent({ companyId: est.company_id, estimateId: est.id, eventType: "viewed", channel: "web",
+        meta: { ua: req.get("user-agent") || null } }).catch(() => {});
+    }
 
     const items = await db.execute(sql`
       SELECT name, description, pricing_type, frequency, quantity, unit_rate, amount

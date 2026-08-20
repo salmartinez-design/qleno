@@ -68,6 +68,35 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
 // here. The contract and the app must agree on what "monthly" is called, and
 // they only do that if there is one map. See lib/recurring-cadences.ts.
 
+// The recurring schedule's service_type is the only per-client description of
+// what we clean that every active residential client actually has. Slugs read
+// like enum values; a contract has to read like English. Free text that the
+// office already typed ("Hourly Standard Cleaning") passes through untouched.
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  standard_clean: "Standard cleaning",
+  standard_cleaning: "Standard cleaning",
+  deep_clean: "Deep cleaning",
+  deep_cleaning: "Deep cleaning",
+  move_in: "Move in cleaning",
+  move_out: "Move out cleaning",
+  move_in_out: "Move in / move out cleaning",
+  post_construction: "Post construction cleaning",
+  office_cleaning: "Office cleaning",
+  commercial_cleaning: "Commercial cleaning",
+  recurring: "Recurring cleaning",
+  one_time: "One time cleaning",
+};
+
+function serviceTypeLabel(v: any): string {
+  const raw = String(v || "").trim();
+  if (!raw) return "";
+  const known = SERVICE_TYPE_LABELS[raw.toLowerCase()];
+  if (known) return known;
+  // Anything the office typed by hand already reads as English. Only the
+  // underscore_slug shape needs unpacking.
+  return raw.includes("_") ? raw.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()) : raw;
+}
+
 function money(n: any): string {
   const v = Number(n);
   // Thousands separators — "$2,500.00" is how a dollar figure reads in a
@@ -96,7 +125,18 @@ export async function buildAgreementVars(
   companyId: number,
   opts: { clientId?: number | null; estimateId?: number | null; clientHomeId?: number | null } = {},
 ): Promise<AgreementVars> {
+  // [agreement-blanks 2026-08-20] Seed every catalogued token to empty FIRST.
+  //
+  // renderAgreementBody deliberately leaves an UNKNOWN token as written, so the
+  // author can see they typo'd. But a KNOWN token that no source happened to set
+  // was also unknown to the renderer, so a real client contract shipped reading
+  // "Approximate square feet: {{square_feet}}". Seeding here draws the line the
+  // renderer cannot: a token in this catalog is the app's responsibility and
+  // renders as a blank or a stated gap, never as raw syntax. A token that is NOT
+  // in the catalog is still the author's typo and is still left visible.
   const vars: AgreementVars = {};
+  for (const v of AGREEMENT_VARIABLES) vars[v.token] = "";
+
   const now = new Date();
   vars.today = longDate(now);
   vars.effective_date = longDate(now);
@@ -145,7 +185,8 @@ export async function buildAgreementVars(
 
   if (opts.clientId) {
     const c: any = (await db.execute(sql`
-      SELECT first_name, last_name, company_name, email, phone, address, city, state, zip, pets
+      SELECT first_name, last_name, company_name, email, phone, address, city, state, zip,
+             pets, home_access_notes
         FROM clients WHERE id = ${opts.clientId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0];
     if (c) {
@@ -158,6 +199,10 @@ export async function buildAgreementVars(
       // clients.pets is the office's free-text note ("Two cats, friendly").
       // The property row's has_pets/pet_notes wins below when there is one.
       vars.pets = String(c.pets || "").trim();
+      // Same story for entry instructions: the property row is the right home
+      // for them, but the import only filled it for one client. The office has
+      // been typing them on the client record instead.
+      vars.access_notes = String(c.home_access_notes || "").trim();
     }
 
     // [agreement-from-client 2026-08-19] The property being cleaned. Uses the
@@ -176,16 +221,20 @@ export async function buildAgreementVars(
     if (home) {
       const homeAddr = joinAddress(home.address, home.city, home.state, home.zip);
       if (homeAddr) vars.service_address = homeAddr;
-      if (home.bedrooms != null) vars.bedrooms = String(home.bedrooms);
+      // A stored 0 is the import's placeholder, not a studio with no bathroom.
+      // Printing "Bedrooms: 0" in a signed contract is worse than saying we do
+      // not have the number, so 0 falls through to the quote and then to the
+      // stated gap below.
+      if (Number(home.bedrooms) > 0) vars.bedrooms = String(home.bedrooms);
       // Half baths are counted separately in the schema but a contract reads
       // them together: 2 full + 1 half is "2.5".
-      if (home.bathrooms != null) {
+      if (Number(home.bathrooms) > 0) {
         const half = Number(home.half_baths || 0);
         vars.bathrooms = half > 0
           ? String(Number(home.bathrooms) + half * 0.5)
           : String(home.bathrooms);
       }
-      if (home.sq_footage != null) vars.square_feet = Number(home.sq_footage).toLocaleString("en-US");
+      if (Number(home.sq_footage) > 0) vars.square_feet = Number(home.sq_footage).toLocaleString("en-US");
       if (home.access_notes) vars.access_notes = String(home.access_notes).trim();
       const petNote = String(home.pet_notes || "").trim();
       if (petNote) vars.pets = petNote;
@@ -200,18 +249,21 @@ export async function buildAgreementVars(
     // the booking widget and the quote builder both ask, so anyone who signs up
     // from here forward has the numbers there. Only fills what the property row
     // left empty, so a real property record always wins.
-    if (!vars.bedrooms || !vars.bathrooms) {
+    if (!vars.bedrooms || !vars.bathrooms || !vars.square_feet) {
       const q: any = (await db.execute(sql`
-        SELECT bedrooms, bathrooms, half_baths, pets
+        SELECT bedrooms, bathrooms, half_baths, pets, sqft
           FROM quotes
          WHERE client_id = ${opts.clientId} AND company_id = ${companyId}
-           AND (bedrooms IS NOT NULL OR bathrooms IS NOT NULL)
+           AND (bedrooms IS NOT NULL OR bathrooms IS NOT NULL OR sqft IS NOT NULL)
          ORDER BY id DESC
          LIMIT 1
       `)).rows[0];
       if (q) {
-        if (!vars.bedrooms && q.bedrooms != null) vars.bedrooms = String(q.bedrooms);
-        if (!vars.bathrooms && q.bathrooms != null) {
+        if (!vars.bedrooms && Number(q.bedrooms) > 0) vars.bedrooms = String(q.bedrooms);
+        if (!vars.square_feet && Number(q.sqft) > 0) {
+          vars.square_feet = Number(q.sqft).toLocaleString("en-US");
+        }
+        if (!vars.bathrooms && Number(q.bathrooms) > 0) {
           const half = Number(q.half_baths || 0);
           vars.bathrooms = half > 0
             ? String(Number(q.bathrooms) + half * 0.5)
@@ -231,7 +283,7 @@ export async function buildAgreementVars(
     // cadence, service day and start date come from. Account schedules are
     // excluded — those bill through the account, not this client's contract.
     const sch: any = (await db.execute(sql`
-      SELECT frequency, custom_frequency_weeks, day_of_week, start_date, base_fee
+      SELECT frequency, custom_frequency_weeks, day_of_week, start_date, base_fee, service_type
         FROM recurring_schedules
        WHERE customer_id = ${opts.clientId} AND company_id = ${companyId}
          AND is_active = true AND account_id IS NULL
@@ -243,6 +295,12 @@ export async function buildAgreementVars(
       if (Number.isFinite(fee) && fee > 0) vars.rate = money(fee);
       const freq = frequencyLabel(sch.frequency, sch.custom_frequency_weeks);
       if (freq) vars.frequency = freq;
+      // Section 3 of the residential contract opens with "Service: {{scope_of_work}}".
+      // Only an estimate used to set that token, and residential signups have no
+      // estimate, so EVERY home contract went out with the line unresolved. The
+      // schedule's service type is the same answer the dispatch board shows.
+      const scope = serviceTypeLabel(sch.service_type);
+      if (scope) vars.scope_of_work = scope;
       const day = DAY_PLURALS[String(sch.day_of_week || "").toLowerCase()];
       if (day) vars.service_day = day;
       if (sch.start_date) {
@@ -256,8 +314,14 @@ export async function buildAgreementVars(
   }
 
   if (opts.estimateId) {
+    // [agreement-blanks 2026-08-20] There is no estimates.frequency column — the
+    // estimate carries its cadence on the LINE ITEMS, one per service. Selecting
+    // it threw, the only caller swallowed the throw, and the office was handed a
+    // commercial contract with every token still in braces, the customer's own
+    // name included. The cadence now comes from the first line item that names
+    // one, which is where the estimate builder writes it.
     const e: any = (await db.execute(sql`
-      SELECT contact_name, property_name, service_address, total, frequency, scope_note
+      SELECT contact_name, property_name, service_address, total, scope_note
         FROM estimates WHERE id = ${opts.estimateId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0];
     if (e) {
@@ -267,8 +331,16 @@ export async function buildAgreementVars(
       if (e.property_name) vars.client_company = e.property_name;
       if (e.service_address) vars.service_address = e.service_address;
       if (e.total != null) vars.rate = money(e.total);
-      if (e.frequency) vars.frequency = e.frequency;
     }
+
+    const lineFreq: any = (await db.execute(sql`
+      SELECT frequency FROM estimate_line_items
+       WHERE estimate_id = ${opts.estimateId} AND company_id = ${companyId}
+         AND coalesce(frequency, '') <> ''
+       ORDER BY sort_order ASC, id ASC
+       LIMIT 1
+    `)).rows[0];
+    if (lineFreq?.frequency) vars.frequency = String(lineFreq.frequency).trim();
 
     // Scope of work: the estimate's own scope paragraph when the office wrote
     // one, else the line items as a list. This is what makes one commercial
@@ -293,6 +365,15 @@ export async function buildAgreementVars(
         .filter(Boolean);
       if (lines.length) vars.scope_of_work = lines.join("\n");
     }
+  }
+
+  // [agreement-blanks 2026-08-20] The home details are printed as a labelled
+  // list, so an empty one reads as "Bedrooms:" with nothing after it — the
+  // client cannot tell whether we left it out or believe the answer is nothing.
+  // Say so instead. This is the same call the pets line already makes when the
+  // property row says there are none.
+  for (const k of ["bedrooms", "bathrooms", "square_feet", "pets", "access_notes"]) {
+    if (!String(vars[k] || "").trim()) vars[k] = "Not provided";
   }
 
   return vars;
@@ -327,6 +408,18 @@ export async function renderAgreementFor(
   body: string | null | undefined,
   opts: { clientId?: number | null; estimateId?: number | null; clientHomeId?: number | null } = {},
 ): Promise<string> {
-  const vars = await buildAgreementVars(companyId, opts);
+  let vars: AgreementVars;
+  try {
+    vars = await buildAgreementVars(companyId, opts);
+  } catch (err) {
+    // [agreement-blanks 2026-08-20] Last line of defence. Callers catch a throw
+    // here and fall back to the UNRENDERED template, which is how a contract
+    // full of {{tokens}} reached the office in the first place. A lookup that
+    // fails is a blank contract, which the office can see and fix; it must never
+    // be a contract that shows the customer our template syntax.
+    console.error("[agreement-merge] variable lookup failed, rendering blanks:", err);
+    vars = {};
+    for (const v of AGREEMENT_VARIABLES) vars[v.token] = "";
+  }
   return renderAgreementBody(body, vars);
 }

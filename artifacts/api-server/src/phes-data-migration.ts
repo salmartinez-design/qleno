@@ -7827,6 +7827,110 @@ async function runNotificationTemplateSeed() {
       console.error("[notification-templates] agreement seed (non-fatal):", (e as any)?.message);
     }
 
+    // [agreement-lifecycle 2026-08-20] The chase, the pull-back and the resend.
+    //
+    // Four more agreement emails plus their text-message versions. Everything
+    // here is editable in Settings like the rest, and everything here is worded
+    // as a nudge rather than a demand: an unsigned agreement is usually an
+    // inbox problem, not a refusal, and the customer who is genuinely having
+    // second thoughts should feel free to say so rather than go quiet.
+    //
+    // {{status_line}} is the one sentence that changes with what we can see. If
+    // the link was opened we say so; if it never was, we say that instead, which
+    // is a different and much more useful message.
+    try {
+      const REM_SUBJECT = "Your {{company_name}} service agreement is waiting for your signature";
+      const REM_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">We sent you your {{company_name}} service agreement a little while ago. {{status_line}} We wanted to make sure it did not get buried.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#0A0E1A;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Review and sign</a>
+</td></tr></table>
+<p style="margin:0 0 22px;font-size:13px;color:#6B6860;line-height:1.65;text-align:center">This link is unique to you and stops working in {{days_left}} days.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F6F3;border:1px solid #E5E2DC;border-radius:10px;margin:8px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#1A1917;margin:0 0 6px;">Something not right?</div>
+    <div style="font-size:14px;color:#1A1917;line-height:1.6">If the rate, the day, or anything else in there does not match what we agreed, do not sign it. Open the link and use the Decline button to tell us what is wrong, or call or text <strong>{{company_phone}}</strong>. We will fix it and send a corrected copy.</div>
+  </td></tr>
+</table>`;
+      const REM_TEXT = "Dear {{first_name}}, your {{company_name}} service agreement is still waiting for your signature. {{status_line}} Sign here: {{agreement_link}} (unique to you, stops working in {{days_left}} days). If something in it is wrong, use the Decline button on that page or call or text {{company_phone}} and we will send a corrected copy.";
+
+      const FIN_SUBJECT = "Last call: your {{company_name}} service agreement expires {{expires_on}}";
+      const FIN_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Your {{company_name}} service agreement has not been signed yet, and the link we sent you stops working on <strong>{{expires_on}}</strong>. After that we would need to send you a fresh copy to start over.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr><td align="center">
+  <a href="{{agreement_link}}" style="display:inline-block;background:#0A0E1A;color:#ffffff;text-decoration:none;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:14px 30px;border-radius:8px">Sign before it expires</a>
+</td></tr></table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F6F3;border:1px solid #E5E2DC;border-radius:10px;margin:8px 0 0;">
+  <tr><td style="padding:18px 20px;font-family:'Plus Jakarta Sans',Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;font-weight:700;color:#1A1917;margin:0 0 6px;">This is the last reminder we will send</div>
+    <div style="font-size:14px;color:#1A1917;line-height:1.6">If you have decided against it, that is completely fine and you do not owe us an explanation. A quick note back, or the Decline button on the agreement itself, saves us both from wondering. If you meant to sign and simply have not got to it, there is still time.</div>
+  </td></tr>
+</table>`;
+      const FIN_TEXT = "Dear {{first_name}}, this is the last reminder about your {{company_name}} service agreement. The link stops working on {{expires_on}}: {{agreement_link}}. If you have decided against it, use the Decline button on that page or reply here and we will stop. Questions: {{company_phone}}.";
+
+      const REV_SUBJECT = "We are correcting your {{company_name}} service agreement";
+      const REV_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Please do not sign the {{agreement_name}} we sent you. We found something that needs correcting, so we have withdrawn that copy and the link no longer works.</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">{{reason}}</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">A corrected agreement is on its way to you shortly. Nothing changes about your service in the meantime, and you do not need to do anything until the new one arrives.</p>
+<p style="margin:22px 0 0;font-size:14px;color:#1A1917;line-height:1.65">Sorry for the extra step. If you would rather go over it on the phone first, call or text <strong>{{company_phone}}</strong>.</p>`;
+      const REV_TEXT = "Dear {{first_name}}, please do not sign the {{agreement_name}} we sent. We found something that needs correcting and have withdrawn it. {{reason}} A corrected copy is coming shortly. Nothing changes about your service in the meantime. Questions: {{company_phone}}.";
+
+      const CAN_SUBJECT = "Your {{company_name}} service agreement has been withdrawn";
+      const CAN_HTML = `<p style="margin:18px 0 18px;font-size:15px;color:#1A1917;line-height:1.65">Dear {{first_name}},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">We have withdrawn the {{agreement_name}} we sent you, so please disregard it. The link in that email no longer works, and there is nothing you need to do.</p>
+<p style="margin:0 0 18px;font-size:15px;color:#1A1917;line-height:1.65">{{reason}}</p>
+<p style="margin:22px 0 0;font-size:14px;color:#1A1917;line-height:1.65">If this is not what you expected, please call or text <strong>{{company_phone}}</strong> and we will sort it out.</p>`;
+      const CAN_TEXT = "Dear {{first_name}}, we have withdrawn the {{agreement_name}} we sent you, so please disregard it. The link no longer works and there is nothing you need to do. {{reason}} If that is not what you expected, call or text {{company_phone}}.";
+
+      const lifeEmail: [string, string, string, string][] = [
+        ["agreement_reminder", REM_SUBJECT, REM_HTML, REM_TEXT],
+        ["agreement_final_notice", FIN_SUBJECT, FIN_HTML, FIN_TEXT],
+        ["agreement_revising", REV_SUBJECT, REV_HTML, REV_TEXT],
+        ["agreement_cancelled", CAN_SUBJECT, CAN_HTML, CAN_TEXT],
+      ];
+      for (const [trig, subj, html, text] of lifeEmail) {
+        const r = await db.execute(sql`
+          INSERT INTO notification_templates
+            (company_id, trigger, channel, subject, body, body_html, body_text, is_active)
+          SELECT c.id, ${trig}, 'email'::notification_channel,
+                 ${subj}, '', ${html}, ${text}, true
+            FROM companies c
+           WHERE NOT EXISTS (
+             SELECT 1 FROM notification_templates t
+              WHERE t.company_id = c.id
+                AND t.trigger = ${trig}
+                AND t.channel = 'email'::notification_channel
+           )`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[notification-templates] seeded ${trig} email for ${n} compan${n === 1 ? "y" : "ies"}`);
+      }
+
+      // Text versions. Short on purpose: a text that runs to three screens gets
+      // scrolled past. It says who it is from, what is waiting, and the link.
+      const lifeSms: [string, string][] = [
+        ["agreement_reminder", "{{company_name}}: your service agreement is still waiting for your signature. {{agreement_link}} If something in it is wrong, use the Decline button on that page and tell us what to fix."],
+        ["agreement_final_notice", "{{company_name}}: last reminder, your service agreement link stops working {{expires_on}}. {{agreement_link}} If you have decided against it, use the Decline button and we will stop."],
+      ];
+      for (const [trig, body] of lifeSms) {
+        const r = await db.execute(sql`
+          INSERT INTO notification_templates
+            (company_id, trigger, channel, subject, body, body_text, is_active)
+          SELECT c.id, ${trig}, 'sms'::notification_channel, '', ${body}, ${body}, true
+            FROM companies c
+           WHERE NOT EXISTS (
+             SELECT 1 FROM notification_templates t
+              WHERE t.company_id = c.id
+                AND t.trigger = ${trig}
+                AND t.channel = 'sms'::notification_channel
+           )`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[notification-templates] seeded ${trig} sms for ${n} compan${n === 1 ? "y" : "ies"}`);
+      }
+    } catch (e) {
+      console.error("[notification-templates] agreement lifecycle seed (non-fatal):", (e as any)?.message);
+    }
+
     // [agreement-body 2026-08-19] Refresh the default contract text.
     //
     // form_templates rows are only ever INSERTed (seed-defaults skips any name
