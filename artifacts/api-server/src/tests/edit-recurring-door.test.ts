@@ -100,3 +100,74 @@ describe("editing a recurrence opens the existing cascade, not a new one", () =>
     );
   });
 });
+
+describe("turning a recurrence off and back on, for the right client", () => {
+// ─── [recurring-scope 2026-08-20] ────────────────────────────────────────────
+// The client profile's Recurring tab asked for one client's schedules
+// (`?customer_id=`) and the server ignored the parameter, so it listed every
+// schedule in the company on every client's profile. Turning one off from
+// there turned off a stranger's schedule. These lock the scoping and the
+// turn-off/turn-back-on pair.
+  it("the recurring list is scoped to the client that was asked for", () => {
+    const src = readFileSync(new URL("../routes/recurring.ts", import.meta.url), "utf8");
+    const get = src.slice(src.indexOf('router.get("/", requireAuth'), src.indexOf('router.patch("/bulk"'));
+
+    assert.ok(get.includes("req.query.customer_id"), "GET / must read customer_id");
+    assert.ok(
+    get.includes("eq(recurringSchedulesTable.customer_id, customerId)"),
+    "GET / must filter on customer_id when one is given",
+  );
+    assert.ok(
+    get.includes("eq(recurringSchedulesTable.company_id, req.auth!.companyId)"),
+    "GET / must stay company-scoped",
+  );
+    // Default stays active-only so the company-wide page is unchanged.
+    assert.ok(get.includes("include_inactive"), "GET / must offer include_inactive");
+    assert.ok(
+    get.includes("includeInactive ? [] : [eq(recurringSchedulesTable.is_active, true)]"),
+    "active-only must remain the default",
+  );
+  });
+
+  it("a turned-off schedule can be turned back on, unless a service hold owns it", () => {
+    const src = readFileSync(new URL("../routes/recurring.ts", import.meta.url), "utf8");
+
+    assert.ok(src.includes('router.post("/:id/reactivate"'), "reactivate endpoint must exist");
+    const re = src.slice(src.indexOf('router.post("/:id/reactivate"'));
+    const body = re.slice(0, re.indexOf('router.post("/trigger"'));
+
+    assert.ok(body.includes("paused_by_suspension"), "reactivate must check the hold flag");
+    assert.ok(body.includes("409"), "reactivate must refuse a hold-paused schedule");
+    assert.ok(
+    body.includes("eq(recurringSchedulesTable.company_id, companyId)"),
+    "reactivate must be company-scoped",
+  );
+
+    // The turn-off path must never set the hold flag, or client-suspension's
+    // resume ("re-activate ONLY the schedules this suspension paused") would
+    // start reviving schedules the office turned off deliberately.
+    const del = src.slice(src.indexOf('router.delete("/:id"'), src.indexOf('router.post("/:id/reactivate"'));
+    assert.ok(
+    !del.includes("paused_by_suspension: true"),
+    "DELETE must not claim the service-hold flag",
+  );
+  });
+
+  it("the Recurring tab asks for one client and offers turn off / turn back on", () => {
+    const page = readFileSync(
+    new URL("../../../qleno/src/pages/customer-profile.tsx", import.meta.url),
+    "utf8",
+  );
+
+    assert.ok(
+    page.includes("/api/recurring?customer_id=${clientId}&include_inactive=1"),
+    "the tab must ask for this client's schedules, turned-off ones included",
+  );
+    assert.ok(page.includes("setConfirmOff("), "turning off must ask first");
+    assert.ok(page.includes("/reactivate`"), "the tab must be able to turn one back on");
+    assert.ok(page.includes("Turn back on"), "the turn-back-on control must be labelled plainly");
+    assert.ok(!page.includes(">Pause</button>"), 'the misleading "Pause" label must be gone');
+    assert.ok(page.includes("On service hold"), "a hold-paused schedule must say so");
+  });
+
+});

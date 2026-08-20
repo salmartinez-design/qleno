@@ -3220,9 +3220,13 @@ function RecurringTab({ clientId }: { clientId: number }) {
   const [form, setForm] = useState({ frequency: "biweekly", day_of_week: "monday", start_date: new Date().toISOString().split("T")[0], base_fee: "", notes: "" });
   const [saving, setSaving] = useState(false);
 
+  // [recurring-scope 2026-08-20] customer_id was already on this URL and the
+  // server ignored it, so this tab listed every schedule in the company on
+  // every client's profile. include_inactive brings back turned-off schedules
+  // so they can be seen and started again.
   const { data: schedules = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ["recurring", clientId],
-    queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}`),
+    queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}&include_inactive=1`),
   });
 
   // [edit-recurring 2026-08-20] Maribel: "We should be able to modify the
@@ -3281,9 +3285,34 @@ function RecurringTab({ clientId }: { clientId: number }) {
     } catch {} finally { setSaving(false); }
   }
 
-  async function pause(id: number) {
-    await apiFetch(`/api/recurring/${id}`, { method: "DELETE" });
-    refetch();
+  // [recurring-scope 2026-08-20] This was one unconfirmed button labelled
+  // "Pause" that turned the schedule off for good. Now it says what it does,
+  // asks first, and has a partner that turns it back on.
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [confirmOff, setConfirmOff] = useState<any | null>(null);
+
+  async function turnOff(id: number) {
+    setEditNotice(null);
+    setBusyId(id);
+    try {
+      await apiFetch(`/api/recurring/${id}`, { method: "DELETE" });
+      setConfirmOff(null);
+      refetch();
+    } catch (err: any) {
+      setConfirmOff(null);
+      setEditNotice(err?.message || "Could not turn this schedule off.");
+    } finally { setBusyId(null); }
+  }
+
+  async function turnOn(id: number) {
+    setEditNotice(null);
+    setBusyId(id);
+    try {
+      await apiFetch(`/api/recurring/${id}/reactivate`, { method: "POST" });
+      refetch();
+    } catch (err: any) {
+      setEditNotice(err?.message || "Could not start this schedule again.");
+    } finally { setBusyId(null); }
   }
 
   const FREQ_LABELS: Record<string, string> = { weekly: "Every week", biweekly: "Every 2 weeks", monthly: "Monthly", custom: "Custom", semi_monthly: "Twice a month", every_3_weeks: "Every 3 weeks" };
@@ -3314,7 +3343,7 @@ function RecurringTab({ clientId }: { clientId: number }) {
       ) : (
         <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
           {schedules.map((s: any) => (
-            <div key={s.id} style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div key={s.id} style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: s.is_active ? 1 : 0.72 }}>
               <div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{FREQ_LABELS[s.frequency]}</span>
@@ -3327,12 +3356,30 @@ function RecurringTab({ clientId }: { clientId: number }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
-                <button onClick={() => openEdit(s.id)} disabled={editLoadingId === s.id}
-                  style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <Edit2 size={11} /> {editLoadingId === s.id ? "Opening..." : "Edit"}
-                </button>
-                <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Pause</button>
+                {s.is_active ? (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
+                ) : s.paused_by_suspension ? (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#FDF3E4", color: "#8A5A12", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>On service hold</span>
+                ) : (
+                  <span style={{ padding: "2px 8px", backgroundColor: "#F1EFEA", color: "#6B6860", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Turned off</span>
+                )}
+                {s.is_active && (
+                  <button onClick={() => openEdit(s.id)} disabled={editLoadingId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Edit2 size={11} /> {editLoadingId === s.id ? "Opening..." : "Edit"}
+                  </button>
+                )}
+                {s.is_active ? (
+                  <button onClick={() => setConfirmOff(s)} disabled={busyId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: busyId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Turn off</button>
+                ) : s.paused_by_suspension ? (
+                  <span style={{ fontSize: 11, color: "#9E9B94" }}>Starts again when the hold ends</span>
+                ) : (
+                  <button onClick={() => turnOn(s.id)} disabled={busyId === s.id}
+                    style={{ background: "none", border: "1px solid #E5E2DC", cursor: busyId === s.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600 }}>
+                    {busyId === s.id ? "Starting..." : "Turn back on"}
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -3383,6 +3430,34 @@ function RecurringTab({ clientId }: { clientId: number }) {
           </div>
         </div>
       )}
+      {/* [recurring-scope 2026-08-20] Turning a schedule off used to happen on
+          one click with no warning. It asks now, and it says plainly what
+          keeps happening and what stops. */}
+      {confirmOff && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 26, width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Turn this schedule off?</h3>
+            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+              {FREQ_LABELS[confirmOff.frequency] || confirmOff.frequency}
+              {confirmOff.day_of_week ? ` on ${confirmOff.day_of_week.charAt(0).toUpperCase() + confirmOff.day_of_week.slice(1)}` : ""}
+              {confirmOff.base_fee ? ` at $${parseFloat(confirmOff.base_fee).toFixed(0)}` : ""}.
+            </p>
+            <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+              No new visits will be created from it. Visits already on the calendar stay
+              where they are, so cancel any you do not want. You can turn it back on here.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmOff(null)}
+                style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF", cursor: "pointer" }}>Keep it on</button>
+              <button onClick={() => turnOff(confirmOff.id)} disabled={busyId === confirmOff.id}
+                style={{ padding: "7px 16px", background: "#0A0E1A", color: "#FFFFFF", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {busyId === confirmOff.id ? "Turning off..." : "Turn off"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* [edit-recurring 2026-08-20] Opened on the series' next visit. The modal
           already defaults a recurring job to "this and all future", shows how
           many visits the change touches, and asks twice before it writes, so
