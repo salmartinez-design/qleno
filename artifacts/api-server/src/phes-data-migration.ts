@@ -146,6 +146,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     // at an Oak Lawn zip must still be answered from (847) 538-3729 and
     // schaumburg@phes.io, never from the other partner's number.
     { label: "companies.branch_key", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS branch_key TEXT" },
+    // [agreement-body 2026-08-19] Which generation of the default contract text
+    // a template is sitting on. 0 = whatever was seeded before this column
+    // existed, -1 = the office edited the body and owns it now. The refresh
+    // below only touches rows at 0, so a customized contract is never stomped.
+    { label: "form_templates.terms_body_seed_version", stmt: "ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS terms_body_seed_version INTEGER NOT NULL DEFAULT 0" },
     // Keyed off square_account_key rather than the name so the pin can never
     // disagree with which merchant that tenant banks into. Only fills a NULL —
     // an explicit pin set in the app is never overwritten on the next boot.
@@ -7749,6 +7754,43 @@ async function runNotificationTemplateSeed() {
       }
     } catch (e) {
       console.error("[notification-templates] agreement seed (non-fatal):", (e as any)?.message);
+    }
+
+    // [agreement-body 2026-08-19] Refresh the default contract text.
+    //
+    // form_templates rows are only ever INSERTed (seed-defaults skips any name
+    // that already exists), so Phes was still sending the first-generation
+    // agreement: a wall of policy paragraphs with no parties clause, no service
+    // address, no rate, no term, no signature block, and not one merge token.
+    // Every "personalized" agreement it sent was identical.
+    //
+    // terms_body_seed_version is the guard. A row the office has edited is
+    // stamped -1 by PATCH /api/form-templates/:id and is skipped here forever;
+    // a row still at 0 has never been touched by anyone, so replacing its body
+    // destroys nothing. Bumping AGREEMENT_BODY_SEED_VERSION re-runs this for a
+    // future revision without a second migration.
+    try {
+      const { RESIDENTIAL_AGREEMENT_BODY, COMMERCIAL_AGREEMENT_BODY, AGREEMENT_BODY_SEED_VERSION } =
+        await import("./lib/agreement-bodies.js");
+      const refresh: [string, string][] = [
+        ["residential", RESIDENTIAL_AGREEMENT_BODY],
+        ["commercial", COMMERCIAL_AGREEMENT_BODY],
+      ];
+      for (const [category, body] of refresh) {
+        const r = await db.execute(sql`
+          UPDATE form_templates
+             SET terms_body = ${body},
+                 terms_body_seed_version = ${AGREEMENT_BODY_SEED_VERSION},
+                 updated_at = now()
+           WHERE type = 'agreement'
+             AND category = ${category}
+             AND terms_body_seed_version >= 0
+             AND terms_body_seed_version < ${AGREEMENT_BODY_SEED_VERSION}`);
+        const n = (r as any).rowCount ?? 0;
+        if (n) console.log(`[agreement-body] refreshed ${n} ${category} agreement template(s) to v${AGREEMENT_BODY_SEED_VERSION}`);
+      }
+    } catch (e) {
+      console.error("[agreement-body] refresh (non-fatal):", (e as any)?.message);
     }
 
     // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that

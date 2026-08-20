@@ -12,6 +12,10 @@ export const formTemplatesTable = pgTable("form_templates", {
   category: text("category").default("both"),
   schema: jsonb("schema").notNull().default({}),
   terms_body: text("terms_body"),
+  // [agreement-body 2026-08-19] Which generation of the default contract text
+  // this row carries. 0 = seeded before this column existed, -1 = the office
+  // edited the body and owns it. The boot refresh only rewrites rows at 0.
+  terms_body_seed_version: integer("terms_body_seed_version").notNull().default(0),
   requires_sign: boolean("requires_sign").default(false),
   is_active: boolean("is_active").default(true),
   is_default: boolean("is_default").default(false),

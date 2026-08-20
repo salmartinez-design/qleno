@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Plus, FileText, Edit2, Trash2, Copy, Send, Eye, Download,
-  ChevronDown, ChevronUp, Check, X, Search, ExternalLink,
+  Check, X, Search, ExternalLink,
   Shield, Clock, AlertCircle, CheckCircle, FileSignature,
 } from "lucide-react";
 
@@ -13,14 +13,38 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 // [agreement-merge 2026-07-22] Reference list of the {{variables}} an agreement
 // body can use. Without this the tokens are undiscoverable — an author has to
 // know them by heart. Click a token to copy it.
-function MergeVariablesPanel() {
-  const [copied, setCopied] = useState<string | null>(null);
+type AgreementVariable = { token: string; label: string; example: string };
+
+function useAgreementVariables(): AgreementVariable[] {
   const { data } = useQuery<any>({
     queryKey: ["agreement-variables"],
     queryFn: () => apiFetch("/api/form-templates/variables"),
     staleTime: 60 * 60 * 1000,
   });
-  const vars: { token: string; label: string; example: string }[] = data?.data || [];
+  return data?.data || [];
+}
+
+// [agreement-body 2026-08-19] Preview merge. Deliberately NOT the server's
+// renderer: this fills every token with its catalog example so the office can
+// read the finished document while writing it. The real send merges live client
+// data in agreement-merge.ts, and a token the catalog does not know is left
+// visible as {{typo}} here for the same reason it is there.
+function renderWithExamples(body: string, vars: AgreementVariable[]) {
+  const byToken = new Map(vars.map(v => [v.token, v.example]));
+  const unknown: string[] = [];
+  const text = String(body || "").replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, (match, token: string) => {
+    if (!byToken.has(token)) {
+      if (!unknown.includes(token)) unknown.push(token);
+      return match;
+    }
+    return byToken.get(token) || "";
+  });
+  return { text, unknown };
+}
+
+function MergeVariablesPanel() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const vars = useAgreementVariables();
   if (!vars.length) return null;
 
   function copy(token: string) {
@@ -139,28 +163,6 @@ function TemplateCard({ template, onEdit, onDuplicate, onDelete, onSend }: any) 
   );
 }
 
-const POLICY_BLOCKS = [
-  { key: "arrival_window", label: "Arrival Window", description: "45 minute arrival window policy" },
-  { key: "service_guidelines", label: "Service Guidelines", description: "Per-visit minimum, base rate, add-on pricing" },
-  { key: "addons_policy", label: "Add-Ons and Trades Policy", description: "Extra services and subcontracting policy" },
-  { key: "lockout_policy", label: "Lockout Policy", description: "Fee for inaccessible property" },
-  { key: "cancellation", label: "Cancellation and Rescheduling", description: "48-hour notice requirement and fees" },
-  { key: "termination", label: "Termination of Services", description: "30-day notice requirement" },
-  { key: "payment_terms", label: "Payment Terms", description: "Auto-charge on day of service" },
-  { key: "sick_policy", label: "Sick Policy", description: "Technician illness and rescheduling" },
-  { key: "safety_winter", label: "Safety and Winter Access", description: "Winter access requirements" },
-  { key: "bodily_fluids", label: "Bodily Fluids / Exclusions", description: "Biohazard and exclusion policy" },
-  { key: "surface_care", label: "Surface Care Disclaimer", description: "Liability for pre-damaged surfaces" },
-  { key: "suspension", label: "Service Suspension Policy", description: "Up to 90-day suspension, slot retention" },
-  { key: "min_frequency", label: "Minimum Frequency Protection", description: "60-day maximum between cleanings" },
-  { key: "rate_protection", label: "Recurring Rate Protection", description: "Rate lock with active schedule" },
-  { key: "annual_review", label: "Annual Rate Review", description: "January rate adjustment rights" },
-  { key: "rate_changes", label: "Rate Changes Based on Cleaning Time", description: "2–3 month monitoring period" },
-  { key: "weather", label: "Weather Policy", description: "Severe weather rescheduling" },
-  { key: "holidays", label: "Holiday Closures", description: "Six observed holidays" },
-  { key: "guarantee", label: "24-Hour Satisfaction Guarantee", description: "Return visit within 24 hours" },
-  { key: "breakage", label: "Breakage and Damage", description: "25 lb weight limit, 24-hour reporting" },
-];
 
 function TemplateEditor({ template, onClose, onSave }: any) {
   const [name, setName] = useState(template?.name || "New Agreement");
@@ -168,10 +170,9 @@ function TemplateEditor({ template, onClose, onSave }: any) {
   const [category, setCategory] = useState(template?.category || "both");
   const [requiresSign, setRequiresSign] = useState(template?.requires_sign ?? true);
   const [termsBody, setTermsBody] = useState(template?.terms_body || "");
-  const [activeBlocks, setActiveBlocks] = useState<Set<string>>(new Set(POLICY_BLOCKS.map(b => b.key)));
-  const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
-  const [blockText, setBlockText] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<"config" | "preview">("config");
+  const variables = useAgreementVariables();
+  const preview = renderWithExamples(termsBody, variables);
 
   const qc = useQueryClient();
   const saveMutation = useMutation({
@@ -182,15 +183,6 @@ function TemplateEditor({ template, onClose, onSave }: any) {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["form-templates"] }); onSave(); },
   });
-
-  const toggleBlock = (key: string) => {
-    setActiveBlocks(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box" };
   const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, display: "block", textTransform: "uppercase", letterSpacing: 0.5 };
@@ -249,87 +241,55 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                   </div>
                 </div>
 
-                {type === "agreement" && (
-                  <div>
-                    <span style={labelStyle}>Policy Blocks</span>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {POLICY_BLOCKS.map(block => (
-                        <div key={block.key} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: activeBlocks.has(block.key) ? "#EFEFF2" : "#F7F6F3", cursor: "pointer" }}
-                            onClick={() => { if (activeBlocks.has(block.key)) setExpandedBlock(expandedBlock === block.key ? null : block.key); }}>
-                            <button onClick={e => { e.stopPropagation(); toggleBlock(block.key); }} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${activeBlocks.has(block.key) ? "var(--brand)" : "#E5E2DC"}`, background: activeBlocks.has(block.key) ? "var(--brand)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                              {activeBlocks.has(block.key) && <Check size={11} color="#fff" />}
-                            </button>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: activeBlocks.has(block.key) ? "#1A1917" : "#9E9B94" }}>{block.label}</div>
-                            </div>
-                            {activeBlocks.has(block.key) && (
-                              expandedBlock === block.key ? <ChevronUp size={13} color="#9E9B94" /> : <ChevronDown size={13} color="#9E9B94" />
-                            )}
-                          </div>
-                          {expandedBlock === block.key && activeBlocks.has(block.key) && (
-                            <div style={{ padding: 10, borderTop: "1px solid #E5E2DC" }}>
-                              <label style={{ ...labelStyle, marginBottom: 6 }}>Custom text for this section</label>
-                              <textarea
-                                value={blockText[block.key] || ""}
-                                onChange={e => setBlockText(prev => ({ ...prev, [block.key]: e.target.value }))}
-                                placeholder="Leave empty to use default policy text..."
-                                rows={4}
-                                style={{ ...inputStyle, resize: "vertical" }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {type !== "agreement" && (
-                  <div>
-                    <span style={labelStyle}>Agreement / Terms Text</span>
-                    <textarea value={termsBody} onChange={e => setTermsBody(e.target.value)} rows={12} style={{ ...inputStyle, resize: "vertical" }} placeholder="Enter form instructions or terms..." />
-                  </div>
-                )}
-
                 <MergeVariablesPanel />
               </div>
 
-              <div style={{ flex: 1, overflowY: "auto", padding: 32, background: "#F7F6F3" }}>
-                <div style={{ maxWidth: 680, margin: "0 auto", background: "#fff", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.08)", overflow: "hidden" }}>
-                  <div style={{ background: "var(--brand)", padding: "24px 32px" }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{name}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>Service Agreement · {CATEGORY_LABELS[category]?.label || category}</div>
+              {/* [agreement-body 2026-08-19] The body IS the contract, so it gets
+                  the main pane. What stood here was a mockup: a grid of blank
+                  underscores and a list of policy-block descriptions, none of it
+                  tied to the text that actually gets sent. The block toggles it
+                  sat beside were local state that the save payload never carried,
+                  so every edit made in them was discarded on Save Template. */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "#F7F6F3" }}>
+                <div style={{ padding: "14px 24px", background: "#fff", borderBottom: "1px solid #E5E2DC", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>
+                      {type === "agreement" ? "Agreement text" : "Instructions and terms text"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6B6860", marginTop: 3, maxWidth: 620, lineHeight: 1.5 }}>
+                      This is the document the client reads and signs, word for word. Anything in double braces is
+                      filled in for each client when the agreement is sent. Use Preview to read it with sample values.
+                    </div>
                   </div>
-                  <div style={{ padding: "28px 32px" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--brand)", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Client Information</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-                      {["Full Name", "Service Address", "Phone", "Email", "Service Frequency", "Entry Method"].map(f => (
-                        <div key={f} style={{ padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 6 }}>
-                          <div style={{ fontSize: 9, color: "#9E9B94", fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>{f}</div>
-                          <div style={{ fontSize: 12, color: "#E5E2DC" }}>_____________________</div>
-                        </div>
-                      ))}
-                    </div>
-                    {type === "agreement" && (
-                      <>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--brand)", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Service Terms</div>
-                        {POLICY_BLOCKS.filter(b => activeBlocks.has(b.key)).map(block => (
-                          <div key={block.key} style={{ marginBottom: 16 }}>
-                            <div style={{ fontWeight: 700, fontSize: 11, color: "#1A1917", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{block.label}</div>
-                            <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.6 }}>{blockText[block.key] || `${block.description} — default policy text applies.`}</div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    <div style={{ borderTop: "2px solid var(--brand)", marginTop: 24, paddingTop: 20 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--brand)", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Electronic Signature</div>
-                      <div style={{ fontSize: 11, color: "#6B6860", marginBottom: 16 }}>By signing below, the client fully understands and agrees to the contents of this agreement.</div>
-                      <div style={{ borderBottom: "1px solid #1A1917", padding: "8px 0", marginBottom: 4, fontSize: 13, color: "#E5E2DC" }}>Client typed name here</div>
-                      <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.5 }}>Typed Name · Date & Time · IP Address</div>
-                    </div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", whiteSpace: "nowrap", paddingTop: 2 }}>
+                    {termsBody.length.toLocaleString()} characters
                   </div>
                 </div>
+
+                {preview.unknown.length > 0 && (
+                  <div style={{ padding: "10px 24px", background: "#FEF6E7", borderBottom: "1px solid #F3E2C0", fontSize: 12, color: "#8A5A00", display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>
+                      Not an auto-fill variable: {preview.unknown.map(t => "{{" + t + "}}").join(", ")}. It will print
+                      exactly like that in the signed contract. Check the spelling against the list on the left.
+                    </span>
+                  </div>
+                )}
+
+                <textarea
+                  value={termsBody}
+                  onChange={e => setTermsBody(e.target.value)}
+                  spellCheck
+                  placeholder={type === "agreement"
+                    ? "Write the agreement here. Start with the parties, the service address, the rate and the schedule, then your policies."
+                    : "Enter form instructions or terms..."}
+                  style={{
+                    flex: 1, width: "100%", boxSizing: "border-box", resize: "none",
+                    padding: "20px 24px", border: "none", outline: "none", background: "#F7F6F3",
+                    fontSize: 13, lineHeight: 1.75, color: "#1A1917",
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  }}
+                />
               </div>
             </div>
           ) : (
@@ -339,8 +299,9 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                   <div style={{ textAlign: "center", marginBottom: 32 }}>
                     <div style={{ fontSize: 22, fontWeight: 700, color: "#1A1917" }}>{name}</div>
                     <div style={{ fontSize: 13, color: "#6B6860", marginTop: 6 }}>Please review and sign this service agreement</div>
+                    <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 8 }}>Sample values shown. Each client sees their own name, address, rate and schedule.</div>
                   </div>
-                  <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody || "Agreement content will appear here based on selected policy blocks."}</div>
+                  <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{preview.text || "Nothing to preview yet. Write the agreement text on the Configure tab."}</div>
                 </div>
               </div>
             </div>
