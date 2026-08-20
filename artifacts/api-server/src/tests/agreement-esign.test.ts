@@ -19,16 +19,23 @@ describe("agreement e-sign + audit trail", () => {
     assert.ok(buf.length > 1500);
   });
   it("send records 'sent', sign requires consent + records signed/sealed, certificate endpoint exists", () => {
-    const route = read("../routes/agreement-templates.ts");
-    assert.match(route, /event_type, actor_email, meta\)\s*\n\s*VALUES \(\$\{req\.auth!\.companyId\}, \$\{agreement\.id\}, 'sent'/);
-    assert.match(route, /typed_name and consent required/);
-    assert.match(route, /'signed', \$\{row\.signer_email \?\? null\}, \$\{ip_address\}, \$\{ua\}/);
+    // [retire-legacy-agreements 2026-08-20] These assertions used to read
+    // routes/agreement-templates.ts. That stack is deleted: it wrote to a table
+    // that never held a row in production. The live signing path is
+    // lib/send-agreement.ts (the office send) plus routes/sign.ts (the customer
+    // signing page), and the audit trail they write is what the Certificate of
+    // Completion above reads back.
+    const send = read("../lib/send-agreement.ts");
+    assert.match(send, /INSERT INTO agreement_events \(company_id, agreement_id, event_type, actor_email, meta\)\s*\n\s*VALUES \(\$\{companyId\}, \$\{submissionId\}, 'sent'/);
+
+    const route = read("../routes/sign.ts");
+    assert.match(route, /Signature and consent are required/);
+    assert.match(route, /'signed', \$\{submission\.sent_to \?\? null\}, \$\{ip\}, \$\{ua\}/);
     assert.match(route, /'sealed'/);
-    assert.match(route, /router\.get\("\/agreements\/:id\/certificate\.pdf"/);
+    assert.match(route, /router\.get\("\/:token\/certificate\.pdf"/);
   });
-  it("migration adds the audit table + consent columns", () => {
+  it("migration creates the audit table", () => {
     const mig = read("../phes-data-migration.ts");
     assert.match(mig, /CREATE TABLE IF NOT EXISTS agreement_events/);
-    assert.match(mig, /client_agreements\.consent_at/);
   });
 });

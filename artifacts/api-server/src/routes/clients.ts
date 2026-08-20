@@ -4,7 +4,7 @@ import { inIntList } from "../lib/sql-lists.js";
 import {
   clientsTable, jobsTable, usersTable, invoicesTable,
   scorecardsTable, clientHomesTable, technicianPreferencesTable,
-  clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
+  clientNotificationsTable, clientCommunicationsTable,
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
   recurringSchedulesTable, jobPhotosTable, qbCustomerMapTable, companiesTable,
   accountPropertiesTable,
@@ -1593,38 +1593,15 @@ router.post("/:id/portal-invite", requireAuth, requireRole("owner", "admin", "of
   }
 });
 
-// ─── AGREEMENTS ────────────────────────────────────────────────────────────────
-router.get("/:id/agreements", requireAuth, async (req, res) => {
-  try {
-    const clientId = parseInt(req.params.id);
-    const agreements = await db.select().from(clientAgreementsTable)
-      .where(and(eq(clientAgreementsTable.client_id, clientId), eq(clientAgreementsTable.company_id, req.auth!.companyId)))
-      .orderBy(desc(clientAgreementsTable.created_at));
-    return res.json(agreements);
-  } catch (err) {
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-router.post("/:id/agreements/send", requireAuth, async (req, res) => {
-  try {
-    const clientId = parseInt(req.params.id);
-    const { template_name, home_id } = req.body;
-    const [agreement] = await db.insert(clientAgreementsTable).values({
-      company_id: req.auth!.companyId, client_id: clientId,
-      home_id, template_name, sent_at: new Date(),
-    }).returning();
-    await db.insert(clientCommunicationsTable).values({
-      company_id: req.auth!.companyId, client_id: clientId,
-      type: "system", direction: "outbound",
-      body: `Service agreement "${template_name || "Standard"}" sent to client`,
-      from_name: "System", sent_by: req.auth!.userId,
-    });
-    return res.status(201).json(agreement);
-  } catch (err) {
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+// [retire-legacy-agreements 2026-08-20] GET /:id/agreements and
+// POST /:id/agreements/send used to live here. The POST was the worse of the
+// two: it inserted a client_agreements row, wrote the customer's communication
+// log "Service agreement sent to client", returned 201, and sent nothing. No
+// email, no token, no signing page. The office had a Send Agreement button that
+// reported success and did nothing, on a table that has never held a row.
+//
+// The live path is POST /:id/send-agreement below, which merges the contract
+// from the client's own record and reports honestly when the email fails.
 
 // [agreement-from-client 2026-08-19] Dry run. Renders exactly what the send
 // would render, without minting a token or emailing anyone, and reports which
@@ -1682,11 +1659,10 @@ router.post("/:id/agreement-preview", requireAuth, requireRole("owner", "admin",
   }
 });
 
-// [agreement-from-client 2026-08-19] The real send. The two routes above write
-// client_agreements, a dead-end table with no signing page behind it, and the
-// profile's Send button used to hit document_requests, which emailed nobody.
-// This one renders the merge variables off the client's own record, property
-// and recurring schedule, stores the rendered text, and actually sends the link.
+// [agreement-from-client 2026-08-19] The send. It renders the merge variables
+// off the client's own record, property and recurring schedule, stores the
+// rendered text, and actually sends the link. The two dead-end stacks it
+// replaced were retired 2026-08-20.
 router.post("/:id/send-agreement", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId as number;
@@ -1731,9 +1707,9 @@ router.post("/:id/send-agreement", requireAuth, requireRole("owner", "admin", "o
   }
 });
 
-// The profile's Agreements tab reads from here. form_submissions is the stack
-// that has the signing page, the consent capture and the certificate; the
-// legacy client_agreements rows are folded in by the frontend for history.
+// The profile's Agreements tab reads from here. form_submissions is the only
+// agreement stack now, and the one that has the signing page, the consent
+// capture and the certificate.
 router.get("/:id/agreement-submissions", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId as number;

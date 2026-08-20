@@ -5,7 +5,6 @@ import {
   documentTemplatesTable,
   documentSignaturesTable,
   usersTable,
-  clientsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -26,17 +25,15 @@ function interpolateContent(content: string, vars: Record<string, string>) {
 router.get("/", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { employee_id, client_id } = req.query;
+    const { employee_id } = req.query;
     const conditions: any[] = [eq(documentRequestsTable.company_id, companyId)];
     if (employee_id) conditions.push(eq(documentRequestsTable.employee_id, parseInt(employee_id as string)));
-    if (client_id) conditions.push(eq(documentRequestsTable.client_id, parseInt(client_id as string)));
 
     const requests = await db
       .select({
         id: documentRequestsTable.id,
         template_id: documentRequestsTable.template_id,
         employee_id: documentRequestsTable.employee_id,
-        client_id: documentRequestsTable.client_id,
         token: documentRequestsTable.token,
         status: documentRequestsTable.status,
         sent_at: documentRequestsTable.sent_at,
@@ -62,9 +59,9 @@ router.get("/", requireAuth, async (req, res) => {
 router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { template_ids, employee_id, client_id } = req.body;
+    const { template_ids, employee_id } = req.body;
     if (!template_ids?.length) return res.status(400).json({ error: "template_ids required" });
-    if (!employee_id && !client_id) return res.status(400).json({ error: "employee_id or client_id required" });
+    if (!employee_id) return res.status(400).json({ error: "employee_id required" });
 
     const created = [];
     for (const template_id of template_ids) {
@@ -85,7 +82,7 @@ router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async
           company_id: companyId,
           template_id,
           employee_id: employee_id || null,
-          client_id: client_id || null,
+          client_id: null,
           token,
           status: "pending",
           sent_at: new Date(),
@@ -255,120 +252,15 @@ router.post("/onboard/:token/sign", async (req, res) => {
   }
 });
 
-router.get("/client-sign/:token", async (req, res) => {
-  try {
-    const { token } = req.params;
-
-    const [request] = await db
-      .select({
-        id: documentRequestsTable.id,
-        template_id: documentRequestsTable.template_id,
-        client_id: documentRequestsTable.client_id,
-        status: documentRequestsTable.status,
-        expires_at: documentRequestsTable.expires_at,
-        signed_at: documentRequestsTable.signed_at,
-        template_name: documentTemplatesTable.name,
-        template_content: documentTemplatesTable.content,
-        requires_signature: documentTemplatesTable.requires_signature,
-        company_id: documentRequestsTable.company_id,
-        company_name: sql<string>`(select name from companies where id = ${documentRequestsTable.company_id})`,
-        company_logo: sql<string | null>`(select logo_url from companies where id = ${documentRequestsTable.company_id})`,
-        company_brand: sql<string | null>`(select brand_color from companies where id = ${documentRequestsTable.company_id})`,
-        client_first: clientsTable.first_name,
-        client_last: clientsTable.last_name,
-        client_email: clientsTable.email,
-        client_address: clientsTable.address,
-      })
-      .from(documentRequestsTable)
-      .leftJoin(documentTemplatesTable, eq(documentRequestsTable.template_id, documentTemplatesTable.id))
-      .leftJoin(clientsTable, eq(documentRequestsTable.client_id, clientsTable.id))
-      .where(eq(documentRequestsTable.token, token))
-      .limit(1);
-
-    if (!request) return res.status(404).json({ error: "Not found" });
-
-    if (request.status === "expired" || (request.expires_at && new Date() > new Date(request.expires_at))) {
-      return res.status(410).json({ error: "expired", company_name: request.company_name });
-    }
-
-    if (request.status === "signed") {
-      return res.json({ ...request, already_signed: true });
-    }
-
-    const clientName = `${request.client_first || ""} ${request.client_last || ""}`.trim();
-    const content = interpolateContent(request.template_content || "", {
-      client_name: clientName,
-      client_address: request.client_address || "",
-      company_name: request.company_name || "",
-      date: new Date().toLocaleDateString("en-US"),
-    });
-
-    return res.json({
-      request_id: request.id,
-      template_id: request.template_id,
-      template_name: request.template_name,
-      content,
-      requires_signature: request.requires_signature,
-      status: request.status,
-      client_name: clientName,
-      client_email: request.client_email,
-      company_name: request.company_name,
-      company_logo: request.company_logo,
-      company_brand: request.company_brand,
-      company_id: request.company_id,
-      already_signed: false,
-    });
-  } catch (err) {
-    console.error("Client sign token error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-router.post("/client-sign/:token/sign", async (req, res) => {
-  try {
-    const { token } = req.params;
-    const { signature_data, signer_name, signer_email, document_snapshot } = req.body;
-    if (!signer_name) return res.status(400).json({ error: "signer_name required" });
-
-    const [request] = await db
-      .select()
-      .from(documentRequestsTable)
-      .where(eq(documentRequestsTable.token, token))
-      .limit(1);
-
-    if (!request) return res.status(404).json({ error: "Not found" });
-    if (request.status === "signed") return res.status(409).json({ error: "Already signed" });
-    if (request.expires_at && new Date() > new Date(request.expires_at)) {
-      return res.status(410).json({ error: "Expired" });
-    }
-
-    const now = new Date();
-    await db
-      .update(documentRequestsTable)
-      .set({ status: "signed", signed_at: now })
-      .where(eq(documentRequestsTable.token, token));
-
-    await db
-      .insert(documentSignaturesTable)
-      .values({
-        company_id: request.company_id,
-        template_id: request.template_id,
-        employee_id: null,
-        client_id: request.client_id || null,
-        signed_at: now,
-        signer_name,
-        signer_email: signer_email || null,
-        signature_data: signature_data || null,
-        ip_address: req.ip || "unknown",
-        user_agent: req.headers["user-agent"] || null,
-        document_snapshot: document_snapshot || "",
-      });
-
-    return res.json({ success: true, signed_at: now });
-  } catch (err) {
-    console.error("Client sign error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+// [retire-legacy-agreements 2026-08-20] GET /client-sign/:token and
+// POST /client-sign/:token/sign lived here, with a /sign-doc/:token page in
+// front of them. That was the second of two dead client-agreement stacks: no
+// office surface ever minted a client-side document request, so in production
+// document_requests holds exactly one row and it is an employee onboarding
+// packet. Customer agreements sign through /sign/:token (routes/sign.ts),
+// which merges the contract, captures E-SIGN consent and issues a Certificate
+// of Completion.
+//
+// The EMPLOYEE onboarding half above is live and untouched.
 
 export default router;

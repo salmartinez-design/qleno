@@ -836,12 +836,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.lead_source", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'manual'` },
     // [lead-drip] follow_up_enrollments.paused_at for per-lead drip pause.
     { label: "follow_up_enrollments.paused_at", stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ` },
-    // [agreement-esign 2026-06-26] DocuSign-grade audit trail for client agreements.
-    { label: "client_agreements.signer_email", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS signer_email TEXT` },
-    { label: "client_agreements.user_agent", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS user_agent TEXT` },
-    { label: "client_agreements.consent_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
-    { label: "client_agreements.viewed_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
-    { label: "client_agreements.token", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS token TEXT` },
+    // [agreement-esign 2026-06-26] DocuSign-grade audit trail for agreements.
+    // The five ALTER TABLE client_agreements lines that used to sit here were
+    // removed 2026-08-20 with the rest of that stack: the table never held a
+    // row, and the columns were being added on every boot for nothing. The
+    // audit table below is NOT part of that removal — it is the live trail
+    // that routes/sign.ts writes and the Certificate of Completion reads.
     { label: "CREATE agreement_events", stmt: `
       CREATE TABLE IF NOT EXISTS agreement_events (
         id          SERIAL PRIMARY KEY,

@@ -55,7 +55,6 @@ export const CLIENT_REFS: ClientRef[] = [
   { table: "sms_messages", column: "client_id", label: "SMS messages", blocksDelete: true },
   { table: "scheduled_sms", column: "client_id", label: "scheduled SMS", blocksDelete: true },
   { table: "client_notifications", column: "client_id", label: "notification contacts", blocksDelete: true },
-  { table: "client_agreements", column: "client_id", label: "agreements", blocksDelete: true },
   { table: "client_attachments", column: "client_id", label: "attachments", blocksDelete: true },
   { table: "client_ratings", column: "client_id", label: "ratings", blocksDelete: true },
   { table: "client_homes", column: "client_id", label: "homes", blocksDelete: true },
