@@ -151,6 +151,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     // existed, -1 = the office edited the body and owns it now. The refresh
     // below only touches rows at 0, so a customized contract is never stomped.
     { label: "form_templates.terms_body_seed_version", stmt: "ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS terms_body_seed_version INTEGER NOT NULL DEFAULT 0" },
+    // [omw-reason 2026-08-20] on_my_way_events recorded only client_notified,
+    // a bare boolean. Every one of the 72 taps between 2026-06-10 and
+    // 2026-08-19 wrote false, and a delivery Twilio rejected was indis-
+    // tinguishable from a customer who had opted out. Keep the reason so a
+    // silent three-month outage can't repeat.
+    { label: "on_my_way_events.sms_result", stmt: "ALTER TABLE on_my_way_events ADD COLUMN IF NOT EXISTS sms_result TEXT" },
+    { label: "on_my_way_events.sms_error", stmt: "ALTER TABLE on_my_way_events ADD COLUMN IF NOT EXISTS sms_error TEXT" },
     // Keyed off square_account_key rather than the name so the pin can never
     // disagree with which merchant that tenant banks into. Only fills a NULL —
     // an explicit pin set in the app is never overwritten on the next boot.

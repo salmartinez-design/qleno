@@ -43,6 +43,7 @@ import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { logJobStatusChange } from "../lib/audit.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
+import { resolveBranchForCompany } from "../lib/branchRouter.js";
 
 const router = Router();
 
@@ -247,6 +248,12 @@ router.post("/:jobId/on-my-way", requireAuth, async (req, res) => {
         eta_edited_after_scheduled_start: etaEditedAfterScheduledStart,
         sent_at: deferred ? null : now,
         client_notified: clientNotified,
+        // [omw-reason 2026-08-20] client_notified is a bare boolean, so a send
+        // that failed looked exactly like one nobody was owed. Three months of
+        // Twilio auth rejections read as 72 quiet falses. Keep the reason.
+        sms_result: smsResult?.status ?? null,
+        sms_error:
+          smsResult && smsResult.status === "error" ? smsResult.message : null,
         deferred,
       })
       .returning({ id: onMyWayEventsTable.id });
@@ -381,6 +388,12 @@ async function sendOnMyWayForJob(
     tech_name: tech?.first_name ?? "",
     arrival_window: promisedLabel,
     service_address: serviceAddress,
+    // [omw-company-phone 2026-08-20] Both tenants' on_my_way templates end
+    // "Questions? Call {{company_phone}}." — a tag no caller ever supplied, and
+    // applyMergeTags renders an unknown tag as "", so the message would have
+    // shipped as "Questions? Call ." Take the number from the branch stamp so
+    // Schaumburg quotes its own line rather than Oak Lawn's.
+    company_phone: (await resolveBranchForCompany(companyId)).clientPhoneFormatted,
   });
   if (omwTpl && !omwTpl.is_active) {
     return { status: "suppressed_tenant_disabled" };
@@ -397,6 +410,10 @@ async function sendOnMyWayForJob(
     tenantSmsEnabled: !!tenant?.sms_on_my_way_enabled,
     clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused && omwPrefOn,
     bodyOverride: omwTpl?.body,
+    // resolveSender already read the tenant's Twilio credentials to find the
+    // from-number; send with those too instead of the stale process.env pair.
+    accountSid: sender.account_sid,
+    authToken: sender.auth_token,
   });
   // [auto-sms-thread-log 2026-07-28] Mirror the On-My-Way text into the two-way
   // SMS store so it appears in the client message thread AND the Communications
