@@ -14,6 +14,7 @@ import { resolveServiceType } from "../lib/serviceType.js";
 import { serviceTypeEnum } from "@workspace/db/schema";
 import { materializeClientForQuote } from "../lib/materialize-client.js";
 import { commissionBaseFollowsBaseFee } from "../lib/commission-base-sync.js";
+import { quoteAdjustmentsForScope, netQuoteManualAdjustment } from "../lib/quote-adjustments.js";
 
 const router = Router();
 
@@ -119,15 +120,10 @@ async function applyQuoteManualAdjustments(
        LIMIT 1`);
     if (dupe.rows.length > 0) return;
 
-    const scopeId = bookedScopeId != null ? Number(bookedScopeId) : null;
     let wrote = 0;
-    for (const a of adjs as any[]) {
-      if (scopeId != null && a?.scope_id != null && Number(a.scope_id) !== scopeId) continue;
-      const amt = Number(a?.amount) || 0;
-      if (!(amt > 0)) continue;
-      const isSubtract = a?.type === "subtract";
-      const signed = isSubtract ? -amt : amt;
-      const why = String(a?.reason ?? "").trim();
+    for (const a of quoteAdjustmentsForScope(rawAdjustments, bookedScopeId)) {
+      const signed = a.signed;
+      const why = a.reason;
       // Prefixed so the dupe guard above can find them, and so the office can
       // tell a quote-time adjustment from one added later on the job card.
       const reason = `Quote adjustment${why ? ` (${why})` : ""}`;
@@ -873,8 +869,14 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // so add the discount back. The discount then lands as its own adjustment row
     // on the booked job — see applyQuoteDiscountAdjustment.
     const convertDiscount = Math.max(0, Number((q as any).discount_amount ?? 0) || 0);
+    // [quote-discount-double-apply 2026-08-20] Back the office's own +/- rows out
+    // of total_price the same way the coded discount is backed out. Without this
+    // the discounted total became base_fee and the discount was charged twice.
+    // Negative net (a discount) adds back; a positive net (a surcharge the
+    // office typed) is likewise removed, because it re-lands as its own row.
+    const convertManualNet = netQuoteManualAdjustment((q as any).manual_adjustments, q.scope_id);
     const fallbackFee = q.total_price != null
-      ? Math.round((Number(q.total_price) + convertDiscount) * 100) / 100
+      ? Math.round((Number(q.total_price) + convertDiscount - convertManualNet) * 100) / 100
       : (q.base_price != null ? Number(q.base_price) : null);
     const recurringFee = chosenOpt ? (snapKey === "onetime" ? chosenOpt.first_visit_price : chosenOpt.recurring_price) : fallbackFee;
     const firstVisitFee = chosenOpt ? chosenOpt.first_visit_price : fallbackFee;
