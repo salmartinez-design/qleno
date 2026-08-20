@@ -117,6 +117,54 @@ export async function setSmsOptOutByPhone(companyId: number, phone: string, opte
 //   • Logs the sent confirmation into sms_messages so the office SEES it in the
 //     conversation thread.
 // Returns true only when Twilio accepted the message.
+// [opt-out-visible 2026-08-13] Sal: "we still can't see in message thread if the
+// customer gets the opt out confirmation after they reply stop."
+//
+// The confirmation was only ever recorded when Twilio ACCEPTED it. Every other
+// outcome wrote nothing to the thread, so the office saw the customer's STOP and
+// then silence — with no way to tell whether the customer was answered, and no
+// way to tell an unsubscribed customer from a broken one.
+//
+// The most common outcome is exactly the invisible one: Twilio's own opt-out
+// handling already replied and put the number on its STOP list, so OUR send is
+// rejected with 21610. The customer DID get a confirmation — from the carrier —
+// and the thread showed nothing.
+//
+// So every path now leaves a mark. A delivered confirmation is logged as the
+// outbound message it is; anything else writes an internal note explaining what
+// the customer actually received, on the contact's own log so it renders in the
+// thread (client → communication_log, lead → lead_activity_log — the same two
+// stores POST /notes writes to).
+async function noteOnThread(companyId: number, phone: string, body: string): Promise<void> {
+  const d = phoneDigits(phone);
+  if (!d || d.length < 10) return;
+  try {
+    const r = await db.execute(sql`
+      SELECT
+        (SELECT c.id FROM clients c WHERE c.company_id = ${companyId}
+           AND right(regexp_replace(COALESCE(c.phone,''),'\\D','','g'),10) = ${d} ORDER BY c.id LIMIT 1) AS client_id,
+        (SELECT l.id FROM leads l WHERE l.company_id = ${companyId}
+           AND right(regexp_replace(COALESCE(l.phone,''),'\\D','','g'),10) = ${d} ORDER BY l.id DESC LIMIT 1) AS lead_id`);
+    const row = r.rows[0] as any;
+    // Column names and filters mirror POST /notes and the thread's note-merge
+    // exactly — the merge only reads communication_log WHERE channel='note' and
+    // lead_activity_log WHERE action_type='note_added' AND note IS NOT NULL, so
+    // anything else is written and never rendered.
+    if (row?.client_id) {
+      await db.execute(sql`
+        INSERT INTO communication_log
+          (company_id, customer_id, direction, channel, summary, body)
+        VALUES (${companyId}, ${Number(row.client_id)}, 'internal', 'note', ${body}, ${body})`);
+    } else if (row?.lead_id) {
+      await db.execute(sql`
+        INSERT INTO lead_activity_log (lead_id, company_id, action_type, note, created_at)
+        VALUES (${Number(row.lead_id)}, ${companyId}, 'note_added', ${body}, NOW())`);
+    }
+  } catch (e) {
+    console.warn("[opt-out] thread note failed:", (e as any)?.message ?? e);
+  }
+}
+
 export async function sendSmsOptOutConfirmation(
   companyId: number,
   toPhone: string,
@@ -127,6 +175,10 @@ export async function sendSmsOptOutConfirmation(
     const sender = await resolveSender(companyId);
     if (sender.reason) {
       console.log(`[opt-out] confirmation skipped (${sender.reason}) company=${companyId}`);
+      // Texting is switched off, so nobody replied to them. The opt-out itself
+      // still stuck — say both, because those are different facts.
+      await noteOnThread(companyId, toPhone,
+        "Opted out of texts. No confirmation was sent — texting is currently disabled for this account.");
       return false;
     }
     // Reply from the exact number the customer texted, when we have it.
@@ -149,6 +201,24 @@ export async function sendSmsOptOutConfirmation(
   } catch (e: any) {
     // 21610 = recipient already opted out at the carrier (Twilio answered it).
     console.warn(`[opt-out] confirmation not delivered: ${e?.message ?? e}`);
+    // The distinction the office needs: 21610 means the CUSTOMER WAS ANSWERED,
+    // just by the carrier rather than by us — the opt-out worked and the thread
+    // should say so. Anything else means nobody answered them, which is a
+    // different problem and shouldn't read the same.
+    const code = Number(e?.code ?? e?.status ?? 0);
+    const carrierHandled = code === 21610 || /21610|opted out|blacklist/i.test(String(e?.message ?? ""));
+    // Say only what 21610 actually proves. It means Twilio has this number on
+    // its opt-out list and refused our send — so the unsubscribe is definitely
+    // in force. It does NOT prove a confirmation text reached them: whether
+    // Twilio auto-replies depends on how opt-out management is configured on
+    // the messaging service, and that reply never passes through Qleno (it is
+    // outbound from Twilio, not an inbound webhook). Claiming "the customer was
+    // answered" here would be asserting something nobody verified. The Twilio
+    // message log for the number is the only place that can confirm delivery.
+    await noteOnThread(companyId, toPhone,
+      carrierHandled
+        ? "Opted out of texts — confirmed in force: the carrier rejected our confirmation because this number is already on its STOP list. They will receive no further texts. Whether the carrier sent its own confirmation text is only visible in the Twilio message log for this number."
+        : `Opted out of texts. The confirmation could not be sent (${e?.message ?? "unknown error"}) — the customer may not have received a reply.`);
     return false;
   }
 }
