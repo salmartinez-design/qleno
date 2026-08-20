@@ -125,7 +125,15 @@ export default function EstimatePublicPage() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}`);
+        // [internal-preview 2026-08-20] Say who is looking. The page is public
+        // and stays public, but when the office opens its own estimate from a
+        // signed-in browser we pass the staff token so the server can leave
+        // "viewed" alone. Without this, a staffer proofreading the estimate
+        // marks it read by the customer. Nothing here is required: a real
+        // customer has no token and the header is simply absent.
+        const staffToken = localStorage.getItem("qleno_token");
+        const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}`,
+          staffToken ? { headers: { Authorization: `Bearer ${staffToken}` } } : undefined);
         if (!r.ok) throw new Error();
         setEst(await r.json());
       } catch {
