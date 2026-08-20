@@ -40,6 +40,22 @@ export interface SendAgreementOpts {
   /** Office hand-edits for this one send. Merge variables still render. */
   termsBodyOverride?: string | null;
   sentByUserId?: number | null;
+  /**
+   * Whether this send bypasses the comms gate.
+   *
+   * TRUE (the default) is the office pressing Send on a contract the customer is
+   * waiting for — the same reasoning as a password reset or a portal invite:
+   * dropping it silently leaves a customer who agreed to service with no way to
+   * sign, and a staff member who believes it went out.
+   *
+   * FALSE is for AUTOMATIC sends, such as the one that fires when somebody signs
+   * up for recurring service on the website. Nobody pressed anything, so it is an
+   * automated communication and it respects COMMS_ENABLED and the per-tenant gate
+   * like every other automated message. The booking confirmation that goes out
+   * alongside it is gated the same way, so the two stay consistent: a tenant with
+   * comms off sends neither, rather than an agreement with no confirmation.
+   */
+  transactional?: boolean;
 }
 
 export interface SendAgreementResult {
@@ -159,7 +175,7 @@ export async function sendAgreementToClient(opts: SendAgreementOpts): Promise<Se
       agreement_link: signingUrl,
       expires_days: String(LINK_VALID_DAYS),
     },
-    true,
+    opts.transactional !== false,
     // [agreement-brand 2026-08-19] Wrap the template body in the Phes shell
     // instead of the generic notification wrapper, so the one message that
     // asks for a signature looks like the same company as the booking

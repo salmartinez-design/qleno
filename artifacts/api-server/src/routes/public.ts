@@ -18,6 +18,7 @@ import { normalizeReferralSource } from "../lib/referral-source.js";
 import { upsertWidgetLead } from "../lib/widget-lead.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 import { adoptOnlineBookingIntoSeries, normalizeBookingFrequency, RECURRING_CADENCES } from "../lib/online-recurring.js";
+import { maybeSendSignupAgreement } from "../lib/signup-agreement.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
 import { resolveSquareCredentials } from "../lib/square-credentials.js";
 import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
@@ -1288,6 +1289,19 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       }
     }
 
+    // [signup-agreement 2026-08-20] Recurring signups get the service agreement
+    // emailed to them straight away. One-time cleans get nothing — the helper is
+    // the gate, and it decides, so this call is safe to make unconditionally.
+    // Awaited rather than fired-and-forgotten so a failure lands in the same log
+    // line as the booking it belongs to, but it can never throw.
+    await maybeSendSignupAgreement({
+      companyId: Number(company_id),
+      clientId,
+      clientHomeId: homeId,
+      frequency: normalizedFreq,
+      upsellAccepted: upsellAcceptedVal,
+    });
+
     // ── Office SMS notification on confirm (per-tenant) ──────────────────────
     // FROM the tenant's own number via resolveSender; TO the tenant's configured
     // lead_notify_phone. No global-env number, no hardcoded Oak Lawn recipient.
@@ -1519,6 +1533,17 @@ router.post("/book", rateLimit, async (req, res) => {
         zip: legAddrZip ?? null,
       });
     }
+    // [signup-agreement 2026-08-20] Same gate as the Square confirm path above.
+    // This endpoint is dormant while Square is the rail, which is exactly why it
+    // has to carry the same behaviour — the day it fires is a day nobody is
+    // watching it. There is no upsell on this path, so cadence alone decides.
+    await maybeSendSignupAgreement({
+      companyId: Number(company_id),
+      clientId,
+      clientHomeId: homeId,
+      frequency: legNormFreq,
+    });
+
     import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
       sendJobScheduledConfirmation(req, jobId)
     ).catch(() => {});
