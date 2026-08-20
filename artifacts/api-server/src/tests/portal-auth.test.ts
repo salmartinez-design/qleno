@@ -56,18 +56,29 @@ describe("portal capabilities — residential vs commercial", () => {
     assert.equal(r.requestService, true);
   });
 
-  it("gives residential the schedule, the agreement, holds and referrals", () => {
+  it("gives residential the schedule, the agreement and referrals", () => {
     const r = lib.portalCapabilities(residential());
     assert.equal(r.viewSchedule, true);
     assert.equal(r.viewAgreement, true);
-    assert.equal(r.manageHold, true);
     assert.equal(r.submitReferral, true);
 
-    // Commercial pauses are contract matters handled by the account manager,
-    // and a property-management contact has no household to refer.
-    const c = lib.portalCapabilities(commercial());
-    assert.equal(c.manageHold, false);
-    assert.equal(c.submitReferral, false);
+    // A property-management contact has no household to refer.
+    assert.equal(lib.portalCapabilities(commercial()).submitReferral, false);
+  });
+
+  // [portal-holds-office-only 2026-08-20] Nobody pauses their own service from
+  // the portal. Sal: "No pausing for clients at the moment let the office
+  // handle that for now." Commercial was already off — a commercial pause is a
+  // contract matter for the account manager. Residential is off by the
+  // PORTAL_SELF_SERVE_HOLDS switch, which is the one place to flip it back.
+  //
+  // This is pinned because the surface disappears quietly: the capability is
+  // what hides the pause form and the Restart button AND what makes all three
+  // hold routes refuse. A stray `true` here puts a customer-facing pause
+  // control back on the screen with nothing else in the diff to notice.
+  it("lets nobody pause their own service", () => {
+    assert.equal(lib.portalCapabilities(residential()).manageHold, false);
+    assert.equal(lib.portalCapabilities(commercial()).manageHold, false);
   });
 
   it("gives rate-a-clean to residential only", () => {
