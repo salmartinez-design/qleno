@@ -88,7 +88,7 @@ You may place your recurring service on hold and keep your regular time slot for
 
 A hold of {{hold_notice_free_days}} days or less is free and changes nothing about your rate or your slot.
 
-A hold longer than {{hold_notice_free_days}} days takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before the hold ends, nothing is charged. If you do not resume by the end of the hold, this Agreement ends and one final visit at your current rate of {{rate}} is due as the notice amount described in Section 10.
+A hold longer than {{hold_notice_free_days}} days takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before the hold ends, nothing is charged. If you do not resume by the end of the hold, this Agreement ends and the visits that would have fallen inside your {{termination_notice_days}} day notice period are due at your current rate of {{rate}}, as described in Section 10.
 
 Where a hold is treated as your notice under this Section, this Section controls and Section 10 does not also apply. You will never be billed for both a notice period and a hold covering the same stretch of time.
 
