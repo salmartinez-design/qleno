@@ -462,11 +462,114 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
   // one-off. {{price_line}} carries the unit AND the cadence, so a recurring
   // estimate says "$160.00 per visit, 3 visits a week" while a one-time one
   // still says "$2,480.00, one time". {{monthly}} stays for existing copy.
+  const priceLine = await priceLineFor(e);
+
+  // [bundle-estimates 2026-08-20] One contact can hold more than one open
+  // estimate — a post-construction clean and the ongoing service for the same
+  // building. Since [one-drip-per-contact] only ONE chain runs for that person,
+  // the sibling estimates would otherwise never be mentioned again after their
+  // own send-day email. Pull every open estimate for this contact so the copy
+  // can name and link all of them in a single message.
+  // "Open" = sent and still undecided. A draft was never shown to them, and an
+  // accepted or declined one is settled — neither belongs in a chase.
+  const sibs = await db.execute(sql`
+    SELECT e2.id, e2.title, e2.total, e2.billing_mode, e2.flat_price, e2.flat_price_unit, e2.public_token
+    FROM estimates e2
+    JOIN estimates cur ON cur.id = ${estimateId}
+    WHERE e2.company_id = ${companyId}
+      AND e2.status <> 'draft'
+      AND e2.accepted_at IS NULL
+      AND e2.declined_at IS NULL
+      AND (
+        nullif(btrim(lower(e2.contact_email)), '') = nullif(btrim(lower(cur.contact_email)), '')
+        OR nullif(regexp_replace(coalesce(e2.contact_phone, ''), '\\D', '', 'g'), '')
+           = nullif(regexp_replace(coalesce(cur.contact_phone, ''), '\\D', '', 'g'), '')
+        OR e2.client_id = cur.client_id
+      )
+    ORDER BY e2.id
+  `);
+  const openEsts = (sibs.rows as any[]).length ? (sibs.rows as any[]) : [e];
+  const multi = openEsts.length > 1;
+
+  // Each estimate gets its OWN tracked link, so a click still attributes to the
+  // estimate it belongs to rather than to whichever one happens to carry the drip.
+  const linkFor = async (row: any): Promise<string> => {
+    if (row.id === e.id) return link;
+    const full = row.public_token ? `${appBaseUrl()}/estimate/${row.public_token}` : `${appBaseUrl()}/estimate`;
+    if (enrollmentId) {
+      const { createTrackedLink } = await import("../lib/engagement.js");
+      return await createTrackedLink({ companyId, targetUrl: full, estimateId: row.id, enrollmentId, recipient: recipientOverride ?? e.contact_email ?? null });
+    }
+    return row.public_token ? ((await shortenUrl(full, companyId)) || full) : full;
+  };
+
+  const blocks: string[] = [];
+  for (const row of openEsts) {
+    const nm = String(row.title || "").trim() || "Cleaning service";
+    blocks.push(`${nm}\n${await priceLineFor(row)}\n${await linkFor(row)}`);
+  }
+  const estimateLines = blocks.join("\n\n");
+
+  // [title-echoes-property 2026-08-20] Some estimates are titled with the
+  // CUSTOMER's name rather than the work, which produced "quote Wellness Homes
+  // of Chicago for Wellness Homes of Chicago (4 Locations)" in the body and the
+  // same stutter in the subject. When the title just restates the property,
+  // fall back to the generic word so the sentence reads once, not twice.
+  const propName = e.property_name || e.service_address || "your property";
+  const rawTitle = String(e.title || "").trim();
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const nt = norm(rawTitle), np = norm(propName);
+  // Require real substance on both sides — a 2-character title would "match"
+  // almost any property name and wipe out a legitimate title.
+  const titleEchoesProperty = nt.length >= 3 && np.length >= 3 && (np.includes(nt) || nt.includes(np));
+
+  // The word that stands in for the title in running prose: the real title when
+  // it says something, "cleaning" when it is missing or just echoes the property.
+  const titleWord = titleEchoesProperty || !rawTitle ? "cleaning" : rawTitle;
+
+  // Titles read as a sentence fragment, so lower-case them and join naturally.
+  const names = openEsts.map((row) => String(row.title || "").trim().toLowerCase() || "cleaning service");
+  const nameList = names.length <= 1 ? (names[0] ?? "") :
+    names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+
+  // The text message deliberately carries NO link when there is more than one
+  // estimate. Two URLs in one SMS reads as spam to carriers and gives the
+  // reader a choice they cannot see the difference between; the email right
+  // above it already holds both, clearly labelled.
+  const smsSummary = multi
+    ? `We just emailed you ${openEsts.length} estimates for ${propName}: ${nameList}. Both links are in that email.`
+    : `We just emailed your ${titleWord.toLowerCase()} estimate for ${propName} (${priceLine}). Here is the link: ${link}.`;
+
+  return {
+    company_name:   e.company_name || "Phes",
+    company_phone:  e.company_phone || "(773) 706-6000",
+    company_email:  e.company_email || "info@phes.io",
+    property:       propName,
+    monthly:        total,
+    estimate_total: total,
+    price_line:     priceLine,
+    // Falls back to "cleaning" so the existing "Your {{estimate_title}} estimate
+    // for {{property}}" copy reads exactly as it did before on untitled estimates.
+    // With several open estimates a single specific title would be a lie, so it
+    // widens to the generic word and {{estimate_word}} carries the plural.
+    estimate_title: multi ? "cleaning" : titleWord,
+    estimate_word:  multi ? "estimates" : "estimate",
+    estimate_count: String(openEsts.length),
+    estimate_lines: estimateLines,
+    estimate_summary_sms: smsSummary,
+    estimate_link:  link,
+    estimate_number: String(e.id),
+  };
+}
+
+// Shared price-line renderer, so a sibling estimate in a bundled message is
+// priced by exactly the same rules as the one carrying the drip.
+async function priceLineFor(row: any): Promise<string> {
   const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  let priceLine = money(Number(e.total ?? 0));
-  if (e.billing_mode === "flat" && e.flat_price != null) {
-    const unit = String(e.flat_price_unit || "total");
-    const amt = money(Number(e.flat_price));
+  let priceLine = money(Number(row.total ?? 0));
+  if (row.billing_mode === "flat" && row.flat_price != null) {
+    const unit = String(row.flat_price_unit || "total");
+    const amt = money(Number(row.flat_price));
     priceLine = unit === "total" ? `${amt}, one time`
       : unit === "month" ? `${amt} per month`
       : `${amt} per ${unit}`;
@@ -476,25 +579,12 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
       // or missing cadences stay off the line rather than guess.
       const fr = await db.execute(sql`
         SELECT DISTINCT btrim(frequency) AS f FROM estimate_line_items
-         WHERE estimate_id = ${estimateId} AND coalesce(btrim(name),'') <> ''`);
+         WHERE estimate_id = ${row.id} AND coalesce(btrim(name),'') <> ''`);
       const freqs = (fr.rows as any[]).map((x) => String(x.f || "")).filter(Boolean);
       if (freqs.length === 1 && (fr.rows as any[]).length === 1) priceLine += `, ${freqs[0]}`;
     }
   }
-  return {
-    company_name:   e.company_name || "Phes",
-    company_phone:  e.company_phone || "(773) 706-6000",
-    company_email:  e.company_email || "info@phes.io",
-    property:       e.property_name || e.service_address || "your property",
-    monthly:        total,
-    estimate_total: total,
-    price_line:     priceLine,
-    // Falls back to "cleaning" so the existing "Your {{estimate_title}} estimate
-    // for {{property}}" copy reads exactly as it did before on untitled estimates.
-    estimate_title: String(e.title || "").trim() || "cleaning",
-    estimate_link:  link,
-    estimate_number: String(e.id),
-  };
+  return priceLine;
 }
 
 // ── Enroll for quote follow-up ─────────────────────────────────────────────────
