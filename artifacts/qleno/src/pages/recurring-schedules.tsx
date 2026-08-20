@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { RefreshCw, Clock, Search, AlertTriangle } from "lucide-react";
+import { RefreshCw, Clock, Search, AlertTriangle, Edit2, X } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// [edit-from-recurring-list 2026-08-20] Same edit screen the customer profile
+// uses. It already defaults a recurring job to "this and all future" and asks
+// before it writes, so a day or time change here moves the visits already on
+// the calendar too. Nothing is re-implemented; a second copy would drift.
+const EditJobModal = lazy(() => import("@/components/edit-job-modal"));
 
 type Schedule = {
   id: number;
@@ -69,6 +75,42 @@ export default function RecurringSchedulesPage() {
   const [onlyMissingTime, setOnlyMissingTime] = useState(false);
   const [bulkTime, setBulkTime] = useState("09:00");
   const [saving, setSaving] = useState(false);
+  const [editJob, setEditJob] = useState<any | null>(null);
+  const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
+  const [team, setTeam] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch(`${API}/api/users?limit=200`, { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        const list = Array.isArray(d) ? d : (d?.data ?? []);
+        setTeam(list.map((e: any) => ({ id: e.id, name: `${e.first_name || ""} ${e.last_name || ""}`.trim(), role: e.role, is_trainee: e.is_trainee })));
+      })
+      .catch(() => setTeam([]));
+  }, []);
+
+  // The schedule itself has no calendar row to open, so Edit fetches the
+  // series' next visit and opens the shared job modal on that.
+  async function openEdit(scheduleId: number) {
+    setEditNotice(null);
+    setEditLoadingId(scheduleId);
+    try {
+      const res = await fetch(`${API}/api/recurring/${scheduleId}/anchor`, { headers: getAuthHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || d.message || `HTTP ${res.status}`);
+      if (!d?.job) {
+        setEditNotice("This schedule has no visits on the calendar yet, so there is nothing to open. It will be editable after the next visit is created.");
+        return;
+      }
+      const j = d.job;
+      setEditJob({ ...j, duration_minutes: Number(j.duration_minutes || 0), amount: Number(j.base_fee ?? 0), base_fee: j.base_fee });
+    } catch (e: any) {
+      setEditNotice(e?.message || "Could not open this schedule.");
+    } finally {
+      setEditLoadingId(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -164,6 +206,13 @@ export default function RecurringSchedulesPage() {
           </button>
         </div>
 
+        {editNotice && (
+          <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F0D9A8", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#8A5A12", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+            <span>{editNotice}</span>
+            <button onClick={() => setEditNotice(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A5A12", padding: 0, lineHeight: 1 }}><X size={13} /></button>
+          </div>
+        )}
+
         {/* Mobile: card list (a wide table is unusable on a phone) */}
         {isMobile ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -190,7 +239,13 @@ export default function RecurringSchedulesPage() {
                       ? <span style={{ color: "#1A1917", fontWeight: 600 }}>{fmtTime(r.scheduled_time)}</span>
                       : <span style={{ color: "#B45309", fontWeight: 700 }}>No time set</span>}
                   </p>
-                  <Link href={`/customers/${r.customer_id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600, display: "inline-block", marginTop: 6 }}>Open profile</Link>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8 }}>
+                    <button onClick={e => { e.stopPropagation(); openEdit(r.id); }} disabled={editLoadingId === r.id}
+                      style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === r.id ? "default" : "pointer", borderRadius: 6, padding: "5px 11px", fontSize: 12, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
+                      <Edit2 size={11} /> {editLoadingId === r.id ? "Opening…" : "Edit"}
+                    </button>
+                    <Link href={`/customers/${r.customer_id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>Open profile</Link>
+                  </div>
                 </div>
               </div>
             ))}
@@ -233,7 +288,11 @@ export default function RecurringSchedulesPage() {
                       ?? <span style={{ color: "#B45309", fontWeight: 600 }}>No time set</span>}
                   </td>
                   <td style={td}>{r.base_fee ? `$${parseFloat(r.base_fee).toFixed(2)}` : "—"}</td>
-                  <td style={{ ...td, textAlign: "right" }}>
+                  <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button onClick={() => openEdit(r.id)} disabled={editLoadingId === r.id}
+                      style={{ background: "none", border: "1px solid #E5E2DC", cursor: editLoadingId === r.id ? "default" : "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#1A1917", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5, marginRight: 12, fontFamily: "inherit" }}>
+                      <Edit2 size={11} /> {editLoadingId === r.id ? "Opening…" : "Edit"}
+                    </button>
                     <Link href={`/customers/${r.customer_id}`} style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>Open profile</Link>
                   </td>
                 </tr>
@@ -241,6 +300,18 @@ export default function RecurringSchedulesPage() {
             </tbody>
           </table>
         </div>
+        )}
+
+        {editJob && (
+          <Suspense fallback={null}>
+            <EditJobModal
+              job={editJob}
+              employees={team}
+              mobile={isMobile}
+              onClose={() => setEditJob(null)}
+              onSaved={() => { setEditJob(null); load(); }}
+            />
+          </Suspense>
         )}
       </div>
     </DashboardLayout>

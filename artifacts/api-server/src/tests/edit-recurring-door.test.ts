@@ -171,3 +171,51 @@ describe("turning a recurrence off and back on, for the right client", () => {
   });
 
 });
+
+// [edit-from-recurring-list 2026-08-20] The same door, on the company-wide
+// list at /recurring. That page already shows a "Wrong day" warning telling
+// the office to "Edit the schedule to fix" — and then offered no way to edit
+// it, only a link out to the customer profile. These assertions keep the list
+// page mounting the SAME shared modal on the SAME anchor endpoint, so there is
+// still exactly one cascade in the app.
+describe("the company-wide recurring list can edit a schedule too", () => {
+  const listPage = read("../../../qleno/src/pages/recurring-schedules.tsx");
+
+  it("opens the shared edit modal, not a private one", () => {
+    assert.match(
+      listPage,
+      /lazy\(\(\) => import\("@\/components\/edit-job-modal"\)\)/,
+      "the list page must reuse the one edit screen",
+    );
+    assert.match(listPage, /<EditJobModal/);
+  });
+
+  it("gets the visit to open from the anchor endpoint", () => {
+    assert.match(
+      listPage,
+      /\/api\/recurring\/\$\{scheduleId\}\/anchor/,
+      "no second way of deciding which visit represents the series",
+    );
+  });
+
+  it("has an Edit control on both the phone and desktop layouts", () => {
+    const edits = listPage.match(/openEdit\(r\.id\)/g) || [];
+    assert.equal(edits.length, 2, "one Edit button in the mobile card, one in the table row");
+  });
+
+  it("says something useful when a schedule has no visits yet", () => {
+    assert.match(
+      listPage,
+      /no visits on the calendar yet/,
+      "a schedule with nothing generated must explain itself, not fail silently",
+    );
+  });
+
+  it("does not write its own recurrence cascade", () => {
+    assert.doesNotMatch(
+      listPage,
+      /this_and_future|apply_to_future|future_jobs_updated/,
+      "the list page must not reimplement the this-and-all-future rewrite",
+    );
+  });
+});
