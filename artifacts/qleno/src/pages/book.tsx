@@ -4070,7 +4070,7 @@ function ReferralCard({ companySlug, referrer }: {
         <span style={{ display: "inline-block", background: "#E1F5EE", color: "#085041", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", padding: "4px 12px", borderRadius: 999, marginBottom: 8 }}>Referral program</span>
         <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 16, color: "#1A1917" }}>Give $25, get $25</p>
         <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
-          Know someone who could use a cleaning — a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit.
+          Know someone who could use a cleaning, a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit.
         </p>
         <button onClick={() => setOpen(true)}
           style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>

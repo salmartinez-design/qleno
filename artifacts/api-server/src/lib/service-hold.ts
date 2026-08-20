@@ -171,8 +171,14 @@ export async function runServiceHoldMigration(): Promise<void> {
         granted_free_days integer NOT NULL DEFAULT 0,
         waive_notice_charge boolean NOT NULL DEFAULT false,
         override_reason text,
-        override_by_user_id integer
+        override_by_user_id integer,
+        override_at timestamp
       )
+    `);
+    // Additive, for any environment that already created the table above
+    // before overrides could be applied after the fact.
+    await db.execute(sql`
+      ALTER TABLE service_holds ADD COLUMN IF NOT EXISTS override_at timestamp
     `);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS service_holds_client_idx
@@ -601,7 +607,8 @@ export async function getActiveHold(companyId: number, clientId: number): Promis
     const r = await db.execute(sql`
       SELECT id, company_id, client_id, start_date::text AS start_date,
              end_date::text AS end_date, days, kind, status, free_days_used,
-             granted_free_days, waive_notice_charge, reason
+             granted_free_days, waive_notice_charge, reason,
+             override_reason, override_by_user_id, override_at
         FROM service_holds
        WHERE company_id = ${companyId} AND client_id = ${clientId} AND status = 'active'
        ORDER BY id DESC LIMIT 1
@@ -610,4 +617,93 @@ export async function getActiveHold(companyId: number, clientId: number): Promis
   } catch {
     return null;
   }
+}
+
+// ── Office overrides ─────────────────────────────────────────────────────────
+// [hold-override 2026-08-20] Sal, asked whether the office should be able to
+// waive the final bill on a notice hold: "yes with reason dispositions."
+//
+// So the waive is a real button, not a database edit, and it never happens
+// anonymously. A fixed list rather than a free-text box is the whole point: a
+// year from now "why did we forgive $1,040?" has to be answerable by counting,
+// and free text cannot be counted. Both the server and the UI read this list, so
+// a reason that exists on the screen always exists in the validation.
+export const HOLD_OVERRIDE_REASONS = [
+  { code: "medical",       label: "Medical or family emergency" },
+  { code: "military",      label: "Military deployment" },
+  { code: "service_issue", label: "Making up for a service problem" },
+  { code: "long_standing", label: "Long standing customer, goodwill" },
+  { code: "our_error",     label: "Our scheduling or billing error" },
+  { code: "owner_decision",label: "Owner decision" },
+] as const;
+
+export type HoldOverrideReasonCode = typeof HOLD_OVERRIDE_REASONS[number]["code"];
+
+export function isHoldOverrideReason(code: unknown): code is HoldOverrideReasonCode {
+  return HOLD_OVERRIDE_REASONS.some((r) => r.code === String(code));
+}
+
+/** The stored `override_reason` string: the code, plus the note if one was left. */
+export function composeOverrideReason(code: HoldOverrideReasonCode, note?: string | null): string {
+  const label = HOLD_OVERRIDE_REASONS.find((r) => r.code === code)?.label ?? code;
+  const n = (note ?? "").trim();
+  return n ? `${label}: ${n}` : label;
+}
+
+export type HoldOverrideInput = {
+  companyId: number;
+  clientId: number;
+  /** Skip the end-of-notice bill entirely. Service still ends on the end date. */
+  waiveNoticeCharge?: boolean;
+  /** Extra free hold days for THIS hold, on top of the tenant allowance. */
+  grantedFreeDays?: number;
+  reasonCode: HoldOverrideReasonCode;
+  reasonNote?: string | null;
+  userId: number;
+};
+
+export type HoldOverrideResult =
+  | { ok: false; refusal: "no_active_hold" | "bad_reason" | "bad_days" }
+  | { ok: true; hold: any };
+
+/**
+ * Change the office-only override fields on a client's ACTIVE hold.
+ *
+ * Deliberately separate from placing the hold. The waive is usually decided
+ * AFTER the fact: the customer calls three weeks into a notice hold and explains
+ * themselves, and by then the suspend screen is long gone. Before this existed
+ * the three override columns could only ever be set in the same breath as the
+ * suspension, which is to say almost never.
+ *
+ * What it does NOT do: end the hold, resume service, or move any money. A waived
+ * notice hold still ends the agreement on its end date; endExpiredNoticeHold
+ * simply raises no invoice when it gets there.
+ */
+export async function setHoldOverride(input: HoldOverrideInput): Promise<HoldOverrideResult> {
+  const { companyId, clientId, userId } = input;
+  if (!isHoldOverrideReason(input.reasonCode)) return { ok: false, refusal: "bad_reason" };
+
+  const granted = input.grantedFreeDays === undefined ? null : Math.trunc(Number(input.grantedFreeDays));
+  if (granted !== null && (!Number.isFinite(granted) || granted < 0 || granted > 365)) {
+    return { ok: false, refusal: "bad_days" };
+  }
+
+  const active = await getActiveHold(companyId, clientId);
+  if (!active) return { ok: false, refusal: "no_active_hold" };
+
+  const waive = input.waiveNoticeCharge === undefined ? null : !!input.waiveNoticeCharge;
+  const reason = composeOverrideReason(input.reasonCode, input.reasonNote);
+
+  await db.execute(sql`
+    UPDATE service_holds
+       SET waive_notice_charge = COALESCE(${waive}::boolean, waive_notice_charge),
+           granted_free_days   = COALESCE(${granted}::integer, granted_free_days),
+           override_reason     = ${reason},
+           override_by_user_id = ${userId},
+           override_at         = NOW()
+     WHERE id = ${active.id} AND company_id = ${companyId}
+  `);
+
+  const hold = await getActiveHold(companyId, clientId);
+  return { ok: true, hold };
 }

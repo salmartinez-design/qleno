@@ -188,6 +188,7 @@ export default function PortalDashboardPage() {
   const [refEmail, setRefEmail] = useState('');
   const [refZip, setRefZip] = useState('');
   const [refNote, setRefNote] = useState('');
+  const [refType, setRefType] = useState<'residential' | 'commercial'>('residential');
   const [refBusy, setRefBusy] = useState(false);
   const [refResult, setRefResult] = useState('');
   const [refError, setRefError] = useState('');
@@ -376,12 +377,12 @@ export default function PortalDashboardPage() {
     try {
       const resp = await fetch(`${API}/api/portal/referrals`, {
         method: 'POST', headers: portalHeaders(slug!),
-        body: JSON.stringify({ name: refName, phone: refPhone, email: refEmail, zip: refZip, note: refNote }),
+        body: JSON.stringify({ name: refName, phone: refPhone, email: refEmail, zip: refZip, note: refNote, referral_type: refType }),
       });
       const data = await resp.json();
       if (!resp.ok) { setRefError(data.message || 'We could not send that'); return; }
       setRefResult(data.message);
-      setRefName(''); setRefPhone(''); setRefEmail(''); setRefZip(''); setRefNote('');
+      setRefName(''); setRefPhone(''); setRefEmail(''); setRefZip(''); setRefNote(''); setRefType('residential');
     } catch { setRefError('We could not send that'); }
     finally { setRefBusy(false); }
   }
@@ -817,6 +818,11 @@ export default function PortalDashboardPage() {
                         <p style={{ fontSize:12.5, color:'#B3261E', margin:'10px 0 0 0' }}>{previewError}</p>
                       )}
 
+                      {/* A pause inside the free days costs nothing, but it still
+                          goes to the office rather than executing itself. The
+                          screen has to say which one it is: promising "paused"
+                          and then having the schedule keep running is worse than
+                          asking. */}
                       {preview && !preview.ends_service && (
                         <div style={{ marginTop:14, padding:'14px 16px', borderRadius:10, background:'#F7F6F3', border:'1px solid #E5E2DC' }}>
                           <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 6px 0' }}>
@@ -824,10 +830,11 @@ export default function PortalDashboardPage() {
                           </p>
                           <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 12px 0' }}>
                             This uses {preview.pause_days?.this_pause ?? preview.days} of your {preview.pause_days?.allowed ?? 0} paused days. Nothing is charged, and we hold your regular spot.
+                            {preview.needs_office ? ' Send it over and someone from the office will confirm it with you. Your visits stay on the calendar until then.' : ''}
                           </p>
                           <button onClick={confirmPause} disabled={holdBusy}
                             style={{ ...primaryBtn({ opacity: holdBusy ? 0.6 : 1 }) }}>
-                            Confirm pause
+                            {preview.needs_office ? 'Request this pause' : 'Confirm pause'}
                           </button>
                         </div>
                       )}
@@ -999,12 +1006,31 @@ export default function PortalDashboardPage() {
             <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:0 }}>Refer a friend</h2>
             {caps.submitReferral ? (
               <div style={CARD}>
-                <p style={{ fontSize:12.5, color:'#6B6860', margin:'0 0 14px 0' }}>
-                  Know someone who could use us? Leave their details and we will reach out. We will always mention it came from you.
-                </p>
+                {/* [referral-one-program 2026-08-20] The portal used to promise
+                    nothing while the booking confirmation page promised $25 each
+                    way. Same program, same words, wherever the customer is
+                    standing. */}
+                <div style={{ background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px', marginBottom:14 }}>
+                  <span style={{ display:'inline-block', background:'#E1F5EE', color:'#085041', fontSize:10.5, fontWeight:700, letterSpacing:'.05em', textTransform:'uppercase', padding:'3px 10px', borderRadius:999, marginBottom:7 }}>Referral program</span>
+                  <p style={{ margin:'0 0 4px', fontWeight:800, fontSize:15, color:'#1A1917' }}>Give $25, get $25</p>
+                  <p style={{ margin:0, fontSize:12.5, color:'#6B6860', lineHeight:1.6 }}>
+                    Know someone who could use a cleaning, a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit. We will always mention it came from you.
+                  </p>
+                </div>
 
-                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Their name</label>
-                <input value={refName} onChange={e => setRefName(e.target.value)} placeholder="First and last" style={{ ...INPUT, marginBottom:12 }}/>
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>Who are you referring?</label>
+                <div style={{ display:'flex', border:'1px solid #E5E2DC', borderRadius:8, overflow:'hidden', marginBottom:12 }}>
+                  {(['residential', 'commercial'] as const).map(t => (
+                    <button key={t} onClick={() => setRefType(t)}
+                      style={{ flex:1, textAlign:'center', padding:'9px 0', fontSize:13, fontWeight:700, fontFamily:'inherit', border:'none', cursor:'pointer',
+                        background: refType === t ? brandColor : '#fff', color: refType === t ? '#fff' : '#6B6860' }}>
+                      {t === 'residential' ? 'A home' : 'A business'}
+                    </button>
+                  ))}
+                </div>
+
+                <label style={{ fontSize:12.5, fontWeight:600, color:'#1A1917', display:'block', marginBottom:6 }}>{refType === 'commercial' ? 'Business or contact name' : 'Their name'}</label>
+                <input value={refName} onChange={e => setRefName(e.target.value)} placeholder={refType === 'commercial' ? 'Company or contact' : 'First and last'} style={{ ...INPUT, marginBottom:12 }}/>
 
                 <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
                   <div style={{ flex:'1 1 160px' }}>

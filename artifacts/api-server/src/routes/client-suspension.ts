@@ -18,7 +18,11 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
-import { classifyHold, resolveHoldPolicy } from "../lib/service-hold.js";
+import {
+  classifyHold, resolveHoldPolicy, getActiveHold, setHoldOverride,
+  getHoldAllowance, quoteNoticeVisits, isHoldOverrideReason, HOLD_OVERRIDE_REASONS,
+} from "../lib/service-hold.js";
+import { logAudit } from "../lib/audit.js";
 import { placeHold, liftHold, todayYmd, addDays } from "../lib/service-hold-actions.js";
 
 const router = Router();
@@ -145,6 +149,111 @@ router.post("/:id/resume", requireAuth, requireRole("owner", "admin", "office"),
   } catch (e: any) {
     console.error("[suspension] resume error:", e);
     res.status(500).json({ error: "Failed to resume service", message: e?.message });
+  }
+});
+
+// ── GET /api/clients/:id/hold ─────────────────────────────────────────────────
+// The client's live hold, if any, plus what the office may do to it. The card
+// needs this to say "notice charge waived" out loud: an override that is only
+// visible in the database is an override nobody trusts, and somebody re-bills
+// the customer by hand three weeks later.
+router.get("/:id/hold", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = Number(req.params.id);
+    if (!Number.isInteger(clientId)) { res.status(400).json({ error: "invalid client id" }); return; }
+
+    const hold = await getActiveHold(companyId, clientId);
+    const policy = await resolveHoldPolicy(companyId);
+    const allowance = await getHoldAllowance(companyId, clientId, todayYmd(), policy);
+
+    // On a notice hold, quote what would come due today if they never resume.
+    // A waived hold still reports the number, marked waived — the office should
+    // see what was forgiven, not a blank.
+    let notice: any = null;
+    if (hold && hold.kind === "notice") {
+      notice = await quoteNoticeVisits(companyId, clientId, String(hold.end_date), policy.noticeDays);
+    }
+
+    res.status(200).json({
+      hold, policy, allowance, notice,
+      override_reasons: HOLD_OVERRIDE_REASONS,
+    });
+  } catch (e: any) {
+    console.error("[suspension] hold read error:", e);
+    res.status(500).json({ error: "Failed to read hold", message: e?.message });
+  }
+});
+
+// ── POST /api/clients/:id/hold-override ───────────────────────────────────────
+// body: { waive_notice_charge?, granted_free_days?, reason_code, reason_note? }
+//
+// [hold-override 2026-08-20] Waive the end-of-notice bill, or hand this client
+// extra free hold days, on the hold they are ON right now. Sal asked for the
+// waive "with reason dispositions", so reason_code is required and must be one
+// of the fixed list — free text alone would make the forgiveness unanswerable
+// later. Audited every time.
+//
+// This does not end, extend, or resume the hold, and it moves no money by
+// itself. A waived notice hold still ends the agreement on its end date; the
+// close-out simply raises no invoice when it gets there.
+router.post("/:id/hold-override", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const clientId = Number(req.params.id);
+    if (!Number.isInteger(clientId)) { res.status(400).json({ error: "invalid client id" }); return; }
+
+    const reasonCode = req.body?.reason_code;
+    if (!isHoldOverrideReason(reasonCode)) {
+      res.status(400).json({ error: "A reason is required", reasons: HOLD_OVERRIDE_REASONS });
+      return;
+    }
+    const hasWaive = req.body?.waive_notice_charge !== undefined;
+    const hasDays = req.body?.granted_free_days !== undefined;
+    if (!hasWaive && !hasDays) {
+      res.status(400).json({ error: "Nothing to change" });
+      return;
+    }
+
+    const before = await getActiveHold(companyId, clientId);
+
+    const result = await setHoldOverride({
+      companyId, clientId,
+      waiveNoticeCharge: hasWaive ? req.body.waive_notice_charge === true : undefined,
+      grantedFreeDays: hasDays ? Number(req.body.granted_free_days) : undefined,
+      reasonCode,
+      reasonNote: typeof req.body?.reason_note === "string" ? req.body.reason_note.slice(0, 500) : null,
+      userId: req.auth!.userId as number,
+    });
+
+    if (!result.ok) {
+      switch (result.refusal) {
+        case "no_active_hold":
+          res.status(409).json({ error: "This client is not on hold right now" }); return;
+        case "bad_days":
+          res.status(400).json({ error: "Extra free days must be a whole number between 0 and 365" }); return;
+        case "bad_reason":
+          res.status(400).json({ error: "A reason is required", reasons: HOLD_OVERRIDE_REASONS }); return;
+      }
+    }
+
+    await logAudit(req, "hold_override", "client", clientId,
+      before ? {
+        waive_notice_charge: before.waive_notice_charge,
+        granted_free_days: before.granted_free_days,
+        override_reason: before.override_reason,
+      } : null,
+      {
+        hold_id: result.hold?.id ?? null,
+        waive_notice_charge: result.hold?.waive_notice_charge,
+        granted_free_days: result.hold?.granted_free_days,
+        override_reason: result.hold?.override_reason,
+      });
+
+    res.status(200).json({ ok: true, hold: result.hold });
+  } catch (e: any) {
+    console.error("[suspension] hold-override error:", e);
+    res.status(500).json({ error: "Failed to save the override", message: e?.message });
   }
 });
 

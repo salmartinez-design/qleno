@@ -315,6 +315,21 @@ router.post("/profile-picture", requirePortalAuth, requireResidential, async (re
 
 const money = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
+// [portal-self-serve-holds 2026-08-20] Sal, asked whether a customer should be
+// able to pause their own service or whether every pause should reach the office
+// first: "lets hold off on that for now."
+//
+// So every pause a customer starts is a REQUEST, including the short free ones
+// that the agreement already entitles them to. The preview screen is untouched:
+// they still see how long the pause is, how many pause days they have left, and
+// whether it would end their service, before they send anything. What changed is
+// only who presses the last button.
+//
+// One constant, read in two places, so turning self-service back on is one line
+// and not an archaeology exercise. When it flips to true, a free pause executes
+// immediately and only a notice-length pause stays a request.
+const SELF_SERVE_HOLDS: boolean = false;
+
 // ── GET /api/portal/plan ────────────────────────────────────────────────────
 // What we agreed to do for you, in your own words: how often we come, what it
 // costs, whether service is paused right now, and how much pause time is left.
@@ -439,8 +454,9 @@ router.get("/hold/preview", requirePortalAuth, requireResidential, requireCapabi
       // one ends the service.
       ends_service: c.kind === "notice",
       // A hold that ends service is never self-serve, whatever the capability
-      // says. The screen uses this to swap Confirm for Send request.
-      needs_office: c.kind === "notice",
+      // says, and right now nothing is. The screen uses this to swap Confirm for
+      // Send request.
+      needs_office: !SELF_SERVE_HOLDS || c.kind === "notice",
       cadence: c.cadence,
       pause_days: {
         allowed: c.allowance.allowed,
@@ -476,23 +492,29 @@ router.post("/hold", requirePortalAuth, requireResidential, requireCapability("m
     const today = todayYmd();
     const c = await classifyHold(companyId, clientId, addDays(today, 1), until);
 
-    if (c.kind === "notice") {
-      // Deliberately NOT executed here. This one ends the agreement and charges
-      // the notice period; a customer clicking a button in a browser must not be
-      // the last checkpoint on that. It becomes a request the office answers,
-      // through the same queue as every other portal request.
+    const isNotice = c.kind === "notice";
+    if (!SELF_SERVE_HOLDS || isNotice) {
+      // Deliberately NOT executed here. A notice-length pause ends the agreement
+      // and charges the notice period, and a customer clicking a button in a
+      // browser must not be the last checkpoint on that. A free pause is only a
+      // request while SELF_SERVE_HOLDS is off. Either way it lands in the same
+      // queue as every other portal request.
+      const notes = isNotice
+        ? `Requested from the customer portal. This pause runs ${c.days} days, past the ${c.policy.freeDays} pause days the agreement includes, so it would serve as ${c.policy.noticeDays} days notice to end service. Cadence: ${c.cadence}. Final visits if it goes ahead: ${c.notice?.visits ?? 0} totalling $${(c.notice?.amount ?? 0).toFixed(2)}.`
+        : `Requested from the customer portal. This pause runs ${c.days} days and sits inside the ${c.policy.freeDays} pause days the agreement includes, so nothing is billed. Cadence: ${c.cadence}. Pause days left after this one: ${Math.max(0, c.allowance.remaining - c.freeDaysUsed)}.`;
       const ins = await db.execute(sql`
         INSERT INTO portal_service_requests
           (company_id, client_id, requested_by_portal_user_id, service_description, preferred_date, notes)
         VALUES (${companyId}, ${clientId}, ${req.portalSession!.portalUserId},
-                ${`Pause service through ${until}`}, ${until},
-                ${`Requested from the customer portal. This pause runs ${c.days} days, past the ${c.policy.freeDays} pause days the agreement includes, so it would serve as ${c.policy.noticeDays} days notice to end service. Cadence: ${c.cadence}. Final visits if it goes ahead: ${c.notice?.visits ?? 0} totalling $${(c.notice?.amount ?? 0).toFixed(2)}.`})
+                ${`Pause service through ${until}`}, ${until}, ${notes})
         RETURNING id`);
       return res.status(202).json({
         ok: true,
         needs_office: true,
         request_id: (ins.rows[0] as any)?.id ?? null,
-        message: "We have your request. Because this pause is longer than the pause time your agreement includes, someone from the office will call you before anything changes.",
+        message: isNotice
+          ? "We have your request. Because this pause is longer than the pause time your agreement includes, someone from the office will call you before anything changes."
+          : "We have your request. Someone from the office will confirm your pause and get back to you. Nothing changes on your schedule until then.",
       });
     }
 
@@ -689,58 +711,50 @@ router.post("/service-requests", requirePortalAuth, requireResidential, requireC
 });
 
 // ── POST /api/portal/referrals ──────────────────────────────────────────────
-// A referral becomes a LEAD, on the board the office already opens every
-// morning. A separate referrals table would have meant a separate screen
-// somebody has to remember to check, and a referral nobody calls is worse than
-// no referral at all.
+// [referral-one-program 2026-08-20] This used to write a lead and stop there.
+// The same customer referring the same friend from the booking confirmation page
+// got the whole program: a referrals row, the office alert, a $25-off email to
+// the friend and a thank-you to them. From the portal they got a lead nobody
+// could trace and a $25 credit that never existed. Both surfaces now call
+// submitReferral, so a referral means the same thing wherever it was sent from.
+//
+// The portal knows exactly who is referring (it is the signed-in customer), so
+// it passes the client id rather than letting the program guess by email.
 router.post("/referrals", requirePortalAuth, requireResidential, requireCapability("submitReferral"), async (req, res) => {
   try {
     const { clientId, companyId } = scope(req);
-    const name = String(req.body?.name ?? "").trim();
-    const phone = String(req.body?.phone ?? "").trim();
-    const email = String(req.body?.email ?? "").trim();
-    const zip = String(req.body?.zip ?? "").trim();
-    const note = String(req.body?.note ?? "").trim().slice(0, 1000);
-
-    if (name.length < 2) {
-      return res.status(400).json({ error: "Bad Request", message: "Tell us your friend's name" });
-    }
-    if (!phone && !email) {
-      return res.status(400).json({ error: "Bad Request", message: "Add a phone number or an email so we can reach them" });
-    }
-
-    const [first, ...rest] = name.split(/\s+/);
-    const [referrer] = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
-      .from(clientsTable)
-      .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId)))
-      .limit(1);
-    const referrerName = [referrer?.first_name, referrer?.last_name].filter(Boolean).join(" ") || `Client #${clientId}`;
-
-    const ins = await db.execute(sql`
-      INSERT INTO leads
-        (company_id, first_name, last_name, phone, email, zip, source, referral_source,
-         status, lead_type, notes)
-      VALUES (${companyId}, ${first}, ${rest.join(" ") || null},
-              ${phone || null}, ${email || null}, ${zip || null},
-              'referral', 'referral', 'needs_contacted', 'standard',
-              ${`Referred by ${referrerName} through the customer portal.${note ? ` They said: ${note}` : ""}`})
-      RETURNING id`);
-    const leadId = Number((ins.rows[0] as any)?.id);
+    const { submitReferral } = await import("../lib/referral-program.js");
+    const result = await submitReferral({
+      companyId,
+      surface: "portal",
+      referralType: req.body?.referral_type === "commercial" ? "commercial" : "residential",
+      referrer: { clientId },
+      referred: {
+        name: req.body?.name,
+        phone: req.body?.phone,
+        email: req.body?.email,
+        zip: req.body?.zip,
+        note: req.body?.note,
+      },
+    });
+    if (!result.ok) return res.status(400).json({ error: "Bad Request", message: result.message });
 
     // The timeline entry is what makes the referral traceable back to the
-    // customer who sent it, which is what any thank-you or credit depends on.
-    if (Number.isFinite(leadId)) {
+    // customer who sent it on the lead's own screen, alongside the referrals row.
+    if (result.leadId) {
+      const [referrer] = await db
+        .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
+        .from(clientsTable)
+        .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId)))
+        .limit(1);
+      const referrerName = [referrer?.first_name, referrer?.last_name].filter(Boolean).join(" ") || `Client #${clientId}`;
       await db.execute(sql`
         INSERT INTO lead_activity_log (lead_id, company_id, action_type, note)
-        VALUES (${leadId}, ${companyId}, 'referral_received',
-                ${`Portal referral from ${referrerName} (client #${clientId}).`})`);
+        VALUES (${result.leadId}, ${companyId}, 'referral_received',
+                ${`Portal referral from ${referrerName} (client #${clientId}). ${result.promo}.`})`);
     }
 
-    return res.status(201).json({
-      ok: true,
-      message: "Thank you. We will reach out to them.",
-    });
+    return res.status(201).json({ ok: true, message: result.message });
   } catch (err) {
     console.error("Portal referral error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Could not send that referral" });

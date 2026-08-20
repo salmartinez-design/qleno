@@ -947,6 +947,61 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
     onError: (e: any) => setErr(String(e?.message || e).slice(0, 200)),
   });
 
+  // [hold-override 2026-08-20] The live hold, once the client is on one. The
+  // waive is almost always decided AFTER the suspension is placed: the customer
+  // calls three weeks into a notice period, or the hold was our own scheduling
+  // mistake. Without this the three override columns could only be set in the
+  // same breath as the suspension, which is to say almost never.
+  const holdQ = useQuery({
+    queryKey: ["client-hold", client.id],
+    enabled: isSuspended,
+    queryFn: () => apiFetch(`/api/clients/${client.id}/hold`),
+    staleTime: 30_000,
+  });
+  const hold: any = holdQ.data?.hold ?? null;
+  const holdIsNotice = hold?.kind === "notice";
+  const holdNotice: any = holdQ.data?.notice ?? null;
+  const overrideReasons: { code: string; label: string }[] = holdQ.data?.override_reasons ?? [];
+  const waived = !!hold?.waive_notice_charge;
+  const grantedDays = Number(hold?.granted_free_days ?? 0);
+
+  const [ovOpen, setOvOpen] = useState(false);
+  const [ovWaive, setOvWaive] = useState(false);
+  const [ovDays, setOvDays] = useState("");
+  const [ovReason, setOvReason] = useState("");
+  const [ovNote, setOvNote] = useState("");
+  const [ovErr, setOvErr] = useState<string | null>(null);
+
+  const openOverride = () => {
+    setOvWaive(waived);
+    setOvDays(grantedDays > 0 ? String(grantedDays) : "");
+    setOvReason("");
+    setOvNote("");
+    setOvErr(null);
+    setOvOpen(true);
+  };
+
+  const overrideMut = useMutation({
+    mutationFn: () => {
+      const body: any = { reason_code: ovReason };
+      if (ovNote.trim()) body.reason_note = ovNote.trim();
+      if (holdIsNotice) body.waive_notice_charge = ovWaive;
+      if (ovDays.trim() !== "") body.granted_free_days = Number(ovDays);
+      return apiFetch(`/api/clients/${client.id}/hold-override`, { method: "POST", body: JSON.stringify(body) });
+    },
+    onSuccess: () => {
+      setOvOpen(false);
+      setOvErr(null);
+      qc.invalidateQueries({ queryKey: ["client-hold", client.id] });
+      refetch();
+    },
+    onError: (e: any) => {
+      let msg = String(e?.message || e);
+      try { msg = JSON.parse(msg).error || msg; } catch { /* keep raw */ }
+      setOvErr(msg.slice(0, 200));
+    },
+  });
+
   const daysLeft = isSuspended && client.suspend_until
     ? Math.ceil((new Date(String(client.suspend_until).slice(0, 10) + "T12:00:00").getTime() - Date.now()) / 86400000)
     : null;
@@ -984,6 +1039,56 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
         )}
       </div>
       {isSuspended && err && <div style={{ fontSize: 12, color: "#B3261E", marginTop: 10 }}>{err}</div>}
+
+      {/* [hold-override 2026-08-20] What this hold currently costs the customer,
+          and the one control that changes it. An override that lives only in the
+          database is an override nobody trusts, and somebody re-bills the
+          customer by hand three weeks later. */}
+      {isSuspended && hold && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E5E2DC", display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            {holdIsNotice ? (
+              waived ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>Final bill waived</div>
+                  <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                    Service still ends {fmtDate(hold.end_date)}, but nothing is billed for the notice period
+                    {holdNotice && Number(holdNotice.amount) > 0 ? ` (${money(Number(holdNotice.amount))} forgiven)` : ""}.
+                    {hold.override_reason ? ` ${hold.override_reason}` : ""}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#B45309" }}>Notice period, ends service</div>
+                  <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                    If {client.first_name} does not resume by {fmtDate(hold.end_date)}, service ends and
+                    {" "}{holdNotice ? `${money(Number(holdNotice.amount || 0))} (${holdNotice.visits} visit${holdNotice.visits === 1 ? "" : "s"})` : "the notice period"} is billed.
+                  </div>
+                </>
+              )
+            ) : (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>Free hold</div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3, lineHeight: 1.5 }}>
+                  Nothing is billed. The rate and the slot are kept.
+                  {grantedDays > 0 ? ` ${grantedDays} extra free day${grantedDays === 1 ? "" : "s"} granted.` : ""}
+                </div>
+              </>
+            )}
+            {grantedDays > 0 && holdIsNotice && (
+              <div style={{ fontSize: 12, color: "#6B6860", marginTop: 3 }}>
+                {grantedDays} extra free day{grantedDays === 1 ? "" : "s"} granted.
+              </div>
+            )}
+          </div>
+          {canManage && (
+            <button onClick={openOverride}
+              style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#1A1917", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
+              Adjust this hold
+            </button>
+          )}
+        </div>
+      )}
 
       {modalOpen && (
         <div onClick={() => !suspendMut.isPending && setModalOpen(false)}
@@ -1069,6 +1174,74 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
                   <button onClick={() => suspendMut.mutate()} disabled={blocked}
                     style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: blocked ? "default" : "pointer", opacity: blocked ? 0.6 : 1, fontFamily: FF }}>
                     {suspendMut.isPending ? "Suspending…" : isNotice ? "Suspend and start notice" : "Suspend service"}
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ovOpen && (
+        <div onClick={() => !overrideMut.isPending && setOvOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#FFFFFF", borderRadius: 14, padding: 24, width: 440, maxWidth: "100%", fontFamily: FF, boxShadow: "0 20px 50px rgba(10,14,26,0.3)" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#0A0E1A", marginBottom: 6 }}>Adjust this hold</div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16, lineHeight: 1.5 }}>
+              Forgive the final bill, or hand {client.first_name} extra free hold days. This does not end the hold or resume service, and it moves no money by itself.
+            </div>
+
+            {holdIsNotice && (
+              <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#8A5A18", cursor: "pointer", lineHeight: 1.45 }}>
+                  <input type="checkbox" checked={ovWaive} onChange={e => setOvWaive(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>
+                    <strong style={{ fontWeight: 700 }}>Waive the final bill</strong>
+                    <span style={{ display: "block", marginTop: 3 }}>
+                      {holdNotice && Number(holdNotice.amount) > 0
+                        ? `${money(Number(holdNotice.amount))} for ${holdNotice.visits} notice visit${holdNotice.visits === 1 ? "" : "s"} is not charged.`
+                        : "The notice period is not charged."}
+                      {" "}Service still ends {fmtDate(hold?.end_date)}.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Extra free hold days (optional)</label>
+            <input type="number" min={0} max={365} step={1} value={ovDays} onChange={e => setOvDays(e.target.value)}
+              placeholder={grantedDays > 0 ? String(grantedDays) : "0"}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 4, fontFamily: FF }} />
+            <div style={{ fontSize: 11.5, color: "#9E9B94", marginBottom: 14, lineHeight: 1.5 }}>
+              Added on top of the {holdQ.data?.policy?.freeDays ?? 30} free days everyone gets in a rolling year. Leave blank to keep it as it is.
+            </div>
+
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Reason (required)</label>
+            <select value={ovReason} onChange={e => setOvReason(e.target.value)}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: ovReason ? "#1A1917" : "#9E9B94", outline: "none", boxSizing: "border-box", marginBottom: 10, fontFamily: FF, background: "#FFFFFF" }}>
+              <option value="">Pick a reason</option>
+              {overrideReasons.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+            </select>
+
+            <textarea value={ovNote} onChange={e => setOvNote(e.target.value)} rows={2} maxLength={500}
+              placeholder="Anything else worth recording (optional)"
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 4, fontFamily: FF }} />
+            <div style={{ fontSize: 11.5, color: "#9E9B94", marginBottom: 12, lineHeight: 1.5 }}>
+              The reason is saved on the hold and written to the audit log with your name.
+            </div>
+
+            {ovErr && <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 8 }}>{ovErr}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setOvOpen(false)} disabled={overrideMut.isPending}
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              {(() => {
+                const nothingToChange = !holdIsNotice && ovDays.trim() === "";
+                const blocked = overrideMut.isPending || !ovReason || nothingToChange;
+                return (
+                  <button onClick={() => overrideMut.mutate()} disabled={blocked}
+                    style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: blocked ? "default" : "pointer", opacity: blocked ? 0.6 : 1, fontFamily: FF }}>
+                    {overrideMut.isPending ? "Saving\u2026" : "Save"}
                   </button>
                 );
               })()}

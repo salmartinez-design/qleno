@@ -15,6 +15,7 @@ import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
 import { normalizeReferralSource } from "../lib/referral-source.js";
+import { upsertWidgetLead } from "../lib/widget-lead.js";
 import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
 import { adoptOnlineBookingIntoSeries, normalizeBookingFrequency, RECURRING_CADENCES } from "../lib/online-recurring.js";
 import { getSquarePublicConfig } from "../lib/square-config.js";
@@ -73,107 +74,6 @@ async function resolveBookingAddress(p: {
 // entirely for `leads`. One vocabulary, two call sites.
 const normalizeReferral = normalizeReferralSource;
 
-// [widget-lead-upsert 2026-07-04] Find-or-create the Lead Pipeline lead for a
-// public booking-widget action, deduped by email/phone within the company. An
-// online residential QUOTE (abandon-track) creates a needs_contacted lead so it
-// shows up in Leads; a later booking (confirm) UPGRADES that same lead to booked
-// instead of creating a duplicate. Status only advances, never downgrades.
-// Contact fields fill in but never clobber. Non-fatal.
-const LEAD_STATUS_RANK: Record<string, number> = { needs_contacted: 0, contacted: 1, quoted: 2, booked: 3 };
-async function upsertWidgetLead(companyId: number, opts: {
-  email?: string | null; phone?: string | null; first_name?: string | null; last_name?: string | null;
-  address?: string | null; zip?: string | null; scope?: string | null;
-  source: string; status: string; jobId?: number | null; booked?: boolean; quoteAmount?: number | null;
-  // [quote-details-carry 2026-07-07] Sanitized snapshot of what the visitor
-  // filled in on the widget (bedrooms/bathrooms/sqft/frequency/add-ons/
-  // referral/step_reached). Merged into leads.details so the Lead Pipeline
-  // shows the full quote picture; newer keys win over older ones.
-  details?: Record<string, unknown> | null;
-}): Promise<number | null> {
-  try {
-    const { sql: s } = await import("drizzle-orm");
-    const email = opts.email ? String(opts.email).toLowerCase().trim() : null;
-    const phone10 = (opts.phone ?? "").replace(/[^0-9]/g, "").slice(-10) || null;
-    // [referral-vocabulary 2026-07-23] The widget's "How did you hear about
-    // us?" answer rides in `details` as a display NAME ("Google Ads"). Land it
-    // on the real column at write time — the boot backfill exists to repair
-    // history, not to be the only thing that ever fills this in. COALESCE on
-    // update so a later touch from a form that didn't ask can't erase an
-    // answer the customer already gave.
-    // [leadsource-unify 2026-07-28] Store the raw acquisition_sources slug the
-    // widget dropdown emitted — no longer bucket it into the old 9-value enum
-    // (which turned Thumbtack / Google Ads into "other" / "google"). The column
-    // is now TEXT, so the widget's answers match the office vocabulary and the
-    // dashboard report groups them under their real Settings names.
-    const referralRaw = (opts.details?.referral_source ?? opts.details?.referral) as string | undefined;
-    const referral = referralRaw && String(referralRaw).trim() ? String(referralRaw).trim() : null;
-    let existing: any = null;
-    if (email || phone10) {
-      const found = await db.execute(s`
-        SELECT id, status FROM leads
-         WHERE company_id = ${companyId}
-           AND (${email ? s`LOWER(email) = ${email}` : s`FALSE`}
-                OR ${phone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${phone10}` : s`FALSE`})
-         ORDER BY created_at DESC LIMIT 1`);
-      existing = (found.rows as any[])[0] ?? null;
-    }
-    if (existing) {
-      const upgrade = (LEAD_STATUS_RANK[opts.status] ?? 0) > (LEAD_STATUS_RANK[String(existing.status)] ?? 0);
-      await db.execute(s`
-        UPDATE leads SET
-          first_name = COALESCE(first_name, ${opts.first_name ?? null}),
-          last_name  = COALESCE(last_name, ${opts.last_name ?? null}),
-          email      = COALESCE(email, ${opts.email ?? null}),
-          phone      = COALESCE(phone, ${opts.phone ?? null}),
-          address    = COALESCE(address, ${opts.address ?? null}),
-          zip        = COALESCE(zip, ${opts.zip ?? null}),
-          scope      = COALESCE(scope, ${opts.scope ?? null}),
-          status     = ${upgrade ? s`${opts.status}` : s`status`},
-          quote_amount = COALESCE(${opts.quoteAmount ?? null}, quote_amount),
-          quoted_at  = ${opts.status === "quoted" ? s`COALESCE(quoted_at, NOW())` : s`quoted_at`},
-          job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
-          booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
-          details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
-          referral_source = COALESCE(referral_source, ${referral}),
-          updated_at = NOW()
-        WHERE id = ${existing.id}`);
-      // [booked-drip-stop 2026-07-09] The public booking-confirm paths upgrade a
-      // lead to booked THROUGH this helper (raw SQL) and used to call NO stop
-      // function — so an existing lead's drips kept firing after they booked
-      // online (Francisco: booked clients still getting follow-ups). Stop the
-      // lead's cadences here when this upsert marks it booked. advanceLeadStage
-      // owns this for the internal paths; this is the widget equivalent.
-      if (opts.status === "booked" || opts.booked) {
-        import("../services/followUpService.js").then(({ stopEnrollmentsForLead }) =>
-          stopEnrollmentsForLead(Number(existing.id), "lead_booked").catch(() => {})).catch(() => {});
-      }
-      return Number(existing.id);
-    }
-    // [source-precedence 2026-07-09] Stamp lead_source = source (not the DB
-    // default 'manual'). Without this, every online/widget lead landed with
-    // lead_source='manual' and rendered as the "Office" chip in the pipeline,
-    // misrepresenting client-submitted leads as office-created ones.
-    const ins = await db.execute(s`
-      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, lead_source, status, quote_amount, quoted_at, job_id, booked_at, details, referral_source, created_at, updated_at)
-      VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
-              ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.source}, ${opts.status},
-              ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
-              ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
-              COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
-              ${referral}, NOW(), NOW())
-      RETURNING id`);
-    return Number((ins.rows as any[])[0]?.id) || null;
-  } catch (e) {
-    // Non-fatal by design (a DB hiccup must not break the customer's widget),
-    // but log with enough context to diagnose a dropped lead — this catch is
-    // what silently swallowed the Georgann Gambill lead. Callers now also log
-    // when this returns null.
-    console.error("[widget-lead] upsert failed:", {
-      companyId, email: opts.email, phone: opts.phone, source: opts.source, status: opts.status,
-    }, e);
-    return null;
-  }
-}
 
 // ── Simple in-memory rate limiter: 30 req/min per IP ────────────────────────
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
@@ -372,165 +272,44 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
   }
 });
 
-// [referral-program 2026-07-17] Customer-facing referral messages fired on a
-// referral submit. The referred FRIEND gets EMAIL ONLY (they never opted in — a
-// cold SMS would be a TCPA gray area; the office alert still lets staff call).
-// The REFERRER gets an SMS + email thank-you. Gate-respecting (COMMS_ENABLED +
-// per-tenant/branch) and opt-out-checked; best-effort, never blocks the submit.
-async function sendReferralComms(companyId: number, p: {
-  referrerFirst: string; referrerEmail: string; referrerPhone: string;
-  friendFirst: string; friendEmail: string;
-}): Promise<void> {
-  try {
-    const { sql: rSql } = await import("drizzle-orm");
-    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
-    const { isEmailOptedOut, isSmsOptedOut } = await import("../lib/opt-out.js");
-    const { appBaseUrl } = await import("../lib/app-url.js");
-    const co: any = (await db.execute(rSql`SELECT name, phone, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`)).rows[0] || {};
-    const companyName = co.name || "Phes Cleaning";
-    const companyPhone = co.phone || "";
-    const bookLink = `${appBaseUrl()}/book`;
-    const sender: any = await resolveSender(companyId, null);
-    const emailGate = process.env.COMMS_ENABLED === "true" && sender.company_comms_enabled && sender.enabled && sender.branch_comms_enabled;
-    const resendKey = process.env.RESEND_API_KEY;
-    const fromAddr = co.email_from_address ? `${companyName} <${co.email_from_address}>` : "Phes Cleaning <noreply@phes.io>";
-    const esc = (v: string) => String(v ?? "").replace(/[<>&]/g, (ch) => (ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&amp;"));
-    const wrap = (inner: string) => `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;"><div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">${inner}<p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${esc(companyName)}${companyPhone ? ` — ${esc(companyPhone)}` : ""}</p></div></div>`;
-    const sendMail = async (to: string, subject: string, inner: string) => {
-      if (!emailGate || !resendKey || !to) return;
-      if (await isEmailOptedOut(companyId, to)) return;
-      const { Resend } = await import("resend");
-      await new Resend(resendKey).emails.send({ from: fromAddr, to: [to], subject, html: wrap(inner) }).catch(() => {});
-    };
-    const para = (t: string) => `<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 14px;">${t}</p>`;
-
-    // 1. Referred friend — EMAIL ONLY.
-    await sendMail(
-      p.friendEmail,
-      `${p.referrerFirst || "A friend"} thinks you'll love ${companyName} — $25 off your first clean`,
-      para(`Hi ${esc(p.friendFirst || "there")},`) +
-      para(`${esc(p.referrerFirst || "A friend")} recommended <strong>${esc(companyName)}</strong> for a cleaning — and gifted you <strong>$25 off</strong> your first visit.`) +
-      para(`Get an instant quote and book your first clean:`) +
-      `<p><a href="${bookLink}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:6px;">Book my clean</a></p>`,
-    );
-
-    // 2. Referrer — SMS thank-you.
-    if (p.referrerPhone && !sender.reason && !(await isSmsOptedOut(companyId, p.referrerPhone))) {
-      const smsBody = `Hi ${p.referrerFirst || "there"}! Thanks for referring ${p.friendFirst || "your friend"} to ${companyName}. Once their first cleaning is done, you'll get $25 off your next visit. Reply STOP to opt out.`;
-      await sendSmsVia(sender, p.referrerPhone, smsBody).catch(() => {});
-    }
-
-    // 3. Referrer — EMAIL thank-you.
-    await sendMail(
-      p.referrerEmail,
-      `Thanks for referring ${p.friendFirst || "a friend"} to ${companyName}`,
-      para(`Hi ${esc(p.referrerFirst || "there")},`) +
-      para(`Thanks for referring <strong>${esc(p.friendFirst || "your friend")}</strong> to ${esc(companyName)}! Once their first cleaning is complete, you'll get <strong>$25 off</strong> your next visit.`) +
-      para(`We appreciate you spreading the word.`),
-    );
-  } catch (e: any) {
-    console.error("[referral] customer comms error (non-fatal):", e?.message ?? e);
-  }
-}
-
 // ── POST /api/public/referral ────────────────────────────────────────────────
 // [referral-program] Give $25 / Get $25 — the confirmation-page "Refer a friend
-// or business" form. Creates (a) a Lead Pipeline lead for the referred person
-// (deduped via upsertWidgetLead, source 'referral', tagged with who referred
-// them + the promo) and (b) a referrals row linked to that lead — the link is
-// what lets the Referrals report derive booked/completed/credited later. Fires
-// the office new-lead alert. Public + rate-limited; never exposes internal ids.
+// or business" form. What a referral does now lives in lib/referral-program.ts,
+// shared with the customer portal's Refer tab, so both surfaces create the same
+// lead, the same referrals row, the same office alert and the same two customer
+// emails. This route's only job is to turn an anonymous public form into that
+// call. Public + rate-limited; never exposes internal ids.
 router.post("/referral", rateLimit, async (req, res) => {
   const { sql: s } = await import("drizzle-orm");
   try {
     const b: any = req.body ?? {};
     const clip = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
     const companySlug = clip(b.company_slug, 80);
-    const referredName = clip(b.referred_name, 120);
-    const referredPhone = clip(b.referred_phone, 40);
-    const referredEmail = clip(b.referred_email, 160);
-    const referralType = b.referral_type === "commercial" ? "commercial" : "residential";
-    const ref: any = b.referrer ?? {};
-    const referrerFirst = clip(ref.first_name, 80);
-    const referrerLast = clip(ref.last_name, 80);
-    const referrerEmail = clip(ref.email, 160).toLowerCase();
-    const referrerPhone = clip(ref.phone, 40);
-    const referrerName = [referrerFirst, referrerLast].filter(Boolean).join(" ");
-
     if (!companySlug) return res.status(400).json({ error: "Missing company" });
-    if (!referredName) return res.status(400).json({ error: "Please tell us who you're referring." });
-    if (!referredPhone && !referredEmail) return res.status(400).json({ error: "A phone number or email for them is required." });
 
     const companyRow = await db.execute(s`SELECT id FROM companies WHERE slug = ${companySlug} LIMIT 1`);
     const companyId = Number((companyRow.rows[0] as any)?.id);
     if (!companyId) return res.status(404).json({ error: "Company not found" });
 
-    // Match the referrer to an existing client by email/phone (they usually
-    // just booked, so this normally hits). Kept nullable — a lead who refers
-    // before their client record exists still counts.
-    let referrerClientId: number | null = null;
-    const refPhone10 = referrerPhone.replace(/\D/g, "").slice(-10);
-    if (referrerEmail || refPhone10) {
-      const m = await db.execute(s`
-        SELECT id FROM clients
-         WHERE company_id = ${companyId}
-           AND (${referrerEmail ? s`LOWER(email) = ${referrerEmail}` : s`FALSE`}
-                OR ${refPhone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${refPhone10}` : s`FALSE`})
-         ORDER BY id DESC LIMIT 1`);
-      referrerClientId = Number((m.rows[0] as any)?.id) || null;
-    }
-
-    const sp = referredName.indexOf(" ");
-    const referredFirst = sp > 0 ? referredName.slice(0, sp) : referredName;
-    const referredLast = sp > 0 ? referredName.slice(sp + 1) : null;
-    const { REFERRAL_PROMO } = await import("../lib/referrals.js");
-
-    const leadId = await upsertWidgetLead(companyId, {
-      first_name: referredFirst,
-      last_name: referredLast,
-      phone: referredPhone || null,
-      email: referredEmail || null,
-      scope: referralType === "commercial" ? "Commercial Cleaning" : null,
-      source: "referral",
-      status: "needs_contacted",
-      details: {
-        referred_by: referrerName || referrerEmail || "a customer",
-        referral_type: referralType,
-        referral_promo: REFERRAL_PROMO,
+    const ref: any = b.referrer ?? {};
+    const { submitReferral } = await import("../lib/referral-program.js");
+    const result = await submitReferral({
+      companyId,
+      surface: "widget",
+      referralType: b.referral_type === "commercial" ? "commercial" : "residential",
+      // No session here, so the referrer is whoever the form says they are;
+      // submitReferral matches them to a client by email or phone if it can.
+      referrer: {
+        firstName: ref.first_name, lastName: ref.last_name,
+        email: ref.email, phone: ref.phone,
+      },
+      referred: {
+        name: b.referred_name,
+        phone: b.referred_phone,
+        email: b.referred_email,
       },
     });
-
-    await db.execute(s`
-      INSERT INTO referrals
-        (company_id, referrer_client_id, referrer_name, referrer_email, referrer_phone,
-         referred_name, referred_phone, referred_email, referral_type,
-         source, status, promo, lead_id, created_at, updated_at)
-      VALUES
-        (${companyId}, ${referrerClientId}, ${referrerName || null}, ${referrerEmail || null}, ${referrerPhone || null},
-         ${referredName}, ${referredPhone || null}, ${referredEmail || null}, ${referralType},
-         'widget', 'pending', ${REFERRAL_PROMO}, ${leadId}, NOW(), NOW())
-    `);
-
-    // Office alert — same channel every other new lead uses. Fire-and-forget.
-    try {
-      const { fireOfficeNotification } = await import("./leads.js");
-      void fireOfficeNotification(
-        companyId, leadId ?? 0, referredFirst, referredLast,
-        `Referral — from ${referrerName || "a customer"} ($25/$25 promo)`,
-        referredPhone || null,
-        referralType === "commercial" ? "Commercial Cleaning" : null,
-      ).catch((e: any) => console.error("[referral] office alert failed:", e?.message ?? e));
-    } catch (e: any) {
-      console.error("[referral] office alert failed:", e?.message ?? e);
-    }
-
-    // [referral-program] Fire the customer-facing referral messages (friend email
-    // + referrer SMS/email). Fire-and-forget so a comms hiccup never fails the
-    // submit; gating + opt-out are enforced inside.
-    void sendReferralComms(companyId, {
-      referrerFirst, referrerEmail, referrerPhone,
-      friendFirst: referredFirst, friendEmail: referredEmail,
-    }).catch((e: any) => console.error("[referral] comms dispatch failed:", e?.message ?? e));
+    if (!result.ok) return res.status(400).json({ error: result.message });
 
     return res.status(201).json({ ok: true });
   } catch (err) {
