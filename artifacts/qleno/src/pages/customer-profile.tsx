@@ -896,22 +896,45 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
   const canManage = role === "owner" || role === "admin" || role === "office";
   const isSuspended = !!client.suspended_at;
 
-  // Default resume date = 90 days out; the picker is capped at that max.
   const today = new Date().toISOString().slice(0, 10);
-  const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 90); return d.toISOString().slice(0, 10); })();
+  const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const expired = isSuspended && client.suspend_until && String(client.suspend_until).slice(0, 10) <= today;
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [until, setUntil] = useState(maxDate);
+  const [until, setUntil] = useState(addDays(90));
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(true);
+  const [ackNotice, setAckNotice] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // [hold-allowance 2026-08-20] Ask the server what this hold WOULD be before
+  // anything is saved. A hold longer than the free days the client has left is
+  // their notice to end service under the agreement, and it carries a real bill.
+  // Nobody should discover that after clicking Suspend.
+  const preview = useQuery({
+    queryKey: ["hold-preview", client.id, until],
+    enabled: modalOpen && !!until && until > today,
+    queryFn: () => apiFetch(`/api/clients/${client.id}/hold-preview?until=${until}`),
+    staleTime: 30_000,
+  });
+  const pv: any = preview.data;
+  const holdMaxDays = pv?.policy?.maxDays ?? 90;
+  const maxDate = addDays(holdMaxDays);
+  const isNotice = pv?.kind === "notice";
+  const freeLeft = pv?.allowance?.remaining;
+  const noticeVisits = pv?.notice?.visits ?? 0;
+  const noticeAmount = Number(pv?.notice?.amount ?? 0);
+  const noticeDates: string[] = pv?.notice?.dates ?? [];
+  const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["client-recurring", client.id] }); qc.invalidateQueries({ queryKey: ["client-jobs", client.id] }); refetch(); };
 
   const suspendMut = useMutation({
-    mutationFn: () => apiFetch(`/api/clients/${client.id}/suspend`, { method: "POST", body: JSON.stringify({ until, reason: reason.trim() || undefined, notify }) }),
-    onSuccess: () => { setModalOpen(false); setReason(""); setErr(null); invalidate(); },
+    mutationFn: () => apiFetch(`/api/clients/${client.id}/suspend`, {
+      method: "POST",
+      body: JSON.stringify({ until, reason: reason.trim() || undefined, notify, acknowledge_notice: isNotice ? ackNotice : undefined }),
+    }),
+    onSuccess: () => { setModalOpen(false); setReason(""); setAckNotice(false); setErr(null); invalidate(); },
     onError: (e: any) => setErr(String(e?.message || e).slice(0, 200)),
   });
   const resumeMut = useMutation({
@@ -949,7 +972,7 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
               {resumeMut.isPending ? "Resuming…" : "Resume service"}
             </button>
           ) : (
-            <button onClick={() => { setErr(null); setUntil(maxDate); setModalOpen(true); }}
+            <button onClick={() => { setErr(null); setUntil(addDays(90)); setAckNotice(false); setModalOpen(true); }}
               style={{ padding: "8px 14px", border: "1px solid #F2DFB8", borderRadius: 8, background: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
               Suspend service
             </button>
@@ -964,28 +987,77 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
           <div onClick={e => e.stopPropagation()}
             style={{ background: "#FFFFFF", borderRadius: 14, padding: 24, width: 440, maxWidth: "100%", fontFamily: FF, boxShadow: "0 20px 50px rgba(10,14,26,0.3)" }}>
             <div style={{ fontSize: 17, fontWeight: 800, color: "#0A0E1A", marginBottom: 6 }}>Suspend service</div>
-            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 18, lineHeight: 1.5 }}>
-              Places {client.first_name} {client.last_name} on hold for up to 90 days. Upcoming jobs are cancelled and recurring schedules pause. Resume any time before the end date.
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 14, lineHeight: 1.5 }}>
+              Places {client.first_name} {client.last_name} on hold for up to {holdMaxDays} days. Upcoming jobs are cancelled and recurring schedules pause. Resume any time before the end date.
             </div>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Resume / end date (max 90 days)</label>
-            <input type="date" value={until} min={today} max={maxDate} onChange={e => setUntil(e.target.value)}
-              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 14, fontFamily: FF }} />
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Resume / end date (max {holdMaxDays} days)</label>
+            <input type="date" value={until} min={today} max={maxDate} onChange={e => { setUntil(e.target.value); setAckNotice(false); }}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 12, fontFamily: FF }} />
+
+            {/* [hold-allowance 2026-08-20] Live read of what this hold costs the
+                client. Free days left is the number the whole rule turns on, so
+                it is on screen the entire time the date is being chosen. */}
+            {preview.isLoading && (
+              <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 12 }}>Checking hold days…</div>
+            )}
+            {pv && !isNotice && (
+              <div style={{ background: "#F4FBF8", border: "1px solid #CDEDE3", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>Free hold</div>
+                <div style={{ fontSize: 12, color: "#4B7A6E", marginTop: 3, lineHeight: 1.5 }}>
+                  {pv.days} of the {freeLeft} free hold day{freeLeft === 1 ? "" : "s"} {client.first_name} has left this year. Nothing is billed and the rate and slot are kept.
+                </div>
+              </div>
+            )}
+            {pv && isNotice && (
+              <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#B45309" }}>This ends the service</div>
+                <div style={{ fontSize: 12, color: "#8A5A18", marginTop: 4, lineHeight: 1.55 }}>
+                  {pv.days} days is longer than the {freeLeft} free hold day{freeLeft === 1 ? "" : "s"} {client.first_name} has left, so this hold counts as their notice to end service.
+                  {" "}If they resume before {fmtDate(until)} nothing is charged. If they do not, service ends that day and the notice period is billed:
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: "#B45309", fontFamily: FF }}>{money(noticeAmount)}</span>
+                  <span style={{ fontSize: 12, color: "#8A5A18" }}>{noticeVisits} visit{noticeVisits === 1 ? "" : "s"} at their own cadence</span>
+                </div>
+                {noticeDates.length > 0 && (
+                  <div style={{ fontSize: 11, color: "#8A5A18", marginTop: 6, lineHeight: 1.5 }}>
+                    {noticeDates.map(d => fmtDate(d)).join(" · ")}
+                  </div>
+                )}
+                {noticeVisits === 0 && (
+                  <div style={{ fontSize: 11, color: "#8A5A18", marginTop: 6, lineHeight: 1.5 }}>
+                    No visits fall in the notice period, so nothing is billed. Service still ends on {fmtDate(until)}.
+                  </div>
+                )}
+              </div>
+            )}
             <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Reason (optional)</label>
             <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} maxLength={500}
               placeholder="e.g. Traveling for the summer"
               style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 14, fontFamily: FF }} />
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1A1917", marginBottom: 6, cursor: "pointer" }}>
               <input type="checkbox" checked={notify} onChange={e => setNotify(e.target.checked)} />
-              Email the customer a suspension confirmation
+              Email the customer a {isNotice ? "hold and notice" : "suspension"} confirmation
             </label>
+            {isNotice && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#8A5A18", marginTop: 8, marginBottom: 4, cursor: "pointer", lineHeight: 1.45 }}>
+                <input type="checkbox" checked={ackNotice} onChange={e => setAckNotice(e.target.checked)} style={{ marginTop: 3 }} />
+                I understand this is {client.first_name}'s notice to end service, and {money(noticeAmount)} is billed if they do not resume by {fmtDate(until)}.
+              </label>
+            )}
             {err && <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 8 }}>{err}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
               <button onClick={() => setModalOpen(false)} disabled={suspendMut.isPending}
                 style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
-              <button onClick={() => suspendMut.mutate()} disabled={suspendMut.isPending || !until}
-                style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: suspendMut.isPending ? "default" : "pointer", opacity: suspendMut.isPending || !until ? 0.6 : 1, fontFamily: FF }}>
-                {suspendMut.isPending ? "Suspending…" : "Suspend service"}
-              </button>
+              {(() => {
+                const blocked = suspendMut.isPending || !until || preview.isLoading || (isNotice && !ackNotice);
+                return (
+                  <button onClick={() => suspendMut.mutate()} disabled={blocked}
+                    style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: blocked ? "default" : "pointer", opacity: blocked ? 0.6 : 1, fontFamily: FF }}>
+                    {suspendMut.isPending ? "Suspending…" : isNotice ? "Suspend and start notice" : "Suspend service"}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
