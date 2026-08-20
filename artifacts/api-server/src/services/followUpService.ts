@@ -717,6 +717,45 @@ export async function enrollForEstimateSent(
     `);
     if (existing.rows.length > 0) return;
 
+    // [one-drip-per-contact 2026-08-20] Deduping on estimate_id alone left the
+    // real hole: two estimates to the SAME person (a post-construction clean and
+    // the ongoing service for one building) started two independent chains, so
+    // the prospect got two of every email and two of every text, on the same
+    // schedule, from the same company. One conversation per person — the drip
+    // already in flight OWNS it, and a later estimate rides along instead of
+    // opening a second thread. Same house rule as the [cart-drip-visible] guard
+    // below: the chain that got there first wins.
+    // Matching is on the CONTACT, not the estimate: same email (case-insensitive),
+    // same phone (digits only, so formatting differences don't split a person in
+    // two), or same client record. Any one of the three is the same human.
+    const sibling = await db.execute(sql`
+      SELECT fe.id, fe.estimate_id
+      FROM follow_up_enrollments fe
+      JOIN estimates prior ON prior.id = fe.estimate_id
+      JOIN estimates cur   ON cur.id   = ${estimateId}
+      WHERE fe.sequence_id = ${sequenceId}
+        AND fe.company_id = ${companyId}
+        AND fe.estimate_id <> ${estimateId}
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+        AND (
+          -- Plain equality on purpose, NOT "IS NOT DISTINCT FROM": two estimates
+          -- that BOTH have a blank email are not the same person, and a null-safe
+          -- comparison would happily marry them and silently kill a real drip.
+          nullif(btrim(lower(prior.contact_email)), '') = nullif(btrim(lower(cur.contact_email)), '')
+          OR nullif(regexp_replace(coalesce(prior.contact_phone, ''), '\\D', '', 'g'), '')
+             = nullif(regexp_replace(coalesce(cur.contact_phone, ''), '\\D', '', 'g'), '')
+          OR prior.client_id = cur.client_id
+        )
+      ORDER BY fe.id
+      LIMIT 1
+    `);
+    if (sibling.rows.length > 0) {
+      const s: any = sibling.rows[0];
+      console.log(`[follow-up] estimate ${estimateId} shares a contact with estimate ${s.estimate_id}, which already has an active drip (enrollment ${s.id}) — not starting a second chain.`);
+      return;
+    }
+
     await db.execute(sql`
       INSERT INTO follow_up_enrollments
         (company_id, sequence_id, estimate_id, current_step, next_fire_at)
