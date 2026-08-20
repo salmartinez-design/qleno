@@ -59,7 +59,7 @@ export async function sendOnMyWaySms(opts: {
       ? opts.bodyOverride.trim()
       : `${sender ? sender + ": " : ""}your cleaner ${
           opts.techName
-        } is on the way, arriving around ${opts.promisedArrivalLabel}.`;
+        } is on the way, arriving ${opts.promisedArrivalLabel}.`;
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
