@@ -6160,9 +6160,10 @@ async function runAgreementTemplateSeed(): Promise<void> {
   try {
     const ex = await db.execute(sql`SELECT id FROM form_templates WHERE company_id = ${PHES} AND name = ${NAME} LIMIT 1`);
     if ((ex as any).rows.length) { console.log("[agreement-template-seed] already present — skipping."); return; }
+    const { COMMERCIAL_AGREEMENT_FIELDS } = await import("./lib/agreement-bodies.js");
     await db.execute(sql`
-      INSERT INTO form_templates (company_id, name, type, category, terms_body, requires_sign, is_active)
-      VALUES (${PHES}, ${NAME}, 'agreement', 'commercial', ${COMMERCIAL_AGREEMENT_BODY}, true, true)
+      INSERT INTO form_templates (company_id, name, type, category, schema, terms_body, requires_sign, is_active)
+      VALUES (${PHES}, ${NAME}, 'agreement', 'commercial', ${JSON.stringify(COMMERCIAL_AGREEMENT_FIELDS)}::jsonb, ${COMMERCIAL_AGREEMENT_BODY}, true, true)
     `);
     console.log("[agreement-template-seed] Commercial Cleaning Service Agreement seeded for PHES.");
   } catch (err) {
@@ -7989,6 +7990,34 @@ async function runNotificationTemplateSeed() {
       }
     } catch (e) {
       console.error("[agreement-body] refresh (non-fatal):", (e as any)?.message);
+    }
+
+    // [agreement-fields 2026-08-20] Give the commercial agreement its questions.
+    //
+    // The template was seeded with contract text and no field list, so step 2 of
+    // the signing page - the one headed "Your Information" - was an empty white
+    // gap. Both live commercial templates in production, Phes and Schaumburg,
+    // sit in that state, which means every commercial agreement signed so far
+    // was signed without the page ever asking who was signing or in what role.
+    //
+    // Only fills a template whose field list is MISSING: not a jsonb array, or
+    // an array with nothing in it. A row where the office has built its own
+    // fields is an array with length, so it is never touched, and re-running
+    // this on a later boot finds nothing left to do.
+    try {
+      const { COMMERCIAL_AGREEMENT_FIELDS } = await import("./lib/agreement-bodies.js");
+      const r = await db.execute(sql`
+        UPDATE form_templates
+           SET schema = ${JSON.stringify(COMMERCIAL_AGREEMENT_FIELDS)}::jsonb,
+               updated_at = now()
+         WHERE type = 'agreement'
+           AND category = 'commercial'
+           AND is_active = true
+           AND (jsonb_typeof(schema) <> 'array' OR jsonb_array_length(schema) = 0)`);
+      const n = (r as any).rowCount ?? 0;
+      if (n) console.log(`[agreement-fields] filled the field list on ${n} commercial agreement template(s)`);
+    } catch (e) {
+      console.error("[agreement-fields] backfill (non-fatal):", (e as any)?.message);
     }
 
     // [legacy-template-backfill 2026-08-09] The seed only INSERTs, so a row that

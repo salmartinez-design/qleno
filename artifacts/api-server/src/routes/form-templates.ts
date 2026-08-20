@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import {
   RESIDENTIAL_AGREEMENT_BODY,
   COMMERCIAL_AGREEMENT_BODY,
+  COMMERCIAL_AGREEMENT_FIELDS,
 } from "../lib/agreement-bodies.js";
 import { nextReminderAt } from "../lib/agreement-lifecycle.js";
 import { appBaseUrl } from "../lib/app-url.js";
@@ -378,7 +379,9 @@ router.post("/seed-defaults", requireAuth, async (req, res) => {
         name: "Commercial Service Agreement",
         type: "agreement",
         category: "commercial",
-        schema: [] as any,
+        // [agreement-fields 2026-08-20] Was an empty list, which gave the
+        // signing page a blank "Your Information" step.
+        schema: COMMERCIAL_AGREEMENT_FIELDS as any,
         terms_body: COMMERCIAL_AGREEMENT_BODY,
         requires_sign: true,
         is_active: true,

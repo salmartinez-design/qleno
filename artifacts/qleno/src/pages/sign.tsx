@@ -157,11 +157,28 @@ export default function SignPage() {
     publicFetch(`/api/sign/${token}`, staffToken ? { headers: { "Content-Type": "application/json", Authorization: `Bearer ${staffToken}` } } : {})
       .then(d => {
         setData(d);
-        if (d.client_first || d.client_last) {
-          const name = [d.client_first, d.client_last].filter(Boolean).join(" ");
-          setSignatureName(name);
-          setResponses(prev => ({ ...prev, full_name: name, email: d.client_email || "", phone: d.client_phone || "", address: d.client_address || "" }));
-        }
+        // [agreement-prefill 2026-08-20] Prefill by the field's OWN variable
+        // name, not by the four keys the blank-template fallback happens to use.
+        //
+        // The residential template stores its answers under client_name,
+        // client_email, client_phone and client_address, so none of them matched
+        // and a customer whose details we already hold was handed four empty
+        // boxes to retype. Only a template with no fields at all - which used
+        // the fallback keys - was ever prefilled. Every name a template might
+        // reasonably use for the same piece of information maps to it here, and
+        // a blank value is left out so it can never wipe a real answer.
+        const name = [d.client_first, d.client_last].filter(Boolean).join(" ");
+        if (name) setSignatureName(name);
+        const known: Record<string, string> = {
+          full_name: name, client_name: name, contact_name: name, signer_name: name,
+          email: d.client_email || "", client_email: d.client_email || "", contact_email: d.client_email || "",
+          phone: d.client_phone || "", client_phone: d.client_phone || "", contact_phone: d.client_phone || "",
+          address: d.client_address || "", client_address: d.client_address || "",
+          property_address: d.client_address || "", service_address: d.client_address || "",
+          client_company: d.client_company || "", company_name: d.client_company || "",
+        };
+        const filled = Object.entries(known).filter(([, v]) => v);
+        if (filled.length) setResponses(prev => ({ ...prev, ...Object.fromEntries(filled) }));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -215,6 +232,10 @@ export default function SignPage() {
     : "";
   const schema = Array.isArray(data?.form_schema) ? data.form_schema : [];
   const fields = schema.filter((f: any) => f.type !== "section");
+  // [agreement-fields 2026-08-20] The red asterisk on a required question was
+  // decorative: Continue moved on whether or not the box had anything in it, so
+  // an agreement could be signed with the signer's name and title left blank.
+  const missingRequired = fields.filter((f: any) => f.required && !String(responses[f.variable || f.id] || "").trim());
   const termsBody = data?.terms_body || "";
 
   // Runs once the agreement text is in the DOM. Declared before the loading and
@@ -509,12 +530,21 @@ export default function SignPage() {
                     )}
                   </div>
                 ))}
+                {missingRequired.length > 0 && (
+                  <div style={{ fontSize: 12.5, color: "#8A6D2F", background: "#FDF7E7", border: "1px solid #F0E3BE", borderRadius: 8, padding: "10px 12px", lineHeight: 1.6 }}>
+                    Still needed: {missingRequired.map((f: any) => f.label).join(", ")}
+                  </div>
+                )}
               </div>
               <div style={{ padding: "16px 28px", borderTop: "1px solid #F5F4F2", display: "flex", gap: 10 }}>
                 <button onClick={() => setStep(0)} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B6860", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                   <ChevronLeft size={16} /> Back
                 </button>
-                <button onClick={() => setStep(2)} style={{ flex: 2, padding: "11px", background: brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <button
+                  onClick={() => missingRequired.length === 0 && setStep(2)}
+                  disabled={missingRequired.length > 0}
+                  title={missingRequired.length ? `Still needed: ${missingRequired.map((f: any) => f.label).join(", ")}` : undefined}
+                  style={{ flex: 2, padding: "11px", background: missingRequired.length ? "#D9D6CF" : brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 14, cursor: missingRequired.length ? "not-allowed" : "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                   Continue <ChevronRight size={16} />
                 </button>
               </div>
