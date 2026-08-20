@@ -9,7 +9,7 @@ import {
 } from "@workspace/db/schema";
 import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { resolveBookingTenant, resolveBranchForCompany } from "../lib/branchRouter";
+import { resolveBookingTenant, resolveBranchForCompany, resolveBranchByZip, getCompanyIdByBranch } from "../lib/branchRouter";
 import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
@@ -2318,6 +2318,175 @@ router.post("/leads", rateLimit, async (req, res) => {
     return res.status(201).json({ ok: true });
   } catch (err: any) {
     console.error("POST /public/leads:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/public/leads/quick-quote ───────────────────────────────────────
+//
+// [quick-quote-intake 2026-08-19] Where the phes.io sidebar quote box lands.
+//
+// Every /services/* page on the marketing site carries a small "get a quote"
+// box asking for name, phone, zip, home size and service. It used to POST to
+// that site's own mail script, which emailed the office and stopped. Saad Abid
+// filled it in at 8:43 PM on 2026-08-19 and exists nowhere in Qleno: no lead
+// card, no drip, no reminder, nobody assigned. Google Ads still counted him as
+// a converted lead, so cost-per-lead was being measured against people the CRM
+// had never heard of.
+//
+// The form now posts here instead, and the submission becomes a real lead on
+// the branch its zip belongs to, enrolled in the same online-quote drip an
+// abandoned booking gets. Follow-up stops depending on somebody noticing an
+// email.
+//
+// Two things this deliberately does NOT do:
+//
+//   * It does not take a company_id. The marketing site has no business
+//     knowing tenant ids, and hardcoding one would have posted every
+//     Schaumburg lead into Oak Lawn's books. The zip picks the branch and the
+//     branch picks the tenant, same chain the booking widget uses.
+//   * It does not email the customer. The form collects no email address, so
+//     there is nothing to acknowledge to. `email` is read anyway, in case the
+//     form grows the field later.
+router.post("/leads/quick-quote", rateLimit, async (req, res) => {
+  try {
+    const { sql: drizzleSql } = await import("drizzle-orm");
+
+    const str = (v: any) => String(v ?? "").trim();
+    const name = str(req.body?.name);
+    const phone = str(req.body?.phone);
+    const zip = str(req.body?.zip).slice(0, 10);
+    const homeSize = str(req.body?.homeSize ?? req.body?.home_size);
+    const service = str(req.body?.service);
+    const email = str(req.body?.email) || null;
+    const page = str(req.body?.page) || null;
+
+    // Name and phone are the whole point of the form — without them there is
+    // nobody to call back. Everything else is context.
+    if (!name || !phone) {
+      return res.status(400).json({ error: "name and phone are required" });
+    }
+
+    // "Saad Abid" → first "Saad", last "Abid". One word stays a first name;
+    // the office would rather see a half name than a lead filed under a blank.
+    const parts = name.split(/\s+/).filter(Boolean);
+    const firstName = parts[0] ?? name;
+    const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
+
+    // "4BR" → 4, "5BR+" → 5. The raw label is kept in the message either way,
+    // so an unrecognised option is never silently dropped.
+    const bedMatch = /^(\d+)/.exec(homeSize);
+    const bedrooms = bedMatch ? Math.min(20, parseInt(bedMatch[1], 10)) : null;
+
+    // ── Which business does this lead belong to ──────────────────────────────
+    // Oak Lawn and Schaumburg are separate companies with separate owners and
+    // separate books. An online form has no other signal, so the zip decides
+    // (which is exactly the case the branch-ownership rule leaves to the zip).
+    // If the branch has no tenant row we fall back to company 1 rather than
+    // dropping the lead, and say so in the log.
+    let companyId = 1;
+    let branchName = "oak_lawn";
+    try {
+      branchName = await resolveBranchByZip(zip);
+      const resolved = await getCompanyIdByBranch(branchName);
+      if (resolved != null) {
+        companyId = resolved;
+      } else {
+        console.warn(`[quick-quote] zip ${zip || "(none)"} routes to '${branchName}' but no tenant matches — filed under company 1.`);
+      }
+    } catch (err) {
+      console.error("[quick-quote] branch resolution failed, filed under company 1:", err);
+    }
+
+    const message = [
+      service ? `Service: ${service}` : null,
+      homeSize ? `Home size: ${homeSize}` : null,
+      page ? `Page: ${page}` : null,
+    ].filter(Boolean).join(" • ") || null;
+
+    // source 'web_quote' is the established website-lead value — the same one
+    // the booking widget's abandoned quotes carry. It must NOT be 'quote',
+    // which means an OFFICE-built quote and would mislabel every one of these
+    // as staff work on the lead board.
+    const insert = await db.execute(drizzleSql`
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, zip, state,
+                         bedrooms, scope, message, source, lead_source, status, created_at, updated_at)
+      VALUES (${companyId}, ${firstName}, ${lastName}, ${phone}, ${email}, ${zip || null}, 'IL',
+              ${bedrooms}, ${service || null}, ${message}, 'web_quote', 'web_quote', 'needs_contacted', NOW(), NOW())
+      RETURNING id
+    `);
+    const leadId = (insert.rows[0] as any)?.id ?? null;
+
+    // Same online-quote nurture an abandoned booking gets. Fire-and-forget and
+    // idempotent; a no-op while the sequence is inactive.
+    if (leadId) enrollForLeadDrip(companyId, leadId, "web_quote").catch(() => {});
+
+    // ── Tell the office, from its own branch ────────────────────────────────
+    // Sent FROM the tenant's own Twilio number TO its own lead_notify_phone, so
+    // a Schaumburg lead never arrives on Oak Lawn's phone.
+    try {
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(companyId, null);
+      const notifyRow = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const officeTo = (notifyRow.rows[0] as any)?.lead_notify_phone || null;
+      if (sender.reason) {
+        console.log("[quick-quote] office SMS suppressed:", sender.reason);
+      } else if (officeTo) {
+        await sendSmsVia(
+          sender,
+          officeTo,
+          `Website quote request — ${firstName}${lastName ? " " + lastName : ""} — ${phone}` +
+          `${service ? ` — ${service}` : ""}${zip ? ` — ${zip}` : ""}. Lead #${leadId ?? "N/A"}.`,
+        );
+      }
+    } catch (smsErr) {
+      console.error("[quick-quote] office SMS error:", smsErr);
+    }
+
+    // ── And email it, to the branch's own inbox ─────────────────────────────
+    // An inbound lead the office has to act on, so it follows the same
+    // treatment as the very-dirty callback alert above rather than the
+    // COMMS_ENABLED-gated customer sends.
+    const resendKey = process.env.RESEND_API_KEY;
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log("[COMMS BLOCKED] quick-quote office email suppressed:", { firstName, lastName, phone });
+    } else if (resendKey) {
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(resendKey);
+        const branchCfg = await resolveBranchForCompany(companyId, zip || null);
+        const esc = (v: any) => String(v ?? "").replace(/[<>&]/g, ch => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[ch] as string));
+        const row = (label: string, value: string) =>
+          `<tr><td style="padding:8px 0;color:#6B6860;width:140px;">${label}</td><td style="padding:8px 0;font-weight:600;">${value}</td></tr>`;
+        await resend.emails.send({
+          from: "Qleno Leads <noreply@phes.io>",
+          to: [branchCfg.officeEmail],
+          subject: `Website Quote Request: ${esc(name)}${service ? ` — ${esc(service)}` : ""}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
+<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
+<div style="background:#0A0E1A;padding:16px 24px;border-radius:4px;margin-bottom:24px;">
+  <span style="color:#fff;font-size:18px;font-weight:bold;">Phes — Website Quote Request</span>
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:14px;color:#1A1917;">
+${row("Name", esc(name))}
+${row("Phone", esc(phone))}
+${email ? row("Email", esc(email)) : ""}
+${row("Zip", esc(zip) || "Not provided")}
+${row("Home Size", esc(homeSize) || "Not provided")}
+${row("Service", esc(service) || "Not provided")}
+${row("Lead", leadId ? `#${leadId}` : "Not created")}
+</table>
+<p style="font-size:13px;color:#6B6860;margin:24px 0 0;">This came from the quote box on phes.io. It is already on the lead board, so work it there rather than replying to this message.</p>
+</div></div>`,
+        });
+      } catch (emailErr) {
+        console.error("[quick-quote] Resend error:", emailErr);
+      }
+    }
+
+    return res.status(201).json({ ok: true, lead_id: leadId });
+  } catch (err: any) {
+    console.error("POST /public/leads/quick-quote:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
