@@ -19,6 +19,11 @@ const SUSPENSION_TRIGGERS = [
   "service_suspended",
   "suspension_resume_reminder",
   "suspension_expired",
+  // [hold-allowance 2026-08-20] The two notice-path messages. They live under
+  // the same guarantees as the rest: both channels, every tag resolvable, never
+  // fired by the offset cron, never in the per-client preference grid.
+  "service_hold_notice_started",
+  "service_hold_ended_final",
 ];
 
 // A superset of every merge tag the suspension templates reference, so a fully
@@ -32,6 +37,10 @@ const VARS: Record<string, string> = {
   service_price: "$180 per visit",
   start_date: "Monday, July 14, 2026",
   end_date: "Monday, October 12, 2026",
+  notice_visits: "4",
+  notice_amount: "$720.00",
+  notice_dates: "Sep 15, Sep 22, Sep 29, Oct 6",
+  notice_status: "That amount has been charged to the card we have on file.",
 };
 
 describe("suspension catalog entries", () => {
@@ -77,7 +86,10 @@ describe("suspension catalog entries", () => {
 
 describe("suspension merge tags", () => {
   it("MERGE_TAGS advertises the suspension tags", () => {
-    for (const tag of ["service_summary", "service_price", "start_date", "end_date"]) {
+    for (const tag of [
+      "service_summary", "service_price", "start_date", "end_date",
+      "notice_visits", "notice_amount", "notice_dates", "notice_status",
+    ]) {
       assert.ok((MERGE_TAGS as readonly string[]).includes(tag), `MERGE_TAGS missing ${tag}`);
     }
   });

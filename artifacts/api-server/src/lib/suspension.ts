@@ -17,10 +17,21 @@
 //   - At the 90-day expiry we FLAG for office (final message) — NO automatic
 //     cancel or resume; a person decides.
 //   - Office picks the end date, default +90 days, capped at 90.
+//
+// [hold-allowance 2026-08-20] NARROW REVERSAL of the flag-for-office rule, for
+// NOTICE holds only. A hold that exceeded the client's free-day allowance is,
+// under Section 9 of the service agreement, the client's written termination
+// notice. The agreement fixes what happens the day it runs out: service ends and
+// the notice-period visits are billed. A human cannot be the one to decide that
+// without contradicting a signed contract. FREE holds are untouched — they still
+// flag for the office and change nothing. The branch is on the service_holds
+// ledger's `kind`; a client with no ledger row (any hold placed before this
+// shipped) falls through to the original flag-for-office path.
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { getActiveHold, endExpiredNoticeHold } from "./service-hold.js";
 
 export const MAX_SUSPEND_DAYS = 90;
 export const RESUME_REMINDER_LEAD_DAYS = 30;
@@ -143,6 +154,10 @@ export async function runSuspensionMigration(): Promise<void> {
         ADD COLUMN IF NOT EXISTS paused_by_suspension boolean NOT NULL DEFAULT false
     `);
     console.log("[suspension] migration ok");
+    // The hold ledger rides along here rather than claiming its own boot step,
+    // so it inherits the same withBootTimeout wrapper in index.ts.
+    const { runServiceHoldMigration } = await import("./service-hold.js");
+    await runServiceHoldMigration();
   } catch (err) {
     console.error("[suspension] migration error (non-fatal):", err);
   }
@@ -161,6 +176,17 @@ async function logClientComm(companyId: number, clientId: number, subject: strin
   } catch (e) {
     console.warn("[suspension] comm-log insert non-fatal:", e);
   }
+}
+
+// Office heads-up on the client's notifications feed. Never throws — an alert
+// that fails must not roll back the lifecycle work that produced it.
+async function officeNotice(companyId: number, clientId: number, title: string, body: string): Promise<void> {
+  try {
+    await db.execute(sql`
+      INSERT INTO notifications (company_id, user_id, type, title, body, link)
+      VALUES (${companyId}, NULL, 'suspension_expired', ${title}, ${body}, ${`/customers/${clientId}`})
+    `);
+  } catch (e) { console.warn("[suspension] office notification non-fatal:", e); }
 }
 
 // Daily sweep (called once per day from the notification cron). Two idempotent
@@ -215,20 +241,58 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
       const expiry = String(r.suspend_until).slice(0, 10);
       const svc = await resolveServiceInfo(r.company_id, r.id);
       const base = { first_name: r.first_name || "there", service_summary: svc.serviceSummary, service_price: svc.servicePrice };
+
+      // ── notice hold: the agreement itself says what happens today ──────────
+      const hold = await getActiveHold(r.company_id, r.id);
+      if (hold?.kind === "notice") {
+        let out: Awaited<ReturnType<typeof endExpiredNoticeHold>> | null = null;
+        try {
+          out = await endExpiredNoticeHold(hold);
+        } catch (e) {
+          // Close-out failed mid-flight. Do NOT fall through to the free-hold
+          // message — telling a terminating client "reactivate to keep your
+          // rate" is worse than sending nothing. Leave the row unstamped so
+          // tomorrow's sweep retries, and put it in front of a person now.
+          console.error(`[suspension] notice close-out failed for client ${r.id}:`, e);
+          await officeNotice(r.company_id, r.id, `Hold close-out failed — ${r.first_name ?? "client"}`,
+            "A notice hold ended but the automatic close-out errored. End the service and bill the notice period by hand.");
+          continue;
+        }
+        const amountStr = `$${out.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        // The template cannot branch, so the sender writes the money sentence.
+        const noticeStatus = out.amount <= 0
+          ? "There is no balance due."
+          : out.chargeOutcome === "paid"
+            ? "That amount has been charged to the card we have on file."
+            : "That amount is due now, and we will follow up with the invoice.";
+        const closeVars = {
+          ...base,
+          notice_visits: String(out.visits),
+          notice_amount: amountStr,
+          notice_status: noticeStatus,
+        };
+        await sendNotification("service_hold_ended_final", "email", r.company_id, r.email, null, { ...closeVars, end_date: fmtHoldDateLong(expiry) }).catch(() => false);
+        await sendNotification("service_hold_ended_final", "sms", r.company_id, null, r.phone, { ...closeVars, end_date: fmtHoldDateShort(expiry) }).catch(() => false);
+        await logClientComm(r.company_id, r.id, "Service ended (hold used as notice)",
+          `Hold ended ${expiry}. Service closed. ${out.visits} notice visit(s), ${amountStr}. Charge: ${out.chargeOutcome ?? "none attempted"}.`);
+        // The office always hears about this one — money moved, or tried to.
+        const paid = out.chargeOutcome === "paid";
+        await officeNotice(r.company_id, r.id,
+          paid ? `Service ended, notice billed — ${r.first_name ?? "client"}`
+               : `Service ended, notice UNPAID — ${r.first_name ?? "client"}`,
+          `A hold that counted as the client's notice ended ${expiry}. Recurring service is closed and ${out.visits} notice visit(s) totalling ${amountStr} were invoiced. ${paid ? "The card on file was charged." : `Payment did not go through (${out.chargeOutcome ?? "no card on file"}). Collect this manually.`}`);
+        expiries++;
+        continue;
+      }
+
+      // ── free hold: unchanged. Flag for office, change nothing, move no money ─
       await sendNotification("suspension_expired", "email", r.company_id, r.email, null, { ...base, end_date: fmtHoldDateLong(expiry) }).catch(() => false);
       await sendNotification("suspension_expired", "sms", r.company_id, null, r.phone, { ...base, end_date: fmtHoldDateShort(expiry) }).catch(() => false);
       await db.execute(sql`UPDATE clients SET suspend_expiry_notice_sent_at = now() WHERE id = ${r.id}`);
       await logClientComm(r.company_id, r.id, "Hold ended", "Hold expired — final notice sent; awaiting office follow-up.");
       // Office heads-up notification (same table cancellation.ts uses).
-      try {
-        await db.execute(sql`
-          INSERT INTO notifications (company_id, user_id, type, title, body, link)
-          VALUES (${r.company_id}, NULL, 'suspension_expired',
-                  ${`Service hold ended — ${r.first_name ?? "client"}`},
-                  ${`A 90-day service hold has ended. Follow up to resume or close out the account.`},
-                  ${`/customers/${r.id}`})
-        `);
-      } catch (e) { console.warn("[suspension] office notification non-fatal:", e); }
+      await officeNotice(r.company_id, r.id, `Service hold ended — ${r.first_name ?? "client"}`,
+        "A service hold has ended. Follow up to resume or close out the account.");
       expiries++;
     }
   } catch (e) {

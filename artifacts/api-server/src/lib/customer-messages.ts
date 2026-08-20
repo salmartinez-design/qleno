@@ -50,7 +50,11 @@ export type MsgAnchor =
   // they fire from the suspend action + the daily suspension cron instead.
   | "on_suspend"
   | "before_suspend_expiry"
-  | "on_suspend_expiry";
+  | "on_suspend_expiry"
+  // [hold-allowance 2026-08-20] The day a NOTICE hold runs out without a resume:
+  // the agreement ends and the notice visits are billed. Distinct from
+  // on_suspend_expiry, which is the free-hold "your pause is over" nudge.
+  | "on_hold_termination";
 
 export const OFFSET_ANCHORS: MsgAnchor[] = ["before_appointment", "after_appointment"];
 
@@ -106,6 +110,17 @@ export const MERGE_TAGS = [
   "service_price",
   "start_date",
   "end_date",
+  // [hold-allowance 2026-08-20] Close-out tags for the hold-termination message.
+  // notice_visits = "4"; notice_amount = "$1,040.00"; notice_dates = a plain
+  // comma list of the visit dates being billed.
+  "notice_visits",
+  "notice_amount",
+  "notice_dates",
+  // One sentence describing what happened to the money, written by the sender
+  // rather than the template. The template cannot branch, and "this has been
+  // charged to your card" must never go out when the card declined or the client
+  // never had one on file.
+  "notice_status",
 ] as const;
 
 // [service-suspension 2026-07-11] House-styled inner HTML for the suspension
@@ -329,6 +344,47 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     ],
   },
   {
+    // [hold-allowance 2026-08-20] The confirmation for a hold that did NOT fit
+    // inside the client's free days. It is a separate template rather than a
+    // branch inside service_suspended for two reasons: templates cannot branch,
+    // and the existing hold email promises "you keep your regular spot" and
+    // "resume any time" without saying that this particular hold ends the
+    // agreement if they don't. Sending that to someone who has just given
+    // notice, and who will be billed the notice period, would be the single
+    // most expensive piece of copy in the app.
+    trigger: "service_hold_notice_started",
+    label: "Hold Started (counts as notice to end service)",
+    group: "after",
+    anchor: "on_suspend",
+    excludeFromPrefs: true,
+    timing: "Immediately when a hold longer than the client's remaining free days is placed",
+    description:
+      "Confirms a hold that also serves as the client's notice to end service, with the date service closes and what is billed if they do not resume.",
+    channels: [
+      {
+        channel: "email",
+        subject: "Your service is on hold until {{end_date}}",
+        body: suspEmail(
+          "On hold",
+          "Your service is on hold",
+          "Hi {{first_name}}, this confirms that your recurring cleaning has been placed on hold. During the hold we will not schedule any visits and you will not be billed for cleanings.",
+          suspRow("Your service", "{{service_summary}}") +
+            suspRow("Your recurring rate", "{{service_price}}", true) +
+            suspRow("Hold starts", "{{start_date}}") +
+            suspRow("Hold ends on", "{{end_date}}") +
+            suspRow("Visits in the notice period", "{{notice_visits}}") +
+            suspRow("Amount if you do not resume", "{{notice_amount}}"),
+          "This hold is longer than the free hold days you have left, so under your service agreement it also counts as your notice to end service. Resume any time before {{end_date}} and nothing is charged, and you keep your rate and your regular spot. If we do not hear from you by {{end_date}}, your service ends that day and the visits in the final notice period are billed at your regular rate. Just reply to this email or call {{company_phone}} to start back up.",
+        ),
+      },
+      {
+        channel: "sms",
+        body:
+          "Hi {{first_name}}, {{company_name}} has your {{service_summary}} on hold from {{start_date}} to {{end_date}}. This hold is past your free hold days, so it also counts as your notice to end service. Resume before {{end_date}} and nothing is charged. If not, service ends that day and {{notice_visits}} notice period visit(s) are billed at {{notice_amount}}. Reply or call {{company_phone}}.",
+      },
+    ],
+  },
+  {
     trigger: "suspension_resume_reminder",
     label: "Resume Reminder (30 days before hold ends)",
     group: "after",
@@ -383,6 +439,45 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
         channel: "sms",
         body:
           "Hi {{first_name}}, your {{company_name}} hold ended {{end_date}}. Reactivate now to keep your rate of {{service_price}} and regular team before we release your spot - reply or call {{company_phone}}.",
+      },
+    ],
+  },
+  {
+    // [hold-allowance 2026-08-20] The one message that says the agreement is
+    // over. It goes out ONLY when a notice hold reaches its end date with no
+    // resume, and it is sent after the charge is attempted so the amount it
+    // quotes is the amount that actually hit the card. Deliberately NOT the same
+    // template as suspension_expired, which invites the client back; telling
+    // someone we just billed $1,040 to "reactivate to keep your rate" would read
+    // as a bill dressed up as a welcome.
+    trigger: "service_hold_ended_final",
+    label: "Hold Ended (service closed, notice billed)",
+    group: "after",
+    anchor: "on_hold_termination",
+    excludeFromPrefs: true,
+    timing: "The day a hold that counted as notice ends without a resume",
+    description:
+      "Sent when a hold used as the client's notice runs out and they have not resumed. Confirms the service has ended and states the notice amount billed.",
+    channels: [
+      {
+        channel: "email",
+        subject: "Your recurring service has ended",
+        body: suspEmail(
+          "Service ended",
+          "Your recurring service has ended",
+          "Hi {{first_name}}, your hold ended on {{end_date}} and we did not hear from you before then, so your recurring service is now closed. As set out in your service agreement, the visits scheduled in the final notice period are billed at your regular rate.",
+          suspRow("Your service", "{{service_summary}}") +
+            suspRow("Your rate", "{{service_price}}") +
+            suspRow("Visits in the notice period", "{{notice_visits}}") +
+            suspRow("Amount billed", "{{notice_amount}}", true) +
+            suspRow("Service ended", "{{end_date}}"),
+          "{{notice_status}} We would be glad to have you back whenever you are ready. Reply to this email or call {{company_phone}} and we will look at what we have open.",
+        ),
+      },
+      {
+        channel: "sms",
+        body:
+          "Hi {{first_name}}, your {{company_name}} hold ended {{end_date}} so your recurring service is now closed. Per your agreement, {{notice_visits}} notice period visit(s) came to {{notice_amount}}. {{notice_status}} Questions? Call {{company_phone}}.",
       },
     ],
   },

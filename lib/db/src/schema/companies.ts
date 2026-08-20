@@ -133,6 +133,12 @@ export const companiesTable = pgTable("companies", {
   // MAX_SUSPEND_DAYS — the contract cannot promise a hold the software refuses
   // to grant. A hold at or under the free threshold needs no notice
   // authorization; a longer one does.
+  // [hold-allowance 2026-08-20] agr_hold_notice_free_days is now an ANNUAL
+  // allowance, not a per-hold threshold. The old per-hold reading let a
+  // customer chain 30-day holds forever: pause, take one visit, pause again,
+  // keeping the rate and the slot while receiving a third of the cleanings and
+  // never triggering the notice clause. Counted per 12 months instead, the
+  // once-a-year vacation is untouched and the chainer runs out.
   agr_hold_max_days: integer("agr_hold_max_days").notNull().default(90),
   agr_hold_notice_free_days: integer("agr_hold_notice_free_days").notNull().default(30),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),

@@ -292,3 +292,94 @@ export function generateCadenceDates(
   }
   return dates;
 }
+
+// ── human labels ─────────────────────────────────────────────────────────────
+// [cadence-label 2026-08-20] The English name for a cadence used to live as a
+// private copy inside agreement-merge.ts. It is now needed in a second place
+// (the hold notice quote, where the office has to see WHICH schedule produced
+// the visit count it is about to bill), and a second copy is how the contract
+// and the app start disagreeing about what "monthly" means. One map, here,
+// next to the engine that actually walks these cadences.
+
+export const FREQUENCY_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  every_3_weeks: "Every 3 weeks",
+  monthly: "Every 4 weeks",
+  monthly_weekday: "Monthly",
+  semi_monthly: "Twice a month",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  custom_days: "Multiple days each week",
+  custom: "Custom",
+};
+
+export const DAY_PLURALS: Record<string, string> = {
+  monday: "Mondays", tuesday: "Tuesdays", wednesday: "Wednesdays",
+  thursday: "Thursdays", friday: "Fridays", saturday: "Saturdays", sunday: "Sundays",
+};
+
+const DOW_PLURALS = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
+
+export function frequencyLabel(freq: unknown, customWeeks?: unknown): string {
+  const key = normalizeRecurringFreq(freq);
+  // A custom cadence carries its interval in custom_frequency_weeks; rendering
+  // a bare "Custom" tells the reader nothing about how often we are coming,
+  // which is the one thing the frequency line exists to say.
+  if (key === "custom") {
+    const w = Number(customWeeks);
+    if (Number.isFinite(w) && w > 0) return w === 1 ? "Weekly" : `Every ${w} weeks`;
+  }
+  return FREQUENCY_LABELS[key] || "";
+}
+
+function ordinal(n: number): string {
+  if (n === 0) return "last day";
+  const s = ["th", "st", "nd", "rd"][(n % 100 - 20) % 10] || ["th", "st", "nd", "rd"][n % 100] || "th";
+  return `${n}${s}`;
+}
+
+function joinList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] || "";
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * One line of plain English for a schedule: "Weekly on Fridays", "Twice a month
+ * on the 1st and 15th". Used wherever a person has to recognize their own
+ * schedule in a number we derived from it — notably the hold notice quote,
+ * where "4 visits" means nothing until you can see it came from a weekly
+ * Friday cadence.
+ */
+export function describeCadence(s: CadenceInput): string {
+  const key = normalizeRecurringFreq(s.frequency);
+  const base = frequencyLabel(s.frequency, s.custom_frequency_weeks) || "Recurring";
+
+  // Day-of-month cadences name their anchors, not a weekday.
+  if (key === "semi_monthly" || (key === "monthly" && (s.days_of_month?.length ?? 0) > 0)) {
+    const doms = (s.days_of_month ?? []).filter(n => Number.isInteger(n));
+    // A plain `monthly` WITH explicit days_of_month is the day-of-month case;
+    // without it, it is the residential "Every 4 weeks" weekday walk, which
+    // falls through to the weekday branch below on purpose.
+    if (doms.length > 0) {
+      const label = key === "monthly" ? "Monthly" : base;
+      return `${label} on the ${joinList(doms.map(ordinal))}`;
+    }
+  }
+
+  const multi = resolveMultiDayPattern(key, s.days_of_week ?? null);
+  if (multi && key === "custom_days") {
+    return `${joinList(multi.map(n => DOW_PLURALS[n]))} each week`;
+  }
+  if (multi) return base; // daily / weekdays already say which days they mean
+
+  const day = DAY_PLURALS[String(s.day_of_week || "").toLowerCase()];
+  if (key === "monthly_weekday" && day) {
+    const w = Number(s.week_of_month);
+    const which = w === 5 ? "last" : w >= 1 && w <= 4 ? ordinal(w) : "";
+    const every = Number(s.month_interval) > 1 ? `Every ${Number(s.month_interval)} months` : "Monthly";
+    return which ? `${every} on the ${which} ${day.replace(/s$/, "")}` : `${every} on ${day}`;
+  }
+  return day ? `${base} on ${day}` : base;
+}

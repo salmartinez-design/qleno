@@ -21,7 +21,7 @@
 //   - Bump AGREEMENT_BODY_SEED_VERSION when you change a body, or the boot
 //     migration will not pick it up.
 
-export const AGREEMENT_BODY_SEED_VERSION = 3;
+export const AGREEMENT_BODY_SEED_VERSION = 5;
 
 export const RESIDENTIAL_AGREEMENT_BODY = `RESIDENTIAL CLEANING SERVICE AGREEMENT
 
@@ -84,15 +84,17 @@ Inside 48 hours we cannot fill the time with another customer, the route for tha
 
 9. SERVICE HOLDS
 
-You may place your recurring service on hold and keep your regular time slot for up to {{hold_max_days}} days. Please give us at least 48 hours notice before the first visit you want held.
+You may place your recurring service on hold and keep your regular time slot for up to {{hold_max_days}} days at a time. Please give us at least 48 hours notice before the first visit you want held.
 
-A hold of {{hold_notice_free_days}} days or less is free and changes nothing about your rate or your slot.
+You have {{hold_notice_free_days}} free hold days in any 12 month period. You may take them all at once or split them across several holds.
 
-A hold longer than {{hold_notice_free_days}} days takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before the hold ends, nothing is charged. If you do not resume by the end of the hold, this Agreement ends and the visits that would have fallen inside your {{termination_notice_days}} day notice period are due at your current rate of {{rate}}, as described in Section 10.
+If a hold you ask for fits inside the free days you have left, it is free and changes nothing about your rate or your slot.
+
+If it does not fit, the hold takes your slot off our schedule for the same stretch of time a cancellation would, so it counts as your notice under Section 10. If you resume service before that hold ends, nothing is charged. If you do not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at your current rate of {{rate}} per visit. That is the notice amount described in Section 10. We count the visits your own schedule actually had in that window, so the number depends both on how often we clean for you and on where those dates fall in the calendar: weekly service is usually four and sometimes five, every other week usually two and sometimes three, twice a month two, monthly one. That amount is charged to your card on file on the day the hold ends, as authorized in Section 12.
 
 Where a hold is treated as your notice under this Section, this Section controls and Section 10 does not also apply. You will never be billed for both a notice period and a hold covering the same stretch of time.
 
-We will email you when a hold starts and again before it expires, so the date is never a surprise.
+We will email you when a hold starts and again before it ends, so the date is never a surprise. You may resume service, or ask us to extend the hold, any time before it ends.
 
 10. TERMINATION
 
@@ -104,11 +106,13 @@ Either party may end recurring service with {{termination_notice_days}} days wri
 
 Your rate is set by your frequency. To hold your rate and your appointment slot, the longest gap between cleanings is 60 days. Going past that may move you to a different rate that reflects the additional time the home then needs.
 
+Your rate is based on how often we actually clean, not only on the schedule in Section 3. If cancelled, skipped or held visits leave you receiving service less often than the frequency your rate is based on, we may move you to our rate for the frequency you are actually receiving. We will tell you before that happens, and any change applies going forward only.
+
 12. PAYMENT AND CARD AUTHORIZATION
 
 Payment is due on the day of service. Your rate per visit is {{rate}}, which may change only as described in Section 13.
 
-By signing this Agreement you authorize {{company_name}} to charge the payment card you keep on file for each of the following: every completed visit, on the day of service; any lockout fee under Section 7; any late cancellation fee under Section 8; any visit billed during a hold or notice period under Section 9 or Section 10; any add-on service you request under Section 6; and any placement fee owed under Section 19.
+By signing this Agreement you authorize {{company_name}} to charge the payment card you keep on file for each of the following: every completed visit, on the day of service; any lockout fee under Section 7; any late cancellation fee under Section 8; any visit billed during a hold or notice period under Section 9 or Section 10, charged on the day that hold or notice period ends; any add-on service you request under Section 6; and any placement fee owed under Section 19.
 
 This authorization is ongoing. Your service continues on the schedule in Section 3 and your card continues to be charged until you or we end this Agreement under Section 10. You may cancel at any time by giving written notice as described in Section 21. You may also withdraw this card authorization by written notice, though withdrawing it does not cancel amounts already owed.
 
@@ -233,6 +237,8 @@ Scope Limitation: The work performed will be strictly limited to the services li
 5. CANCELLATION & ACCESS
 
 Early Termination: Either party may terminate this Agreement with a {{termination_notice_days}}-day written notice, delivered as described in Section 10.
+
+Service Holds: The Client may place service on hold and keep its scheduled slot for up to {{hold_max_days}} days at a time, with at least 48 hours' notice before the first visit to be held. The Client has {{hold_notice_free_days}} free hold days in any 12 month period, taken at once or in pieces. A hold that fits inside the free days remaining is free and does not change the rate or the schedule. A hold that does not fit serves as the Client's notice under Early Termination above: if the Client resumes service before that hold ends, nothing is charged; if the Client does not resume by the day the hold ends, this Agreement ends that day and the visits that would have taken place during the last {{termination_notice_days}} days of that hold are due at the current rate of {{rate}} per visit, as the notice amount described under Early Termination above, charged to the card on file that day. The Client will never be billed for both a notice period and a hold covering the same period.
 
 Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
 
