@@ -419,10 +419,12 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
 // Build merge vars for a commercial-estimate enrollment touch. Pulls the
 // estimate's public token (→ the hosted /estimate/ page), total, property +
 // contact and the tenant brand. Merge fields used by the estimate sequence copy:
-// {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
+// {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}}
+// {{price_line}} {{estimate_title}} {{estimate_link}}.
 async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number, recipientOverride?: string | null): Promise<Record<string, string>> {
   const r = await db.execute(sql`
-    SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name, e.contact_email,
+    SELECT e.id, e.total, e.title, e.billing_mode, e.flat_price, e.flat_price_unit,
+           e.property_name, e.service_address, e.public_token, e.contact_name, e.contact_email,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email
     FROM estimates e JOIN companies c ON c.id = e.company_id
     WHERE e.id = ${estimateId} AND e.company_id = ${companyId} LIMIT 1
@@ -441,6 +443,31 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
     link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   }
   const total = e.total != null ? Number(e.total).toFixed(2) : "0.00";
+  // [estimate-price-line 2026-08-20] {{monthly}} is the bare total, which reads
+  // as the whole deal. On a per-visit estimate that is wrong and expensive: a
+  // $160-per-visit recurring plan announced itself as "$160" and looked like a
+  // one-off. {{price_line}} carries the unit AND the cadence, so a recurring
+  // estimate says "$160.00 per visit, 3 visits a week" while a one-time one
+  // still says "$2,480.00, one time". {{monthly}} stays for existing copy.
+  const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  let priceLine = money(Number(e.total ?? 0));
+  if (e.billing_mode === "flat" && e.flat_price != null) {
+    const unit = String(e.flat_price_unit || "total");
+    const amt = money(Number(e.flat_price));
+    priceLine = unit === "total" ? `${amt}, one time`
+      : unit === "month" ? `${amt} per month`
+      : `${amt} per ${unit}`;
+    if (unit !== "total") {
+      // One shared cadence across the named lines is the estimate's cadence —
+      // the same rule the PDF uses for its single "Frequency ·" header. Mixed
+      // or missing cadences stay off the line rather than guess.
+      const fr = await db.execute(sql`
+        SELECT DISTINCT btrim(frequency) AS f FROM estimate_line_items
+         WHERE estimate_id = ${estimateId} AND coalesce(btrim(name),'') <> ''`);
+      const freqs = (fr.rows as any[]).map((x) => String(x.f || "")).filter(Boolean);
+      if (freqs.length === 1 && (fr.rows as any[]).length === 1) priceLine += `, ${freqs[0]}`;
+    }
+  }
   return {
     company_name:   e.company_name || "Phes",
     company_phone:  e.company_phone || "(773) 706-6000",
@@ -448,6 +475,10 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
     property:       e.property_name || e.service_address || "your property",
     monthly:        total,
     estimate_total: total,
+    price_line:     priceLine,
+    // Falls back to "cleaning" so the existing "Your {{estimate_title}} estimate
+    // for {{property}}" copy reads exactly as it did before on untitled estimates.
+    estimate_title: String(e.title || "").trim() || "cleaning",
     estimate_link:  link,
     estimate_number: String(e.id),
   };
