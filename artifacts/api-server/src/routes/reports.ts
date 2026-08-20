@@ -1937,7 +1937,7 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
         -- Hand-given discounts. job_rate_mods has no code/percent concept, so
         -- type is reported as 'flat': the row IS a flat dollar reduction.
         SELECT
-          -- `value` is the "Discount" column on the report. A flat row has no
+          -- The "Discount" column on the report. A flat row has no
           -- separate rate, so it repeats the dollars off rather than showing $0.
           'mod-' || m.id::text AS id, NULL AS code, 'flat' AS type,
           CAST(m.amount AS NUMERIC) * -1 AS value,
