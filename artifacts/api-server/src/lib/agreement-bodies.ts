@@ -21,7 +21,7 @@
 //   - Bump AGREEMENT_BODY_SEED_VERSION when you change a body, or the boot
 //     migration will not pick it up.
 
-export const AGREEMENT_BODY_SEED_VERSION = 2;
+export const AGREEMENT_BODY_SEED_VERSION = 3;
 
 export const RESIDENTIAL_AGREEMENT_BODY = `RESIDENTIAL CLEANING SERVICE AGREEMENT
 
