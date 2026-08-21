@@ -42,34 +42,14 @@
  *    both places. A No-Call/No-Show still counts, protected or not: the missing
  *    phone call is procedural and independent of anyone's leave balance.
  *
- * 4. The two tracks use different windows. Tardies follow the employee's plain
- *    benefit year (tardyWindowStart); unexcused absences additionally never
- *    reach back before the cutover (attendanceWindowStart, CUTOVER_FLOOR_DATE).
+ * 4. There is ONE window and it is the employee's own benefit year, opening on
+ *    their work anniversary. Both tracks use it, and so does the disciplinary
+ *    ladder, so the score and the write-up can never be measured off different
+ *    calendars. See attendanceWindowStart.
  */
 
 import { benefitYearStartDate } from "./leave-grant-reset.js";
 import { countUnexcusedOccurrences, type OccurrenceRow } from "./attendance-compliance.js";
-
-/**
- * The score window never opens earlier than this date. [cutover-floor 2026-08-21]
- *
- * A benefit year runs from the employee's work anniversary, and most of the crew
- * has an anniversary well before the Qleno cutover — Rosa Gallegos was hired in
- * April 2020, so her 2026 benefit year opens 2026-04-01, three months before
- * Qleno was the system of record. The attendance log holds 245 rows from before
- * the cutover, imported MaidCentral-era history that nobody has verified and that
- * the office never worked from inside Qleno. Scoring against those rows produces
- * numbers that look authoritative and are not.
- *
- * So the window is max(benefit-year start, cutover). Sal, asked whether the score
- * should count anything older than July 1: "yes since july 1". The DISCIPLINARY
- * ladder is deliberately left alone — this floor governs the displayed score only.
- *
- * This is transitional by construction: once every employee's anniversary has come
- * around after 2026-07-01, the floor stops binding and the window is a plain
- * benefit year forever after. It is not a permanent second rule to maintain.
- */
-export const CUTOVER_FLOOR_DATE = "2026-07-01";
 
 /** One step of a tenant's configured occurrence ladder. */
 export interface LadderStepLike {
@@ -105,41 +85,37 @@ export function terminationOccurrences(
 }
 
 /**
- * Where this employee's score window opens: their benefit-year start, but never
- * earlier than the cutover floor. Both args and the return are YYYY-MM-DD.
+ * Where this employee's score window opens: the start of their benefit year,
+ * which is their work anniversary. Both args and the return are YYYY-MM-DD.
+ *
+ * ONE WINDOW, DELIBERATELY. [one-window 2026-08-21]
+ *
+ * An earlier draft of this file floored the window at the 2026-07-01 Qleno
+ * cutover, to keep unverified MaidCentral-era rows from dragging a score down.
+ * That floor was removed before it ever shipped, for two reasons:
+ *
+ *   - The disciplinary ladder never had it. The ladder counts occurrences from
+ *     the plain benefit year, which is what the employee handbook and the LMS
+ *     teach. Hilda Gallegos's own file shows the split a floor would create: her
+ *     final-warning row reads "unexcused-occ by=2026-05-25 count=4" while a
+ *     floored score would display 3 of 5. Two numbers for one fact, on one
+ *     screen, is the exact defect this rewrite set out to close.
+ *   - It is unnecessary for tardies, because the tardy slate was wiped on
+ *     2026-08-21 (231 rows, 220 of them the June 25 bulk import) at Sal's
+ *     instruction: "Wipe everyones tardies ... lets give everyone a clean slate."
+ *     No stale tardy history is left for a floor to guard against.
+ *
+ * That leaves the imported ABSENCE rows, which Sal deliberately kept — "As far as
+ * the other attendance buckets to my knowledge they are working fine." Flooring
+ * them would have silently re-scored absences during a session scoped to tardies.
+ * Leaving them unfloored keeps absence scoring byte-identical to what production
+ * already does.
+ *
+ * If unverified imported history ever does need to come out of the score, delete
+ * the rows the way the tardies were deleted. Do not reintroduce a second window:
+ * a date the score honors and the ladder ignores is how the two drift apart.
  */
-export function attendanceWindowStart(
-  hireDate: string,
-  asOf: string,
-  floor: string = CUTOVER_FLOOR_DATE,
-): string {
-  const byStart = benefitYearStartDate(hireDate, asOf).toISOString().slice(0, 10);
-  return byStart < floor ? floor : byStart;
-}
-
-/**
- * Where the TARDY track's window opens: the plain benefit-year start, with no
- * cutover floor. [tardy-clean-slate 2026-08-21]
- *
- * The floor above exists to keep unverified MaidCentral-era rows out of the
- * score. That reasoning does not apply to tardies any more, because every tardy
- * row on the books was deleted on 2026-08-21 at Sal's instruction: 231 rows, of
- * which 220 were the June 25 bulk import and 11 were genuine. He asked for a
- * clean slate rather than a partial one so that nobody is carrying a late from a
- * period when the nightly late-check did not exist yet (only two tardies were
- * ever recorded before the cutover, against 47 for a single employee after it —
- * the old data undercounts, it does not overcount).
- *
- * With the slate empty there is nothing older than today for a floor to protect
- * against, so this track follows the employee handbook exactly: occurrences are
- * counted over the employee's own benefit year, opening on their work
- * anniversary. Every employee's window is therefore a different date, which is
- * the point — it matches what the LMS teaches and what discipline is measured on.
- *
- * The unexcused track keeps attendanceWindowStart. Its pre-cutover rows were
- * left in place and still need the floor.
- */
-export function tardyWindowStart(hireDate: string, asOf: string): string {
+export function attendanceWindowStart(hireDate: string, asOf: string): string {
   return benefitYearStartDate(hireDate, asOf).toISOString().slice(0, 10);
 }
 

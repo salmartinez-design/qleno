@@ -6,15 +6,13 @@
 // tracks show the WORSE and never an average, that protected leave costs nothing,
 // that the termination rung is read from tenant config rather than hardcoded,
 // that a missing ladder yields a dash instead of a flattering 100, and that the
-// window never reaches back past the cutover.
+// window is the employee's own benefit year.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   attendanceWindowStart,
-  tardyWindowStart,
   scoreAttendanceLadder,
   terminationOccurrences,
-  CUTOVER_FLOOR_DATE,
 } from "../lib/attendance-score.js";
 
 // Phes's real configuration, confirmed in production on both companies and both
@@ -203,24 +201,36 @@ describe("no ladder means a dash, never a flattering 100", () => {
   });
 });
 
-describe("the window never reaches back past the cutover", () => {
-  it("floors a long-tenured employee's benefit year at July 1", () => {
-    // Rosa Gallegos, hired 2020-04-01: her benefit year opens 2026-04-01, three
-    // months before Qleno was the system of record.
-    assert.equal(attendanceWindowStart("2020-04-01", "2026-08-21"), CUTOVER_FLOOR_DATE);
-    assert.equal(CUTOVER_FLOOR_DATE, "2026-07-01");
+// [one-window 2026-08-21] There is exactly one window and it is the employee's
+// own benefit year, opening on their work anniversary. It is the same window the
+// disciplinary ladder counts on, which is the point: a score measured off a
+// different calendar than the write-up is how the two come to disagree.
+describe("the window is the employee's own benefit year", () => {
+  it("opens on the work anniversary, whenever that falls", () => {
+    const asOf = "2026-08-21";
+    // Rosa Gallegos, hired April 2020: her 2026 benefit year opens 2026-04-01.
+    assert.equal(attendanceWindowStart("2020-04-01", asOf), "2026-04-01");
+    assert.equal(attendanceWindowStart("2023-08-01", asOf), "2026-08-01");
+    assert.equal(attendanceWindowStart("2023-07-15", asOf), "2026-07-15");
   });
 
-  it("leaves an anniversary that already falls after the cutover alone", () => {
-    assert.equal(attendanceWindowStart("2023-08-01", "2026-08-21"), "2026-08-01");
+  it("gives every employee a different window, keyed to their own hire date", () => {
+    const asOf = "2026-08-21";
+    const windows = ["2025-08-01", "2026-01-26", "2025-06-03", "2020-04-01"]
+      .map((hire) => attendanceWindowStart(hire, asOf));
+    assert.deepEqual(windows, ["2026-08-01", "2026-01-26", "2026-06-03", "2026-04-01"]);
+    assert.equal(new Set(windows).size, 4, "each hire date must yield its own window");
   });
 
-  it("uses the anniversary, not the hire date, for a multi-year employee", () => {
-    assert.equal(attendanceWindowStart("2023-07-15", "2026-08-21"), "2026-07-15");
+  it("never floors the window at the Qleno cutover", () => {
+    // A floored window would have disagreed with the disciplinary ladder, which
+    // has always counted from the plain benefit year. Hilda Gallegos's own
+    // final-warning row reads 'unexcused-occ by=2026-05-25', not by=2026-07-01.
+    assert.ok(attendanceWindowStart("2020-04-01", "2026-08-21") < "2026-07-01");
+    assert.equal(attendanceWindowStart("2026-05-25", "2026-08-21"), "2026-05-25");
   });
 
-  it("stops binding once every anniversary has passed the cutover", () => {
-    // A year on, the floor is inert and this is a plain benefit year again.
+  it("uses the anniversary, not the hire year, for a multi-year employee", () => {
     assert.equal(attendanceWindowStart("2020-04-01", "2027-08-21"), "2027-04-01");
   });
 
@@ -230,41 +240,13 @@ describe("the window never reaches back past the cutover", () => {
     assert.equal(attendanceWindowStart("2023-09-10", "2027-09-09"), "2026-09-10");
     assert.equal(attendanceWindowStart("2023-09-10", "2027-09-11"), "2027-09-10");
   });
-});
 
-// [tardy-clean-slate 2026-08-21] The tardy track follows the employee handbook
-// exactly: occurrences count over the employee's own benefit year, opening on
-// their work anniversary, with no cutover floor. The slate was wiped, so there is
-// no stale pre-cutover tardy left for a floor to protect against. The unexcused
-// track is unchanged and still floored.
-describe("tardy window follows the plain benefit year", () => {
-  it("opens on the work anniversary even when that predates the cutover", () => {
-    // Rosa Gallegos: hired April 2020, so her 2026 benefit year opens 2026-04-01,
-    // three months before Qleno was the book of record.
-    assert.equal(tardyWindowStart("2020-04-01", "2026-08-21"), "2026-04-01");
-  });
-
-  it("gives every employee a different window, keyed to their own hire date", () => {
-    const asOf = "2026-08-21";
-    assert.equal(tardyWindowStart("2025-08-01", asOf), "2026-08-01");
-    assert.equal(tardyWindowStart("2026-01-26", asOf), "2026-01-26");
-    assert.equal(tardyWindowStart("2025-06-03", asOf), "2026-06-03");
-  });
-
-  it("never applies the cutover floor to tardies", () => {
-    const early = tardyWindowStart("2020-04-01", "2026-08-21");
-    assert.ok(early < CUTOVER_FLOOR_DATE, "tardy window must be free to precede the floor");
-  });
-
-  it("leaves the unexcused window floored, so the two tracks really do differ", () => {
+  it("counts both tracks over the same window", () => {
+    // One function, called for tardies and for unexcused absences alike. This
+    // test exists to fail loudly if a second, differently-floored window is ever
+    // reintroduced for one track only.
     const hire = "2020-04-01", asOf = "2026-08-21";
-    assert.equal(attendanceWindowStart(hire, asOf), CUTOVER_FLOOR_DATE);
-    assert.notEqual(tardyWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
-  });
-
-  it("agrees with the unexcused window once the anniversary has passed the cutover", () => {
-    // The floor is transitional. An August anniversary is already past it.
-    const hire = "2025-08-01", asOf = "2026-08-21";
-    assert.equal(tardyWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
+    assert.equal(attendanceWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
+    assert.equal(attendanceWindowStart.length, 2, "no third 'floor' parameter");
   });
 });
