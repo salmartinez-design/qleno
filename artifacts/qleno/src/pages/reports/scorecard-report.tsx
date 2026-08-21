@@ -102,11 +102,11 @@ function KpiTile({ label, value, sub, accent }: { label: string; value: string; 
   );
 }
 
-function SubRow({ name, weight, value }: { name: string; weight: number; value: number | null }) {
+function SubRow({ name, weight, value, note }: { name: string; weight: number; value: number | null; note?: string }) {
   return (
     <div style={{ margin: "14px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: clr.text }}>{name} <span style={{ fontSize: 11, color: clr.muted, fontWeight: 400 }}>· {weight}% weight</span></span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: clr.text }}>{name} <span style={{ fontSize: 11, color: clr.muted, fontWeight: 400 }}>· {weight}% weight{note ? ` · ${note}` : ""}</span></span>
         <span style={{ fontSize: 15, fontWeight: 600, color: clr.text, fontVariantNumeric: "tabular-nums" }}>{pct(value)}</span>
       </div>
       <div style={{ height: 8, borderRadius: 4, background: "#F0EEE9", overflow: "hidden" }}>
@@ -262,7 +262,7 @@ export default function ScorecardReportPage() {
         {error ? <ReportError error={error} onRetry={reload} /> : <>
         {/* KPI row */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
-          <KpiTile accent label="Performance score" value={pct(k?.composite_pct)} sub={`company composite · ${data?.composite_window_days ?? 90}d`} />
+          <KpiTile accent label="Performance score" value={pct(k?.composite_pct)} sub="company composite" />
           <KpiTile label="Customer satisfaction" value={pct(k?.satisfaction_pct)} sub={k?.avg_score != null ? `avg ${k.avg_score.toFixed(2)} / 4.0` : "no responses yet"} />
           <KpiTile label="Response rate" value={k ? `${k.response_rate_pct}%` : "—"} sub={k ? `${k.surveys_returned} returned of ${k.surveys_sent} sent` : undefined} />
           <KpiTile label="Follow-ups flagged" value={k ? String(k.follow_ups_flagged) : "—"} sub={k ? `${k.dismissed_count} dismissed this period` : undefined} />
@@ -276,9 +276,13 @@ export default function ScorecardReportPage() {
               <span style={{ fontSize: 40, fontWeight: 600, color: clr.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pct(data?.composite.composite_pct)}</span>
               <span style={{ fontSize: 14, color: clr.secondary }}>Performance score</span>
             </div>
-            <p style={{ fontSize: 12, color: clr.muted, margin: "0 0 14px" }}>Weighted rolling composite · trailing {data?.composite_window_days ?? 90} days</p>
+            <p style={{ fontSize: 12, color: clr.muted, margin: "0 0 14px" }}>Weighted composite · satisfaction and complaints over the trailing {data?.composite_window_days ?? 90} days</p>
             <SubRow name="Customer satisfaction" weight={w.satisfaction} value={data?.composite.satisfaction_pct ?? null} />
-            <SubRow name="Attendance" weight={w.attendance} value={data?.composite.attendance_pct ?? null} />
+            {/* [attendance-ladder 2026-08-21] Attendance is an occurrence ladder
+                counted from the employee's benefit-year start, not a slice of the
+                trailing 90 the other two rows use. It carries its own window note
+                so the card stops implying all three share one. */}
+            <SubRow name="Attendance" weight={w.attendance} value={data?.composite.attendance_pct ?? null} note="benefit year to date" />
             <SubRow name="Complaint-free" weight={w.complaint_free} value={data?.composite.complaint_free_pct ?? null} />
           </div>
 
