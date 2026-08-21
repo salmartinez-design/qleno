@@ -3033,18 +3033,26 @@ export default function EmployeeProfilePage() {
                     {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
                   <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
-                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Rolling composite · trailing 90 days</p>
+                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Satisfaction + complaints: 90 days · Attendance: benefit year</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown — Trailing 90 Days</p>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown</p>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
                     {[
                       { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
                         sub: !comp ? '' : comp.satisfaction_source === 'mc_lifetime'
                           ? 'MaidCentral history'
                           : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'} (90d)` },
+                      // [attendance-ladder 2026-08-21] Caption is the LADDER STANDING, not a
+                      // day count. It used to read "0 issues · 57 days" off the 90-day
+                      // scheduled_days while the % above came from the benefit year — two
+                      // windows in one tile, which is the bug this change exists to remove.
                       { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
-                        sub: comp ? `${comp.counts?.attendance_violations ?? 0} issue${(comp.counts?.attendance_violations ?? 0) === 1 ? '' : 's'} · ${comp.counts?.scheduled_days ?? 0} day${(comp.counts?.scheduled_days ?? 0) === 1 ? '' : 's'}` : '' },
+                        sub: !comp ? '' : comp.attendance == null
+                          ? (comp.attendance_ladder?.unavailable_reason === 'missing_hire_date'
+                              ? 'No hire date on file'
+                              : 'No attendance ladder configured')
+                          : `${comp.attendance_ladder?.worst_occurrences ?? 0} of ${comp.attendance_ladder?.termination_occurrences ?? 0} occurrences · this benefit year` },
                       { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,
                         sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} · ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}` : '' },
                     ].map((m) => (
