@@ -6,6 +6,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Star, MessageSquare } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { attendanceSubLabel, type AttendanceDetailLike, type AttendanceUnavailable } from "@/lib/attendance-label";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -28,6 +29,9 @@ interface Scorecard {
   score_pct: number | null; rating_count: number; entries: Entry[];
   satisfaction: number | null; attendance: number | null; complaint_free: number | null;
   weights: Weights | null; counts: Counts | null;
+  attendance_detail: AttendanceDetailLike | null;
+  attendance_window_from: string | null;
+  attendance_unavailable: AttendanceUnavailable;
 }
 
 const pctText = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -56,7 +60,7 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
               {pct == null ? "—" : `${Math.round(pct)}%`}
             </div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 6 }}>
-              Your score · rolling, trailing 90 days
+              Your score · updated daily
             </div>
           </div>
 
@@ -64,11 +68,14 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
               Performance Score tab shows (Sal: "it has to be broken down"). */}
           {sc && (sc.satisfaction != null || sc.attendance != null || sc.complaint_free != null) && (
             <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "6px 14px 8px", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", padding: "12px 0 4px" }}>Score breakdown · trailing 90 days</div>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", padding: "12px 0 4px" }}>Score breakdown</div>
               {[
-                { label: "Customer satisfaction", v: sc.satisfaction, w: sc.weights?.satisfaction, sub: sc.counts ? `${sc.counts.survey_responses} survey${sc.counts.survey_responses === 1 ? "" : "s"}` : "" },
-                { label: "Attendance", v: sc.attendance, w: sc.weights?.attendance, sub: sc.counts ? `${sc.counts.attendance_violations} issue${sc.counts.attendance_violations === 1 ? "" : "s"} · ${sc.counts.scheduled_days} days` : "" },
-                { label: "Complaint-free", v: sc.complaint_free, w: sc.weights?.complaint_free, sub: sc.counts ? `${sc.counts.valid_complaints} complaint${sc.counts.valid_complaints === 1 ? "" : "s"} · ${sc.counts.completed_jobs} jobs` : "" },
+                { label: "Customer satisfaction", v: sc.satisfaction, w: sc.weights?.satisfaction, sub: sc.counts ? `${sc.counts.survey_responses} survey${sc.counts.survey_responses === 1 ? "" : "s"}, last 90 days` : "" },
+                // [attendance-ladder 2026-08-21] Was "N issues · M days". Days are
+                // no longer in the math, and this row runs on the benefit year
+                // rather than the trailing 90 the other two use.
+                { label: "Attendance", v: sc.attendance, w: sc.weights?.attendance, sub: attendanceSubLabel(sc.attendance_detail, sc.attendance_window_from, sc.attendance_unavailable) },
+                { label: "Complaint-free", v: sc.complaint_free, w: sc.weights?.complaint_free, sub: sc.counts ? `${sc.counts.valid_complaints} complaint${sc.counts.valid_complaints === 1 ? "" : "s"} of ${sc.counts.completed_jobs} jobs, last 90 days` : "" },
               ].map((row, i) => (
                 <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: i ? "1px solid #F0EEE9" : "none" }}>
                   <div style={{ minWidth: 0 }}>

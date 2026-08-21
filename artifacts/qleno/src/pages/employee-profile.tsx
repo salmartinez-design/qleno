@@ -22,6 +22,7 @@ import { OneOnOnesPanel } from "@/components/one-on-ones-panel";
 import { DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 import { todayInCompanyTz } from "@/lib/company-tz";
+import { attendanceSubLabel } from "@/lib/attendance-label";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -2902,7 +2903,7 @@ export default function EmployeeProfilePage() {
                       // neither: compositeScore is the rolling 90-day
                       // performance composite, blending customer satisfaction
                       // with an attendance sub-score. Named for what it is.
-                      { label:'Performance score', hint:'Rolling 90-day composite — customer satisfaction blended with an attendance sub-score. Not an attendance-only figure; the on-time ring above measures something different.', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
+                      { label:'Performance score', hint:'Customer satisfaction and complaints over the last 90 days, blended with an attendance sub-score counted over the benefit year. Not an attendance-only figure; the on-time ring above measures something different.', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
                     ];
                     return rows.map(row => {
                       const clickable = Array.isArray(row.days);
@@ -3033,20 +3034,24 @@ export default function EmployeeProfilePage() {
                     {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
                   <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
-                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Rolling composite · trailing 90 days</p>
+                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Customer satisfaction, attendance and complaints</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown — Trailing 90 Days</p>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown</p>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
                     {[
                       { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
                         sub: !comp ? '' : comp.satisfaction_source === 'mc_lifetime'
                           ? 'MaidCentral history'
-                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'} (90d)` },
+                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'}, last 90 days` },
+                      // [attendance-ladder 2026-08-21] Was "N issues · M days".
+                      // Scheduled days no longer divide anything, and this tile
+                      // runs on the benefit year while its two neighbours run on
+                      // the trailing 90 — so each tile states its own window.
                       { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
-                        sub: comp ? `${comp.counts?.attendance_violations ?? 0} issue${(comp.counts?.attendance_violations ?? 0) === 1 ? '' : 's'} · ${comp.counts?.scheduled_days ?? 0} day${(comp.counts?.scheduled_days ?? 0) === 1 ? '' : 's'}` : '' },
+                        sub: attendanceSubLabel(comp?.attendance_detail, comp?.attendance_window_from, comp?.attendance_unavailable ?? null) },
                       { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,
-                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} · ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}` : '' },
+                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} of ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}, last 90 days` : '' },
                     ].map((m) => (
                       <div key={m.key} style={{ background:'#F7F6F3', border:'1px solid #EEECE7', borderRadius:8, padding:'12px 14px', display:'flex', flexDirection:'column', gap:4 }}>
                         <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.04em' }}>{m.label}</span>
