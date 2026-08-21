@@ -1,6 +1,6 @@
 # Attendance Scoring — Session Handoff
 
-**Written:** 2026-08-21 · **Branch:** `claude/attendance-score-impact-ulc09d` · **PR:** #1558 (draft, green)
+**Written:** 2026-08-21 · **Updated:** 2026-08-21 17:40Z · **Branch:** `claude/attendance-score-impact-ulc09d` · **PR:** #1558 (draft, green, head `2ae6f18`)
 
 **To resume:** start a session with database access and say *"Read `docs/ATTENDANCE_SCORING_HANDOFF.md` and continue."*
 
@@ -11,9 +11,13 @@ This document is self-contained. It assumes no memory of the prior session.
 ## 1. Why this exists
 
 Sal asked whether an employee being late actually affects their attendance score, and whether the
-total score is correct. The investigation found four real breaks, three of which are fixed and
-sitting in PR #1558. The fourth — that a tardy is worth almost nothing — needs a formula change
-that Sal has now specified, plus **database access this session did not have**.
+total score is correct. The investigation found four real breaks. **All four are now fixed and
+sitting in PR #1558**, including the fourth and most important one — that a tardy was worth almost
+nothing (`2ae6f18`).
+
+What is still outstanding is not code: it is the four things in §4 that need **database access**,
+chief among them the before/after impact list, which should be seen before this ships because every
+tech's attendance score moves the day it does.
 
 Everything below is decided. Nothing here is a proposal awaiting an opinion unless it says
 OPEN QUESTION.
@@ -22,7 +26,7 @@ OPEN QUESTION.
 
 ## 2. What is already fixed (PR #1558, draft, CI green)
 
-Two commits: `e282a2d` (the fix) and `581cb75` (a cron-gating test).
+Five commits: `e282a2d` (the fix), `581cb75` (cron-gating test), `88764b2` (this doc), `f16162f` (NCNS weight 2 → 1) and `2ae6f18` (**the ladder-based attendance score — the headline change**).
 
 | # | Was broken | Fix |
 |---|---|---|
@@ -36,23 +40,32 @@ Two commits: `e282a2d` (the fix) and `581cb75` (a cron-gating test).
 A test asserts the scanner never imports the attendance-log table or the ladder writer. Do not
 change this without a deliberate decision.
 
-### ⚠️ One edit required before this PR merges
+### ✅ The NCNS edit is DONE — do not redo it
 
-Commit `e282a2d` made NCNS count as **2 occurrences** everywhere, because that is what the
-disciplinary engine was doing (`NCNS_OCCURRENCE_WEIGHT = 2` in `lib/attendance-compliance.ts`).
+`f16162f` dropped `NCNS_OCCURRENCE_WEIGHT` from 2 to 1 and updated the assertions
+in three test files (`attendance-ncns-parity`, `plawa-attendance`,
+`cutover-3d-occurrence-ladder` — the weight was pinned in all three, not just the
+one this doc originally named).
 
-**Sal has since decided NCNS should be worth 1** — see §3. So:
+**Sal has since said to stop touching NCNS altogether**: *"Why was a no call no
+show even a thing. If someone here does that we just terminate them. That's
+already in the system. stop messing with that."* At Phes a no-call/no-show is a
+termination handled outside Qleno, so the ladder never reaches it and this code
+path is effectively inert. Leave it alone.
 
-- Change `NCNS_OCCURRENCE_WEIGHT` from `2` to `1`.
-- Update the four assertions in `src/tests/attendance-ncns-parity.test.ts` that pin the value 2
-  (`"an NCNS is worth two occurrences"`, `"one absence + one NCNS = 3"`, `"a protected NCNS still
-  counts two"`, and the weights table in the file header comment).
-- Sal confirmed he wants this **folded into PR #1558**, not a separate PR.
+### ✅ The attendance formula in §3 is IMPLEMENTED — do not rebuild it
 
-The parity fix itself stays — NCNS was counting *zero*, which was wrong regardless of whether the
-right answer is 1 or 2.
+`2ae6f18` shipped it. `lib/scorecard-composite.ts` now scores attendance as
+position on the Benefit-Year ladder, with the pure arithmetic exported as
+`ladderAttendancePct(worst, terminationOccurrences)` and 15 tests in
+`src/tests/attendance-ladder-score.test.ts`.
 
----
+What triggered it: Sal put two screenshots of the same tech side by side — the
+Attendance tab reading **TARDY 1** (180-day window) and the Performance Score
+beside it reading **ATTENDANCE 100% · 0 issues** (90-day window). The tardy was
+older than 90 days and had aged out of the score. *"All i need you to do is
+ensure that the tardiness again is being counted against their performance score
+and tardiness counter."*
 
 ## 3. Decisions locked (do not re-litigate)
 
@@ -205,12 +218,11 @@ disagree.
 
 ## 5. Implementation order
 
-1. **Edit PR #1558**: `NCNS_OCCURRENCE_WEIGHT` 2 → 1 + the four test assertions. Merge it. This is
-   independent of everything below and is already green otherwise.
+1. ~~**Edit PR #1558**: `NCNS_OCCURRENCE_WEIGHT` 2 → 1.~~ **DONE** — `f16162f`.
 2. **Confirm go-live** (§4.1) and **list missing hire dates** (§4.2). Give Sal both.
-3. **Build the new attendance sub-score** in `lib/scorecard-composite.ts` — replace the
-   days-ratio query with the ladder formula in §3. Derive the termination threshold from the
-   tenant's policy row. Return `null` when `hire_date` is null.
+3. ~~**Build the new attendance sub-score** in `lib/scorecard-composite.ts`.~~ **DONE** —
+   `2ae6f18`. Ladder formula, tenant-derived termination rung, `null` on missing hire date,
+   `ladderAttendancePct()` exported pure with 15 tests.
 4. **Run the impact preview** (§4.3). Show Sal before shipping.
 5. **Relabel the UI** — the "rolling, trailing 90 days" headline, and the three surfaces that print
    `N% weight` (see §6). Attendance now says Benefit Year.
@@ -267,11 +279,9 @@ disagree.
 
 1. **Go-live date** — confirm 7/1 from §4.1, or tell Sal it stays unverified.
 2. **Backfill** — blocked on the §4.4 report. Sal decides after seeing names.
-3. **Protected absences still hurt the attendance sub-score.** `countUnexcusedOccurrences` zeroes
-   PLAWA-protected rows for the ladder, but the *current* composite filters on `type` only, so a
-   protected `absent` row still subtracts. **The §3 formula fixes this for free** by going through
-   the canonical counter — worth confirming it actually does once implemented. Low exposure today
-   (the office form hardcodes `protected: false`) but it is a retaliation-flavored bug.
+3. ~~**Protected absences still hurt the attendance sub-score.**~~ **CLOSED by `2ae6f18`** — the
+   ladder formula routes both tracks through `countUnexcusedOccurrences` and filters `!r.protected`
+   on tardies, so PLAWA-covered rows now count zero. A test pins it.
 4. **`HRAttendanceTab`** in `pages/employee-profile-hr-tabs.tsx` is exported but mounted nowhere —
    dead code. It is the only UI for `POST /hr-attendance`. Delete it or wire it; right now it just
    misleads.
