@@ -6,10 +6,12 @@
 //
 //   1. Customer Satisfaction %  — mean of non-excluded 0–4 survey responses
 //                                 (scorecard_entries) in the window, ÷max ×100.
-//   2. Attendance %             — 100 × (scheduled tech-days − weighted
-//                                 violations) / scheduled, from
-//                                 employee_attendance_log (absent/ncns=1.0,
-//                                 tardy=0.5).
+//   2. Attendance %             — 100 − (occurrences ÷ the tenant's termination
+//                                 rung) × 100, counted over the employee's
+//                                 BENEFIT YEAR (floored at the cutover), on two
+//                                 independent tracks with the worse one showing.
+//                                 See lib/attendance-score.ts. Note this sub-score
+//                                 does NOT use the 90-day window the other two do.
 //   3. Complaint-free %         — 100 × (1 − valid complaints / completed jobs),
 //                                 from quality_complaints (valid=true).
 //
@@ -20,11 +22,21 @@
 // (replaces scorecard_pct on every surface); scorecard_pct stays as the
 // satisfaction-only live value the survey recompute writes.
 //
-// Multi-tenant: every query is company_id-scoped. Window: trailing 90 days
-// ending at `asOf` (default today, America/Chicago is implied by date columns).
+// Multi-tenant: every query is company_id-scoped.
+//
+// WINDOWS ARE NOT UNIFORM, and the UI must not claim they are. Satisfaction and
+// complaint-free are trailing 90 days ending at `asOf`. Attendance is the
+// employee's benefit year (work anniversary), floored at the cutover date —
+// because that is the window the disciplinary ladder uses, and a score that
+// disagreed with the ladder was the whole problem. [attendance-ladder 2026-08-21]
 // ─────────────────────────────────────────────────────────────────────────────
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import {
+  attendanceWindowStart,
+  scoreAttendanceLadder,
+  type AttendanceLadderScore,
+} from "./attendance-score.js";
 
 export const COMPOSITE_WINDOW_DAYS = 90;
 
@@ -44,6 +56,15 @@ export interface CompositeResult {
   // imported MaidCentral / lifetime fallback, or null when neither exists.
   satisfaction_source: "rolling_90d" | "mc_lifetime" | null;
   attendance: number | null;
+  // [attendance-ladder 2026-08-21] Where the attendance number came from: the
+  // occurrence counts on each track, the tenant's termination rung, and which
+  // track is driving. The UI needs this to say "2 of 5 occurrences" instead of
+  // an unexplained percentage.
+  attendance_detail: AttendanceLadderScore | null;
+  /** Benefit-year start, floored at the cutover. Null when there's no hire date. */
+  attendance_window_from: string | null;
+  /** Why attendance is null, when it is. Null when a score was produced. */
+  attendance_unavailable: "no_hire_date" | "no_ladder" | null;
   complaint_free: number | null;
   composite: number | null;
   counts: {
@@ -135,8 +156,20 @@ export async function computeCompositeForEmployee(
     if (lifetime != null) { satisfaction = clampPct(Number(lifetime)); satisfaction_source = "mc_lifetime"; }
   }
 
-  // 2. Attendance — scheduled tech-days (distinct, non-cancelled) vs weighted
-  // violations from the confirmed attendance log.
+  // 2. Attendance — how far along the disciplinary ladder this employee stands.
+  // [attendance-ladder 2026-08-21] This used to be a days ratio: scheduled days
+  // minus weighted violations, over scheduled days. On a 60-day window that made
+  // one tardy worth about a fifth of a point of the headline score, so a tech one
+  // occurrence away from a written warning still showed green. The score now reads
+  // the same occurrences the ladder reads. See lib/attendance-score.ts for the
+  // reasoning behind the window floor, the two tracks, and protected rows.
+  const hireRow = await db.execute(sql`
+    SELECT to_char(hire_date, 'YYYY-MM-DD') AS hire_date
+      FROM users WHERE id = ${employeeId} AND company_id = ${companyId} LIMIT 1`);
+  const hireDate = (hireRow.rows[0] as any)?.hire_date ?? null;
+
+  // Kept for display only — "N occurrences" reads better next to how many days
+  // the tech actually worked. It no longer feeds the math.
   const schedRow = await db.execute(sql`
     SELECT COUNT(DISTINCT j.scheduled_date)::int AS days
       FROM jobs j
@@ -147,18 +180,49 @@ export async function computeCompositeForEmployee(
        AND (jt.user_id = ${employeeId} OR j.assigned_user_id = ${employeeId})`);
   const scheduledDays = Number((schedRow.rows[0] as any)?.days ?? 0);
 
-  const violRow = await db.execute(sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN type IN ('absent','ncns') THEN 1.0
-                        WHEN type = 'tardy' THEN 0.5 ELSE 0 END), 0) AS vweight,
-      COUNT(*) FILTER (WHERE type IN ('absent','ncns','tardy'))::int AS vcount
-      FROM employee_attendance_log
-     WHERE company_id = ${companyId} AND employee_id = ${employeeId}
-       AND log_date >= ${fromDate} AND log_date <= ${toDate}`);
-  const violWeight = Number((violRow.rows[0] as any)?.vweight ?? 0);
-  const violCount = Number((violRow.rows[0] as any)?.vcount ?? 0);
-  const attendance = scheduledDays > 0
-    ? clampPct((100 * (scheduledDays - violWeight)) / scheduledDays) : null;
+  let attendance: number | null = null;
+  let attendanceDetail: AttendanceLadderScore | null = null;
+  let attendanceWindowFrom: string | null = null;
+  // Why there's no score, when there isn't one. The UI shows a dash either way,
+  // but the office needs to know whether to go fix a hire date or a policy.
+  let attendanceUnavailable: "no_hire_date" | "no_ladder" | null = null;
+  let violCount = 0;
+
+  if (!hireDate) {
+    // No hire date means no benefit year, and a benefit year is the window. The
+    // old code silently scored these people anyway; showing a dash is honest and
+    // it makes the missing field visible to whoever can fill it in.
+    attendanceUnavailable = "no_hire_date";
+  } else {
+    attendanceWindowFrom = attendanceWindowStart(hireDate, toDate);
+
+    const policyRow = await db.execute(sql`
+      SELECT tardy_occurrence_steps, unexcused_occurrence_steps
+        FROM company_attendance_policy WHERE company_id = ${companyId} LIMIT 1`);
+    const tardySteps = ((policyRow.rows[0] as any)?.tardy_occurrence_steps ?? []) as any[];
+    const unexSteps = ((policyRow.rows[0] as any)?.unexcused_occurrence_steps ?? []) as any[];
+
+    // log_date <= toDate keeps a mis-keyed future date from counting against
+    // someone before it has even happened.
+    const occRows = await db.execute(sql`
+      SELECT type, protected
+        FROM employee_attendance_log
+       WHERE company_id = ${companyId} AND employee_id = ${employeeId}
+         AND type IN ('absent','ncns','tardy')
+         AND log_date >= ${attendanceWindowFrom} AND log_date <= ${toDate}`);
+
+    attendanceDetail = scoreAttendanceLadder({
+      rows: (occRows.rows as any[]).map(r => ({
+        type: String(r.type),
+        protected: r.protected === true,
+      })),
+      tardySteps,
+      unexcusedSteps: unexSteps,
+    });
+    attendance = attendanceDetail.score;
+    if (attendance == null) attendanceUnavailable = "no_ladder";
+    violCount = attendanceDetail.tardy_occurrences + attendanceDetail.unexcused_occurrences;
+  }
 
   // 3. Complaint-free — valid complaints vs completed jobs in the window.
   const complaintRow = await db.execute(sql`
@@ -199,6 +263,9 @@ export async function computeCompositeForEmployee(
     satisfaction,
     satisfaction_source,
     attendance,
+    attendance_detail: attendanceDetail,
+    attendance_window_from: attendanceWindowFrom,
+    attendance_unavailable: attendanceUnavailable,
     complaint_free,
     composite,
     counts: {
