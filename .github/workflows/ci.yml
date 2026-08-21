@@ -1,6 +1,6 @@
 # Qleno CI — runs on every PR + push to main.
 #
-# Five concerns:
+# Six concerns:
 #   1. .dispatch-stop guard — if the file exists at repo root on
 #      the branch under test, fail immediately. Sal can drop this
 #      file via the GitHub mobile app to halt all autonomous work.
@@ -15,10 +15,13 @@
 #      and looks correct on a Mac in Chicago; it only breaks in
 #      production. It once told a customer her cleaner was five
 #      hours out while the cleaner was pulling up.
-#   4. tsc-check — type-check the api-server + frontend without
+#   4. billing-window-test — the Mon-Fri / month billing windows
+#      are pure date math, and being one day out means a customer
+#      is handed an invoice with a day's work missing from it.
+#   5. tsc-check — type-check the api-server + frontend without
 #      emitting. Catches PRs that compile in isolation but break
 #      the workspace's shared types.
-#   5. build — full build of api-server + frontend, the same
+#   6. build — full build of api-server + frontend, the same
 #      command Railway runs. Catches PRs that pass tsc but fail
 #      bundling (Vite import errors, etc.).
 #
@@ -91,6 +94,32 @@ jobs:
           node-version: 20
       - name: Block a clock time with no timezone
         run: node scripts/guard-clock-timezone.mjs
+
+  # Billing-window math. Pure date arithmetic, no database, but it
+  # decides which visits land on a customer's invoice — so when it
+  # is a day out, the customer is handed a bill that is missing a
+  # day's work and nobody notices until they add it up. National
+  # Able's weekly bundle shipped without its own Friday on it for
+  # three weeks running, and the office re-stitched the invoice by
+  # hand each time. Cheap to run, so it does not `needs:` the
+  # stop-guard either.
+  billing-window-test:
+    name: billing-window-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: A billing window never closes while its last day is live
+        run: pnpm --filter @workspace/api-server run test:cadence-window
 
   # Project-references typecheck only — `tsc --build` walks the
   # workspace's lib packages (packages/*) and their declared deps.

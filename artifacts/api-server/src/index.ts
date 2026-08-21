@@ -183,12 +183,16 @@ function startNotificationCron() {
         .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
     }
     // [cadence 2026-07-22] 5 AM CT → close bundled ACCOUNT billing windows.
-    // Weekly accounts (National Able) fold Mon–Fri into one issued invoice on
-    // Friday and email the billing contact; monthly accounts (Cucci, KMA,
-    // Daveco) fold the month once it has ended, issued silently. per_job
+    // Weekly accounts (National Able) fold Mon–Fri into one issued invoice and
+    // email the billing contact; monthly accounts (Cucci, KMA, Daveco) fold the
+    // month once it has ended, issued silently. per_job
     // accounts + residential never reach here — those already issue per visit
     // on completion. A no-op on non-close days, and idempotent per window, so
     // a redeploy or double-fire cannot bill the same week twice.
+    // [friday-in-the-week 2026-08-21] The weekly fold lands SATURDAY morning and
+    // the monthly one on the 1st — a window is only billed once its last day is
+    // fully behind us. Running it on the Friday itself is what left National
+    // Able's Friday visit off its own weekly bill. See lib/invoice-cadence.ts.
     if (ctH === 5 && fired["invoice_cadence_close"] !== `${ctDate}-5`) {
       fired["invoice_cadence_close"] = `${ctDate}-5`;
       import("./lib/invoice-cadence.js")

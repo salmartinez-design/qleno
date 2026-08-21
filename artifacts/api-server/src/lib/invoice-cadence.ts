@@ -10,8 +10,10 @@
 //   per_job  (PPM, Meg Daday, the condo assocs, all residential)
 //       → the per-visit invoice IS the document. Nothing here.
 //   weekly   (National Able)
-//       → each Mon–Fri visit is issued as it completes; the Friday close folds
-//         the week into ONE invoice and emails the billing contact.
+//       → each Mon–Fri visit is issued as it completes; the Saturday close folds
+//         the week into ONE invoice and emails the billing contact. Saturday,
+//         not Friday: see windowToClose. Closing on the Friday itself billed a
+//         week that still had a day left to run.
 //   monthly  (Cucci, KMA, Daveco, ProManage, Jennifer Halper)
 //       → each visit is issued as it completes; the period-end close folds the
 //         month into ONE invoice. No email (matches the #1174 default —
@@ -81,11 +83,25 @@ export function windowFor(cadence: BundleCadence, anchorYmd: string): Window {
 }
 
 // The most recent window that has FULLY ELAPSED as of `asOf` — the one a close
-// run should bill. Running on Friday closes that Friday's week (the window ends
-// today); running mid-week closes last week.
+// run should bill.
+//
+// [friday-in-the-week 2026-08-21] "Fully elapsed" now means the close date is
+// BEHIND us, not on top of us. Maribel: "Qleno is combining National Able's
+// invoices on Friday ... the thing is it's not including Friday when it does."
+// She was right, and this line was why. The window runs Mon–Fri, the cron runs
+// in the small hours, and `asOf >= close_date` made Friday morning a valid
+// close for a week whose Friday had not been worked yet. So the bundle went out
+// carrying Mon–Thu, the Friday visit was invoiced that afternoon with nowhere
+// left to go, and the office merged the two by hand every single week (invoice
+// 7356 on 8/7, 7413 on 8/14 — both stitched together by a person, hours after
+// the automatic one had already been emailed).
+//
+// A window closes the day AFTER it ends: the Mon–Fri week closes Saturday, the
+// month closes on the 1st. Nothing else moves — same window, same members, same
+// one email; it simply waits until the last day's work is actually on the books.
 export function windowToClose(cadence: BundleCadence, asOf: string): Window {
   const w = windowFor(cadence, asOf);
-  if (asOf >= w.close_date) return w;
+  if (asOf > w.close_date) return w;
   const prev = utc(w.start);
   prev.setUTCDate(prev.getUTCDate() - 1); // step into the previous window
   return windowFor(cadence, iso(prev));
@@ -102,8 +118,10 @@ export function windowsBetween(cadence: BundleCadence, from: string, to: string)
   // can never spin: 520 weeks / months is ~10 years, far past any real backfill.
   for (let i = 0; i < 520; i++) {
     if (cursor.start > to) break;
-    // Only a window whose close date has passed is billable.
-    if (cursor.close_date <= to) out.push(cursor);
+    // Only a window whose close date has PASSED is billable — strictly before
+    // the end of the range, same rule as windowToClose. On the close date the
+    // window's last day is still being worked.
+    if (cursor.close_date < to) out.push(cursor);
     const next = utc(cursor.end);
     next.setUTCDate(next.getUTCDate() + (cadence === "weekly" ? 3 : 1)); // Fri→Mon, or last→1st
     cursor = windowFor(cadence, iso(next));
@@ -437,7 +455,12 @@ export async function runInvoiceCadenceClose(opts: {
     const cadence = bundleCadence(a.invoice_frequency);
     const win = windowToClose(cadence, asOf);
     // Only bill a window that has actually ended, unless forced.
-    if (!opts.force && asOf < win.close_date) continue;
+    // [friday-in-the-week 2026-08-21] `<=`, matching windowToClose: on the close
+    // date itself that day's visits are still being worked, so the week is not
+    // done. windowToClose has already handed back the previous window by then,
+    // so this guard is belt-and-braces — but it has to agree with it, or a
+    // caller passing an explicit as_of could still bill a live window.
+    if (!opts.force && asOf <= win.close_date) continue;
     results.push(await closeAccountWindow({
       companyId: opts.companyId, accountId: a.id, cadence, window: win,
       dryRun, email: cadence === "weekly", userId: opts.userId ?? null,
