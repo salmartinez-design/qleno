@@ -1184,6 +1184,17 @@ async function buildAttendanceSummary(
   const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
 
+  // `jobs.scheduled_time` is a time column and reads back as "09:00:00".
+  // Rendered raw that made the drill-down say "(scheduled 09:00:00)" — a
+  // machine timestamp in a line an office manager reads.
+  const fmtSchedTime = (v: string | null) => {
+    if (!v) return null;
+    const m = /^(\d{1,2}):(\d{2})/.exec(v);
+    if (!m) return v;
+    const h24 = Number(m[1]);
+    return `${h24 % 12 || 12}:${m[2]} ${h24 >= 12 ? "PM" : "AM"}`;
+  };
+
   // [late-clockin-record 2026-08-18] Every late CLOCK-IN in the window, from
   // the punch itself — one row per late arrival, naming the service it happened
   // on.
@@ -1233,13 +1244,64 @@ async function buildAttendanceSummary(
       // Never "recorded by <someone>" — nobody typed this in, the punch did.
       by: "auto-detected",
       date: String(r.d).slice(0, 10),
-      reason: `${r.service} — clocked in ${Number(r.late_by_min)} min late${r.scheduled_time ? ` (scheduled ${String(r.scheduled_time)})` : ""}`,
+      reason: (() => {
+        const t = fmtSchedTime(r.scheduled_time ? String(r.scheduled_time) : null);
+        return `${r.service} — clocked in ${Number(r.late_by_min)} min late${t ? ` (scheduled ${t})` : ""}`;
+      })(),
       hours: null,
     }));
   } catch {
     // Column not present yet on this tenant (pre-migration boot) — the row
     // renders 0 rather than failing the whole Attendance tab.
     lateClockInRows = [];
+  }
+
+  // [tardy-job-record 2026-08-21] Name the service behind each auto-detected
+  // tardy. Sal: "can we see the jobs that were marked late for record keeping."
+  //
+  // The nightly sweep writes its note as "auto: clocked in 42 min late (job
+  // #1812)" — the job IS recorded, but as a bare id nobody in the office can
+  // read. `employee_attendance_log` has no job_id column, so the id inside the
+  // note is the only carrier; resolve it here rather than adding a column and
+  // backfilling one that would be empty for every imported row anyway.
+  //
+  // Display-only. The stored note keeps the id, so the audit trail is intact
+  // and re-reading it later still resolves. Rows whose job was deleted, or
+  // office-typed rows with no id, keep whatever reason was written.
+  const tardyJobRefs = lateRows
+    .map((r) => ({ row: r, jobId: Number(/\bjob\s*#(\d+)/i.exec(r.reason)?.[1] ?? NaN) }))
+    .filter((p) => Number.isFinite(p.jobId));
+  if (tardyJobRefs.length) {
+    const ids = [...new Set(tardyJobRefs.map((p) => p.jobId))];
+    // IN (...) not = ANY(array) — the array form never binds through Drizzle.
+    const jobRes = await db.execute(sql`
+      SELECT j.id,
+             COALESCE(
+               a.account_name,
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+               'Job #' || j.id::text
+             ) AS service,
+             j.scheduled_time
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE j.company_id = ${companyId}
+         AND j.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
+    const jobById = new Map<number, { service: string; time: string | null }>();
+    for (const j of jobRes.rows as any[]) {
+      jobById.set(Number(j.id), {
+        service: String(j.service),
+        time: fmtSchedTime(j.scheduled_time ? String(j.scheduled_time) : null),
+      });
+    }
+    for (const { row, jobId } of tardyJobRefs) {
+      const j = jobById.get(jobId);
+      if (!j) continue;
+      const mins = /(\d+)\s*min(?:ute)?s?\s+late/i.exec(row.reason)?.[1];
+      row.reason =
+        `${j.service} — clocked in ${mins ? `${mins} min ` : ""}late` +
+        (j.time ? ` (scheduled ${j.time})` : "");
+    }
   }
 
   const tile = (rows: Array<{ hours: number | null }>) => ({

@@ -2315,13 +2315,29 @@ export default function EmployeeProfilePage() {
                 const C = 2 * Math.PI * 44;
                 const off = onTime != null ? C * (1 - onTime / 100) : C;
                 const balTiles = leaveBuckets.slice(0, 4);
-                const HT = (label: string, val: React.ReactNode, sub: string, color = '#1A1917') => (
-                  <div style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                // [tardy-job-record 2026-08-21] `drill` makes a tile open the
+                // same day-by-day list the table further down opens. Sal was
+                // looking at these tiles when he asked to see the jobs behind a
+                // late — the record existed, three screens away from where the
+                // number is read. A tile with no rows stays inert rather than
+                // opening an empty modal.
+                const HT = (label: string, val: React.ReactNode, sub: string, color = '#1A1917', drill?: { label: string; days?: any[] }) => {
+                  const rows = drill?.days || [];
+                  const clickable = rows.length > 0;
+                  return (
+                  <div
+                    onClick={clickable ? () => setStatDrill({ label: drill!.label, days: rows }) : undefined}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStatDrill({ label: drill!.label, days: rows }); } } : undefined}
+                    style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px', cursor: clickable ? 'pointer' : 'default' }}
+                  >
                     <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>{label}</div>
                     <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color }}>{val}</div>
-                    <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>{sub}</div>
+                    <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>{clickable ? `${sub} \u00b7 view` : sub}</div>
                   </div>
-                );
+                  );
+                };
                 return (
                   <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:16, padding:'22px 24px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:16 }}>
@@ -2341,9 +2357,15 @@ export default function EmployeeProfilePage() {
                       </div>
                       <div style={{ flex:1, display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
                         {HT('Days worked', worked, `of ${scheduled} scheduled`)}
-                        {HT('Tardy', late, 'last 180 days', '#B45309')}
-                        {HT('Absent', absent, 'last 180 days', '#B3261E')}
-                        <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                        {/* Tardy = disciplinary OCCURRENCES (one per day, first
+                            job only). Late arrivals = every punch 20+ min after
+                            its job's start, later houses included. Two
+                            different questions, deliberately two tiles — see
+                            the note on the table below. */}
+                        {HT('Tardy', late, 'occurrences · 180d', '#B45309', { label:'Tardy occurrences', days: t?.late?.days })}
+                        {HT('Late arrivals', t?.late_clockins?.count ?? 0, 'punches · since 8/18', '#B45309', { label:'Late clock-ins', days: t?.late_clockins?.days })}
+                        {HT('Absent', absent, 'last 180 days', '#B3261E', { label:'Absent', days: t?.absent?.days })}
+                        <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ gridColumn:'1 / -1', background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
                           <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>Absence pattern</div>
                           <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color: bSev.c }}>{bd.B}</div>
                           <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>Bradford · {bd.S} spell{bd.S === 1 ? '' : 's'} / {bd.D}d · {bSev.l}</div>
