@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable, accountsTable } from "@workspace/db/schema";
 import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
 // Canonical metric definitions — see lib/payroll-metrics for why these live in
@@ -1938,6 +1939,40 @@ router.post("/publish", requireAuth, requireRole("owner", "admin", "office"), as
     return res.json({ ok: true, ...out, pay_period_start, pay_period_end });
   } catch (err: any) {
     console.error("POST /payroll/publish:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
+// ── [unpublish 2026-08-20] UNPUBLISH PAYROLL — pull a period back to Draft ────
+// OWNER/ADMIN ONLY, deliberately narrower than /publish (which office may run).
+// Publishing is routine weekly work; taking a published period back out of the
+// cleaners' hands is not, and a cleaner who saw a number yesterday and cannot
+// see it today deserves an owner-level decision behind that.
+//
+// There is no "published" flag to clear — a period is published exactly while
+// payroll_period_snapshots holds rows for it. So this deletes those rows, which
+// (a) returns the office screens to the live computation and (b) re-closes the
+// tech-pay gate above, so cleaners stop seeing the period until it is published
+// again. Nothing about the underlying jobs, hours, or pay records is touched;
+// only the locked copy goes.
+router.post("/unpublish", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const { pay_period_start, pay_period_end } = req.body || {};
+    if (!pay_period_start || !pay_period_end) return res.status(400).json({ error: "pay_period_start and pay_period_end are required" });
+    const start = String(pay_period_start);
+    const end = String(pay_period_end);
+    const { unpublishPeriod } = await import("../lib/payroll-snapshot.js");
+    const out = await unpublishPeriod(companyId, start, end);
+    // Audit even the no-op: "I tried to unpublish a period that was already
+    // Draft" is worth being able to see later.
+    logAudit(req, "PAYROLL_UNPUBLISHED", "payroll_period", `${start}..${end}`, null, {
+      pay_period_start: start, pay_period_end: end,
+      removed: out.removed, total_gross: out.total_gross,
+    }).catch(() => {});
+    return res.json({ ok: true, ...out, pay_period_start: start, pay_period_end: end });
+  } catch (err: any) {
+    console.error("POST /payroll/unpublish:", err);
     return res.status(500).json({ error: "Internal Server Error", message: err?.message });
   }
 });
