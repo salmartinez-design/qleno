@@ -24,10 +24,17 @@ const cleanComment = (n?: string | null) =>
 interface Entry { id: number; entry_date: string; score_value: string | number; max_value: string | number; source: string; notes: string | null; job_id: number | null; client_name: string | null }
 interface Weights { satisfaction: number; attendance: number; complaint_free: number }
 interface Counts { survey_responses: number; scheduled_days: number; attendance_violations: number; valid_complaints: number; completed_jobs: number }
+interface AttendanceLadder {
+  benefit_year_start: string | null;
+  tardy_occurrences: number; unexcused_occurrences: number;
+  worst_occurrences: number; termination_occurrences: number;
+  unavailable_reason: "missing_hire_date" | "no_ladder_configured" | null;
+}
 interface Scorecard {
   score_pct: number | null; rating_count: number; entries: Entry[];
   satisfaction: number | null; attendance: number | null; complaint_free: number | null;
   weights: Weights | null; counts: Counts | null;
+  attendance_ladder: AttendanceLadder | null;
 }
 
 const pctText = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -56,7 +63,7 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
               {pct == null ? "—" : `${Math.round(pct)}%`}
             </div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 6 }}>
-              Your score · rolling, trailing 90 days
+              Your score · attendance this benefit year, ratings last 90 days
             </div>
           </div>
 
@@ -64,10 +71,15 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
               Performance Score tab shows (Sal: "it has to be broken down"). */}
           {sc && (sc.satisfaction != null || sc.attendance != null || sc.complaint_free != null) && (
             <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "6px 14px 8px", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", padding: "12px 0 4px" }}>Score breakdown · trailing 90 days</div>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", padding: "12px 0 4px" }}>Score breakdown</div>
               {[
                 { label: "Customer satisfaction", v: sc.satisfaction, w: sc.weights?.satisfaction, sub: sc.counts ? `${sc.counts.survey_responses} survey${sc.counts.survey_responses === 1 ? "" : "s"}` : "" },
-                { label: "Attendance", v: sc.attendance, w: sc.weights?.attendance, sub: sc.counts ? `${sc.counts.attendance_violations} issue${sc.counts.attendance_violations === 1 ? "" : "s"} · ${sc.counts.scheduled_days} days` : "" },
+                // [attendance-ladder 2026-08-21] Where they stand on the handbook's
+                // scale, not a day count — the number that actually predicts a write-up.
+                { label: "Attendance", v: sc.attendance, w: sc.weights?.attendance,
+                  sub: sc.attendance == null
+                    ? (sc.attendance_ladder?.unavailable_reason === "missing_hire_date" ? "No hire date on file" : "")
+                    : `${sc.attendance_ladder?.worst_occurrences ?? 0} of ${sc.attendance_ladder?.termination_occurrences ?? 0} occurrences this year` },
                 { label: "Complaint-free", v: sc.complaint_free, w: sc.weights?.complaint_free, sub: sc.counts ? `${sc.counts.valid_complaints} complaint${sc.counts.valid_complaints === 1 ? "" : "s"} · ${sc.counts.completed_jobs} jobs` : "" },
               ].map((row, i) => (
                 <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: i ? "1px solid #F0EEE9" : "none" }}>

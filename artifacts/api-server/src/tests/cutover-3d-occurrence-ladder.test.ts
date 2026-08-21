@@ -92,9 +92,10 @@ function makeFakeTx(opts: {
           return Promise.resolve([]);
         },
         then(resolve: any) {
-          // Real attendance rows carry a `type`; the writer's counting is now
-          // type-aware (absent=1, ncns=2). These fixtures model absences unless
-          // a row overrides `type`, so default to "absent".
+          // Real attendance rows carry a `type`; the writer's counting is
+          // type-aware (absent=1, ncns=1 — [ncns-weight 2026-08-21]). These
+          // fixtures model absences unless a row overrides `type`, so default
+          // to "absent".
           if (chain._table === "employee_attendance_log")
             return resolve((opts.attendance ?? []).map((a) => ({ type: a.type ?? "absent", is_protected: a.is_protected ?? false })));
           if (chain._table === "employee_discipline_log") return resolve((opts.discipline ?? []).map((d) => ({ reason: d.reason })));
@@ -143,19 +144,36 @@ describe("recordUnexcusedEntryAndDriveLadder — occurrence path", () => {
     });
     assert.equal(fake.disciplineInserts.length, 0); // only 2 count
   });
-  it("NCNS weighs +2 on the unexcused counter (2 NCNS = 4 occ → highest crossed step fires)", async () => {
+  it("NCNS reaches the unexcused counter and weighs +1 (3 NCNS = 3 occ → written warning)", async () => {
+    // [ncns-weight 2026-08-21] NCNS used to weigh 2, so 2 no-shows minted a
+    // FINAL warning. It weighs 1 now — the same as any unexcused day — so it
+    // takes three to reach the first written step. What this test still pins
+    // is that ncns rows COUNT at all, on the unexcused ladder, not the tardy
+    // one. Firing on a true no-call/no-show stays the office's decision.
     const fake = makeFakeTx({
       unexSteps: PHES_UNEX, // 3/4/5
-      attendance: [{ type: "ncns" }, { type: "ncns" }], // 2 × 2 = 4 occurrences
+      attendance: [{ type: "ncns" }, { type: "ncns" }, { type: "ncns" }], // 3 × 1 = 3
       discipline: [],
     });
     await recordUnexcusedEntryAndDriveLadder(fake.tx, {
       company_id: 1, employee_id: 42, log_date: "2026-05-29", hours: 8, type: "ncns", logged_by: 1,
     });
     assert.equal(fake.disciplineInserts.length, 1);
-    // 4 crosses steps 3 and 4 → highest not-yet-fired = 4 = final_warning.
-    assert.equal(fake.disciplineInserts[0].discipline_type, "final_warning");
-    assert.match(fake.disciplineInserts[0].reason, /unexcused-occ s=4 .* count=4/);
+    assert.equal(fake.disciplineInserts[0].discipline_type, "absence_warning");
+    assert.match(fake.disciplineInserts[0].reason, /unexcused-occ s=3 .* count=3/);
+  });
+
+  it("two NCNS no longer mint a final warning on their own", async () => {
+    // The regression this guards: at weight 2, two no-shows crossed step 4.
+    const fake = makeFakeTx({
+      unexSteps: PHES_UNEX,
+      attendance: [{ type: "ncns" }, { type: "ncns" }], // 2 × 1 = 2 — under step 3
+      discipline: [],
+    });
+    await recordUnexcusedEntryAndDriveLadder(fake.tx, {
+      company_id: 1, employee_id: 42, log_date: "2026-05-29", hours: 8, type: "ncns", logged_by: 1,
+    });
+    assert.equal(fake.disciplineInserts.length, 0);
   });
   it("tardy counter is independent (uses tardy_occurrence_steps, tardy_warning)", async () => {
     const fake = makeFakeTx({ tardySteps: PHES_TARDY, attendance: [{}, {}, {}], discipline: [] });

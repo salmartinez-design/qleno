@@ -378,13 +378,19 @@ async function buildBalancesForUser(
           .select({
             notes: employeeAttendanceLogTable.notes,
             is_protected: employeeAttendanceLogTable.protected,
+            type: employeeAttendanceLogTable.type,
           })
           .from(employeeAttendanceLogTable)
           .where(
             and(
               eq(employeeAttendanceLogTable.company_id, companyId),
               eq(employeeAttendanceLogTable.employee_id, userId),
-              eq(employeeAttendanceLogTable.type, "absent"),
+              // [ncns-parity 2026-08-21] NCNS spends the bank too. Filtering to
+              // 'absent' alone meant a no-call/no-show consumed 0 of the 40
+              // hours here while buildAttendanceSummary's copy of this number
+              // (unexcused.hours_used) had the same gap — two readers agreeing
+              // on the wrong answer is not corroboration.
+              inArray(employeeAttendanceLogTable.type, ["absent", "ncns"]),
               gte(employeeAttendanceLogTable.log_date, byStart),
               // [window-upper-bound 2026-07-30] Third site of the same bug the
               // attendance summary had: benefit-year-to-date needs a ceiling,
@@ -394,7 +400,9 @@ async function buildBalancesForUser(
             ),
           );
         const usedHrs = round2(
-          logs.filter((r) => !r.is_protected).reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
+          logs
+            .filter((r) => r.type === "ncns" || !r.is_protected)
+            .reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
         );
         const cap = Number(b.annual_cap_hours) || 0;
         const netUnex = round2(cap - usedHrs);
@@ -988,6 +996,16 @@ router.delete("/attendance/:id", officeReadGate, async (req, res) => {
         }
       } catch { /* audit best-effort */ }
     }
+    // [90d-composite 2026-08-21] Removing a mistaken absence/tardy has to give
+    // the attendance sub-score back, not leave the tech penalised until 3 AM.
+    // The office deletes a wrong entry precisely because it was wrong; the
+    // score is the thing they're trying to correct.
+    try {
+      const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
+      await recomputeCompositeScore(companyId, row.employee_id);
+    } catch (e: any) {
+      console.error("[scorecard-composite] recompute after attendance delete failed (non-fatal):", e?.message ?? e);
+    }
     return res.json({ ok: true });
   } catch (err) {
     console.error("attendance delete error:", err);
@@ -1156,7 +1174,12 @@ async function buildAttendanceSummary(
       : /\bauto:/i.test(r.notes ?? "") ? "auto-detected" : "imported record";
   const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
-  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
+  // [ncns-parity 2026-08-21] NCNS belongs in the Unexcused tile. It was
+  // filtered to type='absent' alone, so a No-Call/No-Show — the most unexcused
+  // thing on the list — showed up in Absent and nowhere else. NCNS is never
+  // protected (a procedural notice violation stands regardless of PLAWA
+  // balance), which is why it isn't subject to the !is_protected test.
+  const unexRows = att.filter((r) => r.type === "ncns" || (r.type === "absent" && !r.is_protected)).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
@@ -1269,16 +1292,28 @@ async function buildAttendanceSummary(
   );
   const scheduledDayCount = scheduledDates.size;
   const workedDayCount = workedDates.length;
-  const lateDayCount = workedDates.filter((d) => tardyDates.has(d)).length;
+  // [ring-tile-parity 2026-08-21] Count every tardy date that isn't excluded as
+  // absent/leave, not just those still carrying a live job assignment. Scoping
+  // this to `workedDates` meant a tardy whose job was later cancelled or
+  // reassigned dropped out of the ring while staying in the Tardy tile — the
+  // card then read "100% on time" directly beside "Tardy 1", the same
+  // contradiction the total_jobs fix above was meant to end. The denominator
+  // widens to match so the rate can't exceed 100%.
+  const ringDates = new Set(workedDates);
+  for (const d of tardyDates) {
+    if (!absentDates.has(d) && !leaveDates.has(d)) ringDates.add(d);
+  }
+  const lateDayCount = [...ringDates].filter((d) => tardyDates.has(d)).length;
   const absentDayCount = [...absentDates].filter((d) => scheduledDates.has(d)).length;
   // FLOOR, not round: 621/622 = 99.84% must not present as a clean 100% while a
   // tardy sits in the same card. A perfect record is the only thing that shows
   // 100. Null (not 0%) when there is nothing to measure — an employee with no
   // scheduled days in the window has no on-time rate, and 0% would read as a
   // catastrophic one.
+  const ringDayCount = ringDates.size;
   const onTimePct =
-    workedDayCount > 0
-      ? Math.floor(((workedDayCount - lateDayCount) / workedDayCount) * 100)
+    ringDayCount > 0
+      ? Math.floor(((ringDayCount - lateDayCount) / ringDayCount) * 100)
       : null;
 
   // Unexcused disciplinary ladder (LMS-rule thresholds). The
@@ -1363,18 +1398,32 @@ async function buildAttendanceSummary(
   // needs these day rows (benefit-year scoped, same window as the occurrence
   // count) or it renders empty while the calendar shows the absence.
   const unexBenefitYearDays = byRows
-    .filter((r) => r.type === "absent" && !r.is_protected)
+    // [ncns-parity 2026-08-21] NCNS rows are unexcused history too — without
+    // them the View History modal renders short of the occurrence count above.
+    .filter((r) => r.type === "ncns" || (r.type === "absent" && !r.is_protected))
     .sort((a, b) => String(b.log_date).localeCompare(String(a.log_date)))
     .map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
-  const unexOccCount = byRows.filter((r) => r.type === "absent" && !r.is_protected).length;
+  // [ncns-parity 2026-08-21] Use the SAME counter the ladder writer uses
+  // (driveOccurrenceLadder → countUnexcusedOccurrences): absent = 1, NCNS = 2,
+  // protected = 0. This read counted plain absences only, at weight 1, so the
+  // card and the discipline it was supposed to explain disagreed: one absence
+  // plus one NCNS fires at 3 occurrences while the card still read "1". The
+  // office saw a Final Warning with nothing behind it.
+  const unexOccCount = countUnexcusedOccurrences(
+    byRows
+      .filter((r) => r.type === "absent" || r.type === "ncns")
+      .map((r) => ({ type: r.type, protected: r.is_protected })),
+  );
   const tardyOccCount = byRows.filter((r) => r.type === "tardy" && !r.is_protected).length;
   // [40hr-bank 2026-07-07] Sal: "Employees get 40 hours of unexcused." The
   // bucket card shows hours consumed against the tenant's annual allowance
   // (leave_types office_recorded cap, PHES = 40) alongside the occurrence
   // ladder — discipline still fires on OCCURRENCES per the handbook tables.
+  // [ncns-parity 2026-08-21] A no-call/no-show burns the 40-hour bank like any
+  // other unexcused day; it was spending zero.
   const unexHoursUsed = round2(
     byRows
-      .filter((r) => r.type === "absent" && !r.is_protected)
+      .filter((r) => r.type === "ncns" || (r.type === "absent" && !r.is_protected))
       .reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
   );
   let unexHoursCap: number | null = null;
@@ -2772,6 +2821,19 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
         });
       }
     } catch { /* audit best-effort */ }
+  }
+  // [90d-composite 2026-08-21] A recorded absence/tardy/NCNS moves the tech's
+  // attendance sub-score, so refresh the rolling composite now. This is the
+  // form the office actually uses — the profile's "Record absence/tardy" button
+  // posts here, not to POST /hr-attendance (whose UI, HRAttendanceTab, is
+  // exported but mounted nowhere). Only that unmounted route recomputed, so in
+  // practice every office-recorded absence left the score stale until the 3 AM
+  // cron. Non-fatal: the record is already written and must stand either way.
+  try {
+    const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
+    await recomputeCompositeScore(companyId, Number(body.employee_id));
+  } catch (e: any) {
+    console.error("[scorecard-composite] recompute after unexcused record failed (non-fatal):", e?.message ?? e);
   }
   if (!result.ladder_eval.triggered_step) {
     // attendance_log_id lets the client attach files (photos / doctor's note)
