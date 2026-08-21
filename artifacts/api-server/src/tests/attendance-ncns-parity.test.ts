@@ -211,6 +211,43 @@ describe("unexcused absences are detected without anyone clicking a button", () 
     );
   });
 
+  it("the cron is behind backgroundWorkersAllowed, like every other worker", () => {
+    // CLAUDE.md, hard rule: "Any new cron, interval worker or boot-time data
+    // task must go behind backgroundWorkersAllowed() or RUN_DATA_MIGRATIONS."
+    // This is load-bearing here in a way it isn't for a read-only job: every
+    // Railway PR preview inherits the production DATABASE_URL byte for byte, so
+    // an ungated scan would have a dozen preview environments inserting
+    // proposals into the live database at 1 AM. The existing preview-isolation
+    // suite tests the gate FUNCTION; nothing tested that a given cron actually
+    // sits behind it.
+    const fnStart = index.indexOf("function startNotificationCron()");
+    assert.ok(fnStart > 0, "startNotificationCron not found — anchor moved");
+    // Walk braces to find the function's real end rather than guessing.
+    const open = index.indexOf("{", fnStart);
+    let depth = 0, end = -1;
+    for (let i = open; i < index.length; i++) {
+      if (index[i] === "{") depth++;
+      else if (index[i] === "}") {
+        depth--;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    assert.ok(end > open, "could not find the end of startNotificationCron");
+    const body = index.slice(open, end);
+    assert.ok(
+      body.includes("runAttendanceScanCron()"),
+      "the scan cron must live inside startNotificationCron, which is gated",
+    );
+    // ...and that function must only ever be started behind the gate.
+    const callSite = index.indexOf("startNotificationCron();");
+    assert.ok(callSite > 0, "startNotificationCron is never started");
+    const preceding = index.slice(Math.max(0, callSite - 400), callSite);
+    assert.ok(
+      preceding.includes("backgroundWorkersAllowed()"),
+      "startNotificationCron must be started only when background workers are allowed",
+    );
+  });
+
   it("the cron only proposes — it never records attendance or discipline itself", () => {
     // The whole safety argument for running this unattended. If this ever
     // starts writing employee_attendance_log directly, the office loses the
