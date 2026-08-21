@@ -25,6 +25,7 @@ import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./li
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
 import { runAutoTardySweep } from "./lib/auto-tardy.js";
+import { runAttendanceScanCron } from "./lib/attendance-scan.js";
 import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
 import { runMileageAutoCompute } from "./lib/mileage-auto-cron.js";
 import { runSuspensionReminders } from "./lib/suspension.js";
@@ -135,6 +136,22 @@ function startNotificationCron() {
       const yd = new Date(`${ctDate}T00:00:00Z`);
       yd.setUTCDate(yd.getUTCDate() - 1);
       runAutoTardySweep(yd.toISOString().slice(0, 10)).catch((e: Error) => console.error("[cron] auto_tardy error:", e));
+    }
+    // [attendance-scan-cron 2026-08-21] Same 1 AM tick → scan YESTERDAY for
+    // unexcused-absence discrepancies in every tenant. Tardies have been swept
+    // nightly since 2026-07-07; absences never were. The scanner's only caller
+    // was the dispatch board's "Run scan" button, scoped to the one date the
+    // operator was looking at, so an office that never clicked it had an empty
+    // Attendance tab and a ladder that never advanced.
+    //
+    // This writes PENDING PROPOSALS only — never employee_attendance_log, never
+    // a discipline row. A human still confirms each one. So unlike the tardy
+    // sweep this cannot discipline anyone on its own; it fills the review queue
+    // and stops. Idempotent (ON CONFLICT DO NOTHING on the proposal key), so a
+    // re-run can't duplicate or resurrect a dismissed proposal.
+    if (ctH === 1 && fired["attendance_scan"] !== `${ctDate}-1`) {
+      fired["attendance_scan"] = `${ctDate}-1`;
+      runAttendanceScanCron().catch((e: Error) => console.error("[cron] attendance_scan error:", e));
     }
     // 2 AM CT → leave accrual: grant-on-eligibility (90-day sick / 1-year
     // PTO gates) + work-anniversary reset (re-front-load on each employee's

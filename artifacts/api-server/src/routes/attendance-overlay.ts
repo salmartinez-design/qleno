@@ -38,8 +38,6 @@ import { db } from "@workspace/db";
 import {
   attendanceProposalsTable,
   jobsTable,
-  jobTechniciansTable,
-  jobClockEventsTable,
   leaveRequestsTable,
   usersTable,
   clientsTable,
@@ -56,18 +54,11 @@ import {
   sql,
 } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
-import { parseScheduledTime } from "../lib/parse-scheduled-time.js";
-import {
-  type ApprovedLeaveWindow,
-  type ClockEventForOverlay,
-  type ScheduledAssignment,
-} from "../lib/attendance-discrepancy.js";
 // Re-export DB-free helpers so existing route consumers (and the test
 // suite) continue to import from this module. The handler bodies
 // themselves live in `lib/attendance-overlay-handlers.ts` so tests
 // can drive them with a fake tx without booting drizzle.
 import {
-  addDaysIso,
   confirmProposalWithTx,
   runScanInsertLoop,
   toChicagoDate,
@@ -78,6 +69,7 @@ import {
   type RunScanInsertLoopOutput,
 } from "../lib/attendance-overlay-handlers.js";
 import { validateScanWindow } from "../lib/scan-window.js";
+import { runAttendanceScanForCompany } from "../lib/attendance-scan.js";
 import { tzOf } from "../lib/company-tz.js";
 
 export {
@@ -123,188 +115,11 @@ router.post("/scan", async (req, res) => {
   });
   if (!v.ok) return res.status(v.status).json({ error: "Bad Request", message: v.message, code: v.code });
 
-  // 1) Scheduled assignments in the window. Union jobs.assigned_user_id
-  //    (the legacy single-tech mirror) with job_technicians rows. Skip
-  //    cancelled jobs and rows with no scheduled_date (defensive — the
-  //    column is NOT NULL on jobs, but defensive against future schema
-  //    drift).
-  const jobsRaw = await db
-    .select({
-      id: jobsTable.id,
-      scheduled_date: jobsTable.scheduled_date,
-      scheduled_time: jobsTable.scheduled_time,
-      estimated_hours: jobsTable.estimated_hours,
-      assigned_user_id: jobsTable.assigned_user_id,
-      status: jobsTable.status,
-    })
-    .from(jobsTable)
-    .where(
-      and(
-        eq(jobsTable.company_id, companyId),
-        gte(jobsTable.scheduled_date, v.from_date),
-        lte(jobsTable.scheduled_date, v.to_date),
-      ),
-    );
-  const activeJobs = jobsRaw.filter(
-    (j) => j.status !== "cancelled" && j.scheduled_date != null,
-  );
-
-  const jobIds = activeJobs.map((j) => j.id);
-  const techRows: Array<{ job_id: number; user_id: number }> =
-    jobIds.length === 0
-      ? []
-      : await db
-          .select({
-            job_id: jobTechniciansTable.job_id,
-            user_id: jobTechniciansTable.user_id,
-          })
-          .from(jobTechniciansTable)
-          .where(
-            and(
-              eq(jobTechniciansTable.company_id, companyId),
-              inArray(jobTechniciansTable.job_id, jobIds),
-            ),
-          );
-
-  // Build (job_id, user_id, scheduled_date, scheduled_time_minutes, estimated_hours)
-  // assignment tuples. Filter by optional user_id scope.
-  const assignmentSet = new Map<string, ScheduledAssignment>();
-  const keyOf = (jobId: number, userId: number, date: string) =>
-    `${jobId}|${userId}|${date}`;
-  for (const j of activeJobs) {
-    const time_minutes = parseScheduledTime(j.scheduled_time);
-    const est = j.estimated_hours != null ? Number(j.estimated_hours) : null;
-    const seen = new Set<number>();
-    if (j.assigned_user_id != null) seen.add(j.assigned_user_id);
-    for (const r of techRows) {
-      if (r.job_id === j.id) seen.add(r.user_id);
-    }
-    for (const uid of seen) {
-      if (v.user_id != null && uid !== v.user_id) continue;
-      const k = keyOf(j.id, uid, String(j.scheduled_date));
-      if (assignmentSet.has(k)) continue;
-      assignmentSet.set(k, {
-        job_id: j.id,
-        user_id: uid,
-        scheduled_date: String(j.scheduled_date),
-        scheduled_time_minutes: time_minutes,
-        estimated_hours: est,
-      });
-    }
-  }
-  const assignments = Array.from(assignmentSet.values());
-
-  // 2) Clock events: include a 1-day margin for cross-midnight shifts.
-  const evWindowStart = addDaysIso(v.from_date, -1);
-  const evWindowEndExclusive = addDaysIso(v.to_date, 2); // gives margin past the last day
-  const userIds = Array.from(new Set(assignments.map((a) => a.user_id)));
-  const eventRows =
-    jobIds.length === 0 || userIds.length === 0
-      ? []
-      : await db
-          .select({
-            id: jobClockEventsTable.id,
-            job_id: jobClockEventsTable.job_id,
-            user_id: jobClockEventsTable.user_id,
-            event_type: jobClockEventsTable.event_type,
-            event_at: jobClockEventsTable.event_at,
-            is_correction: jobClockEventsTable.is_correction,
-            correction_of_event_id: jobClockEventsTable.correction_of_event_id,
-            gps_status: jobClockEventsTable.gps_status,
-            latitude: jobClockEventsTable.latitude,
-            longitude: jobClockEventsTable.longitude,
-            exception_reason: jobClockEventsTable.exception_reason,
-            exception_reviewed_at: jobClockEventsTable.exception_reviewed_at,
-          })
-          .from(jobClockEventsTable)
-          .where(
-            and(
-              eq(jobClockEventsTable.company_id, companyId),
-              inArray(jobClockEventsTable.job_id, jobIds),
-              inArray(jobClockEventsTable.user_id, userIds),
-              gte(
-                jobClockEventsTable.event_at,
-                new Date(`${evWindowStart}T00:00:00Z`),
-              ),
-              lte(
-                jobClockEventsTable.event_at,
-                new Date(`${evWindowEndExclusive}T00:00:00Z`),
-              ),
-            ),
-          );
-
-  const events: ClockEventForOverlay[] = eventRows.map((e) => {
-    const at = e.event_at instanceof Date ? e.event_at : new Date(String(e.event_at));
-    return {
-      id: e.id,
-      job_id: e.job_id,
-      user_id: e.user_id,
-      event_type: e.event_type as "clock_in" | "clock_out",
-      event_at: at,
-      event_date: toChicagoDate(at, tzOf(companyId)),
-      event_minutes_of_day: toChicagoMinutesOfDay(at, tzOf(companyId)),
-      is_correction: !!e.is_correction,
-      correction_of_event_id: e.correction_of_event_id ?? null,
-      gps_status: e.gps_status,
-      latitude: e.latitude as number | string | null,
-      longitude: e.longitude as number | string | null,
-      exception_reason: e.exception_reason,
-      exception_reviewed_at: e.exception_reviewed_at as Date | string | null,
-    };
-  });
-
-  // 3) Approved leave windows overlapping the scan window.
-  const leaveRows =
-    userIds.length === 0
-      ? []
-      : await db
-          .select({
-            id: leaveRequestsTable.id,
-            user_id: leaveRequestsTable.user_id,
-            start_date: leaveRequestsTable.start_date,
-            end_date: leaveRequestsTable.end_date,
-            hours: leaveRequestsTable.hours,
-          })
-          .from(leaveRequestsTable)
-          .where(
-            and(
-              eq(leaveRequestsTable.company_id, companyId),
-              eq(leaveRequestsTable.status, "approved"),
-              inArray(leaveRequestsTable.user_id, userIds),
-              lte(leaveRequestsTable.start_date, v.to_date),
-              gte(leaveRequestsTable.end_date, v.from_date),
-            ),
-          );
-  const leaves: ApprovedLeaveWindow[] = leaveRows.map((l) => ({
-    leave_request_id: l.id,
-    user_id: l.user_id,
-    start_date: String(l.start_date),
-    end_date: String(l.end_date),
-    hours: Number(l.hours),
-  }));
-
-  // 4) Classify + insert. Per-assignment small txn (ON CONFLICT DO NOTHING).
-  const now = new Date();
-  const nowDate = toChicagoDate(now, tzOf(companyId));
-  const nowMinutes = toChicagoMinutesOfDay(now, tzOf(companyId));
-
-  const counts = await runScanInsertLoop(db, {
-    companyId,
-    assignments,
-    events,
-    leaves,
-    nowMinutes,
-    nowDate,
-  });
-
-  return res.json({
-    data: {
-      scanned_assignments: assignments.length,
-      ...counts,
-      from_date: v.from_date,
-      to_date: v.to_date,
-    },
-  });
+  // [attendance-scan-cron 2026-08-21] The scan body moved to
+  // lib/attendance-scan.ts so the nightly cron can run the same engine. This
+  // route is now validation + delegation; the behavior is unchanged.
+  const data = await runAttendanceScanForCompany(companyId, v.from_date, v.to_date, v.user_id);
+  return res.json({ data });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
