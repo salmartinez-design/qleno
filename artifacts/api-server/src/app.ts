@@ -10,6 +10,7 @@ import squareWebhookRouter from "./routes/square-webhook.js";
 import { publicOAuthRouter } from "./routes/oauth.js";
 import { resolveShortLink } from "./lib/short-link.js";
 import { isAppReady } from "./lib/readiness.js";
+import { previewReadOnlyGuard } from "./lib/preview-guard.js";
 
 const __appDir: string =
   typeof __dirname !== "undefined"
@@ -21,6 +22,13 @@ const app: Express = express();
 app.set("trust proxy", 1);
 
 app.use(cors());
+
+// ── Preview isolation ───────────────────────────────────────────────────────
+// A Railway PR preview carries the production DATABASE_URL, so it is refused
+// write access to it. First in the chain, ahead of the payment webhook routers
+// below, so nothing can slip past. Inert in production and on a laptop.
+// See lib/preview-guard.ts.
+app.use(previewReadOnlyGuard);
 
 // ── Stripe Webhook — raw body BEFORE express.json() ─────────────────────────
 // Stripe requires the raw request body to validate HMAC signatures.

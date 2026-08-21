@@ -424,6 +424,22 @@ files or pays it.)*
   one narrower sense: do NOT import the legacy app's `subscriptions` table or
   its second auth system — those are what "mixing" meant.)*
 
+- **Only production may write to production.** Every Railway PR preview
+  environment inherits the production variable set byte for byte — same
+  `DATABASE_URL`, same `JWT_SECRET`, same live Stripe / Square / Twilio /
+  Resend keys, plus `COMMS_ENABLED=true` and `NODE_ENV=production`. A preview
+  is therefore a second production server, and there are usually a dozen of
+  them live at once. `lib/preview-guard.ts` is what keeps them harmless:
+  on any `RAILWAY_ENVIRONMENT` other than `production` it refuses every
+  non-GET request, deletes the live sender keys out of `process.env`, and
+  stops all crons and interval workers from starting. Set
+  `PREVIEW_ALLOW_WRITES=true` on ONE preview to re-open database writes for a
+  deliberate end-to-end test; that hatch never re-arms the senders and never
+  starts the workers. `NODE_ENV` does NOT tell production and preview apart —
+  only `RAILWAY_ENVIRONMENT` does, so never gate an environment decision on
+  `NODE_ENV === "production"`. Any new cron, interval worker or boot-time data
+  task must go behind `backgroundWorkersAllowed()` or `RUN_DATA_MIGRATIONS`.
+
 ## Database Rules
 - All data scoped by company_id — every query must filter by company_id
 - Always dry-run before any destructive DB operation
