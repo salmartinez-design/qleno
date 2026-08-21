@@ -1,6 +1,6 @@
 # Attendance Scoring — Session Handoff
 
-**Written:** 2026-08-21 · **Updated:** 2026-08-21 17:40Z · **Branch:** `claude/attendance-score-impact-ulc09d` · **PR:** #1558 (draft, green, head `2ae6f18`)
+**Written:** 2026-08-21 · **Updated:** 2026-08-21 19:45Z · **Branch:** `claude/attendance-score-impact-ulc09d` · **PR:** #1558 (draft, green, 7 commits)
 
 **To resume:** start a session with database access and say *"Read `docs/ATTENDANCE_SCORING_HANDOFF.md` and continue."*
 
@@ -26,7 +26,7 @@ OPEN QUESTION.
 
 ## 2. What is already fixed (PR #1558, draft, CI green)
 
-Five commits: `e282a2d` (the fix), `581cb75` (cron-gating test), `88764b2` (this doc), `f16162f` (NCNS weight 2 → 1) and `2ae6f18` (**the ladder-based attendance score — the headline change**).
+Seven commits. The load-bearing ones: `e282a2d` (nightly absence scan + display fixes), `f16162f` (NCNS weight 2 → 1), `2ae6f18` (**the ladder-based attendance score — the headline change**) and `6702a0d` (UI captions, so the screen stops claiming a 90-day window for attendance).
 
 | # | Was broken | Fix |
 |---|---|---|
@@ -118,7 +118,7 @@ One tardy goes from **0.21 → 5.00 points** off the total.
 | **Two ladders** | Show the **worse** of tardy vs unexcused. Do not average — that lets someone one tardy from termination read as mid-range. |
 | **NCNS** | *"Treat it as an unexcused absence is all. If it's a true no call no show then the office would make the decision to fire that employee not qleno."* → weight **1**. Qleno records that someone didn't show and didn't call; termination is a human decision made outside the system. |
 | **Anniversary reset** | Score jumps back to **100%**, matching the handbook's Benefit Year reset. |
-| **Other sub-scores** | Satisfaction and complaint-free **stay on rolling 90 days**. Only attendance has a ladder. **Relabel the UI** — the headline currently claims "rolling, trailing 90 days" for everything, which becomes false. |
+| **Other sub-scores** | Satisfaction and complaint-free **stay on rolling 90 days**. Only attendance has a ladder. ~~Relabel the UI~~ **DONE** (`6702a0d`) — headline now reads "Satisfaction + complaints: 90 days · Attendance: benefit year", and the attendance tile shows the ladder standing ("1 of 5 occurrences · this benefit year") instead of a 90-day day-count. |
 | **Tech visibility** | **Yes** — techs see their own attendance score. Matches the handbook they signed; gives warning before a write-up. Sal should give the team a heads-up before it lands. |
 | **Hire date** | *"All employees need to have hire date."* Make it required. No attendance score without one (show a dash, not a fake 100%), and flag those employees so the office can fill them in. |
 | **Blend weights** | Stay **60 / 25 / 15**. At 20 points per occurrence, attendance bites plenty without touching the split. |
@@ -224,8 +224,9 @@ disagree.
    `2ae6f18`. Ladder formula, tenant-derived termination rung, `null` on missing hire date,
    `ladderAttendancePct()` exported pure with 15 tests.
 4. **Run the impact preview** (§4.3). Show Sal before shipping.
-5. **Relabel the UI** — the "rolling, trailing 90 days" headline, and the three surfaces that print
-   `N% weight` (see §6). Attendance now says Benefit Year.
+5. ~~**Relabel the UI**~~ **DONE** — `6702a0d`. Office Performance Score tab and the tech panel both
+   updated; no "trailing 90 days" labels remain. The `N% weight` captions are unchanged and still
+   correct — the blend weights did not move.
 6. **Hire-date enforcement** — required on the employee form, plus a flag/list for existing gaps.
 7. **Backfill report** (§4.4), then Sal's call.
 
