@@ -300,8 +300,30 @@ export async function listAssistantWrites(companyId: number, limit = 50): Promis
 const REVERTABLE: Record<string, readonly string[]> = {
   jobs: ["scheduled_date", "scheduled_time", "assigned_user_id", "office_notes"],
   clients: ["email", "phone"],
+  // [owner-only-deactivate 2026-08-19] Deactivating a person is the one Group-C
+  // write that undoes cleanly, because it never destroyed anything: is_active
+  // flipped, future work fell to Unassigned, completed jobs kept their
+  // assignment. Putting the flag back restores the account. It does NOT put the
+  // released jobs back on that person — that is a dispatch decision, and
+  // silently re-assigning work the office has since given to somebody else
+  // would be the reverting-somebody-else's-fix mistake this whole file guards
+  // against. The revert message below says so rather than leaving it implied.
+  users: ["is_active"],
 };
 const REVERTABLE_TABLES = new Set(Object.keys(REVERTABLE));
+
+// What to tell the office when a change is on a table Revert does not drive.
+// The generic line ("make the correction in Qleno directly") is true but
+// unhelpful when the correction has an obvious name and place.
+const NOT_REVERTABLE_HINT: Record<string, string> = {
+  quotes:
+    "A quote cannot be un-sent — the customer already has the email. Open the quote in Qleno " +
+    "to edit and re-send it, or mark it lost.",
+  recurring_schedules:
+    "A recurring schedule cannot be reverted automatically, because visits have already been " +
+    "generated from it. Open the client's schedule in Qleno to change the cadence or cancel it, " +
+    "which also decides what happens to the visits already on the board.",
+};
 
 export type RevertOutcome =
   | { ok: true; summary: string }
@@ -346,7 +368,8 @@ export async function revertAssistantWrite(opts: {
   if (!allowed) {
     return {
       ok: false, status: 400, error: "not_revertable",
-      message: `Changes to ${table} cannot be reverted automatically. Make the correction in Qleno directly.`,
+      message: NOT_REVERTABLE_HINT[table]
+        ?? `Changes to ${table} cannot be reverted automatically. Make the correction in Qleno directly.`,
     };
   }
 
@@ -369,6 +392,8 @@ export async function revertAssistantWrite(opts: {
   // as compare as the same thing rather than as Date vs "2026-08-20".
   const cols = table === "jobs"
     ? sql`to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date, scheduled_time, assigned_user_id, office_notes`
+    : table === "users"
+    ? sql`is_active`
     : sql`email, phone`;
   const cur = await db.execute(sql`
     SELECT ${cols} FROM ${sql.raw(table)} WHERE id = ${targetId} AND company_id = ${companyId} LIMIT 1
@@ -400,6 +425,9 @@ export async function revertAssistantWrite(opts: {
     const v = prior[f];
     if (f === "scheduled_date") return sql`scheduled_date = ${asText(v)}::date`;
     if (f === "assigned_user_id") return sql`assigned_user_id = ${v == null ? null : Number(v)}`;
+    // A text parameter against a boolean column is a type error in Postgres,
+    // not a coercion — bind the boolean itself.
+    if (f === "is_active") return sql`is_active = ${v === true || v === "true"}`;
     return sql`${sql.raw(f)} = ${asText(v)}`;
   });
   await db.execute(sql`

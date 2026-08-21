@@ -27,6 +27,25 @@ import assert from "node:assert/strict";
 import { MCP_TOOLS, TOOLS_BY_NAME, toolsForScopes } from "../lib/mcp-tools.js";
 import { ALL_SCOPES, READ_SCOPES } from "../lib/api-keys.js";
 
+/**
+ * Minimum arguments a tool needs to build at all.
+ *
+ * Path ids are refused before interpolation, so a tool that takes one cannot be
+ * built from {} — and a test that skipped those tools would skip exactly the
+ * ones that change data.
+ */
+function sampleArgsFor(t: { inputSchema: { required?: string[]; properties: Record<string, unknown> } }): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const r of t.inputSchema.required ?? []) {
+    const type = (t.inputSchema.properties[r] as any)?.type;
+    args[r] = type === "integer" || type === "number" ? 1
+      : type === "array" ? [1]
+      : /date$/.test(r) ? "2026-08-19"
+      : "sample";
+  }
+  return args;
+}
+
 /** Helper: build a tool and assert it did not error out. */
 function built(name: string, args: Record<string, unknown> = {}) {
   const tool = TOOLS_BY_NAME.get(name);
@@ -59,15 +78,58 @@ test("every tool is well-formed and uniquely named", () => {
   }
 });
 
-test("every tool is read-only in Phase 3", () => {
-  // The moment this stops being true, the annotations in routes/mcp.ts stop
-  // being constant and a confirmation gate has to exist. Failing here is the
-  // reminder.
+// [mcp-writes 2026-08-19] This test used to assert the whole table was
+// read-only, which was true only while it was. Writes now ship, so the
+// invariant moves: a tool is read-only OR it declares itself a write in BOTH
+// places that matter, and the two can never disagree.
+//
+// They are separate declarations for a real reason. `writes: true` is read by
+// routes/mcp.ts BEFORE build() ever runs — it is what refuses a `company`
+// argument on a write, so a cross-tenant connection cannot change a row at a
+// business that never asked for an assistant. build().method is what actually
+// leaves the process. A tool that declared one and not the other would either
+// be a write that slipped the cross-tenant guard, or a read that got gated for
+// nothing. Neither is visible at runtime.
+test("read tools and write tools are each consistent about which they are", () => {
   for (const t of MCP_TOOLS) {
-    if (t.scope === undefined) continue;
-    assert.ok((READ_SCOPES as readonly string[]).includes(t.scope),
-      `${t.name} carries the write scope ${t.scope}; Phase 3 ships reads only`);
+    if (t.local) continue; // answered inside routes/mcp.ts; never dispatched
+    const out = t.build(sampleArgsFor(t));
+    assert.ok(!("error" in out), `${t.name} could not be built from its own required arguments: ${(out as any).error}`);
+    const method = (out as any).method ?? "GET";
+
+    if (t.writes) {
+      assert.notEqual(method, "GET", `${t.name} declares writes: true but dispatches a GET`);
+      assert.ok(t.scope && !(READ_SCOPES as readonly string[]).includes(t.scope),
+        `${t.name} changes data and must gate on a write scope, not ${t.scope}`);
+    } else {
+      assert.equal(method, "GET", `${t.name} dispatches ${method} without declaring writes: true — a cross-tenant connection could aim it at another company`);
+      assert.ok(t.scope === undefined || (READ_SCOPES as readonly string[]).includes(t.scope),
+        `${t.name} holds the write scope ${t.scope} but does not declare writes: true`);
+    }
   }
+});
+
+test("a write tool never advertises the cross-tenant company argument", () => {
+  // Reading the wrong tenant is a wrong answer somebody can question. Writing to
+  // the wrong tenant moves a real job at a real business.
+  for (const t of toolsForScopes([...ALL_SCOPES], true)) {
+    if (!t.writes) continue;
+    assert.ok(!("company" in t.inputSchema.properties),
+      `${t.name} changes data and must not offer a company argument`);
+  }
+});
+
+test("deactivating an employee is a write that stays revertable", () => {
+  // Sal is the only person who can deactivate. That makes an accidental one
+  // expensive to undo by hand, so the pair has to exist and has to be reachable
+  // with the same scope — a connection that can switch someone off and cannot
+  // switch them back is a trap.
+  const off = TOOLS_BY_NAME.get("deactivate_employee")!;
+  const on = TOOLS_BY_NAME.get("reactivate_employee")!;
+  assert.equal(off.scope, on.scope);
+  assert.equal((off.build({ employee_id: 38 }) as any).method, "DELETE");
+  assert.equal((on.build({ employee_id: 38 }) as any).method, "POST");
+  assert.match(off.description, /owner/i, "the owner-only rule must be stated to the model, not just enforced");
 });
 
 test("descriptions tell the model what it is looking at", () => {
@@ -108,7 +170,20 @@ test("every tool that returns money names the currency", () => {
 
   // The other side of the same coin: a tool that returns no money should not be
   // quietly added to the table without someone deciding which list it is on.
-  const accounted = new Set([...RETURNS_MONEY, "get_unassigned_work", "get_technician_load", "find_client", "get_efficiency", "list_companies"]);
+  // Write tools are on this list for the same reason: create_quote and
+  // create_recurring_schedule both take a price, and a price with no stated
+  // currency is how a model quotes a customer in the wrong unit.
+  const accounted = new Set([
+    ...RETURNS_MONEY,
+    "get_unassigned_work", "get_technician_load", "find_client", "get_efficiency", "list_companies",
+    "reschedule_job", "assign_technician", "add_job_note", "update_client_contact",
+    "create_quote", "send_quote", "create_recurring_schedule",
+    "create_employee", "deactivate_employee", "reactivate_employee",
+  ]);
+  for (const name of ["create_quote", "create_recurring_schedule", "create_employee"]) {
+    assert.match(TOOLS_BY_NAME.get(name)!.description, /US dollars/,
+      `${name} takes an amount and must say the unit`);
+  }
   for (const t of MCP_TOOLS) {
     assert.ok(accounted.has(t.name), `${t.name} is new — decide whether it returns money and add it to a list here`);
   }
@@ -128,9 +203,23 @@ test("tools/list only advertises what the key can actually call", () => {
 
   assert.equal(toolsForScopes([]).length, 0, "a key with no scopes sees no tools");
 
+  // A read-only key reaches every read tool and no write tool. Stated as two
+  // counts rather than one so a new write tool that forgot its scope shows up
+  // here as a read-only key suddenly being able to call it.
   const crossTenantOnly = MCP_TOOLS.filter((t) => t.crossTenantOnly).length;
-  assert.equal(toolsForScopes([...READ_SCOPES]).length, MCP_TOOLS.length - crossTenantOnly,
-    "a default read-only key reaches every Phase 3 tool except the cross-tenant ones");
+  const writeTools = MCP_TOOLS.filter((t) => t.writes).length;
+  assert.ok(writeTools > 0, "the write tools are gone — this test is measuring nothing");
+  const readOnlyKey = toolsForScopes([...READ_SCOPES]);
+  assert.equal(readOnlyKey.length, MCP_TOOLS.length - crossTenantOnly - writeTools,
+    "a read-only key reaches every read tool and nothing that changes data");
+  assert.ok(!readOnlyKey.some((t) => t.writes), "a read-only key was shown a tool that changes data");
+
+  // And the mirror: the two scopes an owner thinks hardest about hand out
+  // exactly the tools they name, and nothing adjacent.
+  assert.deepEqual(toolsForScopes(["employees:write"]).map((t) => t.name).sort(),
+    ["create_employee", "deactivate_employee", "reactivate_employee"]);
+  assert.deepEqual(toolsForScopes(["quotes:send"]).map((t) => t.name), ["send_quote"],
+    "sending a quote must not also hand over writing one");
 });
 
 // ── Cross-tenant ─────────────────────────────────────────────────────────────

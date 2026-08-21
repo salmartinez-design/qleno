@@ -41,6 +41,7 @@ export const READ_SCOPES = [
   "invoices:read",
   "payroll:read",
   "reports:read",
+  "quotes:read",
 ] as const;
 
 export const WRITE_SCOPES = [
@@ -49,6 +50,26 @@ export const WRITE_SCOPES = [
   "invoices:write",
   "comms:send",
   "payments:charge",
+  // [mcp-writes 2026-08-19] The office-workflow set. Sal: "I need to be able to
+  // prompt a quote and email it... add a new employee, delete one, move one to
+  // inactive status."
+  //
+  // `quotes:send` is deliberately its own scope and NOT folded into
+  // `comms:send`. They are different powers: comms:send is "message anyone
+  // anything", quotes:send is "email THIS quote to the address already on THIS
+  // quote". The second has a fixed recipient the tenant already chose and a
+  // fixed body the quote template renders, so a prompt injection buried in a
+  // client note cannot turn it into a channel. That difference is what makes it
+  // grantable to a chat connection when comms:send is not — see
+  // OAUTH_GRANTABLE_SCOPES in oauth.ts.
+  //
+  // `employees:write` covers onboarding and deactivation. Deactivation carries
+  // a further owner-only role check on top of the scope, because Sal is the only
+  // person at the office who may do it.
+  "quotes:write",
+  "quotes:send",
+  "schedules:write",
+  "employees:write",
 ] as const;
 
 export const ALL_SCOPES = [...READ_SCOPES, ...WRITE_SCOPES] as const;
@@ -59,9 +80,15 @@ export type ApiScope = (typeof ALL_SCOPES)[number];
 // injection buried in a client note.
 export const DEFAULT_SCOPES: ApiScope[] = [...READ_SCOPES];
 
-// These two move money and talk to customers. The UI requires a second,
-// explicit confirmation before either can be attached to a key.
-export const HIGH_RISK_SCOPES: ApiScope[] = ["comms:send", "payments:charge"];
+// These reach outside the app — money, customers, or a person's ability to log
+// in. The UI requires a second, explicit confirmation before any of them can be
+// attached to a key.
+export const HIGH_RISK_SCOPES: ApiScope[] = [
+  "comms:send",
+  "payments:charge",
+  "quotes:send",
+  "employees:write",
+];
 
 export function isValidScope(s: string): s is ApiScope {
   return (ALL_SCOPES as readonly string[]).includes(s);
