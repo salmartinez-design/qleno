@@ -71,6 +71,7 @@ import {
 import { acknowledgePendingReAcksForSign } from "./lms-annual-ack.js";
 import { isEnrollmentTrulyComplete } from "../lib/lms-completion.js";
 import { logAudit } from "../lib/audit.js";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -470,6 +471,7 @@ async function buildHandbookPdfForUser(args: {
 
   return generateComprehensiveHandbookPdf({
     tenantName: "Phes",
+    timeZone: tzOf(companyId),
     employeeName: learner.fullName,
     locale,
     pendingTranslationReview: content.pendingTranslationReview ?? false,

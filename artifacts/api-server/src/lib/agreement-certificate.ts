@@ -26,10 +26,20 @@ export interface AgreementCertData {
   verifyUrl?: string | null;
   consent: boolean;
   events: AgreementEvent[];
+  /**
+   * [omw-eta-tz 2026-08-21] IANA zone the timestamps render in.
+   * Defaults to Central when a caller does not pass one.
+   */
+  timeZone?: string | null;
 }
 
-const fmt = (iso: string) => {
-  try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); }
+// [omw-eta-tz 2026-08-21] The same server-timezone trap as the on-my-way ETA.
+// This certificate is the legal audit trail the client receives, and every
+// sent / viewed / signed / sealed stamp on it rendered in the container's UTC
+// clock - five hours ahead of the tenant. Callers pass tzOf(companyId); the
+// Central default keeps existing calls honest if one is ever missed.
+const fmt = (iso: string, timeZone: string = "America/Chicago") => {
+  try { return new Date(iso).toLocaleString("en-US", { timeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); }
   catch { return iso; }
 };
 const EVENT_LABEL: Record<string, string> = {
@@ -43,6 +53,7 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 export function renderAgreementCertificate(data: AgreementCertData): Promise<Buffer> {
+  const tz = data.timeZone || "America/Chicago";
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: "LETTER" });
     const chunks: Buffer[] = [];
@@ -80,7 +91,7 @@ export function renderAgreementCertificate(data: AgreementCertData): Promise<Buf
       doc.circle(left + 3, y + 5, 2.5).fill(MINT);
       doc.fillColor(INK).fontSize(10.5).font("Helvetica-Bold").text(EVENT_LABEL[e.type] || e.type, left + 14, y);
       y = doc.y;
-      const meta = [fmt(e.at), e.email || null, e.ip ? `IP ${e.ip}` : null, e.userAgent || null, e.by ? `by ${e.by}` : null].filter(Boolean).join("  ·  ");
+      const meta = [fmt(e.at, tz), e.email || null, e.ip ? `IP ${e.ip}` : null, e.userAgent || null, e.by ? `by ${e.by}` : null].filter(Boolean).join("  ·  ");
       doc.fillColor(MUTE).fontSize(9).font("Helvetica").text(meta, left + 14, y, { width: width - 14 });
       y = doc.y + 9;
     }
