@@ -217,6 +217,60 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
     for (const r of rows) assert.equal(r.amount, 40.0);
   });
 
+  it("[feesplit-no-rate] commercial job set to Fee split with no % pays the allowed-hours budget, not $0", () => {
+    // Juliana Loredo, 8/10/26, Jennifer Halper Common Areas: account job,
+    // 3.5 allowed hours, clocked 1.88h, office had set the timesheet to
+    // "Fee split" with no per-tech %. Commercial defaults carry scopePct 0
+    // (commercial pay is allowed hours x rate, never a share of the price), so
+    // the split resolved to 0% and paid $0 while still showing on payroll as
+    // "Fee split 0%". Must pay 3.5h x $20 = $70.
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 90, assigned_user_id: 42, account_id: 4, service_type: "common_areas",
+                   base_fee: "210", commission_base: "210", allowed_hours: "3.5" })],
+      jobTechs: [tech(90, 42, { is_primary: true, pay_type: "fee_split" })],
+      techHoursByKey: new Map([["90:42", 1.88]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].amount, 70.0);
+  });
+
+  it("[feesplit-no-rate] commercial Fee split with a real per-tech % is still honored", () => {
+    // The fallback only fires when there is NO rate to split by. An office that
+    // deliberately types a percentage on a commercial timesheet gets it.
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 91, assigned_user_id: 42, account_id: 4, service_type: "common_areas",
+                   base_fee: "210", commission_base: "210", allowed_hours: "3.5" })],
+      jobTechs: [tech(91, 42, { is_primary: true, pay_type: "fee_split", commission_pct: "0.30" })],
+      techHoursByKey: new Map([["91:42", 1.88]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 63.0); // $210 x 30%
+  });
+
+  it("[feesplit-no-rate] residential Fee split is untouched by the fallback", () => {
+    // Residential defaults already carry a real scope %, so the guard never
+    // fires there — the standard 35% split still applies.
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 92, assigned_user_id: 1, service_type: "standard_clean",
+                   base_fee: "260", commission_base: "260", allowed_hours: "4" })],
+      jobTechs: [tech(92, 1, { is_primary: true, pay_type: "fee_split" })],
+      techHoursByKey: new Map([["92:1", 3.6]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 91.0); // $260 x 35%
+  });
+
+  it("[feesplit-no-rate] an explicit 0% on a commercial job stays $0 (office decision)", () => {
+    const r = resolveTechPayInput({
+      user_id: 42, techHours: 1.88,
+      overridePayType: "fee_split", overrideHourlyRate: null, overridePct: 0,
+      defaults: { payType: "allowed_hours", hourlyRate: 20, scopePct: 0 },
+    });
+    assert.equal(r.payType, "fee_split");
+    assert.equal(r.scopePct, 0);
+  });
+
   it("PRE-CLOCK: hourly trainee excluded — the veteran takes the WHOLE pool", () => {
     const rows = computePerTechCommissionRows({
       jobs: [job({ id: 13, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
