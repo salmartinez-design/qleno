@@ -508,6 +508,20 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office", "super_adm
       return res.status(403).json({ error: "Forbidden", message: "Only the owner can create an owner account." });
     }
 
+    // [attendance-ladder 2026-08-21] Hire date is required for anyone who is
+    // actually employed. It anchors the benefit year, which is the window the
+    // attendance sub-score counts occurrences over and the date leave balances
+    // reset on. Without it the attendance score cannot be computed at all and
+    // the employee's performance score reads as a dash indefinitely — a silent
+    // gap nobody notices until a review. An accountant is a view-only login,
+    // not staff, so it stays optional for that role only.
+    if (effectiveRole !== "accountant" && !hire_date) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: "hire_date is required — it sets the benefit year that attendance and leave are counted over.",
+      });
+    }
+
     const tempPassword = onboardingTempPassword();
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
@@ -1681,7 +1695,17 @@ router.post(
           message: "Role must be technician, team_lead, or admin",
         });
       }
-      if (hire_date != null && !isValidIsoDate(hire_date)) {
+      // [attendance-ladder 2026-08-21] Required, same reason as POST /api/users:
+      // no hire date means no benefit year, which means no attendance score at
+      // all. Every role this endpoint accepts (technician, team_lead, admin) is
+      // a real employee.
+      if (!hire_date) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "hire_date is required — it sets the benefit year that attendance and leave are counted over.",
+        });
+      }
+      if (!isValidIsoDate(hire_date)) {
         return res.status(400).json({
           error: "Bad Request",
           message: "hire_date must be YYYY-MM-DD",

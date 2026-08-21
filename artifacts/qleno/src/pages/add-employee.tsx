@@ -39,9 +39,17 @@ export default function AddEmployeePage() {
   const [form, setForm] = useState<Form>(EMPTY);
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm(p => ({ ...p, [k]: v }));
-  const canSave = form.first_name.trim() && form.email.trim() && !saving;
   // A view-only accountant is not a paid employee — no pay structure.
   const isAccountant = form.role === "accountant";
+  // [attendance-ladder 2026-08-21] Hire date is required for anyone who is
+  // actually employed. It anchors the benefit year, and the benefit year is
+  // the window the attendance sub-score counts occurrences over — with no hire
+  // date there is no window, so the score cannot be computed at all and the
+  // employee's performance score reads as a dash forever. Leave balances reset
+  // on the same anniversary. An accountant is a view-only login, not staff, so
+  // the field is hidden and not required for that role.
+  const canSave = form.first_name.trim() && form.email.trim()
+    && (isAccountant || form.hire_date) && !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -61,7 +69,7 @@ export default function AddEmployeePage() {
           city: form.city.trim() || undefined,
           state: form.state.trim() || undefined,
           zip: form.zip.trim() || undefined,
-          hire_date: isAccountant ? undefined : (form.hire_date || undefined),
+          hire_date: isAccountant ? undefined : form.hire_date,
           // Omit pay entirely for a view-only accountant — no pay record.
           pay_type: isAccountant ? undefined : form.pay_type,
           pay_rate: isAccountant ? undefined : (form.pay_rate.trim() || undefined),
@@ -134,7 +142,7 @@ export default function AddEmployeePage() {
                 {field("zip", "Zip")}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
-                {field("hire_date", "Hire date", { type: "date" })}
+                {field("hire_date", "Hire date", { type: "date", required: true })}
                 <div>
                   <label style={label}>Pay type</label>
                   <select style={input} value={form.pay_type} onChange={e => set("pay_type", e.target.value)}>
@@ -145,6 +153,10 @@ export default function AddEmployeePage() {
                 </div>
                 {field("pay_rate", "Pay rate", { type: "number" })}
               </div>
+              <p style={{ margin: "-8px 0 0", fontSize: "12px", color: "#9E9B94" }}>
+                Hire date is required. It sets the benefit year that attendance
+                occurrences and leave balances are counted over.
+              </p>
             </>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "4px" }}>
