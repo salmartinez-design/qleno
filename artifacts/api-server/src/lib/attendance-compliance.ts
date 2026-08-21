@@ -15,9 +15,17 @@
  *
  *   2. Occurrence weighting. The disciplinary ladder counts INCIDENTS per
  *      benefit year. A protected (PLAWA-covered, proper-notice) absence counts
- *      ZERO. A plain unexcused absence counts 1. A No-Call/No-Show counts 2 —
- *      it's a procedural notice violation the state lets us penalize, and it
- *      counts regardless of remaining PLAWA balance.
+ *      ZERO. A plain unexcused absence counts 1. A No-Call/No-Show also counts
+ *      1 — Qleno records that someone didn't show and didn't call, and the
+ *      office decides what that's worth. It still counts regardless of
+ *      remaining PLAWA balance, because the missing notice is procedural.
+ *
+ *      [ncns-weight 2026-08-21] NCNS was 2. Sal: "Treat it as an unexcused
+ *      absence is all. If it's a true no call no show then the office would
+ *      make the decision to fire that employee not qleno." The handbook calls
+ *      a single NCNS grounds for immediate termination, which a 2-of-5 rung
+ *      could never express anyway — firing is a human decision, so the system
+ *      records a plain unexcused absence and stops there.
  *
  * NONE of this is legal advice — it encodes the office's written policy for
  * review, and no dollars or terminations move automatically from these numbers.
@@ -26,8 +34,11 @@
 /** Phes's PLAWA minimum-increment. IL caps the employer-set minimum at 2h. */
 export const MIN_PLAWA_INCREMENT_HOURS = 2;
 
-/** A No-Call/No-Show weighs this many occurrences on the unexcused ladder. */
-export const NCNS_OCCURRENCE_WEIGHT = 2;
+/**
+ * A No-Call/No-Show weighs this many occurrences on the unexcused ladder.
+ * Same as a plain unexcused absence — see [ncns-weight 2026-08-21] above.
+ */
+export const NCNS_OCCURRENCE_WEIGHT = 1;
 
 /**
  * Floor a PLAWA deduction to the minimum increment.
@@ -71,9 +82,9 @@ export interface OccurrenceRow {
  * Count unexcused-ladder occurrences from a set of attendance rows.
  *
  * Protected rows never count (PLAWA covers them). Plain unexcused absences
- * count 1 each. No-Call/No-Shows count {@link NCNS_OCCURRENCE_WEIGHT} each and
- * are NEVER treated as protected — a procedural violation stands regardless of
- * PLAWA balance.
+ * count 1 each. No-Call/No-Shows count {@link NCNS_OCCURRENCE_WEIGHT} each —
+ * the same 1 — and are NEVER treated as protected: the missing notice is a
+ * procedural violation that stands regardless of PLAWA balance.
  */
 export function countUnexcusedOccurrences(rows: ReadonlyArray<OccurrenceRow>): number {
   let count = 0;

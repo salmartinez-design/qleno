@@ -5,7 +5,7 @@
  * Sal, 8/21: "so we do have problem and it's not working."
  *
  * THE BUG. `countUnexcusedOccurrences` is the canonical counter — absent = 1,
- * NCNS = 2, protected = 0 — and the ladder WRITER drives discipline through it
+ * NCNS = 1, protected = 0 — and the ladder WRITER drives discipline through it
  * (driveOccurrenceLadder, over types ['absent','ncns']). Four readers on the
  * employee-profile Attendance card instead filtered to `type === 'absent'`
  * alone, so a No-Call/No-Show — the most unexcused thing on the list — counted
@@ -16,9 +16,13 @@
  *   • unexcused.hours_used    (the 40-hour bank, summary copy)
  *   • balances used_hours     (the 40-hour bank, balances-route copy)
  *
- * Net effect: one absence + one NCNS fires the ladder at 3 occurrences and can
- * mint a Final Warning, while the card still reads "1 of 2 occurrences to
- * written warning". The office sees a write-up with nothing behind it.
+ * Net effect: one absence + one NCNS fires the ladder at 2 occurrences and can
+ * mint a warning, while the card still reads "1 of 3 occurrences to written
+ * warning". The office sees a write-up with nothing behind it.
+ *
+ * [ncns-weight 2026-08-21] NCNS was weighted 2 when this test was written.
+ * It is 1 now — the parity property under test is unchanged (the card must
+ * count what the ladder counts); only the arithmetic moved.
  *
  * A third reader — GET /leave/reliability — already used the canonical helper,
  * which is what made the disagreement visible.
@@ -55,16 +59,18 @@ const summary = () => {
 };
 
 describe("the weights themselves", () => {
-  it("an NCNS is worth two occurrences", () => {
-    assert.equal(NCNS_OCCURRENCE_WEIGHT, 2);
+  it("an NCNS is worth one occurrence — a plain unexcused absence", () => {
+    // [ncns-weight 2026-08-21] Was 2. Qleno records the no-show; the office
+    // decides whether it's a firing. See lib/attendance-compliance.ts.
+    assert.equal(NCNS_OCCURRENCE_WEIGHT, 1);
   });
 
-  it("one absence + one NCNS = 3, which is what the card must show", () => {
+  it("one absence + one NCNS = 2, which is what the card must show", () => {
     const rows = [
       { type: "absent", protected: false },
       { type: "ncns", protected: false },
     ];
-    assert.equal(countUnexcusedOccurrences(rows), 3);
+    assert.equal(countUnexcusedOccurrences(rows), 2);
   });
 
   it("a protected absence still counts zero — PLAWA covers it", () => {
@@ -74,10 +80,12 @@ describe("the weights themselves", () => {
     );
   });
 
-  it("a protected NCNS still counts two — procedural, balance-independent", () => {
+  it("a protected NCNS still counts one — procedural, balance-independent", () => {
+    // The WEIGHT dropped to 1; the balance-independence did not. A missing
+    // call is a notice violation whatever the PLAWA bank says.
     assert.equal(
       countUnexcusedOccurrences([{ type: "ncns", protected: true }]),
-      2,
+      1,
     );
   });
 });

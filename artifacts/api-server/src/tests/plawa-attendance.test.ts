@@ -41,7 +41,7 @@ describe("PLAWA 2-hour minimum increment", () => {
   });
 });
 
-describe("occurrence weighting (PLAWA-covered = 0, unexcused = 1, NCNS = 2)", () => {
+describe("occurrence weighting (PLAWA-covered = 0, unexcused = 1, NCNS = 1)", () => {
   it("a plain unexcused absence counts 1", () => {
     assert.equal(countUnexcusedOccurrences([{ type: "absent", protected: false }]), 1);
   });
@@ -50,38 +50,43 @@ describe("occurrence weighting (PLAWA-covered = 0, unexcused = 1, NCNS = 2)", ()
     assert.equal(countUnexcusedOccurrences([{ type: "absent", protected: true }]), 0);
   });
 
-  it("a No-Call/No-Show counts 2", () => {
+  it("a No-Call/No-Show counts 1 — same as a plain unexcused absence", () => {
     assert.equal(countUnexcusedOccurrences([{ type: "ncns", protected: false }]), NCNS_OCCURRENCE_WEIGHT);
   });
 
-  it("an NCNS counts 2 even if flagged protected — a procedural violation is balance-independent", () => {
-    assert.equal(countUnexcusedOccurrences([{ type: "ncns", protected: true }]), 2);
+  it("an NCNS counts 1 even if flagged protected — a procedural violation is balance-independent", () => {
+    // [ncns-weight 2026-08-21] The weight dropped 2 -> 1; the
+    // balance-independence did not change.
+    assert.equal(countUnexcusedOccurrences([{ type: "ncns", protected: true }]), 1);
   });
 
   it("tardy rows are not part of the unexcused counter", () => {
     assert.equal(countUnexcusedOccurrences([{ type: "tardy", protected: false }]), 0);
   });
 
-  it("mixes correctly: 2 unexcused + 1 protected + 1 NCNS = 4", () => {
+  it("mixes correctly: 2 unexcused + 1 protected + 1 NCNS = 3", () => {
     const count = countUnexcusedOccurrences([
       { type: "absent", protected: false },
       { type: "absent", protected: false },
       { type: "absent", protected: true }, // PLAWA-covered → 0
-      { type: "ncns", protected: false }, // +2
+      { type: "ncns", protected: false }, // +1
     ]);
-    assert.equal(count, 4);
+    assert.equal(count, 3);
   });
 
-  it("one NCNS lands at the 2nd strike (Final) under the 1/2/3 ladder; two NCNS reach the 3rd (Termination)", () => {
-    // The ladder itself is data (1/2/3); here we prove the occurrence MATH that
-    // feeds it: 1 NCNS = 2 occ (→ step 2), 2 NCNS = 4 occ (≥ step 3).
-    assert.equal(countUnexcusedOccurrences([{ type: "ncns", protected: false }]), 2);
+  it("each NCNS advances the ladder exactly one rung, like any unexcused day", () => {
+    // The ladder itself is tenant data (companies 1 and 4 are currently
+    // 3=written, 4=final, 5=termination); here we prove only the occurrence
+    // MATH that feeds it. [ncns-weight 2026-08-21] 1 NCNS = 1 occ, not 2, so
+    // it takes three no-shows to reach a written warning — and a true
+    // no-call/no-show remains the office's call to fire, not Qleno's.
+    assert.equal(countUnexcusedOccurrences([{ type: "ncns", protected: false }]), 1);
     assert.equal(
       countUnexcusedOccurrences([
         { type: "ncns", protected: false },
         { type: "ncns", protected: false },
       ]),
-      4,
+      2,
     );
   });
 });
