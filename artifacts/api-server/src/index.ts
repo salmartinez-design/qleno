@@ -1,4 +1,10 @@
 import app from "./app";
+import {
+  IS_RAILWAY_PREVIEW,
+  backgroundWorkersAllowed,
+  logEnvironmentPosture,
+  neutralizeLiveCredentials,
+} from "./lib/preview-guard.js";
 import { recordStartupFailure, reportStartupFailures } from "./lib/startup-failures.js";
 import { seedIfNeeded } from "./seed";
 import { startRecurringJobCron } from "./lib/recurring-jobs";
@@ -28,8 +34,15 @@ import { runOwnerDigestCron } from "./lib/owner-digest.js";
 
 const port = Number(process.env.PORT) || 3000;
 
+// [preview-isolation 2026-08-20] Disarm the live Twilio, Resend, Stripe and
+// Square keys on a PR preview before anything can read them. Runs ahead of the
+// banner below so the log reports the real posture ("emails disabled"), and
+// ahead of every send site, all of which read process.env at call time.
+const clearedCredentials = neutralizeLiveCredentials();
+
 // ── Environment Variable Validation ─────────────────────────────────────────
 console.log("[Qleno] Starting server...");
+logEnvironmentPosture(clearedCredentials);
 
 const REQUIRED_VARS = ["DATABASE_URL", "JWT_SECRET"];
 const OPTIONAL_VARS: Record<string, string> = {
@@ -1422,7 +1435,17 @@ async function startup() {
     // gate request correctness runs here, AFTER the port is bound, so a slow
     // or recovering DB delays these tasks instead of the whole boot (→ 502).
     // Fire-and-forget: each task self-logs and is independently guarded.
-    void runPostListenDataTasks();
+    // [preview-isolation 2026-08-20] These are business-row WRITES — the
+    // job_history bridge, the onboarding-password bootstrap, the LMS
+    // completion/certificate backfills. The 2026-08-03 guard was read as
+    // covering them; it does not. It gates runStartupMigrations() only, so
+    // every preview deploy has been replaying these against live data on
+    // whatever code its branch carries. Same question, same flag.
+    if (RUN_DATA_MIGRATIONS) {
+      void runPostListenDataTasks();
+    } else {
+      console.log(`[startup] skipping post-listen data tasks — environment is ${RAILWAY_ENV ?? "local"}, not production`);
+    }
 
     // [2026-06-24] Cron control moved to the per-company
     // companies.recurring_engine_enabled flag — enforced per-tenant inside
@@ -1435,6 +1458,10 @@ async function startup() {
     // removed — Railway restart cascades caused 5x concurrent runs / 270 dup
     // rows. The engine only fires via the 2 AM cron registered below.
     void (async () => {
+      if (!backgroundWorkersAllowed()) {
+        console.log(`[recurring-engine] Cron not started — preview environment "${RAILWAY_ENV}"`);
+        return;
+      }
       if (process.env.RECURRING_ENGINE_ENABLED === "off") {
         console.log("[recurring-engine] Cron HARD-STOPPED via RECURRING_ENGINE_ENABLED=off");
         return;
@@ -1479,15 +1506,22 @@ async function startup() {
       console.warn("[recurring-engine] Could not load flag state:", err);
     }
   }, 5000); // 5s delay to let migrations finish
-  startNotificationCron();
-  startFollowUpCron();
+  // [preview-isolation 2026-08-20] Customer reminders and the follow-up drip
+  // send on the live Resend and Twilio keys against live rows. Thirteen preview
+  // environments were each running their own copy of both.
+  if (backgroundWorkersAllowed()) {
+    startNotificationCron();
+    startFollowUpCron();
+  } else {
+    console.log(`[preview-isolation] notification + follow-up crons NOT started — preview environment "${RAILWAY_ENV}"`);
+  }
 
   // [revenue-connect 2026-06-12] Hourly job_history re-sync — keeps the
   // revenue ledger current so yesterday's completions appear in the
   // dashboard forecast next morning (the forecast reads past days from
   // job_history, not the jobs table). Cheap: set-based statements gated
   // by NOT EXISTS / IS DISTINCT FROM.
-  setInterval(async () => {
+  if (backgroundWorkersAllowed()) setInterval(async () => {
     try {
       const r = await syncJobHistoryLiveBridge();
       if (r.inserted || r.updated || r.removed) {
@@ -1503,7 +1537,9 @@ async function startup() {
   // syncAll). Gated by env var for emergency kill switch, same pattern as
   // the recurring engine. No worker = silent sync failures accumulate, which
   // is unacceptable at multi-tenant scale.
-  if (process.env.QB_QUEUE_WORKER_ENABLED !== "false") {
+  if (!backgroundWorkersAllowed()) {
+    console.log(`[qb-worker] NOT started — preview environment "${RAILWAY_ENV}"`);
+  } else if (process.env.QB_QUEUE_WORKER_ENABLED !== "false") {
     setInterval(async () => {
       try {
         const { db } = await import("@workspace/db");
@@ -1524,8 +1560,10 @@ async function startup() {
     console.log("[qb-worker] DISABLED via QB_QUEUE_WORKER_ENABLED=false env var");
   }
 
-  // Post-deploy smoke tests — 3 s delay to let DB settle after deploy
-  if (process.env.NODE_ENV === "production") {
+  // Post-deploy smoke tests — 3 s delay to let DB settle after deploy.
+  // [preview-isolation 2026-08-20] NODE_ENV is "production" on a preview too,
+  // so it never told the two apart. RAILWAY_ENVIRONMENT does.
+  if (process.env.NODE_ENV === "production" && !IS_RAILWAY_PREVIEW) {
     setTimeout(() => {
       runSmokeTests().catch((err) => {
         console.error("[SMOKE] Smoke test runner failed:", err.message);
