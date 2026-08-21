@@ -100,6 +100,13 @@ export interface ComprehensiveHandbookInput {
   employeeSignatureMethod: "drawn" | "typed" | null;
   /** Audit timestamp. Null in preview mode. */
   signedAt: Date | null;
+  /**
+   * [omw-eta-tz 2026-08-21] IANA zone the signature stamp renders in.
+   * Without it this printed the container's UTC clock, so a handbook signed
+   * at 7 PM Central carried midnight the NEXT DAY on the acknowledgment
+   * line. Defaults to Central.
+   */
+  timeZone?: string | null;
   /** Audit fields. Null in preview mode. */
   ipAddress: string | null;
   deviceInfo: string | null;
@@ -245,9 +252,12 @@ function drawCover(
   drawCenteredText(page, labelEmployee, fontBold, 9, PAGE_HEIGHT - 360, COLORS.inkLight);
   drawCenteredText(page, input.employeeName, fontBold, 22, PAGE_HEIGHT - 384, COLORS.ink);
 
+  // [pdf-date-tz 2026-08-21] signedAt is a timestamptz — a real instant. With
+  // no zone this printed the container's UTC date, so eight handbooks signed
+  // around 9 PM Central on 2026-08-19 carried 2026-08-20 as their version date.
   const dateStr = (input.signedAt ?? new Date()).toLocaleDateString(
     isEn ? "en-US" : "es-MX",
-    { year: "numeric", month: "long", day: "numeric" },
+    { timeZone: input.timeZone || "America/Chicago", year: "numeric", month: "long", day: "numeric" },
   );
   drawCenteredText(page, labelVersionDate, fontBold, 9, PAGE_HEIGHT - 440, COLORS.inkLight);
   drawCenteredText(page, dateStr, fontRegular, 14, PAGE_HEIGHT - 460, COLORS.ink);
@@ -442,7 +452,7 @@ function drawIncludedAcks(
       });
       const dateStr = ack.signedAt.toLocaleDateString(
         isEn ? "en-US" : "es-MX",
-        { year: "numeric", month: "short", day: "numeric" },
+        { timeZone: input.timeZone || "America/Chicago", year: "numeric", month: "short", day: "numeric" },
       );
       page.drawText(dateStr, {
         x: 340,
@@ -652,7 +662,7 @@ async function drawSignatureBlock(
   });
   const dateStr = (input.signedAt ?? new Date()).toLocaleString(
     isEn ? "en-US" : "es-MX",
-    { dateStyle: "long", timeStyle: "short" },
+    { timeZone: input.timeZone || "America/Chicago", dateStyle: "long", timeStyle: "short" },
   );
   page.drawText(dateStr, {
     x: 320,

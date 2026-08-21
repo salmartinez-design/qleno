@@ -4630,6 +4630,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
           beforePhotoCount: beforeCount[0]?.count ?? 0,
           afterPhotoCount: afterPhotos[0].count,
           completedAt: new Date().toLocaleString("en-US", { timeZone: tzOf(req.auth!.companyId) }),
+          timeZone: tzOf(req.auth!.companyId),
         });
 
         await db

@@ -37,6 +37,7 @@ import { requireAuth } from "../lib/auth.js";
 import { validateClockGpsPayload } from "../lib/clock-integrity.js";
 import { haversineMeters, companyGeofenceMeters } from "../lib/distance.js";
 import { estimateEtaMinutes } from "../lib/eta.js";
+import { tzOf } from "../lib/company-tz.js";
 import { sendOnMyWaySms, type OnMyWaySmsResult } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
@@ -351,8 +352,15 @@ async function sendOnMyWayForJob(
   // there are no coords to estimate from. Carrying the preposition here makes
   // one label read correctly in both cases ("around 9:35 AM" / "shortly") and
   // lets the copy simply say "will arrive {{arrival_window}}".
+  // [omw-eta-tz 2026-08-21] Format in the TENANT'S zone, never the server's.
+  // Railway runs the container in UTC, so a bare toLocaleTimeString() rendered
+  // 8:40 AM Central as "1:40 PM" and told a real customer her cleaner was five
+  // hours out while the cleaner was pulling up. promised_arrival_at is stored
+  // correctly - it is a true instant - so only this label was ever wrong. Any
+  // customer-facing clock time must pass timeZone; see the guard test.
   const promisedLabel = promisedArrivalAt
     ? `around ${promisedArrivalAt.toLocaleTimeString("en-US", {
+        timeZone: tzOf(companyId),
         hour: "numeric",
         minute: "2-digit",
       })}`

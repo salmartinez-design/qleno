@@ -5,8 +5,7 @@ import { eq, and, isNull, lte, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
 import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
-import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
-import { findActiveScheduleForTarget } from "../lib/recurring-tombstone.js";
+import { createRecurringSchedule } from "../lib/recurring-create.js";
 import { commercialPricingMismatch, describeCommercialPricingMismatch, hoursFromMinutes } from "@workspace/pricing-rules";
 
 const router = Router();
@@ -127,80 +126,30 @@ router.patch("/bulk", requireAuth, requireRole("owner", "admin", "office"), asyn
 
 router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { customer_id, frequency: frequencyRaw, day_of_week, start_date, end_date, assigned_employee_id, service_type, duration_minutes, base_fee, notes } = req.body;
-    if (!customer_id || !frequencyRaw || !start_date) {
+    const {
+      customer_id, frequency, day_of_week, days_of_week, start_date, end_date,
+      scheduled_time, assigned_employee_id, service_type, duration_minutes, base_fee, notes,
+    } = req.body;
+    if (!customer_id || !frequency || !start_date) {
       return res.status(400).json({ error: "customer_id, frequency, start_date required" });
     }
-    // [biweekly-fix 2026-07-27] Canonicalize every_2_weeks -> biweekly so the
-    // recurring_frequency enum insert doesn't reject it (and the engine agrees).
-    const frequency = normalizeRecurringFreq(frequencyRaw);
 
-    // [recurring-uniqueness 2026-08-04] One active schedule per client, enforced
-    // in the DB. Calling this endpoint for a client who already repeats is a
-    // cadence CHANGE, not a request for a second parallel series — so update the
-    // existing row rather than inserting a second one that Postgres would now
-    // reject outright. skipped_dates is intentionally left alone: the client's
-    // deleted/skipped visits must not come back because the cadence changed.
-    const _existingId = await findActiveScheduleForTarget(db, {
+    // [mcp-writes 2026-08-19] The body of this handler moved to
+    // lib/recurring-create.ts UNCHANGED, so the office UI and the machine
+    // surface (/api/v1 -> the MCP tool) create schedules by the same rules:
+    // one active schedule per client, the cadence canonicalized, days_of_week
+    // clearing day_of_week, and 90 days of visits generated synchronously.
+    const result = await createRecurringSchedule({
       companyId: req.auth!.companyId!,
-      clientId: Number(customer_id),
+      customer_id, frequency, day_of_week, days_of_week, start_date, end_date,
+      scheduled_time, assigned_employee_id, service_type, duration_minutes, base_fee, notes,
     });
-    const _values = {
-      company_id: req.auth!.companyId!,
-      customer_id,
-      frequency: frequency as any, // normalizeRecurringFreq returns string; column wants the enum union
-      day_of_week: day_of_week || null,
-      start_date,
-      end_date: end_date || null,
-      assigned_employee_id: assigned_employee_id || null,
-      service_type: service_type || null,
-      duration_minutes: duration_minutes || null,
-      base_fee: base_fee || null,
-      notes: notes || null,
-    };
-    const [row] = _existingId
-      ? await db.update(recurringSchedulesTable).set(_values)
-          .where(and(
-            eq(recurringSchedulesTable.id, _existingId),
-            eq(recurringSchedulesTable.company_id, req.auth!.companyId!),
-          )).returning()
-      : await db.insert(recurringSchedulesTable).values(_values).returning();
-    if (_existingId) {
-      console.log(`[recurring create] client ${customer_id} already had schedule ${_existingId} — updated it instead of creating a duplicate`);
-    }
 
-    // [scheduling-engine 2026-04-29] Synchronously generate the next
-    // 90 days of occurrences so the dispatch board, the client
-    // calendar, and the routing system all see the schedule
-    // immediately — not after the 2 AM cron. Without this, Sal
-    // creates a recurring schedule and stares at an empty board for
-    // hours wondering if the engine is broken. The engine's own
-    // dedupe (recurring_schedule_id + scheduled_date) makes the
-    // sync run idempotent if the cron also fires for these dates.
-    let generated = { created: 0, skipped: 0 };
-    try {
-      const cl = await db.select({ zip: clientsTable.zip })
-        .from(clientsTable)
-        .where(eq(clientsTable.id, customer_id))
-        .limit(1);
-      const clientZip = (cl[0]?.zip as any) ?? null;
-      const today = new Date();
-      const horizon = new Date(today.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
-      generated = await generateJobsFromSchedule(
-        row as any,
-        today,
-        horizon,
-        null,
-        clientZip,
-      );
-    } catch (genErr: any) {
-      // Don't fail the schedule creation if generation hiccups —
-      // the nightly cron will catch it. But surface the error in
-      // the response so the operator knows to check logs.
-      console.warn("[recurring POST] sync generation failed:", genErr?.message ?? genErr);
-    }
-
-    return res.status(201).json({ ...row, jobs_generated: generated.created, jobs_skipped: generated.skipped });
+    return res.status(201).json({
+      ...result.row,
+      jobs_generated: result.jobs_generated,
+      jobs_skipped: result.jobs_skipped,
+    });
   } catch (err) {
     console.error("[recurring POST]", err);
     return res.status(500).json({ error: "Server error" });

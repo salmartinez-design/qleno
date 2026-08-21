@@ -17,6 +17,12 @@ interface JobPdfData {
   beforePhotoCount: number;
   afterPhotoCount: number;
   completedAt: string;
+  /**
+   * [pdf-date-tz 2026-08-21] IANA zone the generated-on stamp renders in.
+   * Without it the footer printed the container's UTC date, so a document
+   * generated after 7 PM Central was dated the next day. Defaults to Central.
+   */
+  timeZone?: string | null;
 }
 
 export async function generateJobCompletionPdf(data: JobPdfData): Promise<string> {
@@ -115,7 +121,7 @@ export async function generateJobCompletionPdf(data: JobPdfData): Promise<string
 
     doc.fontSize(9).fillColor(gray).font("Helvetica")
       .text(
-        `This document was generated automatically by Qleno on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.`,
+        `This document was generated automatically by Qleno on ${new Date().toLocaleDateString("en-US", { timeZone: data.timeZone || "America/Chicago", year: "numeric", month: "long", day: "numeric" })}.`,
         50, y, { width: doc.page.width - 100, align: "center" }
       );
 

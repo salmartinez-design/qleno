@@ -67,11 +67,30 @@ function randomToken(prefix: string): string {
 // conversation with a customer. `comms:send` is absent because nothing needs it:
 // the message tools write a proposal and a person presses Send, so the send
 // itself still happens through the office flow that respects COMMS_ENABLED.
+//
+// [mcp-writes 2026-08-19] `quotes:send` IS on the list even though `comms:send`
+// is not, and the distinction is the whole point rather than an inconsistency.
+// comms:send is an open channel: arbitrary recipient, arbitrary body, which is
+// exactly the shape a prompt injection wants. quotes:send has neither degree of
+// freedom — the recipient is the address already stored on the quote and the
+// body is the quote template. The worst a hostile note can do with it is make a
+// customer receive their own quote a second time, which the tenant can see in
+// the activity feed and which no undo is needed for. COMMS_ENABLED still gates
+// the actual delivery either way.
+//
+// `employees:write` is grantable because onboarding is ordinary office work.
+// Deactivation rides the same scope but carries an owner-only role check in the
+// handler, so granting this to a connection minted by an office user gives that
+// connection the power to ADD a person and no power to remove one.
 export const OAUTH_GRANTABLE_SCOPES: ApiScope[] = [
   ...READ_SCOPES,
   "jobs:write",
   "clients:write",
   "invoices:write",
+  "quotes:write",
+  "quotes:send",
+  "schedules:write",
+  "employees:write",
 ];
 
 // What an app gets when it asks for nothing in particular.

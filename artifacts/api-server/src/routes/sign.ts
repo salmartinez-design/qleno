@@ -530,6 +530,9 @@ router.get("/:token/certificate.pdf", async (req, res) => {
       status: s.status === "signed" ? "completed" : s.status,
       contentHash: s.content_hash || "not recorded",
       consent: !!s.consent_at,
+      // [omw-eta-tz 2026-08-21] Stamp the audit trail in the tenant's clock,
+      // not the container's UTC. Same class of bug as the on-my-way ETA.
+      timeZone: tzOf(s.company_id ?? null),
       events: ((evs as any).rows || []).map((e: any) => ({
         type: e.event_type, at: e.created_at, ip: e.ip_address, userAgent: e.user_agent, email: e.actor_email,
       })),

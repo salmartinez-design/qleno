@@ -1,6 +1,6 @@
 # Qleno CI — runs on every PR + push to main.
 #
-# Four concerns:
+# Five concerns:
 #   1. .dispatch-stop guard — if the file exists at repo root on
 #      the branch under test, fail immediately. Sal can drop this
 #      file via the GitHub mobile app to halt all autonomous work.
@@ -9,10 +9,16 @@
 #      so tsc-check and build cannot catch it. Eighteen fixes and
 #      counting; the worst instances were swallowed by a catch and
 #      silently dropped hand-set pay overrides from payroll.
-#   3. tsc-check — type-check the api-server + frontend without
+#   3. clock-timezone-guard — block a server-side clock time that
+#      names no timeZone. Railway runs the container in UTC, so it
+#      renders five hours ahead of Central. It type-checks, bundles,
+#      and looks correct on a Mac in Chicago; it only breaks in
+#      production. It once told a customer her cleaner was five
+#      hours out while the cleaner was pulling up.
+#   4. tsc-check — type-check the api-server + frontend without
 #      emitting. Catches PRs that compile in isolation but break
 #      the workspace's shared types.
-#   4. build — full build of api-server + frontend, the same
+#   5. build — full build of api-server + frontend, the same
 #      command Railway runs. Catches PRs that pass tsc but fail
 #      bundling (Vite import errors, etc.).
 #
@@ -67,6 +73,45 @@ jobs:
           node-version: 20
       - name: Block the ANY(array) trap
         run: node scripts/guard-any-array.mjs
+
+  # Timezone-only bug class: a formatter with `hour:` and no
+  # `timeZone` renders in the process's zone, which on Railway is
+  # UTC. tsc passes, the bundle passes, and a developer in Chicago
+  # sees the right time — the wrong one only reaches the customer.
+  # Same shape as the guard above: cheap, runtime-only, invisible to
+  # every other gate, so it does not `needs:` the stop-guard either.
+  clock-timezone-guard:
+    name: clock-timezone-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Block a clock time with no timezone
+        run: node scripts/guard-clock-timezone.mjs
+
+  # [instant-date-tz 2026-08-21] The behavior half of the same rule. The guard
+  # above is a text scan; this proves the actual formatting — that the real
+  # 9:12 PM Central signature renders as Aug 19 with a zone and Aug 20 without.
+  clock-timezone-test:
+    name: clock-timezone-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Customer clock + date timezone tests
+        run: pnpm --filter @workspace/api-server run test:clock-tz
 
   # Project-references typecheck only — `tsc --build` walks the
   # workspace's lib packages (packages/*) and their declared deps.
