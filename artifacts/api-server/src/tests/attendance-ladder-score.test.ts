@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   attendanceWindowStart,
+  tardyWindowStart,
   scoreAttendanceLadder,
   terminationOccurrences,
   CUTOVER_FLOOR_DATE,
@@ -228,5 +229,42 @@ describe("the window never reaches back past the cutover", () => {
     // the day after, it has moved on and the score returns to 100.
     assert.equal(attendanceWindowStart("2023-09-10", "2027-09-09"), "2026-09-10");
     assert.equal(attendanceWindowStart("2023-09-10", "2027-09-11"), "2027-09-10");
+  });
+});
+
+// [tardy-clean-slate 2026-08-21] The tardy track follows the employee handbook
+// exactly: occurrences count over the employee's own benefit year, opening on
+// their work anniversary, with no cutover floor. The slate was wiped, so there is
+// no stale pre-cutover tardy left for a floor to protect against. The unexcused
+// track is unchanged and still floored.
+describe("tardy window follows the plain benefit year", () => {
+  it("opens on the work anniversary even when that predates the cutover", () => {
+    // Rosa Gallegos: hired April 2020, so her 2026 benefit year opens 2026-04-01,
+    // three months before Qleno was the book of record.
+    assert.equal(tardyWindowStart("2020-04-01", "2026-08-21"), "2026-04-01");
+  });
+
+  it("gives every employee a different window, keyed to their own hire date", () => {
+    const asOf = "2026-08-21";
+    assert.equal(tardyWindowStart("2025-08-01", asOf), "2026-08-01");
+    assert.equal(tardyWindowStart("2026-01-26", asOf), "2026-01-26");
+    assert.equal(tardyWindowStart("2025-06-03", asOf), "2026-06-03");
+  });
+
+  it("never applies the cutover floor to tardies", () => {
+    const early = tardyWindowStart("2020-04-01", "2026-08-21");
+    assert.ok(early < CUTOVER_FLOOR_DATE, "tardy window must be free to precede the floor");
+  });
+
+  it("leaves the unexcused window floored, so the two tracks really do differ", () => {
+    const hire = "2020-04-01", asOf = "2026-08-21";
+    assert.equal(attendanceWindowStart(hire, asOf), CUTOVER_FLOOR_DATE);
+    assert.notEqual(tardyWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
+  });
+
+  it("agrees with the unexcused window once the anniversary has passed the cutover", () => {
+    // The floor is transitional. An August anniversary is already past it.
+    const hire = "2025-08-01", asOf = "2026-08-21";
+    assert.equal(tardyWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
   });
 });

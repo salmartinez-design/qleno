@@ -34,6 +34,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import {
   attendanceWindowStart,
+  tardyWindowStart,
   scoreAttendanceLadder,
   type AttendanceLadderScore,
 } from "./attendance-score.js";
@@ -194,7 +195,15 @@ export async function computeCompositeForEmployee(
     // it makes the missing field visible to whoever can fill it in.
     attendanceUnavailable = "no_hire_date";
   } else {
-    attendanceWindowFrom = attendanceWindowStart(hireDate, toDate);
+    // [tardy-clean-slate 2026-08-21] The two tracks open on different dates.
+    // Tardies follow the plain benefit year, because the tardy slate was wiped
+    // and there is no stale history left for a floor to guard against. Unexcused
+    // absences keep the cutover floor; their pre-cutover rows are still on the
+    // books. attendance_window_from reports the earlier of the two, so the UI
+    // caption never claims a shorter window than something was counted from.
+    const tardyFrom = tardyWindowStart(hireDate, toDate);
+    const unexFrom = attendanceWindowStart(hireDate, toDate);
+    attendanceWindowFrom = tardyFrom < unexFrom ? tardyFrom : unexFrom;
 
     const policyRow = await db.execute(sql`
       SELECT tardy_occurrence_steps, unexcused_occurrence_steps
@@ -202,20 +211,26 @@ export async function computeCompositeForEmployee(
     const tardySteps = ((policyRow.rows[0] as any)?.tardy_occurrence_steps ?? []) as any[];
     const unexSteps = ((policyRow.rows[0] as any)?.unexcused_occurrence_steps ?? []) as any[];
 
-    // log_date <= toDate keeps a mis-keyed future date from counting against
-    // someone before it has even happened.
+    // Fetch from the earlier window start and narrow each track below. log_date
+    // <= toDate keeps a mis-keyed future date from counting against someone
+    // before it has even happened.
     const occRows = await db.execute(sql`
-      SELECT type, protected
+      SELECT type, protected, to_char(log_date, 'YYYY-MM-DD') AS log_date
         FROM employee_attendance_log
        WHERE company_id = ${companyId} AND employee_id = ${employeeId}
          AND type IN ('absent','ncns','tardy')
          AND log_date >= ${attendanceWindowFrom} AND log_date <= ${toDate}`);
 
-    attendanceDetail = scoreAttendanceLadder({
-      rows: (occRows.rows as any[]).map(r => ({
+    const windowed = (occRows.rows as any[])
+      .map(r => ({
         type: String(r.type),
         protected: r.protected === true,
-      })),
+        log_date: String(r.log_date),
+      }))
+      .filter(r => r.log_date >= (r.type === "tardy" ? tardyFrom : unexFrom));
+
+    attendanceDetail = scoreAttendanceLadder({
+      rows: windowed.map(r => ({ type: r.type, protected: r.protected })),
       tardySteps,
       unexcusedSteps: unexSteps,
     });

@@ -42,7 +42,9 @@
  *    both places. A No-Call/No-Show still counts, protected or not: the missing
  *    phone call is procedural and independent of anyone's leave balance.
  *
- * 4. The window never reaches back before the cutover. See CUTOVER_FLOOR_DATE.
+ * 4. The two tracks use different windows. Tardies follow the employee's plain
+ *    benefit year (tardyWindowStart); unexcused absences additionally never
+ *    reach back before the cutover (attendanceWindowStart, CUTOVER_FLOOR_DATE).
  */
 
 import { benefitYearStartDate } from "./leave-grant-reset.js";
@@ -113,6 +115,32 @@ export function attendanceWindowStart(
 ): string {
   const byStart = benefitYearStartDate(hireDate, asOf).toISOString().slice(0, 10);
   return byStart < floor ? floor : byStart;
+}
+
+/**
+ * Where the TARDY track's window opens: the plain benefit-year start, with no
+ * cutover floor. [tardy-clean-slate 2026-08-21]
+ *
+ * The floor above exists to keep unverified MaidCentral-era rows out of the
+ * score. That reasoning does not apply to tardies any more, because every tardy
+ * row on the books was deleted on 2026-08-21 at Sal's instruction: 231 rows, of
+ * which 220 were the June 25 bulk import and 11 were genuine. He asked for a
+ * clean slate rather than a partial one so that nobody is carrying a late from a
+ * period when the nightly late-check did not exist yet (only two tardies were
+ * ever recorded before the cutover, against 47 for a single employee after it —
+ * the old data undercounts, it does not overcount).
+ *
+ * With the slate empty there is nothing older than today for a floor to protect
+ * against, so this track follows the employee handbook exactly: occurrences are
+ * counted over the employee's own benefit year, opening on their work
+ * anniversary. Every employee's window is therefore a different date, which is
+ * the point — it matches what the LMS teaches and what discipline is measured on.
+ *
+ * The unexcused track keeps attendanceWindowStart. Its pre-cutover rows were
+ * left in place and still need the floor.
+ */
+export function tardyWindowStart(hireDate: string, asOf: string): string {
+  return benefitYearStartDate(hireDate, asOf).toISOString().slice(0, 10);
 }
 
 export interface AttendanceLadderInput {
