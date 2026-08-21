@@ -92,6 +92,27 @@ jobs:
       - name: Block a clock time with no timezone
         run: node scripts/guard-clock-timezone.mjs
 
+  # [instant-date-tz 2026-08-21] The behavior half of the same rule. The guard
+  # above is a text scan; this proves the actual formatting — that the real
+  # 9:12 PM Central signature renders as Aug 19 with a zone and Aug 20 without.
+  clock-timezone-test:
+    name: clock-timezone-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Customer clock + date timezone tests
+        run: pnpm --filter @workspace/api-server run test:clock-tz
+
   # Project-references typecheck only — `tsc --build` walks the
   # workspace's lib packages (packages/*) and their declared deps.
   # Artifact-level strict-mode errors (the 748 in api-server +

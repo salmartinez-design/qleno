@@ -4,6 +4,7 @@ import { paymentsTable, invoicesTable, clientsTable } from "@workspace/db/schema
 import { eq, and, desc, sum } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { sendNotification } from "../services/notificationService.js";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -38,7 +39,11 @@ export function firePaymentReceivedNotification(
       const mv = {
         first_name:      cl.first_name || "",
         payment_amount:  amount.toFixed(2),
-        payment_date:    new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        // [receipt-date-tz 2026-08-21] `new Date()` is a real instant, so a
+        // bare toLocaleDateString renders it in the CONTAINER's zone — UTC on
+        // Railway. A payment taken at 7 PM Central is already tomorrow in UTC,
+        // so the customer's receipt carried the next day's date. Name the zone.
+        payment_date:    new Date().toLocaleDateString("en-US", { timeZone: tzOf(companyId), month: "long", day: "numeric", year: "numeric" }),
         invoice_number:  invNum,
       };
       sendNotification("payment_received", "email", companyId, cl.email, null, mv).catch(() => {});

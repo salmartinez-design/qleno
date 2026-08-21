@@ -66,6 +66,20 @@ const EXT = /\.(ts|mts|cts)$/;
 const FORMATTER = /toLocale(?:Time|Date)?String\s*\(|new Intl\.DateTimeFormat\s*\(/g;
 /** Both ways to ask for a clock time. */
 const PRINTS_CLOCK_TIME = /\b(hour|timeStyle)\s*:/;
+/**
+ * [instant-date-tz 2026-08-21] The second rule, added after the first one
+ * shipped. A DATE formatted with no zone is only safe when the value is a
+ * constructed local-midnight date — new Date(y, m-1, d), or a "...T12:00:00"
+ * string. It is NOT safe on a real instant: 7 PM Central is already tomorrow
+ * in UTC, so the container printed the next day's date on documents people
+ * keep. Twenty-one signed employee handbooks and six payment receipts carried
+ * the wrong day before this rule existed.
+ *
+ * A "known instant" is deliberately narrow so this stays quiet: a bare
+ * `new Date()`, or a value whose name ends in `At` / `_at` (sentAt, signedAt,
+ * created_at). Those are unambiguous. Everything else is left alone.
+ */
+const KNOWN_INSTANT = /(?:new Date\(\s*\)|[A-Za-z_$][\w$]*(?:_at|At))\s*\)?\s*\.\s*$/;
 
 function walk(dir, out = []) {
   let entries;
@@ -103,12 +117,16 @@ for (const root of ROOTS) {
     const src = readFileSync(file, "utf8");
     for (const m of src.matchAll(FORMATTER)) {
       const call = callBody(src, m.index + m[0].length);
-      if (!PRINTS_CLOCK_TIME.test(call)) continue;   // date-only — safe
       if (call.includes("timeZone")) continue;       // zone named — safe
+      const before = src.slice(Math.max(0, m.index - 160), m.index);
+      const clock = PRINTS_CLOCK_TIME.test(call);
+      const instantDate = KNOWN_INSTANT.test(before);
+      if (!clock && !instantDate) continue;          // a constructed date — safe
       const line = src.slice(0, m.index).split("\n").length;
       findings.push({
         file: relative(ROOT, file),
         line,
+        kind: clock ? "clock time" : "date on an instant",
         text: call.replace(/\s+/g, " ").slice(0, 100).trim(),
       });
     }
@@ -116,27 +134,41 @@ for (const root of ROOTS) {
 }
 
 if (findings.length === 0) {
-  console.log("every server-side clock time names its timezone — proceeding");
+  console.log("every server-side clock time and instant-date names its timezone — proceeding");
   process.exit(0);
 }
 
-console.log("::error::A server-side clock time is formatted without a timeZone.");
+console.log("::error::A server-side date or time is formatted without a timeZone.");
 console.log("");
 console.log(`Found ${findings.length} occurrence(s):`);
 console.log("");
-for (const f of findings) console.log(`  ${f.file}:${f.line}\n      ...(${f.text}`);
+for (const f of findings) console.log(`  ${f.file}:${f.line}  [${f.kind}]\n      ...(${f.text}`);
 console.log("");
-console.log("Railway runs the container in UTC, so this prints five hours ahead");
-console.log("of Central. It looks correct on a Mac in Chicago and wrong to every");
-console.log("customer. Pass the tenant's zone:");
+console.log("Railway runs the container in UTC. It looks correct on a Mac in Chicago");
+console.log("and wrong to everyone else. Pass the tenant's zone:");
 console.log("");
 console.log('    import { tzOf } from "../lib/company-tz.js";');
-console.log("");
-console.log('    at.toLocaleTimeString("en-US", {');
-console.log("      timeZone: tzOf(companyId),");
-console.log('      hour: "numeric",');
-console.log('      minute: "2-digit",');
-console.log("    })");
+if (findings.some(f => f.kind === "clock time")) {
+  console.log("");
+  console.log("  clock time — off by the whole UTC offset, five hours in Central:");
+  console.log("");
+  console.log('    at.toLocaleTimeString("en-US", {');
+  console.log("      timeZone: tzOf(companyId),");
+  console.log('      hour: "numeric",');
+  console.log('      minute: "2-digit",');
+  console.log("    })");
+}
+if (findings.some(f => f.kind === "date on an instant")) {
+  console.log("");
+  console.log("  date on an instant — anything after 7 PM Central prints tomorrow:");
+  console.log("");
+  console.log('    at.toLocaleDateString("en-US", {');
+  console.log("      timeZone: tzOf(companyId),");
+  console.log('      month: "long",');
+  console.log('      day: "numeric",');
+  console.log('      year: "numeric",');
+  console.log("    })");
+}
 console.log("");
 console.log('If UTC really is intended, write timeZone: "UTC" explicitly.');
 process.exit(1);
