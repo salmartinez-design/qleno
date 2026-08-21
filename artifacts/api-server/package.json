@@ -32,7 +32,8 @@
     "test:square-card": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-card-capture.test.ts",
     "test:square-booking": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-booking-rail.test.ts",
     "test:square-branch": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/square-per-branch.test.ts",
-    "test:clock-tz": "tsx --test src/tests/customer-clock-timezone.test.ts"
+    "test:clock-tz": "tsx --test src/tests/customer-clock-timezone.test.ts",
+    "test:quote-address": "tsx --test src/tests/quote-address-whole.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

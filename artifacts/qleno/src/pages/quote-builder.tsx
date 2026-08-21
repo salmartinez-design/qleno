@@ -271,6 +271,31 @@ function customRecSummary(r: { interval: number; unit: "weeks" | "months"; weekd
   return `Every ${every}${r.interval === 1 ? "month" : "months"}, on the ${nth} ${WEEKDAYS[r.weekday]}`;
 }
 
+/**
+ * [quote-address-whole 2026-08-21] Fold the Zip box into the one-line address.
+ *
+ * The Zip box beside Service Address drives the zone check, and until now that
+ * was ALL it did - it was never sent to the server. So an address typed by hand
+ * (no Google suggestion picked) saved with no zip, even though the office had
+ * typed one two inches to the right, and even though the Review step already
+ * printed "{address}, {zip}" back to them. The preview promised a zip the save
+ * threw away.
+ *
+ * quotes.address is one text column, so the zip has to ride inside the string.
+ * Placement has to match what parseAddressLine() reads on the way back out:
+ *   "..., IL"            -> "..., IL 60463"     state and zip share a segment
+ *   "..., Palos Heights" -> "..., Palos Heights, 60463"
+ * Appending ", 60463" to a line already ending in a state would push the state
+ * into the city slot and read the city as the street.
+ */
+function withZip(line: string, zip: string): string {
+  const a = line.trim().replace(/,\s*$/, "");
+  const z = zip.trim();
+  if (!a || !z) return a;
+  if (/\b\d{5}(-\d{4})?$/.test(a)) return a; // already carries one
+  return /,\s*[A-Za-z]{2}$/.test(a) ? `${a} ${z}` : `${a}, ${z}`;
+}
+
 export default function QuoteBuilderPage() {
   const [matchEdit, editParams] = useRoute("/quotes/:id/edit");
   const id = editParams?.id;
@@ -1049,9 +1074,24 @@ export default function QuoteBuilderPage() {
       const shortGet = (type: string) =>
         place.address_components.find((c: any) => c.types.includes(type))?.short_name ?? "";
       const street = `${get("street_number")} ${get("route")}`.trim();
+      const city = get("locality") || get("sublocality") || get("postal_town");
+      const state = shortGet("administrative_area_level_1");
       const zip = get("postal_code");
       const formatted = place.formatted_address ?? "";
-      setAddress(street || formatted);
+      // [quote-address-whole 2026-08-21] Keep the WHOLE address, not the street.
+      // Maribel, on Fidelma Orourke's card: "not displaying the whole address
+      // here" - it read "7901 Braeloch Court" and nothing else. This line was
+      // setAddress(street || formatted), so Google handed us city, state and
+      // zip and we kept one of the four. quotes.address is a single text column
+      // and the only address carrier downstream, so whatever is dropped here is
+      // gone for good: the converted job gets no city and no zone, and every
+      // card that renders it shows a street with no town. 173 of the 454 quotes
+      // written since the 7/1 cutover have no comma in them at all.
+      // Canonical shape, matching formatAddress() and the job wizard:
+      // "street, city, ST zip".
+      const composed = [street, city, [state, zip].filter(Boolean).join(" ")]
+        .filter(Boolean).join(", ");
+      setAddress(composed || formatted.replace(/, USA$/, "") || street);
       if (zip) { setZipCode(zip); checkZip(zip); }
       setAddressVerified(true);
       setAddressFormatted(formatted);
@@ -1455,7 +1495,7 @@ export default function QuoteBuilderPage() {
       lead_name: client ? `${client.first_name} ${client.last_name}`.trim() : `${leadFirstName} ${leadLastName}`.trim() || null,
       lead_email: client?.email || leadEmail || null,
       lead_phone: client?.phone || leadPhone || null,
-      address: address || client?.address || null,
+      address: withZip(address || client?.address || "", zipCode) || null,
       scope_id: primaryScopeId || null,
       // [mirror-settings 2026-08-14] Deliberately null now. This carried the
       // hardcoded hourly sub-type, which existed only because the picker showed
