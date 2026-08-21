@@ -249,6 +249,30 @@ export function resolveTechPayInput(args: {
   const payType = args.overridePayType ?? args.defaults.payType;
   const hourlyRate = args.overrideHourlyRate ?? args.defaults.hourlyRate;
   const scopePct = num(args.overridePct, NaN);
+  // [feesplit-no-rate 2026-08-20] A fee split needs a percentage to split. On a
+  // COMMERCIAL job the job-level default carries scopePct 0 on purpose —
+  // commercial pay is allowed hours x the company rate, never a share of the
+  // price (see defaultPayForJob) — so an office-set "Fee split" on a commercial
+  // timesheet with no per-tech commission_pct resolves to 0% and pays $0. It
+  // fails silently: the row still renders, labelled "Fee split 0%", so payroll
+  // shows the cleaner on the job with a blank paycheck. Juliana Loredo lost
+  // $110 of allowed-hours pay this way on 8/10 (Jennifer Halper, 3.5 allowed)
+  // and 8/11 (Bill Azzarello, 2.0 allowed).
+  //
+  // Same shape as the [allowed-hours-no-budget] fallback in computeTechPay:
+  // when the chosen pay type has no usable rate, fall back to what the job
+  // would have paid on its own defaults rather than zero the cleaner out. An
+  // EXPLICIT commission_pct — including a deliberate 0 — is an office decision
+  // and is always honored.
+  if (payType === "fee_split" && !Number.isFinite(scopePct) && !(args.defaults.scopePct > 0)) {
+    return {
+      user_id: args.user_id,
+      techHours: args.techHours,
+      payType: args.defaults.payType,
+      hourlyRate,
+      scopePct: args.defaults.scopePct,
+    };
+  }
   return {
     user_id: args.user_id,
     techHours: args.techHours,
