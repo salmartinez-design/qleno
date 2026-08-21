@@ -100,6 +100,13 @@ export interface ComprehensiveHandbookInput {
   employeeSignatureMethod: "drawn" | "typed" | null;
   /** Audit timestamp. Null in preview mode. */
   signedAt: Date | null;
+  /**
+   * [omw-eta-tz 2026-08-21] IANA zone the signature stamp renders in.
+   * Without it this printed the container's UTC clock, so a handbook signed
+   * at 7 PM Central carried midnight the NEXT DAY on the acknowledgment
+   * line. Defaults to Central.
+   */
+  timeZone?: string | null;
   /** Audit fields. Null in preview mode. */
   ipAddress: string | null;
   deviceInfo: string | null;
@@ -652,7 +659,7 @@ async function drawSignatureBlock(
   });
   const dateStr = (input.signedAt ?? new Date()).toLocaleString(
     isEn ? "en-US" : "es-MX",
-    { dateStyle: "long", timeStyle: "short" },
+    { timeZone: input.timeZone || "America/Chicago", dateStyle: "long", timeStyle: "short" },
   );
   page.drawText(dateStr, {
     x: 320,
