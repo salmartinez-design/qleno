@@ -1600,6 +1600,26 @@ export default function PayrollPage() {
     }
   }
 
+  // [unpublish 2026-08-20] Owner/admin only — matches the POST /payroll/unpublish
+  // gate, which is narrower than Publish on purpose. Only offered on a period
+  // that is actually published; there is nothing to take back otherwise.
+  const [unpublishing, setUnpublishing] = useState(false);
+  async function handleUnpublish() {
+    if (!window.confirm(`Unpublish payroll for ${periodLabel}?\n\nThe locked copy for this week is removed. Cleaners stop seeing this week's pay until you publish it again. Nothing about their jobs, hours, or pay is changed.`)) return;
+    setUnpublishing(true);
+    try {
+      const r = await apiFetch('/payroll/unpublish', { method: 'POST', body: JSON.stringify({ pay_period_start: payPeriod.start, pay_period_end: payPeriod.end }) });
+      await refetchPub();
+      window.alert(r.removed > 0
+        ? `Unpublished ${periodLabel}.\n\n${r.removed} employee${r.removed === 1 ? '' : 's'} removed from the locked copy ($${money2s(r.total_gross)}). This week is back to Draft.`
+        : `${periodLabel} was already Draft. Nothing to unpublish.`);
+    } catch (e: any) {
+      window.alert(`Unpublish failed: ${e?.message || e}`);
+    } finally {
+      setUnpublishing(false);
+    }
+  }
+
   async function handleExport() {
     if (!isPublished && !window.confirm(`This period hasn't been published yet. Export live (unpublished) numbers?\n\nThey match the on-screen detail but aren't locked. Publish first if you want a fixed record.`)) return;
     setExporting(true);
@@ -1686,6 +1706,12 @@ export default function PayrollPage() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: recomputingMi ? 'default' : 'pointer', fontFamily: 'inherit' }}>
                   <Navigation size={14} strokeWidth={1.8} /> {recomputingMi ? 'Recomputing…' : 'Recompute mileage'}
                 </button>
+                {isPublished && isOwnerAdmin && (
+                  <button onClick={handleUnpublish} disabled={unpublishing} title="Remove the locked copy for this week and go back to Draft. Cleaners stop seeing this week's pay until you publish again."
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B6860', fontSize: 13, fontWeight: 600, cursor: unpublishing ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                    {unpublishing ? 'Unpublishing…' : 'Unpublish'}
+                  </button>
+                )}
                 <button onClick={handlePublish} disabled={publishing}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: publishing ? 'default' : 'pointer', fontFamily: 'inherit' }}>
                   {publishing ? 'Publishing…' : (isPublished ? 'Re-publish' : 'Publish')}

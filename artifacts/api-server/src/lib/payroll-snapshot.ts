@@ -256,6 +256,42 @@ export async function publishPeriod(companyId: number, start: string, end: strin
 }
 
 /**
+ * [unpublish 2026-08-20] Un-publish a period: drop its snapshot rows so the
+ * period returns to Draft.
+ *
+ * "Published" is not a flag anywhere — it is simply whether
+ * `payroll_period_snapshots` holds rows for this (company, period). So removing
+ * the rows is the whole operation, and it has two effects on purpose:
+ *   1. the office screens fall back to the LIVE computation again, and
+ *   2. the tech-pay gate in routes/payroll.ts re-closes, so cleaners stop
+ *      seeing this period until it is published again.
+ *
+ * Why this exists even though publishPeriod is already idempotent: a re-publish
+ * only ever REPLACES the numbers. When a period was published off a bad
+ * computation, the office needs to be able to pull it back out of the cleaners'
+ * hands first, look at it, and publish again deliberately. Owner/admin only —
+ * see the route.
+ *
+ * Returns what was removed so the caller can state it plainly.
+ */
+export async function unpublishPeriod(companyId: number, start: string, end: string): Promise<{ removed: number; total_gross: number }> {
+  await ensurePayrollSnapshotSetup();
+  const before = await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt, COALESCE(SUM(gross), 0)::numeric AS total_gross
+      FROM payroll_period_snapshots
+     WHERE company_id = ${companyId} AND pay_period_start = ${start} AND pay_period_end = ${end}`);
+  const row: any = (before as any).rows?.[0] ?? {};
+  const removed = Number(row.cnt ?? 0);
+  const gross = Number(row.total_gross ?? 0);
+  if (removed > 0) {
+    await db.execute(sql`
+      DELETE FROM payroll_period_snapshots
+       WHERE company_id = ${companyId} AND pay_period_start = ${start} AND pay_period_end = ${end}`);
+  }
+  return { removed, total_gross: r2(gross) };
+}
+
+/**
  * Build the export rows for a period, ONE ENGINE end to end.
  *
  * Prefers the PUBLISHED snapshot (payroll_period_snapshots) so the export
