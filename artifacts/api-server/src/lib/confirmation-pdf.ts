@@ -35,6 +35,13 @@ export interface ConfirmationPdfData {
   email: string;
   recipientEmail: string | null;
   sentAt: Date | null;
+  /**
+   * [pdf-date-tz 2026-08-21] IANA zone the two date stamps render in. Both are
+   * true instants (`sentAt`, and `new Date()` at render time), so without a
+   * zone they printed the container's UTC clock — a copy generated at 7 PM
+   * Central was stamped with TOMORROW's date. Defaults to Central.
+   */
+  timeZone?: string | null;
 }
 
 function fmtApptDate(dateStr: any): string {
@@ -87,6 +94,7 @@ export async function gatherConfirmationData(jobId: number, companyId: number): 
   // Lazy-import so the pure PDF renderer (buildConfirmationPdf) can be imported
   // and unit-tested without a DATABASE_URL.
   const { db } = await import("@workspace/db");
+  const { tzOf } = await import("./company-tz.js");
   const { sql } = await import("drizzle-orm");
   const rows = await db.execute(sql`
     SELECT j.id, j.company_id, j.scheduled_date, j.scheduled_time, j.service_type,
@@ -149,6 +157,7 @@ export async function gatherConfirmationData(jobId: number, companyId: number): 
     email: j.company_email || FALLBACK_EMAIL,
     recipientEmail: j.client_email || null,
     sentAt: null,
+    timeZone: tzOf(companyId),
   };
 }
 
@@ -228,13 +237,13 @@ export function buildConfirmationPdf(data: ConfirmationPdfData): Promise<Buffer>
     y += 12;
     const sentLine = data.recipientEmail
       ? data.sentAt
-        ? `Copy of the confirmation email sent to ${data.recipientEmail} on ${data.sentAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
+        ? `Copy of the confirmation email sent to ${data.recipientEmail} on ${data.sentAt.toLocaleDateString("en-US", { timeZone: data.timeZone || "America/Chicago", month: "long", day: "numeric", year: "numeric" })}.`
         : `Confirmation email on file for ${data.recipientEmail}.`
       : "Confirmation copy.";
     doc.font("Helvetica").fontSize(8.5).fillColor("#9E9B94")
       .text(sentLine, left, y, { width: contentW, align: "center" });
     doc.text(
-      `Job #${data.jobId}  ·  Powered by Qleno  ·  Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
+      `Job #${data.jobId}  ·  Powered by Qleno  ·  Generated ${new Date().toLocaleDateString("en-US", { timeZone: data.timeZone || "America/Chicago", month: "long", day: "numeric", year: "numeric" })}`,
       left, doc.y + 4, { width: contentW, align: "center" }
     );
 

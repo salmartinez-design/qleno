@@ -9,6 +9,7 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { randomUUID } from "crypto";
+import { tzOf } from "../lib/company-tz.js";
 
 const router = Router();
 
@@ -172,7 +173,10 @@ router.get("/onboard/:token", async (req, res) => {
         employee_name: employeeName,
         employee_email: r.employee_email || "",
         company_name: companyName,
-        date: new Date().toLocaleDateString("en-US"),
+        // [instant-date-tz 2026-08-21] This {{date}} is stamped onto a document
+        // the employee signs. Bare, it rendered the container's UTC date, so
+        // anything opened after 7 PM Central was dated the next day.
+        date: new Date().toLocaleDateString("en-US", { timeZone: tzOf(first.company_id) }),
       }),
       requires_signature: r.requires_signature,
       status: r.status,

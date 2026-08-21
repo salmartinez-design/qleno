@@ -12,6 +12,7 @@ import {
   clientsTable,
 } from "@workspace/db/schema";
 import { and, eq, isNull, or, sql, desc } from "drizzle-orm";
+import { tzOf } from "./company-tz.js";
 
 // [ares-parity 2026-08-18] The VA SALES commission engine — a faithful port of
 // the legacy Ares `commissionService.ts`, rebuilt on Qleno's own data.
@@ -486,7 +487,9 @@ async function maybeAwardPerformanceBonus(opts: {
   if (existing) return null;
 
   const amt = opts.policy.performance_bonus_amount;
-  const label = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
+  // [label-date-tz 2026-08-21] On the last evening of a month, UTC has already
+  // rolled over, so a bonus earned in August would be labelled September.
+  const label = new Date().toLocaleString("en-US", { timeZone: tzOf(opts.companyId), month: "long", year: "numeric" });
   const [row] = await db.insert(commissionsTable).values({
     company_id: opts.companyId,
     branch_id: opts.branchId,
