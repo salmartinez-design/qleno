@@ -183,13 +183,27 @@ describe("a date printed off a real instant", () => {
     assert.equal(wrong, "August 20, 2026");
   });
 
-  it("leaves a CONSTRUCTED date alone - that one really is safe", () => {
-    // new Date(y, m-1, d) is local midnight. Formatted in UTC it is still the
-    // same calendar day, which is why the sweep below does not flag it.
+  it("leaves a CONSTRUCTED date alone - and must, because a zone would BREAK it", () => {
+    // new Date(y, m-1, d) is midnight in whatever zone the process sits in.
+    // Left un-zoned it reads back as the same calendar day on any machine,
+    // which is why the sweep below does not flag it.
     const built = new Date(2026, 7, 19);
     assert.equal(
-      built.toLocaleDateString("en-US", { timeZone: CT, month: "long", day: "numeric", year: "numeric" }),
+      built.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       "August 19, 2026",
+    );
+
+    // And this is why the rule has to stay narrow rather than "always name a
+    // zone". Forcing Central onto a date built at midnight somewhere EAST of
+    // Central moves it back to the previous evening. Midnight UTC is 7 PM the
+    // day before in Chicago, so the same calendar date comes back one day
+    // short. CI caught exactly this when the assertion above named CT.
+    const midnightUtc = new Date(Date.UTC(2026, 7, 19));
+    assert.equal(
+      midnightUtc.toLocaleDateString("en-US", {
+        timeZone: CT, month: "long", day: "numeric", year: "numeric",
+      }),
+      "August 18, 2026",
     );
   });
 });
