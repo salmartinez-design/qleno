@@ -1085,17 +1085,51 @@ function ymdMinus(days: number): string {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 
+/** Either a rolling day count, or the employee's own benefit year. */
+type AttendanceWindow = number | "benefit_year";
+
 async function buildAttendanceSummary(
   companyId: number,
   userId: number,
-  windowDays: number,
+  windowSpec: AttendanceWindow,
   includeDiscipline = false,
 ) {
   // [window-upper-bound 2026-07-30] Central day, not UTC — `toISOString()` is
   // tomorrow's date after 7 PM Central, which would pull tomorrow's records
   // into "the last 180 days" every evening.
   const to = ctDateStr();
-  const from = ymdMinus(windowDays);
+
+  // [one-window 2026-08-22] This screen reports over the employee's own benefit
+  // year — the same window the occurrence ladder and lib/attendance-score.ts
+  // already count over. It used to be a hardcoded trailing 180 days, so the
+  // header read "Trailing 180 days" while the attendance score beside it was
+  // measured from the work anniversary: two clocks on one screen, which is the
+  // "two numbers for one fact" defect the ladder rewrite set out to close.
+  // A caller may still pass an explicit rolling window (30/90/180/365) for a
+  // future selector; nothing in the product does today.
+  const uRow = await db
+    .select({ hire_date: usersTable.hire_date })
+    .from(usersTable)
+    .where(and(eq(usersTable.company_id, companyId), eq(usersTable.id, userId)))
+    .limit(1);
+  const hireDate = uRow[0]?.hire_date ? String(uRow[0].hire_date).slice(0, 10) : null;
+  const occHireDate = hireDate ?? to;
+  const benefitYearStart = benefitYearStartDate(occHireDate, to).toISOString().slice(0, 10);
+
+  // No hire date means no anniversary to count from. Those accounts keep a
+  // rolling window rather than collapsing to a one-day report that reads as a
+  // spotless record. (The attendance SCORE returns null for them by design —
+  // see attendance-score.ts — but the tiles are a log, not a grade.)
+  const usingBenefitYear = windowSpec === "benefit_year" && !!hireDate;
+  const from =
+    windowSpec === "benefit_year"
+      ? (hireDate ? benefitYearStart : ymdMinus(180))
+      : ymdMinus(windowSpec);
+  // Inclusive, so a benefit year that opened today reads 1 day and not 0.
+  const windowDays = Math.max(
+    1,
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1,
+  );
 
   const att = await db
     .select({
@@ -1256,6 +1290,29 @@ async function buildAttendanceSummary(
     lateClockInRows = [];
   }
 
+  // [one-window 2026-08-22] The date late arrivals actually start from, MEASURED
+  // rather than typed. This tile has a real floor the others don't: late_by_min
+  // is stamped at clock-in and only started existing on 2026-08-18, so a window
+  // that opens earlier still has nothing to show before then. The profile used
+  // to print a literal "since 8/18", which was true the week it was written and
+  // will quietly rot the day anything about that stamp changes. Ask the data
+  // instead: the earliest stamped punch in the company IS the day recording
+  // began. Null when the tenant has none yet, and the UI then just labels the
+  // tile with the window like every other tile.
+  let lateClockInsSince: string | null = null;
+  try {
+    const sinceRes = await db.execute(sql`
+      SELECT MIN(COALESCE(j.scheduled_date, tc.clock_in_at::date))::text AS d
+        FROM timeclock tc
+        JOIN jobs j ON j.id = tc.job_id
+       WHERE tc.company_id = ${companyId}
+         AND tc.late_by_min IS NOT NULL`);
+    const d = (sinceRes.rows as any[])[0]?.d;
+    lateClockInsSince = d ? String(d).slice(0, 10) : null;
+  } catch {
+    lateClockInsSince = null;
+  }
+
   // [tardy-job-record 2026-08-21] Name the service behind each auto-detected
   // tardy. Sal: "can we see the jobs that were marked late for record keeping."
   //
@@ -1414,13 +1471,8 @@ async function buildAttendanceSummary(
     unexOccSteps = [];
     tardyOccSteps = [];
   }
-  const uRow = await db
-    .select({ hire_date: usersTable.hire_date })
-    .from(usersTable)
-    .where(and(eq(usersTable.company_id, companyId), eq(usersTable.id, userId)))
-    .limit(1);
-  const occHireDate = uRow[0]?.hire_date ? String(uRow[0].hire_date).slice(0, 10) : to;
-  const benefitYearStart = benefitYearStartDate(occHireDate, to).toISOString().slice(0, 10);
+  // hireDate / benefitYearStart are resolved at the top of this function now —
+  // the reported window is built from them.
   const byRows = await db
     .select({
       id: employeeAttendanceLogTable.id,
@@ -1543,8 +1595,16 @@ async function buildAttendanceSummary(
 
   return {
     window_days: windowDays,
+    // "benefit_year" = counted from this employee's work anniversary (the
+    // normal case). "rolling" = a plain trailing window, either because the
+    // caller asked for one or because the employee has no hire date on file.
+    // The UI labels itself off this instead of printing a hardcoded span.
+    window_mode: usingBenefitYear ? "benefit_year" : "rolling",
+    benefit_year_start: usingBenefitYear ? benefitYearStart : null,
     from,
     to,
+    // Earliest date the late-arrival tile can have data for. See above.
+    late_clockins_since: lateClockInsSince,
     // [days-metrics 2026-07-30] The profile's Attendance hero reads these
     // instead of deriving day counts from user.total_jobs. Server-side so the
     // ring, the tiles and the stats table can never drift apart again.
@@ -1593,9 +1653,11 @@ async function buildAttendanceSummary(
   };
 }
 
-function parseWindowDays(q: unknown): number {
+function parseWindowDays(q: unknown): AttendanceWindow {
+  // [one-window 2026-08-22] Absent an explicit rolling window, report over the
+  // employee's benefit year — the window the ladder and the score already use.
   const n = Number(q);
-  return [30, 90, 180, 365].includes(n) ? n : 180;
+  return [30, 90, 180, 365].includes(n) ? n : "benefit_year";
 }
 
 router.get("/attendance-summary/me", async (req, res) => {

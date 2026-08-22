@@ -1140,15 +1140,58 @@ export default function EmployeeProfilePage() {
   });
   const leaveUsage: any[] = leaveUsageResp?.data || [];
 
-  // [Phase 2] Real attendance stats + per-day drill-downs. Default 180-day
-  // window (the API accepts windowDays 30/90/180/365 for a future selector).
+  // [Phase 2] Real attendance stats + per-day drill-downs.
+  // [one-window 2026-08-22] No windowDays here on purpose. Left unasked, the
+  // API reports over this employee's own benefit year — the same window the
+  // occurrence ladder and the attendance score already count over. Asking for
+  // a fixed 180 days is what put "Trailing 180 days" in this header while the
+  // score beside it was measured from the work anniversary: two clocks on one
+  // screen, and no way for an employee to reconcile them. (The API still
+  // accepts 30/90/180/365 if a window selector is ever added.)
   const [statDrill, setStatDrill] = useState<null | { label: string; days: any[] }>(null);
   const { data: attnSummaryResp } = useQuery({
     queryKey: ['attendance-summary', userId],
-    queryFn: () => apiFetch(`/leave/attendance-summary?userId=${userId}&windowDays=180`),
+    queryFn: () => apiFetch(`/leave/attendance-summary?userId=${userId}`),
     enabled: activeTab === 'Attendance',
   });
   const attnSummary: any = attnSummaryResp?.data || null;
+
+  // Every window label on this tab comes from here, so the header, the tiles
+  // and the drill-down can never disagree about what period is on screen.
+  // window_mode is 'benefit_year' for anyone with a hire date on file, and
+  // 'rolling' for the few accounts that have none.
+  const attnWin = (() => {
+    const from = String(attnSummary?.from || '').slice(0, 10);
+    const days = Number(attnSummary?.window_days || 0);
+    const fmt = (d: string) =>
+      new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const pretty = from ? fmt(from) : '';
+    // Late arrivals have their own floor: the clock-in stamp they read only
+    // started existing partway through, so on a window that opens earlier the
+    // tile honestly covers less than the rest of the card. The server measures
+    // that date; it is not typed here.
+    const lateFrom = String(attnSummary?.late_clockins_since || '').slice(0, 10);
+    const lateShort = lateFrom && from && lateFrom > from ? `since ${fmt(lateFrom)}` : '';
+    if (attnSummary?.window_mode === 'benefit_year' && pretty) {
+      return {
+        lateShort: lateShort || `since ${pretty}`,
+        title: `Benefit year — since ${pretty}`,
+        short: `since ${pretty}`,
+        heading: `Attendance — Benefit Year (since ${pretty})`,
+        drill: `since ${pretty}`,
+        tip: `This employee's benefit year, which opens on their work anniversary (${pretty}). The disciplinary ladder and the attendance score count over this same period.`,
+      };
+    }
+    const n = days || 180;
+    return {
+      lateShort: lateShort || `last ${n} days`,
+      title: `Trailing ${n} days`,
+      short: `last ${n} days`,
+      heading: `Attendance — Last ${n} Days`,
+      drill: `last ${n} days`,
+      tip: `No hire date on file, so there is no work anniversary to count from. This falls back to a rolling ${n}-day window.`,
+    };
+  })();
 
   // [tab-consolidate 2026-08-04] The 'Contact Tickets' and 'Payroll History'
   // queries + render blocks were removed here: neither slug had been in TABS
@@ -2342,7 +2385,7 @@ export default function EmployeeProfilePage() {
                   <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:16, padding:'22px 24px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:16 }}>
                       <span style={{ fontSize:16, fontWeight:800, color:'#1A1917' }}>Attendance</span>
-                      <span style={{ fontSize:12, fontWeight:700, color:'#0A9E7E' }}>Trailing 180 days</span>
+                      <span title={attnWin.tip} style={{ fontSize:12, fontWeight:700, color:'#0A9E7E' }}>{attnWin.title}</span>
                     </div>
                     <div style={{ display:'flex', gap:22, alignItems:'center' }}>
                       <div style={{ flexShrink:0, position:'relative', width:104, height:104 }}>
@@ -2362,9 +2405,9 @@ export default function EmployeeProfilePage() {
                             its job's start, later houses included. Two
                             different questions, deliberately two tiles — see
                             the note on the table below. */}
-                        {HT('Tardy', late, 'occurrences · 180d', '#B45309', { label:'Tardy occurrences', days: t?.late?.days })}
-                        {HT('Late arrivals', t?.late_clockins?.count ?? 0, 'punches · since 8/18', '#B45309', { label:'Late clock-ins', days: t?.late_clockins?.days })}
-                        {HT('Absent', absent, 'last 180 days', '#B3261E', { label:'Absent', days: t?.absent?.days })}
+                        {HT('Tardy', late, `occurrences · ${attnWin.short}`, '#B45309', { label:'Tardy occurrences', days: t?.late?.days })}
+                        {HT('Late arrivals', t?.late_clockins?.count ?? 0, `punches · ${attnWin.lateShort}`, '#B45309', { label:'Late clock-ins', days: t?.late_clockins?.days })}
+                        {HT('Absent', absent, attnWin.short, '#B3261E', { label:'Absent', days: t?.absent?.days })}
                         <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ gridColumn:'1 / -1', background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
                           <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>Absence pattern</div>
                           <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color: bSev.c }}>{bd.B}</div>
@@ -2891,7 +2934,7 @@ export default function EmployeeProfilePage() {
 
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                    <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Attendance — Last 180 Days</p>
+                    <p title={attnWin.tip} style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>{attnWin.heading}</p>
                   </div>
                   {(() => {
                     const t = attnSummary?.tiles;
@@ -2912,7 +2955,7 @@ export default function EmployeeProfilePage() {
                       // profile." Collapsing them into one number would
                       // misreport whichever question is being asked.
                       { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days, hint:'Tardy occurrences on the disciplinary ladder — at most one per day, measured on the first job of the day.' },
-                      { label:'Late clock-ins', value: t?.late_clockins?.count ?? 0, days: t?.late_clockins?.days, hint:'Every punch that landed 20+ minutes after its job\'s scheduled start, including later jobs in the day. Click to see which services. Recorded from 8/18/2026 onward.' },
+                      { label:'Late clock-ins', value: t?.late_clockins?.count ?? 0, days: t?.late_clockins?.days, hint:`Every punch that landed 20+ minutes after its job's scheduled start, including later jobs in the day. Click to see which services. Recorded ${attnWin.lateShort}.` },
                       { label:'Absent', value: t?.absent?.count ?? 0, days: t?.absent?.days },
                       { label:'Unexcused', value: t?.unexcused?.count ?? 0, days: t?.unexcused?.days },
                       { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },
@@ -2976,7 +3019,7 @@ export default function EmployeeProfilePage() {
                   <div onClick={() => setStatDrill(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
                     <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
                       <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
-                        <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{statDrill.label} — last 180 days</h3>
+                        <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{statDrill.label} — {attnWin.drill}</h3>
                         <button onClick={() => setStatDrill(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
                       </div>
                       {statDrill.days.length === 0 ? (
