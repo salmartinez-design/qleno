@@ -22,6 +22,7 @@ import { OneOnOnesPanel } from "@/components/one-on-ones-panel";
 import { DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 import { todayInCompanyTz } from "@/lib/company-tz";
+import { attendanceSubLabel } from "@/lib/attendance-label";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -2314,13 +2315,29 @@ export default function EmployeeProfilePage() {
                 const C = 2 * Math.PI * 44;
                 const off = onTime != null ? C * (1 - onTime / 100) : C;
                 const balTiles = leaveBuckets.slice(0, 4);
-                const HT = (label: string, val: React.ReactNode, sub: string, color = '#1A1917') => (
-                  <div style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                // [tardy-job-record 2026-08-21] `drill` makes a tile open the
+                // same day-by-day list the table further down opens. Sal was
+                // looking at these tiles when he asked to see the jobs behind a
+                // late — the record existed, three screens away from where the
+                // number is read. A tile with no rows stays inert rather than
+                // opening an empty modal.
+                const HT = (label: string, val: React.ReactNode, sub: string, color = '#1A1917', drill?: { label: string; days?: any[] }) => {
+                  const rows = drill?.days || [];
+                  const clickable = rows.length > 0;
+                  return (
+                  <div
+                    onClick={clickable ? () => setStatDrill({ label: drill!.label, days: rows }) : undefined}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStatDrill({ label: drill!.label, days: rows }); } } : undefined}
+                    style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px', cursor: clickable ? 'pointer' : 'default' }}
+                  >
                     <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>{label}</div>
                     <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color }}>{val}</div>
-                    <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>{sub}</div>
+                    <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>{clickable ? `${sub} \u00b7 view` : sub}</div>
                   </div>
-                );
+                  );
+                };
                 return (
                   <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:16, padding:'22px 24px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:16 }}>
@@ -2340,9 +2357,15 @@ export default function EmployeeProfilePage() {
                       </div>
                       <div style={{ flex:1, display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
                         {HT('Days worked', worked, `of ${scheduled} scheduled`)}
-                        {HT('Tardy', late, 'last 180 days', '#B45309')}
-                        {HT('Absent', absent, 'last 180 days', '#B3261E')}
-                        <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                        {/* Tardy = disciplinary OCCURRENCES (one per day, first
+                            job only). Late arrivals = every punch 20+ min after
+                            its job's start, later houses included. Two
+                            different questions, deliberately two tiles — see
+                            the note on the table below. */}
+                        {HT('Tardy', late, 'occurrences · 180d', '#B45309', { label:'Tardy occurrences', days: t?.late?.days })}
+                        {HT('Late arrivals', t?.late_clockins?.count ?? 0, 'punches · since 8/18', '#B45309', { label:'Late clock-ins', days: t?.late_clockins?.days })}
+                        {HT('Absent', absent, 'last 180 days', '#B3261E', { label:'Absent', days: t?.absent?.days })}
+                        <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ gridColumn:'1 / -1', background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
                           <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>Absence pattern</div>
                           <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color: bSev.c }}>{bd.B}</div>
                           <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>Bradford · {bd.S} spell{bd.S === 1 ? '' : 's'} / {bd.D}d · {bSev.l}</div>
@@ -2902,7 +2925,7 @@ export default function EmployeeProfilePage() {
                       // neither: compositeScore is the rolling 90-day
                       // performance composite, blending customer satisfaction
                       // with an attendance sub-score. Named for what it is.
-                      { label:'Performance score', hint:'Rolling 90-day composite — customer satisfaction blended with an attendance sub-score. Not an attendance-only figure; the on-time ring above measures something different.', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
+                      { label:'Performance score', hint:'Customer satisfaction and complaints over the last 90 days, blended with an attendance sub-score counted over the benefit year. Not an attendance-only figure; the on-time ring above measures something different.', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
                     ];
                     return rows.map(row => {
                       const clickable = Array.isArray(row.days);
@@ -3033,7 +3056,7 @@ export default function EmployeeProfilePage() {
                     {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
                   <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
-                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Satisfaction + complaints: 90 days · Attendance: benefit year</p>
+                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Customer satisfaction, attendance and complaints</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
                   <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown</p>
@@ -3042,19 +3065,15 @@ export default function EmployeeProfilePage() {
                       { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
                         sub: !comp ? '' : comp.satisfaction_source === 'mc_lifetime'
                           ? 'MaidCentral history'
-                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'} (90d)` },
-                      // [attendance-ladder 2026-08-21] Caption is the LADDER STANDING, not a
-                      // day count. It used to read "0 issues · 57 days" off the 90-day
-                      // scheduled_days while the % above came from the benefit year — two
-                      // windows in one tile, which is the bug this change exists to remove.
+                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'}, last 90 days` },
+                      // [attendance-ladder 2026-08-21] Was "N issues · M days".
+                      // Scheduled days no longer divide anything, and this tile
+                      // runs on the benefit year while its two neighbours run on
+                      // the trailing 90 — so each tile states its own window.
                       { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
-                        sub: !comp ? '' : comp.attendance == null
-                          ? (comp.attendance_ladder?.unavailable_reason === 'missing_hire_date'
-                              ? 'No hire date on file'
-                              : 'No attendance ladder configured')
-                          : `${comp.attendance_ladder?.worst_occurrences ?? 0} of ${comp.attendance_ladder?.termination_occurrences ?? 0} occurrences · this benefit year` },
+                        sub: attendanceSubLabel(comp?.attendance_detail, comp?.attendance_window_from, comp?.attendance_unavailable ?? null) },
                       { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,
-                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} · ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}` : '' },
+                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} of ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}, last 90 days` : '' },
                     ].map((m) => (
                       <div key={m.key} style={{ background:'#F7F6F3', border:'1px solid #EEECE7', borderRadius:8, padding:'12px 14px', display:'flex', flexDirection:'column', gap:4 }}>
                         <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.04em' }}>{m.label}</span>

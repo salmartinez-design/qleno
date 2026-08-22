@@ -177,6 +177,20 @@ export async function createEmployee(input: CreateEmployeeInput, callerRole: str
     return { ok: false, status: 403, error: "Forbidden", message: "Only the owner can create an owner account." };
   }
 
+  // [attendance-ladder 2026-08-21] Hire date is required for anyone actually
+  // employed. It anchors the benefit year, which is the window the attendance
+  // sub-score counts occurrences over and the date leave balances reset on.
+  // Without it the attendance score cannot be computed at all, so the person's
+  // performance score reads as a dash indefinitely — a silent gap nobody
+  // notices until a review. An accountant is a view-only login, not staff, so
+  // it stays optional for that one role.
+  if (role !== "accountant" && !input.hire_date) {
+    return {
+      ok: false, status: 400, error: "Bad Request",
+      message: "hire_date is required — it sets the benefit year that attendance and leave are counted over.",
+    };
+  }
+
   const [dupe] = await db
     .select({ id: usersTable.id, is_active: usersTable.is_active })
     .from(usersTable)

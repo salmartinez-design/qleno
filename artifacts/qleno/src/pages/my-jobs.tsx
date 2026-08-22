@@ -1696,10 +1696,12 @@ export default function MyJobsPage() {
     refetchInterval: 30000,
   });
 
-  // [tech-scorecard 2026-07-14] The trailing-90-day composite score for the My
-  // Score tile — SAME source + query key as the scorecard panel, so the tile
-  // number matches the panel headline exactly (Sal: the tile must show the
-  // actual score, wired to trailing-90-days).
+  // [tech-scorecard 2026-07-14] The composite score for the My Score tile —
+  // SAME source + query key as the scorecard panel, so the tile number matches
+  // the panel headline exactly (Sal: the tile must show the actual score).
+  // [attendance-ladder 2026-08-21] The three sub-scores no longer share one
+  // window — satisfaction and complaint-free are trailing 90, attendance runs
+  // from the benefit-year start — so the tile caption no longer names a window.
   const scoreQ = useQuery({
     queryKey: ["tech-scorecard", employeeView?.employeeId ?? "self"],
     queryFn: async () => {
@@ -2027,7 +2029,7 @@ export default function MyJobsPage() {
                 <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: myScorePct == null ? "#C9CCD6" : myScorePct >= 90 ? "#34E3B6" : myScorePct >= 75 ? "#FBBF55" : "#F87171" }}>
                   {myScorePct == null ? "—" : `${Math.round(myScorePct)}%`}
                 </p>
-                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>trailing 90 days · tap ›</p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>updated daily · tap ›</p>
               </button>
             </div>
             <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>

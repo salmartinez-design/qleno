@@ -277,8 +277,8 @@ async function driveOccurrenceLadder(
   steps: OccurrenceStep[],
 ): Promise<UnexcusedLadderResult> {
   // The unexcused counter spans plain absences AND No-Call/No-Shows; the tardy
-  // counter is its own track. NCNS rows weigh +2 (procedural violation) and are
-  // never protected — see countUnexcusedOccurrences.
+  // counter is its own track. NCNS rows weigh the same as a plain unexcused day
+  // and are never protected — see countUnexcusedOccurrences.
   const attTypes: string[] = kind === "tardy" ? ["tardy"] : ["absent", "ncns"];
   const marker = kind === "tardy" ? "tardy-occ" : "unexcused-occ";
   const nullResult: UnexcusedLadderResult = {
@@ -299,8 +299,8 @@ async function driveOccurrenceLadder(
 
   // Count this counter's occurrences in the current benefit year (includes the
   // row just inserted). Protected (PLAWA-covered) rows count zero; a plain
-  // unexcused absence counts 1; a No-Call/No-Show counts 2 regardless of PLAWA
-  // balance. countUnexcusedOccurrences encodes those weights.
+  // unexcused absence counts 1; a No-Call/No-Show also counts 1, regardless of
+  // PLAWA balance. countUnexcusedOccurrences encodes those weights.
   const rows = await tx
     .select({
       type: employeeAttendanceLogTable.type,

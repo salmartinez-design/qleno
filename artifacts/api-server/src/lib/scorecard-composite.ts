@@ -6,10 +6,12 @@
 //
 //   1. Customer Satisfaction %  — mean of non-excluded 0–4 survey responses
 //                                 (scorecard_entries) in the window, ÷max ×100.
-//   2. Attendance %             — 100 × (scheduled tech-days − weighted
-//                                 violations) / scheduled, from
-//                                 employee_attendance_log (absent/ncns=1.0,
-//                                 tardy=0.5).
+//   2. Attendance %             — 100 − (occurrences ÷ the tenant's termination
+//                                 rung) × 100, counted over the employee's
+//                                 BENEFIT YEAR (floored at the cutover), on two
+//                                 independent tracks with the worse one showing.
+//                                 See lib/attendance-score.ts. Note this sub-score
+//                                 does NOT use the 90-day window the other two do.
 //   3. Complaint-free %         — 100 × (1 − valid complaints / completed jobs),
 //                                 from quality_complaints (valid=true).
 //
@@ -20,13 +22,21 @@
 // (replaces scorecard_pct on every surface); scorecard_pct stays as the
 // satisfaction-only live value the survey recompute writes.
 //
-// Multi-tenant: every query is company_id-scoped. Window: trailing 90 days
-// ending at `asOf` (default today, America/Chicago is implied by date columns).
+// Multi-tenant: every query is company_id-scoped.
+//
+// WINDOWS ARE NOT UNIFORM, and the UI must not claim they are. Satisfaction and
+// complaint-free are trailing 90 days ending at `asOf`. Attendance is the
+// employee's benefit year (work anniversary), floored at the cutover date —
+// because that is the window the disciplinary ladder uses, and a score that
+// disagreed with the ladder was the whole problem. [attendance-ladder 2026-08-21]
 // ─────────────────────────────────────────────────────────────────────────────
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { benefitYearStartDate } from "./leave-grant-reset.js";
-import { countUnexcusedOccurrences } from "./attendance-compliance.js";
+import {
+  attendanceWindowStart,
+  scoreAttendanceLadder,
+  type AttendanceLadderScore,
+} from "./attendance-score.js";
 
 export const COMPOSITE_WINDOW_DAYS = 90;
 
@@ -46,19 +56,15 @@ export interface CompositeResult {
   // imported MaidCentral / lifetime fallback, or null when neither exists.
   satisfaction_source: "rolling_90d" | "mc_lifetime" | null;
   attendance: number | null;
-  /** [attendance-ladder 2026-08-21] How the attendance % was reached, so the UI
-   *  can say "2 of 5 occurrences" instead of an unexplained percentage. */
-  attendance_ladder: {
-    benefit_year_start: string | null;
-    tardy_occurrences: number;
-    unexcused_occurrences: number;
-    /** The worse of the two tracks — the one the score is actually based on. */
-    worst_occurrences: number;
-    /** The tenant's termination rung. 0 when no ladder is configured. */
-    termination_occurrences: number;
-    /** Null attendance is one of these, never a silent 0. */
-    unavailable_reason: "missing_hire_date" | "no_ladder_configured" | null;
-  };
+  // [attendance-ladder 2026-08-21] Where the attendance number came from: the
+  // occurrence counts on each track, the tenant's termination rung, and which
+  // track is driving. The UI needs this to say "2 of 5 occurrences" instead of
+  // an unexplained percentage.
+  attendance_detail: AttendanceLadderScore | null;
+  /** Benefit-year start, floored at the cutover. Null when there's no hire date. */
+  attendance_window_from: string | null;
+  /** Why attendance is null, when it is. Null when a score was produced. */
+  attendance_unavailable: "no_hire_date" | "no_ladder" | null;
   complaint_free: number | null;
   composite: number | null;
   counts: {
@@ -91,24 +97,6 @@ export async function ensureCompositeScoreColumns(): Promise<void> {
 
 function clampPct(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n * 100) / 100));
-}
-
-/**
- * Attendance % from a position on the disciplinary ladder.
- *
- * [attendance-ladder 2026-08-21] Pure so the arithmetic is testable without a
- * database — the bug this replaced (a tardy visible on one tab and invisible on
- * another) survived precisely because nothing could assert the math directly.
- *
- * `worst` is the WORSE of the tardy and unexcused occurrence counts, not their
- * sum: the handbook runs them as two separate scales.
- * `terminationOccurrences` is the tenant's final rung — 5 for Phes today, but
- * read from company_attendance_policy, never assumed.
- */
-export function ladderAttendancePct(worst: number, terminationOccurrences: number): number | null {
-  if (!Number.isFinite(terminationOccurrences) || terminationOccurrences <= 0) return null;
-  const w = Math.max(0, Number(worst) || 0);
-  return clampPct(100 - (w / terminationOccurrences) * 100);
 }
 
 const DEFAULT_WEIGHTS: CompositeWeights = { satisfaction: 60, attendance: 25, complaint_free: 15 };
@@ -168,97 +156,20 @@ export async function computeCompositeForEmployee(
     if (lifetime != null) { satisfaction = clampPct(Number(lifetime)); satisfaction_source = "mc_lifetime"; }
   }
 
-  // 2. Attendance — position on the handbook's disciplinary ladder, over the
-  // employee's Benefit Year.
-  //
-  // [attendance-ladder 2026-08-21] THE BUG THIS CLOSES. Sal, looking at one
-  // tech's profile: the Attendance tab read "Tardy 1" while the Performance
-  // Score right beside it read "Attendance 100% — 0 issues". Both were telling
-  // the truth about different windows. The tab looks back 180 days; this score
-  // looked back 90. A tardy 91+ days old had aged out of the score while still
-  // sitting on the tab. Two numbers about the same person, silently disagreeing.
-  //
-  // The old formula was also a ratio nobody was taught: (scheduled days minus
-  // weighted violations) / scheduled days. Against a ~60-day denominator one
-  // tardy moved the total score about 0.2 points — technically counted,
-  // practically invisible. It appears in no policy document.
-  //
-  // What employees actually sign, are quizzed on in the LMS, and are
-  // disciplined by is the Tardiness Scale in Section 3 of the handbook:
-  // 1st/2nd recorded + coaching, 3rd written warning, 4th final warning,
-  // 5th termination, counted per Benefit Year (work anniversary). So the score
-  // now restates that ladder as a percentage. Each occurrence costs one rung;
-  // at the termination step attendance is 0. "Your attendance is 60%" now means
-  // "two occurrences, one more is a written warning" — a sentence you can say
-  // out loud next to a write-up without the screen contradicting you.
-  //
-  // Tardy and unexcused are SEPARATE ladders in the handbook, so we take the
-  // WORSE of the two rather than averaging: someone one tardy from termination
-  // must not be averaged back into the middle by a clean absence record.
+  // 2. Attendance — how far along the disciplinary ladder this employee stands.
+  // [attendance-ladder 2026-08-21] This used to be a days ratio: scheduled days
+  // minus weighted violations, over scheduled days. On a 60-day window that made
+  // one tardy worth about a fifth of a point of the headline score, so a tech one
+  // occurrence away from a written warning still showed green. The score now reads
+  // the same occurrences the ladder reads. See lib/attendance-score.ts for the
+  // reasoning behind the window floor, the two tracks, and protected rows.
   const hireRow = await db.execute(sql`
-    SELECT hire_date FROM users WHERE id = ${employeeId} AND company_id = ${companyId} LIMIT 1`);
-  const hireDateRaw = (hireRow.rows[0] as any)?.hire_date ?? null;
+    SELECT to_char(hire_date, 'YYYY-MM-DD') AS hire_date
+      FROM users WHERE id = ${employeeId} AND company_id = ${companyId} LIMIT 1`);
+  const hireDate = (hireRow.rows[0] as any)?.hire_date ?? null;
 
-  // The termination rung comes from the TENANT'S configured ladder, never a
-  // hardcoded 5 — the office can edit those steps, and a score that disagreed
-  // with the ladder it is supposed to mirror would recreate the exact bug above.
-  let terminationOccurrences = 0;
-  try {
-    const stepRow = await db.execute(sql`
-      SELECT tardy_occurrence_steps AS tardy, unexcused_occurrence_steps AS unex
-        FROM company_attendance_policy WHERE company_id = ${companyId} LIMIT 1`);
-    const lastOf = (steps: unknown): number => {
-      const arr = Array.isArray(steps) ? (steps as Array<{ occurrence?: unknown }>) : [];
-      return arr.reduce((mx, st) => Math.max(mx, Number(st?.occurrence ?? 0)), 0);
-    };
-    const row = (stepRow.rows[0] as any) ?? {};
-    terminationOccurrences = Math.max(lastOf(row.tardy), lastOf(row.unex));
-  } catch {
-    terminationOccurrences = 0;
-  }
-
-  // Benefit-year occurrence counts. Null attendance (a dash, never a fake 100%)
-  // when we can't establish the window or the tenant has no ladder configured:
-  //   - no hire_date  -> benefitYearStartDate would collapse to a single day and
-  //                      report a permanent 0 occurrences, which is a hole an
-  //                      employee could sit in indefinitely. Show nothing and
-  //                      let the roster flag the missing date instead.
-  //   - no ladder     -> there is no scale to be a percentage OF.
-  let attendance: number | null = null;
-  let violCount = 0;
-  let benefitYearStart: string | null = null;
-  let tardyOccurrences = 0;
-  let unexcusedOccurrences = 0;
-
-  if (hireDateRaw != null && terminationOccurrences > 0) {
-    benefitYearStart = benefitYearStartDate(String(hireDateRaw).slice(0, 10), toDate)
-      .toISOString()
-      .slice(0, 10);
-    const occRows = await db.execute(sql`
-      SELECT type, protected
-        FROM employee_attendance_log
-       WHERE company_id = ${companyId} AND employee_id = ${employeeId}
-         AND type IN ('absent', 'ncns', 'tardy')
-         AND log_date >= ${benefitYearStart} AND log_date <= ${toDate}`);
-    const rows = (occRows.rows ?? []) as Array<{ type: string; protected: boolean | null }>;
-    // Protected (PLAWA-covered) rows count zero on both tracks — the handbook is
-    // explicit that protected leave never reaches a disciplinary threshold. The
-    // old ratio ignored the protected flag entirely, so a protected absence
-    // still dragged the score down. Going through the canonical counter fixes
-    // that as a side effect.
-    tardyOccurrences = rows.filter((r) => r.type === "tardy" && !r.protected).length;
-    unexcusedOccurrences = countUnexcusedOccurrences(
-      rows
-        .filter((r) => r.type === "absent" || r.type === "ncns")
-        .map((r) => ({ type: r.type, protected: r.protected })),
-    );
-    const worst = Math.max(tardyOccurrences, unexcusedOccurrences);
-    violCount = tardyOccurrences + unexcusedOccurrences;
-    attendance = ladderAttendancePct(worst, terminationOccurrences);
-  }
-
-  // Kept for the payload's `counts.scheduled_days` — context for the office
-  // ("3 occurrences across 57 scheduled days"), no longer part of the math.
+  // Kept for display only — "N occurrences" reads better next to how many days
+  // the tech actually worked. It no longer feeds the math.
   const schedRow = await db.execute(sql`
     SELECT COUNT(DISTINCT j.scheduled_date)::int AS days
       FROM jobs j
@@ -268,6 +179,54 @@ export async function computeCompositeForEmployee(
        AND j.status <> 'cancelled'
        AND (jt.user_id = ${employeeId} OR j.assigned_user_id = ${employeeId})`);
   const scheduledDays = Number((schedRow.rows[0] as any)?.days ?? 0);
+
+  let attendance: number | null = null;
+  let attendanceDetail: AttendanceLadderScore | null = null;
+  let attendanceWindowFrom: string | null = null;
+  // Why there's no score, when there isn't one. The UI shows a dash either way,
+  // but the office needs to know whether to go fix a hire date or a policy.
+  let attendanceUnavailable: "no_hire_date" | "no_ladder" | null = null;
+  let violCount = 0;
+
+  if (!hireDate) {
+    // No hire date means no benefit year, and a benefit year is the window. The
+    // old code silently scored these people anyway; showing a dash is honest and
+    // it makes the missing field visible to whoever can fill it in.
+    attendanceUnavailable = "no_hire_date";
+  } else {
+    // [one-window 2026-08-21] Both tracks are counted over the employee's own
+    // benefit year, which opens on their work anniversary — the same window the
+    // disciplinary ladder uses. See attendanceWindowStart for why there is no
+    // second, floored window.
+    attendanceWindowFrom = attendanceWindowStart(hireDate, toDate);
+
+    const policyRow = await db.execute(sql`
+      SELECT tardy_occurrence_steps, unexcused_occurrence_steps
+        FROM company_attendance_policy WHERE company_id = ${companyId} LIMIT 1`);
+    const tardySteps = ((policyRow.rows[0] as any)?.tardy_occurrence_steps ?? []) as any[];
+    const unexSteps = ((policyRow.rows[0] as any)?.unexcused_occurrence_steps ?? []) as any[];
+
+    // log_date <= toDate keeps a mis-keyed future date from counting against
+    // someone before it has even happened.
+    const occRows = await db.execute(sql`
+      SELECT type, protected
+        FROM employee_attendance_log
+       WHERE company_id = ${companyId} AND employee_id = ${employeeId}
+         AND type IN ('absent','ncns','tardy')
+         AND log_date >= ${attendanceWindowFrom} AND log_date <= ${toDate}`);
+
+    attendanceDetail = scoreAttendanceLadder({
+      rows: (occRows.rows as any[]).map(r => ({
+        type: String(r.type),
+        protected: r.protected === true,
+      })),
+      tardySteps,
+      unexcusedSteps: unexSteps,
+    });
+    attendance = attendanceDetail.score;
+    if (attendance == null) attendanceUnavailable = "no_ladder";
+    violCount = attendanceDetail.tardy_occurrences + attendanceDetail.unexcused_occurrences;
+  }
 
   // 3. Complaint-free — valid complaints vs completed jobs in the window.
   const complaintRow = await db.execute(sql`
@@ -308,19 +267,9 @@ export async function computeCompositeForEmployee(
     satisfaction,
     satisfaction_source,
     attendance,
-    attendance_ladder: {
-      benefit_year_start: benefitYearStart,
-      tardy_occurrences: tardyOccurrences,
-      unexcused_occurrences: unexcusedOccurrences,
-      worst_occurrences: Math.max(tardyOccurrences, unexcusedOccurrences),
-      termination_occurrences: terminationOccurrences,
-      unavailable_reason:
-        attendance != null
-          ? null
-          : hireDateRaw == null
-            ? "missing_hire_date"
-            : "no_ladder_configured",
-    },
+    attendance_detail: attendanceDetail,
+    attendance_window_from: attendanceWindowFrom,
+    attendance_unavailable: attendanceUnavailable,
     complaint_free,
     composite,
     counts: {

@@ -1,172 +1,252 @@
-/**
- * [attendance-ladder 2026-08-21] A tardy has to reach the Performance Score.
- *
- * THE BUG, as Sal saw it on one tech's profile (employee 40):
- *
- *   Attendance tab      ->  "TARDY 1"          (trailing 180 days)
- *   Performance Score   ->  "ATTENDANCE 100%    0 issues · 57 days"
- *
- * Both were telling the truth about different windows. The tab looks back 180
- * days; the composite looked back 90 (COMPOSITE_WINDOW_DAYS). A tardy 91+ days
- * old had aged out of the score months earlier while still sitting on the tab.
- * Sal: "All i need you to do is ensure that the tardiness again is being
- * counted against their performance score and tardiness counter."
- *
- * Two things were wrong and both are fixed here:
- *   1. WINDOW. Attendance is now measured over the employee's Benefit Year
- *      (work anniversary), the same window the disciplinary ladder uses, so the
- *      score and the write-up can never disagree again.
- *   2. WEIGHT. The old ratio — (scheduled days − weighted violations) /
- *      scheduled days, tardy = 0.5 — moved the total score about 0.2 points per
- *      tardy against a ~60-day denominator. Counted, but invisible. Attendance
- *      is now position on the handbook's ladder: each occurrence costs one rung.
- */
+// [attendance-ladder 2026-08-21] The ladder-based attendance sub-score.
+// Run:
+//   DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/attendance-ladder-score.test.ts
+//
+// What these pin, in order: the exact scale Sal signed off on, that the two
+// tracks show the WORSE and never an average, that protected leave costs nothing,
+// that the termination rung is read from tenant config rather than hardcoded,
+// that a missing ladder yields a dash instead of a flattering 100, and that the
+// window is the employee's own benefit year.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { ladderAttendancePct } from "../lib/scorecard-composite.js";
+import {
+  attendanceWindowStart,
+  scoreAttendanceLadder,
+  terminationOccurrences,
+} from "../lib/attendance-score.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const composite = readFileSync(path.join(__dirname, "../lib/scorecard-composite.ts"), "utf8");
+// Phes's real configuration, confirmed in production on both companies and both
+// tracks. Written out rather than imported so a config change can't quietly
+// rewrite what these tests claim.
+const PHES = [
+  { occurrence: 3, discipline_type: "absence_warning" },
+  { occurrence: 4, discipline_type: "final_warning" },
+  { occurrence: 5, discipline_type: "termination" },
+];
+const PHES_TARDY = [
+  { occurrence: 3, discipline_type: "tardy_warning" },
+  { occurrence: 4, discipline_type: "final_warning" },
+  { occurrence: 5, discipline_type: "termination" },
+];
 
-/** Phes's configured ladder: 3 written, 4 final, 5 termination. */
-const PHES_TERMINATION = 5;
+const tardies = (n: number) =>
+  Array.from({ length: n }, () => ({ type: "tardy", protected: false }));
+const absences = (n: number) =>
+  Array.from({ length: n }, () => ({ type: "absent", protected: false }));
 
-/** The blend, with the tenant's 60/25/15 weights. */
-const total = (sat: number, att: number, cf: number) =>
-  Math.round(((sat * 60 + att * 25 + cf * 15) / 100) * 100) / 100;
+const score = (rows: any[]) =>
+  scoreAttendanceLadder({ rows, tardySteps: PHES_TARDY, unexcusedSteps: PHES }).score;
 
-describe("the ladder scale", () => {
-  it("a clean record is 100%", () => {
-    assert.equal(ladderAttendancePct(0, PHES_TERMINATION), 100);
+describe("the scale Sal approved", () => {
+  // The whole reason for this work: one occurrence has to be worth feeling.
+  it("walks 100 / 80 / 60 / 40 / 20 / 0 across the 5-rung ladder", () => {
+    assert.equal(score([]), 100);
+    assert.equal(score(tardies(1)), 80);
+    assert.equal(score(tardies(2)), 60);
+    assert.equal(score(tardies(3)), 40); // written warning
+    assert.equal(score(tardies(4)), 20); // final warning
+    assert.equal(score(tardies(5)), 0); // termination
   });
 
-  it("each occurrence costs one rung", () => {
-    assert.equal(ladderAttendancePct(1, PHES_TERMINATION), 80);
-    assert.equal(ladderAttendancePct(2, PHES_TERMINATION), 60);
-    assert.equal(ladderAttendancePct(3, PHES_TERMINATION), 40); // written warning
-    assert.equal(ladderAttendancePct(4, PHES_TERMINATION), 20); // final warning
-    assert.equal(ladderAttendancePct(5, PHES_TERMINATION), 0);  // termination
+  it("floors at 0 rather than going negative past the termination rung", () => {
+    assert.equal(score(tardies(6)), 0);
+    assert.equal(score(tardies(50)), 0);
   });
 
-  it("past the termination rung it floors at 0, never negative", () => {
-    assert.equal(ladderAttendancePct(9, PHES_TERMINATION), 0);
-  });
-
-  it("follows the TENANT's ladder, not a hardcoded 5", () => {
-    // A tenant whose ladder terminates at 3 must see each occurrence cost a
-    // third, not a fifth. Hardcoding 5 would recreate the score-vs-ladder
-    // disagreement this whole change exists to remove.
-    assert.equal(ladderAttendancePct(1, 3), 66.67);
-    assert.equal(ladderAttendancePct(3, 3), 0);
-  });
-
-  it("returns null — not 100 — when no ladder is configured", () => {
-    // A tenant with no steps has no scale to be a percentage of. Reporting 100%
-    // would be inventing a perfect record out of missing configuration.
-    assert.equal(ladderAttendancePct(0, 0), null);
-    assert.equal(ladderAttendancePct(2, 0), null);
-  });
-});
-
-describe("Sal's screenshot: one tardy must be visible", () => {
-  // Employee 40, as shown: satisfaction 94, complaint-free 99, one tardy.
-  const SAT = 94;
-  const CF = 99;
-
-  it("BEFORE: the tardy was invisible — attendance read 100%", () => {
-    // The old formula over the 90-day window found zero rows, because the tardy
-    // was older than 90 days. This is the state on Sal's screen.
-    const oldAttendance = 100;
-    assert.equal(total(SAT, oldAttendance, CF), 96.25); // rounds to the 96% he saw
-  });
-
-  it("AFTER: the same tardy costs a rung and shows in the score", () => {
-    const att = ladderAttendancePct(1, PHES_TERMINATION);
-    assert.equal(att, 80);
-    assert.equal(total(SAT, att!, CF), 91.25); // 96% -> 91%
-  });
-
-  it("the tardy is worth ~5 points now, not ~0.2", () => {
-    const clean = total(SAT, ladderAttendancePct(0, PHES_TERMINATION)!, CF);
-    const oneTardy = total(SAT, ladderAttendancePct(1, PHES_TERMINATION)!, CF);
-    const cost = clean - oneTardy;
-    assert.ok(cost > 4.9 && cost < 5.1, `expected ~5 points, got ${cost}`);
+  it("moves the headline score 5 points per occurrence at the 25% weight", () => {
+    // Satisfaction 95, complaint-free 100, weights 60/25/15 — Sal's worked
+    // example. The old days-ratio moved this by about 0.21 of a point.
+    const blend = (att: number) => (95 * 60 + att * 25 + 100 * 15) / 100;
+    assert.equal(blend(score([])!), 97.0);
+    assert.equal(blend(score(tardies(1))!), 92.0);
+    assert.equal(blend(score(tardies(2))!), 87.0);
+    assert.equal(blend(score(tardies(3))!), 82.0);
+    assert.equal(blend(score(tardies(4))!), 77.0);
+    assert.equal(blend(score(tardies(5))!), 72.0);
   });
 });
 
-describe("tardy and unexcused are separate ladders", () => {
-  it("the score follows the WORSE track, it does not average them", () => {
-    // 4 tardies (final warning) + 0 absences. Averaging would read 60%; the
-    // worse-of rule reads 20%, which is what "one step from termination"
-    // should look like.
-    const worst = Math.max(4, 0);
-    assert.equal(ladderAttendancePct(worst, PHES_TERMINATION), 20);
+describe("two tracks — the worse one shows, never the average", () => {
+  it("4 tardies and a clean absence record scores 20, not 60", () => {
+    // Averaging the tracks would report someone one rung from termination as
+    // comfortably fine. This is the assertion that forbids it.
+    const r = scoreAttendanceLadder({
+      rows: tardies(4),
+      tardySteps: PHES_TARDY,
+      unexcusedSteps: PHES,
+    });
+    assert.equal(r.score, 20);
+    assert.equal(r.driver, "tardy");
   });
 
-  it("a clean absence record cannot rescue a bad tardy record", () => {
-    const tardyOnly = ladderAttendancePct(Math.max(3, 0), PHES_TERMINATION);
-    const bothTracks = ladderAttendancePct(Math.max(3, 1), PHES_TERMINATION);
-    assert.equal(tardyOnly, 40);
-    assert.equal(bothTracks, 40, "the better track must not lift the score");
+  it("4 absences and a clean tardy record scores 20 as well", () => {
+    const r = scoreAttendanceLadder({
+      rows: absences(4),
+      tardySteps: PHES_TARDY,
+      unexcusedSteps: PHES,
+    });
+    assert.equal(r.score, 20);
+    assert.equal(r.driver, "unexcused");
+  });
+
+  it("counts the tracks separately — 2 tardies + 2 absences is 60, not 20", () => {
+    // They do NOT add up. Each track walks its own ladder, exactly as discipline
+    // does; a combined count of 4 would wrongly imply a final warning.
+    const r = scoreAttendanceLadder({
+      rows: [...tardies(2), ...absences(2)],
+      tardySteps: PHES_TARDY,
+      unexcusedSteps: PHES,
+    });
+    assert.equal(r.tardy_occurrences, 2);
+    assert.equal(r.unexcused_occurrences, 2);
+    assert.equal(r.score, 60);
+  });
+
+  it("names no driver on a clean record", () => {
+    assert.equal(scoreAttendanceLadder({ rows: [], tardySteps: PHES_TARDY, unexcusedSteps: PHES }).driver, null);
   });
 });
 
-describe("the engine wiring", () => {
-  it("attendance is measured over the Benefit Year, not the 90-day window", () => {
-    const block = composite.slice(
-      composite.indexOf("// 2. Attendance"),
-      composite.indexOf("// 3. Complaint-free"),
-    );
-    assert.ok(
-      block.includes("benefitYearStartDate("),
-      "attendance must use the ladder's own window, or the score and the write-up disagree again",
-    );
-    assert.ok(
-      !block.includes("log_date >= ${fromDate}"),
-      "the 90-day window is what made a 91-day-old tardy invisible",
+describe("protected leave costs nothing", () => {
+  it("a PLAWA-covered absence does not move the score", () => {
+    // The bug this closes: the old sub-score filtered on row type only, so
+    // legally protected leave dragged a tech's number down.
+    assert.equal(score([{ type: "absent", protected: true }]), 100);
+    assert.equal(score([...absences(1), { type: "absent", protected: true }]), 80);
+  });
+
+  it("a protected tardy does not move the score either", () => {
+    assert.equal(score([{ type: "tardy", protected: true }]), 100);
+  });
+
+  it("a no-show still counts even when flagged protected", () => {
+    // Sal, asked directly whether a protected reason should cancel a no-show:
+    // "keep it that way". Not calling is procedural and independent of leave.
+    assert.equal(score([{ type: "ncns", protected: true }]), 80);
+  });
+
+  it("a no-show weighs the same as one unexcused absence, not two", () => {
+    assert.equal(score([{ type: "ncns", protected: false }]), 80);
+    assert.equal(score([{ type: "ncns", protected: false }]), score(absences(1)));
+  });
+});
+
+describe("the termination rung comes from tenant config", () => {
+  it("reads 5 off the Phes ladder", () => {
+    assert.equal(terminationOccurrences(PHES), 5);
+  });
+
+  it("gives a 10-rung tenant a 10-rung curve, not a 5-rung one", () => {
+    // The assertion that forbids hardcoding 5.
+    const long = [
+      { occurrence: 5, discipline_type: "absence_warning" },
+      { occurrence: 10, discipline_type: "termination" },
+    ];
+    assert.equal(terminationOccurrences(long), 10);
+    const r = scoreAttendanceLadder({ rows: tardies(1), tardySteps: long, unexcusedSteps: long });
+    assert.equal(r.score, 90); // 1 of 10, not 1 of 5
+  });
+
+  it("falls back to the highest rung when none is typed 'termination'", () => {
+    assert.equal(
+      terminationOccurrences([
+        { occurrence: 3, discipline_type: "absence_warning" },
+        { occurrence: 7, discipline_type: "custom" },
+      ]),
+      7,
     );
   });
 
-  it("the termination rung is read from the tenant's policy row", () => {
-    const block = composite.slice(
-      composite.indexOf("// 2. Attendance"),
-      composite.indexOf("// 3. Complaint-free"),
-    );
-    assert.ok(block.includes("company_attendance_policy"));
-    assert.ok(
-      !/terminationOccurrences = 5/.test(composite),
-      "never hardcode the ladder's last rung",
+  it("prefers the termination rung over a higher rung of another type", () => {
+    assert.equal(
+      terminationOccurrences([
+        { occurrence: 5, discipline_type: "termination" },
+        { occurrence: 9, discipline_type: "custom" },
+      ]),
+      5,
     );
   });
 
-  it("occurrences go through countUnexcusedOccurrences, so protected days count zero", () => {
-    // The old ratio ignored the `protected` flag entirely, so a PLAWA-covered
-    // absence still dragged the score down — a retaliation-flavored bug.
-    const block = composite.slice(
-      composite.indexOf("// 2. Attendance"),
-      composite.indexOf("// 3. Complaint-free"),
-    );
-    assert.ok(block.includes("countUnexcusedOccurrences"));
-    assert.ok(block.includes("!r.protected"), "protected tardies must not count");
+  it("tolerates string occurrences from JSONB", () => {
+    assert.equal(terminationOccurrences([{ occurrence: "5" as any, discipline_type: "termination" }]), 5);
+  });
+});
+
+describe("no ladder means a dash, never a flattering 100", () => {
+  it("returns null when the tenant has configured nothing", () => {
+    const r = scoreAttendanceLadder({ rows: [], tardySteps: [], unexcusedSteps: [] });
+    assert.equal(r.score, null);
+    assert.equal(r.driver, null);
   });
 
-  it("a missing hire date shows a dash, never a fake 100%", () => {
-    // benefitYearStartDate with no hire date collapses to a single day and
-    // would report a permanent 0 occurrences — a hole to sit in.
-    const block = composite.slice(
-      composite.indexOf("// 2. Attendance"),
-      composite.indexOf("// 3. Complaint-free"),
-    );
-    assert.ok(block.includes("hireDateRaw != null"));
-    assert.ok(composite.includes('"missing_hire_date"'), "and the office is told why");
+  it("returns null for null / undefined / malformed config", () => {
+    assert.equal(terminationOccurrences(null), null);
+    assert.equal(terminationOccurrences(undefined), null);
+    assert.equal(terminationOccurrences([] as any), null);
+    assert.equal(terminationOccurrences([{ occurrence: 0 }] as any), null);
+    assert.equal(terminationOccurrences([{ occurrence: "abc" } as any]), null);
   });
 
-  it("the payload explains the number instead of just asserting it", () => {
-    assert.ok(composite.includes("attendance_ladder"));
-    assert.ok(composite.includes("worst_occurrences"));
-    assert.ok(composite.includes("termination_occurrences"));
+  it("still scores off one track when only the other is configured", () => {
+    const r = scoreAttendanceLadder({ rows: tardies(1), tardySteps: PHES_TARDY, unexcusedSteps: [] });
+    assert.equal(r.score, 80);
+    assert.equal(r.unexcused_termination_at, null);
+  });
+
+  it("still reports the occurrence counts even with no ladder to divide by", () => {
+    // The office can act on "3 tardies" even when the score can't render.
+    const r = scoreAttendanceLadder({ rows: tardies(3), tardySteps: [], unexcusedSteps: [] });
+    assert.equal(r.score, null);
+    assert.equal(r.tardy_occurrences, 3);
+  });
+});
+
+// [one-window 2026-08-21] There is exactly one window and it is the employee's
+// own benefit year, opening on their work anniversary. It is the same window the
+// disciplinary ladder counts on, which is the point: a score measured off a
+// different calendar than the write-up is how the two come to disagree.
+describe("the window is the employee's own benefit year", () => {
+  it("opens on the work anniversary, whenever that falls", () => {
+    const asOf = "2026-08-21";
+    // Rosa Gallegos, hired April 2020: her 2026 benefit year opens 2026-04-01.
+    assert.equal(attendanceWindowStart("2020-04-01", asOf), "2026-04-01");
+    assert.equal(attendanceWindowStart("2023-08-01", asOf), "2026-08-01");
+    assert.equal(attendanceWindowStart("2023-07-15", asOf), "2026-07-15");
+  });
+
+  it("gives every employee a different window, keyed to their own hire date", () => {
+    const asOf = "2026-08-21";
+    const windows = ["2025-08-01", "2026-01-26", "2025-06-03", "2020-04-01"]
+      .map((hire) => attendanceWindowStart(hire, asOf));
+    assert.deepEqual(windows, ["2026-08-01", "2026-01-26", "2026-06-03", "2026-04-01"]);
+    assert.equal(new Set(windows).size, 4, "each hire date must yield its own window");
+  });
+
+  it("never floors the window at the Qleno cutover", () => {
+    // A floored window would have disagreed with the disciplinary ladder, which
+    // has always counted from the plain benefit year. Hilda Gallegos's own
+    // final-warning row reads 'unexcused-occ by=2026-05-25', not by=2026-07-01.
+    assert.ok(attendanceWindowStart("2020-04-01", "2026-08-21") < "2026-07-01");
+    assert.equal(attendanceWindowStart("2026-05-25", "2026-08-21"), "2026-05-25");
+  });
+
+  it("uses the anniversary, not the hire year, for a multi-year employee", () => {
+    assert.equal(attendanceWindowStart("2020-04-01", "2027-08-21"), "2027-04-01");
+  });
+
+  it("resets the window — and so the score — on the work anniversary", () => {
+    // The day before the anniversary the window still holds the old year;
+    // the day after, it has moved on and the score returns to 100.
+    assert.equal(attendanceWindowStart("2023-09-10", "2027-09-09"), "2026-09-10");
+    assert.equal(attendanceWindowStart("2023-09-10", "2027-09-11"), "2027-09-10");
+  });
+
+  it("counts both tracks over the same window", () => {
+    // One function, called for tardies and for unexcused absences alike. This
+    // test exists to fail loudly if a second, differently-floored window is ever
+    // reintroduced for one track only.
+    const hire = "2020-04-01", asOf = "2026-08-21";
+    assert.equal(attendanceWindowStart(hire, asOf), attendanceWindowStart(hire, asOf));
+    assert.equal(attendanceWindowStart.length, 2, "no third 'floor' parameter");
   });
 });

@@ -387,6 +387,13 @@ router.get("/scorecard", requireAuth, async (req, res) => {
       weights: composite?.weights ?? null,
       counts: composite?.counts ?? null,
       window: composite?.window ?? null,
+      // [attendance-ladder 2026-08-21] The attendance sub-score is the
+      // occurrence ladder now, not a days ratio, and it runs on its own window.
+      // The panel needs all three to caption the tile honestly: what was
+      // counted, since when, and whether it could be scored at all.
+      attendance_detail: composite?.attendance_detail ?? null,
+      attendance_window_from: composite?.attendance_window_from ?? null,
+      attendance_unavailable: composite?.attendance_unavailable ?? null,
       rating_count: entries.length,
       name: u ? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() : null,
       entries,
